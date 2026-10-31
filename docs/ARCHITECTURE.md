@@ -139,7 +139,7 @@ waitlist     (email PRIMARY KEY,               -- trimmed and lowercased; delete
 ```
 
 `user.role` is `user`, `moderator` or `admin`. An admin has every moderator
-power, plus the wait list's purge (Wait list).
+power. The wait list has no admin action: its purge is a local script (Wait list).
 
 A held upload doesn't make its work held: a first upload always goes live (with
 the notice if the parser gave review reasons), and a later upload that is held
@@ -746,8 +746,22 @@ markup: its inline `style` attributes become stylesheet rules, because
   browser shows an "Unsubscribe" button.
 - **Deleting the list.** Once every confirmed address has been queued, and a
   day has passed since the last batch so any dead-lettered email has come
-  back, an admin purges the table. The page promises one email and nothing else, so
-  nothing is kept for later.
+  back, the operator runs `scripts/waitlist-purge.mjs` locally, with
+  `DATABASE_URL` from the environment only (no `.env`, no flag), after
+  `PRELAUNCH` is off: the script can't see the Worker's setting, and while the
+  form is live new rows keep arriving. There is no admin-area action and no
+  Worker route for it. One transaction takes a table lock, so a launch send's
+  open claim can't change the table between the check and the delete, then
+  checks and deletes every row, confirmed or not. It refuses, deleting nothing
+  and exiting 1, while any confirmed address has `notified_at` empty, or while
+  the newest `notified_at` is under 24 hours old by the database's clock. A list
+  with no confirmed address has nothing to send and is purged. `--force` skips
+  both refusals and nothing else, and the script says it was forced. It exits 0
+  when purged, 1 when it refused or the database failed, and 2 for a missing
+  variable or an unknown flag. It prints counts and error codes only: no
+  address, link or raw error. The page promises one email and nothing else, so
+  nothing is kept for later. After the purge an unsubscribe link still answers
+  200, and a confirmation link says the archive is open.
 - **Privacy.** Only the address, the token hashes, the send times and how many
   confirmation emails were sent are stored: no IP
   address, user agent or referrer. Like every email the mailer sends, no log

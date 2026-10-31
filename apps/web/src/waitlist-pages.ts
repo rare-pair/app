@@ -104,6 +104,16 @@ export const waitlistLinkRefusedPage = () =>
     `<p>That confirmation link has already been used or has expired, or it was never valid. Links work once, for 7 days. <a href="/">Join the wait list again</a> for a new one.</p>`,
   );
 
+/**
+ * A confirmation link opened after launch (`PRELAUNCH` off): the list is closed. Draft copy,
+ * for the operator to proof.
+ */
+export const waitlistArchiveOpenPage = () =>
+  waitlistPage(
+    "The archive is open",
+    `<p>The archive is open, and the wait list is closed. <a href="/">Go to the archive</a>.</p>`,
+  );
+
 /** The confirmation email couldn't be queued, and nothing was kept. */
 export const waitlistUnavailablePage = () =>
   waitlistPage(

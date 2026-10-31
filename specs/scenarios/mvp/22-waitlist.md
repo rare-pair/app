@@ -161,10 +161,11 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Wait list), § Wait list, 
 - AND the link keeps working with `PRELAUNCH` off, and a `POST` with a token whose row is already gone (unsubscribed or purged) also answers 200
 
 ### The wait list is deleted after the launch send
-- GIVEN the launch send has finished
-- WHEN an account with the `admin` role runs the wait list purge from the admin area
-- THEN every `waitlist` row is deleted, confirmed or not
-- AND the purge refuses to run while any confirmed address still has `notified_at` empty, or the launch send queued its last batch less than a day ago (so a dead-lettered email can still come back), unless it is explicitly forced
+- GIVEN the launch send has finished, and the operator's purge script (`scripts/waitlist-purge.mjs`) has `DATABASE_URL` in its environment
+- WHEN the operator runs it
+- THEN every `waitlist` row is deleted, confirmed or not, and the script prints how many
+- AND it refuses, deleting nothing, while any confirmed address still has `notified_at` empty, or the newest `notified_at` is less than 24 hours old (so a dead-lettered email can still come back), unless run with `--force`
+- AND a list with no confirmed address is purged, an empty list succeeds with 0, and the script prints no address and no raw error
 
 ### After launch the archive takes over
 - GIVEN `PRELAUNCH` is off

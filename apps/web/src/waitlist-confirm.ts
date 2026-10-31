@@ -5,8 +5,10 @@ import type { Bindings } from "./env";
 import { readForm } from "./login";
 import type { SecurityVariables } from "./security";
 import { isSameOrigin } from "./signin";
+import { isPrelaunch } from "./prelaunch";
 import { hashToken } from "./waitlist";
 import {
+  waitlistArchiveOpenPage,
   waitlistConfirmedPage,
   waitlistConfirmPage,
   waitlistForbiddenPage,
@@ -29,11 +31,16 @@ const refused = (c: ConfirmContext) => c.html(waitlistLinkRefusedPage(), 400, NO
 
 const isIssuable = (token: string) => ISSUED_TOKEN.test(token);
 
+// After launch the list is closed, and soon purged: an old link confirms nothing, and no
+// lookup is made, so a valid token can not confirm either.
+const archiveOpen = (c: ConfirmContext) => c.html(waitlistArchiveOpenPage(), 200, NO_STORE);
+
 /**
  * `GET /waitlist/confirm`: the emailed link. It shows a button and reads nothing from
  * the database, so a mail scanner opening it changes nothing.
  */
 export function showWaitlistConfirm(c: ConfirmContext) {
+  if (!isPrelaunch(c.env)) return archiveOpen(c);
   const token = c.req.query("token") ?? "";
   if (!isIssuable(token)) return refused(c);
   return c.html(waitlistConfirmPage(token), 200, NO_STORE);
@@ -47,6 +54,7 @@ export function showWaitlistConfirm(c: ConfirmContext) {
  * refused page. Never a select then an update.
  */
 export async function confirmWaitlist(c: ConfirmContext) {
+  if (!isPrelaunch(c.env)) return archiveOpen(c);
   if (!isSameOrigin(c.req.raw.headers)) return c.html(waitlistForbiddenPage(), 403);
 
   const form = (await readForm(c.req.raw)) ?? new URLSearchParams();

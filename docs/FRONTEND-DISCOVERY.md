@@ -148,7 +148,7 @@ without it. Elsewhere the
 | Page | URL | Who | Without JS | JS adds |
 | --- | --- | --- | --- | --- |
 | Coming soon | `/` while `PRELAUNCH` is on | all | What rarepair is and what opens; `<noscript>` message: joining the wait list needs JavaScript | Email form with Turnstile, "check your email to confirm", error states |
-| Confirm wait list | `/waitlist/confirm?token=…` | all | "Confirm" button (POST form), then "You're on the list"; used, expired or unknown links say so, with a link to `/` | — |
+| Confirm wait list | `/waitlist/confirm?token=…` | all | "Confirm" button (POST form), then "You're on the list"; used, expired or unknown links say so, with a link to `/`; after launch every link says the archive is open, with a link to `/` | — |
 | Home / browse | `/` | all | Search box, popular fandoms, recently added | — |
 | Search results | `/search?q=…` | all | GET form, paged results, filter form | — |
 | Fandom / tag listing | `/tags/:slug` | all | Paged works, sort and filter as a GET form | — |
