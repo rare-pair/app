@@ -19,7 +19,7 @@ describe("edge cache keys", () => {
 
   it("names a fragment by its chapter's public URL plus the version", () => {
     expect(fragmentCacheKey(25001, 3, VERSION)).toBe(
-      `https://rarepair.fans/works/25001/chapters/3?version=${VERSION}`,
+      `https://rarepair.fans/works/25001/chapters/3/versions/${VERSION}`,
     );
   });
 
@@ -31,8 +31,8 @@ describe("edge cache keys", () => {
     expect(workCacheKeys(25001, { id: VERSION }, [{ n: 1 }, { n: 2 }])).toEqual([
       "https://rarepair.fans/works/25001/chapters/1",
       "https://rarepair.fans/works/25001/chapters/2",
-      `https://rarepair.fans/works/25001/chapters/1?version=${VERSION}`,
-      `https://rarepair.fans/works/25001/chapters/2?version=${VERSION}`,
+      `https://rarepair.fans/works/25001/chapters/1/versions/${VERSION}`,
+      `https://rarepair.fans/works/25001/chapters/2/versions/${VERSION}`,
     ]);
   });
 });

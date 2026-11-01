@@ -1,7 +1,8 @@
 // The rating and warnings screen: /works/:id/warnings, shown before a work's text to a
 // reader who hasn't continued past it this session (ARCHITECTURE, Reading). Having
 // continued is a session cookie of work IDs. Every reading page makes one call to
-// `warningsRedirect` before it reads a fragment.
+// `warningsRedirect`, or to `screenRedirect` for an edge-cached chapter page, before it
+// reads a fragment.
 
 import {
   createDb,

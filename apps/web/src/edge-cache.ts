@@ -20,10 +20,12 @@ export const chapterPageKey = (id: number, n: number) =>
 
 /**
  * A chapter fragment's key: its chapter's public URL plus the version's ID, so a new
- * version never meets an old version's fragment.
+ * version never meets an old version's fragment. The version is a path segment, not a
+ * query string, so a cache key setting that drops the query can't merge a fragment with
+ * another version's or with the page. No route answers this path.
  */
 export const fragmentCacheKey = (id: number, n: number, versionId: string) =>
-  `${chapterPageKey(id, n)}?version=${encodeURIComponent(versionId)}`;
+  `${chapterPageKey(id, n)}/versions/${encodeURIComponent(versionId)}`;
 
 /** The Cache-Tag on every entry of a work, pages and fragments alike: purge by this. */
 export const workCacheTag = (id: number) => `work-${id}`;
