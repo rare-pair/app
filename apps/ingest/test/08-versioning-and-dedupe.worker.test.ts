@@ -360,6 +360,18 @@ describe("08-versioning-and-dedupe", () => {
     });
   });
 
+  it("A replace from a file with no title keeps the work's title", async () => {
+    const { workId } = await workAtV1();
+
+    // The processor gives an empty title when neither the preface nor the OPF has one.
+    const v2 = await ingestParsed({ ...fixture(workId, { count: 4 }), title: "" });
+
+    expect(v2.row.status).toBe("live");
+    expect((await liveWork(workId))?.work.title).toBe("Synthetic Work");
+    const { versions } = await versionsOf(workId);
+    expect(versions.find((v) => v.upload_id === v2.id)?.title).toBeNull();
+  });
+
   it("A replace with a missing field keeps the work's stored value", async () => {
     const { workId, v1 } = await workAtV1();
     const before = await liveWork(workId);
@@ -383,7 +395,7 @@ describe("08-versioning-and-dedupe", () => {
       chapters_total: 3,
     });
     expect(live?.work.published_at).toEqual(before?.work.published_at);
-    // The new version's row records exactly what its file had; the kept one is untouched.
+    // The new version's row records what its file lacked as NULL; the kept one is untouched.
     const { versions } = await versionsOf(workId);
     const stored = versions.find((v) => v.upload_id === v2.id);
     expect(stored).toMatchObject({

@@ -125,7 +125,7 @@ export async function seedWork(
     const work = await trx
       .insertInto("works")
       // The version below sets the rest, the counts, byline and tags as it becomes current.
-      .values({ ao3_work_id: ao3WorkId, title: columns.title, chapters_count: 0, complete: true })
+      .values({ ao3_work_id: ao3WorkId, title: columns.title, chapters_count: 0, complete: false })
       .returning("id")
       .executeTakeFirstOrThrow();
     const seeded = { workId: work.id, ao3WorkId, userId };

@@ -1,6 +1,6 @@
-// Each version's own copy of the `works` columns that describe it, as its file gave them
-// (NULL for a field the file lacked), and the reason a held version was held. `works` keeps
-// the current version's values: a replace, a make-current and an approval copy the version's
+// Each version's own copy of the `works` columns that describe it, as ingest read them from
+// its file (NULL for a field the file lacked), and the reason a held version was held. `works`
+// keeps the current version's values: a replace, a make-current and an approval copy the version's
 // non-NULL fields onto it. The counts were already per version (`chapter_count`,
 // `chapter_total`). The current version of each work is backfilled from the work, and its tags
 // and byline from `work_tags` and `work_authors` where migration 0010 left them NULL; every

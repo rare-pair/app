@@ -160,9 +160,10 @@ export interface WorkVersionTable {
   tags: ColumnType<VersionTag[] | null, string | null | undefined, string | null>;
   /** This version's byline in the file's order. NULL before migration 0010. Write it with `JSON.stringify`. */
   authors: ColumnType<VersionAuthor[] | null, string | null | undefined, string | null>;
-  // This version's own copy of the `works` columns that describe it, as its file gave them:
-  // NULL for a field the file lacked, and on every version saved before migration 0012 that
-  // wasn't then current. `works` holds the current version's.
+  // This version's own copy of the `works` columns that describe it, as ingest read them from
+  // its file: NULL for a field the file lacked (words, the updated date and `complete` are
+  // derived when it doesn't state them), and on every version saved before migration 0012
+  // that wasn't then current. `works` holds the current version's.
   title: string | null;
   summary_html: string | null;
   rating: string | null;

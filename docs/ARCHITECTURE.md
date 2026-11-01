@@ -124,7 +124,7 @@ work_versions(id, work_id, upload_id, chapter_count,
               checked_at NULL,        -- set when a moderator approves the version
               tags jsonb, authors jsonb,  -- this version's own tags and byline, in the file's order; work_tags and work_authors hold only the current version's
               title, summary_html, rating, language, words, complete,  -- this version's own copy of the works
-              published_at, updated_at, raw_meta jsonb,                -- columns, exactly as its file had them
+              published_at, updated_at, raw_meta jsonb,                -- columns, as ingest read them from its file
                                       -- (NULL for a field it lacked); all NULL on a version saved
                                       -- before migration 0012 that wasn't current then
               hold_reason NULL)       -- chapters_changed | tags_changed | authors_changed, on a version held since 0012
@@ -387,13 +387,16 @@ Chapter text isn't indexed.
    **Where a work's columns live.** Each version keeps its own copy of the
    columns that describe it (title, summary, rating, language, words,
    complete, dates, raw metadata, chapter count and total, tags and byline),
-   exactly as its file had them, with NULL for a field the file lacked; a held
-   version also keeps its hold reason. `works`, `work_tags` and
+   as ingest read them from its file, with NULL for a field the file lacked
+   (an empty title is none; the word count, updated date and completion are
+   derived, as the work's always were, when the file doesn't state them); a
+   held version also keeps its hold reason. `works`, `work_tags` and
    `work_authors` describe the current version only, so every reader (the
    work page, listings, search, and the next upload's decision, which reads
    `works.updated_at`) sees the current version. They are copied from the
-   version whenever it becomes current: on a `replace`, on "Make current",
-   and when a moderator approves a held version. The copy is
+   version whenever it becomes current: on a first upload, on a `replace`, on
+   "Make current", and, once it is built, when a moderator approves a held
+   version. The copy is
    `copyVersionToWork` in `packages/db`, in the transaction that moves the
    pointer: each non-NULL field of the version is copied, a NULL one keeps
    the work's value (so a replace whose file lacks a field never blanks the

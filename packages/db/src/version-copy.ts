@@ -1,5 +1,5 @@
 // Copies a version onto its work, and writes a work's byline and tags. Shared by ingest's
-// replace and first upload, make-current, approval and the seed helper. It imports only
+// replace and first upload, make-current (and MOD3b's approval) and the seed helper. It imports only
 // Kysely and pure modules, so ingest and the seed module, which load in workerd, can use it.
 import { sql, type Transaction } from "kysely";
 import type { Database, VersionAuthor, VersionTag } from "./schema";
@@ -12,8 +12,8 @@ const ROWS_PER_INSERT = 1_000;
 /**
  * Makes the work describe one of its versions: each of the version's columns that isn't NULL
  * is copied onto the work, and a NULL one (a field the version's file lacked, or a version
- * saved before migration 0012) keeps the work's value. The counts come from the version's
- * chapters. The byline and tags are rewritten from the version's own, unless they are NULL
+ * saved before migration 0012) keeps the work's value. The chapter count is always the
+ * version's. The byline and tags are rewritten from the version's own, unless they are NULL
  * (a version saved before migration 0010), and the search text is refreshed. It leaves
  * `current_version_id` and `status` to the caller, which must already hold the work's row
  * lock in this transaction (it has moved the pointer, or locked the row), so the copy and the

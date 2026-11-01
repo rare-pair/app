@@ -224,11 +224,15 @@ function updatedAtOf(work: ParsedWork): string | null {
   );
 }
 
-/** The work's own columns, as the upload's file gives them. */
+/**
+ * The work's own columns, as the upload's file gives them: NULL for a field it lacks (the
+ * parser gives an empty title for none), except the words, updated date and completion,
+ * which are derived as before when the file doesn't state them.
+ */
 function workColumns(work: ParsedWork) {
   const total = int4OrNull(work.stats.chapters.total, 1);
   return {
-    title: work.title,
+    title: work.title === "" ? null : work.title,
     summary_html: work.summaryHtml,
     rating: work.rating,
     language: work.language,
@@ -371,8 +375,8 @@ async function insertVersion(
       chapter_total: total,
       r2_prefix: prefix,
       review_reasons: work.reviewReasons,
-      // Kept with the version, as `works` holds only the current one's: exactly what the file
-      // had, which a make-current or a moderator's approval copies onto the work.
+      // Kept with the version, as `works` holds only the current one's: what the file had,
+      // which a replace, a make-current or a moderator's approval copies onto the work.
       ...own,
       tags: JSON.stringify(distinctTags(work)),
       authors: JSON.stringify(distinctAuthors(work)),
