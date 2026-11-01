@@ -35,11 +35,12 @@ export async function searchLiveWorks(
   { pageSize, offset }: SearchOptions = {},
 ): Promise<SearchResults> {
   // Postgres refuses a NUL in text.
-  const q = query.replaceAll("\0", " ").slice(0, MAX_QUERY).trim();
+  // Cut by code point, so an astral character isn't split.
+  const q = Array.from(query.replaceAll("\0", " ")).slice(0, MAX_QUERY).join("").trim();
   if (q === "") return { works: [], total: 0 };
   const tsq = sql`websearch_to_tsquery('simple', ${q}::text)`;
   const matches = sql<boolean>`(works.search @@ ${tsq} or works.search_text %> ${q}::text)`;
-  const rank = sql<number>`(coalesce(ts_rank_cd(works.search, ${tsq}), 0)
+  const rank = sql<number>`(coalesce(ts_rank_cd(works.search, ${tsq}, 32), 0)
     + coalesce(word_similarity(${q}::text, works.search_text), 0))`;
   const { count } = await db
     .selectFrom("works")
