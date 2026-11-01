@@ -2,8 +2,9 @@
 // can ask for a work or a pseud to be removed, signed in or not, behind Turnstile. This
 // file takes the request in and stores it with a hashed network address. What a stored
 // request then does belongs to the tickets after it: hiding the work at once and the
-// "not in the archive" answer (X2, #62), the opt-out list (X3, #63), the limits (X5, #64)
-// and blocking a requester (X6, #67). Nothing here hides a work or looks the requester up.
+// "not in the archive" answer (X2, #62), the opt-out list (X3, #63) and blocking a
+// requester (X6, #67). The limits (X5, #64) are here: per IP before the body is read, per
+// email once Turnstile has passed. Nothing here hides a work or looks the requester up.
 
 import { createDb, normalizePseud } from "@archive/db";
 import type { Context } from "hono";
@@ -64,7 +65,8 @@ const field = (form: URLSearchParams, name: RemoveField) =>
 /**
  * `POST /remove`, behind `sameOriginOnly` (index.ts): reads the body, checks Turnstile under
  * the form's own action, then the fields, and stores a pending request with the hashed
- * address. Every refusal shows the form again with what was typed and is sent `no-store`.
+ * address. Every refusal shows the form again with what was typed and is sent `no-store`,
+ * except a rate limit's 429, which is the shared plain page.
  * A work and a pseud together is a request for the work, since one request has one kind.
  * The reply to a stored request says nothing of what became of it.
  */
@@ -72,7 +74,8 @@ export async function submitRemove(c: RemoveContext) {
   const nonce = c.get("nonce");
   const siteKey = c.env.TURNSTILE_SITE_KEY;
   const page = (form: RemoveForm) => removePage(nonce, siteKey, c.env.MODERATORS_EMAIL, form);
-  // Before the body is read, so a flood costs neither a Turnstile check nor a database write.
+  // Before the body is read, so a request over the limit costs neither a Turnstile check nor
+  // a database write.
   const clientIp = c.req.header("cf-connecting-ip") ?? null;
   if (await isLimited(c.env.REMOVE_IP_LIMIT, await ipKey("remove", clientIp))) {
     return tooManyRequests(REMOVE_WINDOW_SECONDS);

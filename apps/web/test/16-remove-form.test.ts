@@ -502,5 +502,13 @@ describe("16-removal-and-opt-out", () => {
       await expectTooManyRequests(await post({ email, work: WORK_URL }));
       expect(await requestsFrom(email)).toEqual([]);
     });
+    it("A post with no sendable address doesn't spend the email limit", async () => {
+      await windowHeadroom(REMOVE_WINDOW_SECONDS);
+      // Each from its own IP, so only the email limit could refuse them.
+      for (let i = 0; i <= REMOVE_EMAIL_LIMIT; i++) {
+        const res = await post({ email: "not an address", work: WORK_URL });
+        expect(res.status).toBe(400);
+      }
+    });
   });
 });
