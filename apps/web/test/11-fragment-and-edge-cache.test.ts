@@ -2,13 +2,13 @@ import { createDb } from "@archive/db";
 import { putFragments, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
-import { fragmentCacheKey } from "../src/edge-cache";
+import { chapterPageKey, fragmentCacheKey } from "../src/edge-cache";
 import { STRICT, fetchW, nonceOf, withoutNonce } from "./helpers";
 
 // Every work here has an AO3 work ID in 25000-25099, which no other test file reads. The
-// Cache API keeps its entries from one test to the next (R2 writes are undone when a test
-// ends; the cache is not), so each test seeds a work of its own and does every step
-// inside itself.
+// Cache API keeps its entries from one test to the next (a put in one test was a hit in
+// the next when this was written), so each test seeds a work of its own and does every
+// step inside itself.
 
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 
@@ -40,6 +40,13 @@ async function seedTwoChapters(ao3WorkId: number, rating = "General Audiences") 
 const rename = (ao3WorkId: number, title: string) =>
   db.updateTable("works").set({ title }).where("ao3_work_id", "=", ao3WorkId).execute();
 
+/** A reader with a settings cookie, whose pages are always built from the database. */
+const SETTINGS = { headers: { cookie: "__Host-reader=theme=dark" } };
+
+/** Whether the edge cache holds the page of chapter `n` of work `id`. */
+const pageKept = async (id: number, n: number) =>
+  (await caches.default.match(chapterPageKey(id, n))) !== undefined;
+
 /** Every `nonce="..."` value in a page's markup. */
 const bodyNonces = (html: string) => [...html.matchAll(/nonce="([^"]*)"/g)].map(([, n]) => n);
 
@@ -58,6 +65,8 @@ describe("11 reader and CSP", () => {
     const secondHtml = await second.text();
     expect(secondHtml).toContain("R7 work 25010");
     expect(secondHtml).not.toContain("R7 renamed 25010");
+    // The rename took: a page built from the database shows it.
+    expect(await (await fetchW(url, SETTINGS)).text()).toContain("R7 renamed 25010");
 
     // Each response carries its own nonce, in its CSP and on every script it has.
     const n1 = nonceOf(first.headers.get("content-security-policy"));
@@ -97,6 +106,7 @@ describe("11 reader and CSP", () => {
     const before = await fetchW(url);
     expect(before.status).toBe(302);
     expect(before.headers.get("location")).toBe(screen);
+    expect(await pageKept(25020, 1)).toBe(false);
     // Past it: the page, which the edge cache now keeps.
     expect((await fetchW(url, warned)).status).toBe(200);
     await rename(25020, "R7 renamed 25020");
@@ -104,7 +114,8 @@ describe("11 reader and CSP", () => {
     expect(kept.status).toBe(200);
     expect(await kept.text()).toContain("R7 work 25020");
 
-    // A reader who hasn't continued is still sent to the screen, cached page or not.
+    // A reader who hasn't continued is still sent to the screen, though a page is kept.
+    expect(await pageKept(25020, 1)).toBe(true);
     for (const method of ["GET", "HEAD"]) {
       const res = await fetchW(url, { method });
       expect(res.status, method).toBe(302);
@@ -136,6 +147,8 @@ describe("11 reader and CSP", () => {
       expect(res.status, cookie).toBe(200);
       expect(await res.text(), cookie).toContain("R7 renamed 25030");
     }
+    // Nor did any of them write it: cookie-free, the page is still the one kept first.
+    expect(await (await fetchW(url)).text()).toContain("R7 work 25030");
   });
 
   it("A query string or a HEAD request uses the same edge-cached page", async () => {
@@ -147,13 +160,36 @@ describe("11 reader and CSP", () => {
     expect(await (await fetchW(url)).text()).toContain("R7 work 25040");
     expect(await (await fetchW(`${url}?other=1`)).text()).toContain("R7 work 25040");
 
-    // HEAD from the cache: the GET's status and headers, its own nonce, no body.
+    // HEAD from the cache: hidden since, the work answers 451 from the database, but the
+    // kept page is still served, with the GET's headers, its own nonce and no body.
+    await db
+      .updateTable("works")
+      .set({ status: "hidden", hidden_cause: "moderator" })
+      .where("ao3_work_id", "=", 25040)
+      .execute();
+    expect((await fetchW(url, SETTINGS)).status).toBe(451);
     const head = await fetchW(url, { method: "HEAD" });
     expect(head.status).toBe(200);
     expect(head.headers.get("content-type")).toMatch(/^text\/html/);
     expect(head.headers.get("cache-control")).toBe("private, no-store");
     expect(withoutNonce(head.headers.get("content-security-policy"))).toBe(STRICT);
     expect(await head.text()).toBe("");
+  });
+
+  it("Edge cache entries keep their work's tag and lifetime", async () => {
+    const w = await seedTwoChapters(25050);
+    expect((await fetchW(chapterUrl(25050, 1))).status).toBe(200);
+
+    // The page for 60 s (operator ruling on #54), the fragment for a year; both tagged
+    // with the work, which a purge goes by.
+    const page = await caches.default.match(chapterPageKey(25050, 1));
+    expect(page?.headers.get("cache-control")).toBe("public, max-age=60");
+    expect(page?.headers.get("cache-tag")).toBe("work-25050");
+    const fragment = await caches.default.match(fragmentCacheKey(25050, 1, w.versionId));
+    expect(fragment?.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(fragment?.headers.get("cache-tag")).toBe("work-25050");
+    expect(fragment?.headers.has("set-cookie")).toBe(false);
+    expect(await fragment?.text()).toBe("<p>R7-25050-ONE</p>");
   });
 
   it("Same fragment serves every reader", async () => {
