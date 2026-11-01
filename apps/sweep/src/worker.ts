@@ -1,5 +1,5 @@
 import { createDb } from "@archive/db";
-import { LIMITS, sweep, type Limits } from "./sweep";
+import { errorCode, LIMITS, sweep, type Limits } from "./sweep";
 
 export interface Env {
   HYPERDRIVE: Hyperdrive;
@@ -31,10 +31,3 @@ export function sweepWorker(limits: Limits = LIMITS) {
 }
 
 export default sweepWorker();
-
-/** An error's class name, never its message. */
-// oxlint-disable-next-line deslop/no-unknown-parameters -- a caught value is unknown by contract
-function errorCode(error: unknown): string {
-  const name = error instanceof Error ? error.constructor.name : "";
-  return /^[A-Za-z]{1,40}$/.test(name) ? name : "Error";
-}

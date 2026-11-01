@@ -337,7 +337,8 @@ Chapter text isn't indexed.
      the work keeps serving its current version, the held one is listed only
      for its uploader (My uploads) and for moderators (*Works to check*), and
      only a moderator's approval makes it current.
-   - **is marked `duplicate`** if it isn't newer. It's stored but not used.
+   - **is marked `duplicate`** if it isn't newer. Its original is stored but
+     not used, and its fragments are swept (step 8).
      This is a status, not a rejection: the uploader sees "Already in the
      archive" with a link to the work. A byte-identical file never gets this
      far; `/complete` marks it `duplicate` (Ingestion pipeline, step 3).
@@ -408,8 +409,10 @@ Chapter text isn't indexed.
    A `hold` adds the version and chapters and leaves the work, its byline and
    tags alone (the version keeps its own in `work_versions.tags` and
    `authors`); the upload is `held_for_review`. A `duplicate` adds no
-   version; the upload is `duplicate`, with its `work_id` set and its files
-   kept. A replace never changes the work's status: a hidden work stays so (a
+   version; the upload is `duplicate`, with its `work_id` set and its
+   original kept under `originals/`. No version points at its `<upload_id>/`
+   fragments, so the periodic sweep deletes them once they are 24 hours old,
+   like any orphaned prefix. A replace never changes the work's status: a hidden work stays so (a
    removed work takes no upload). Only a work's first upload sets it `live`.
 
 **Rejection codes:** `not_epub`, `zip_bomb`, `too_large`, `not_ao3`,

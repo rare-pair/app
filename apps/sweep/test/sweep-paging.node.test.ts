@@ -10,8 +10,14 @@ import { sweep, type ListedObject, type SweepBucket } from "../src/sweep";
 const IMG = (n: number) => n.toString(16).padStart(64, "0");
 const OLD = new Date(0);
 
-/** An in-memory bucket with R2's listing rules, two entries a page; `deletes` records each call. */
-function pagingBucket(keys: Record<string, string>) {
+/**
+ * An in-memory bucket with R2's listing rules, two entries a page; `deletes` records each call.
+ * `onGet` runs before each `get`, with the store, to fail it or to change the bucket meanwhile.
+ */
+function pagingBucket(
+  keys: Record<string, string>,
+  onGet: (key: string, store: Map<string, string>) => Promise<void> = async () => {},
+) {
   const store = new Map(Object.entries(keys));
   const deletes: string[][] = [];
   const bucket: SweepBucket = {
@@ -45,6 +51,7 @@ function pagingBucket(keys: Record<string, string>) {
       };
     },
     async get(key) {
+      await onGet(key, store);
       const body = store.get(key);
       return body === undefined ? null : { text: async () => body };
     },
@@ -117,5 +124,80 @@ describe("sweep paging", () => {
     expect(keys()).toEqual([`works/2000003/img/${IMG(1)}`]);
     await run();
     expect(keys()).toEqual([]);
+  });
+});
+
+describe("sweep safety", () => {
+  it("An upload that starts during the reference scan keeps the work's images", async () => {
+    const live = await seedWork(t.db, { ao3WorkId: 3_000_001 });
+    const files: Record<string, string> = Object.fromEntries(
+      live.fragments.map((f) => [f.key, f.body]),
+    );
+    files[`works/3000001/img/${IMG(5)}`] = "";
+    const late = "33333333-3333-4333-8333-333333333333";
+    const { bucket, keys } = pagingBucket(files, async (_key, store) => {
+      if (store.has(`works/3000001/${late}/1.html`)) return;
+      // A job claims its upload and writes its first fragment while the sweep reads.
+      await t.db
+        .insertInto("uploads")
+        .values({
+          id: late,
+          user_id: live.userId,
+          r2_key: `uploads/${late}.epub`,
+          bytes: 1,
+          status: "processing",
+        })
+        .execute();
+      store.set(`works/3000001/${late}/1.html`, "");
+    });
+
+    const report = await sweep({ db: t.db, bucket, cutoff: new Date(), limits: LIMITS });
+
+    expect(keys()).toContain(`works/3000001/img/${IMG(5)}`);
+    expect(report.skipped).toEqual([{ ao3WorkId: 3_000_001, reason: "changed" }]);
+  });
+
+  it("A work that fails is passed over, and a run ends after three", async () => {
+    class StorageDown extends Error {}
+    const failing = [4_000_001, 4_000_002, 4_000_003];
+    const files: Record<string, string> = {};
+    for (const ao3WorkId of failing) {
+      const work = await seedWork(t.db, { ao3WorkId });
+      for (const f of work.fragments) files[f.key] = f.body;
+      files[`works/${ao3WorkId}/img/${IMG(1)}`] = "";
+    }
+    files[`works/4000004/img/${IMG(1)}`] = "";
+    const { bucket, keys } = pagingBucket(files, async (key) => {
+      if (/^works\/400000[123]\//.test(key)) throw new StorageDown();
+    });
+
+    const first = await sweep({ db: t.db, bucket, cutoff: new Date(), limits: LIMITS });
+    expect(first.finished).toBe(false);
+    expect(first.skipped).toEqual(
+      failing.map((ao3WorkId) => ({ ao3WorkId, reason: "error", error: "StorageDown" })),
+    );
+    expect(keys()).toContain(`works/4000004/img/${IMG(1)}`);
+
+    // The next run starts past them.
+    await sweep({ db: t.db, bucket, cutoff: new Date(), limits: LIMITS });
+    expect(keys()).not.toContain(`works/4000004/img/${IMG(1)}`);
+    for (const ao3WorkId of failing) expect(keys()).toContain(`works/${ao3WorkId}/img/${IMG(1)}`);
+  });
+
+  it("A folder not named as ingest names one is left alone", async () => {
+    const { bucket, keys } = pagingBucket({
+      [`works/0123/img/${IMG(1)}`]: "",
+      [`works/123/img/${IMG(1)}`]: "",
+      [`works/x/img/${IMG(1)}`]: "",
+      [`works/123/not-an-upload/1.html`]: "",
+    });
+
+    await sweep({ db: t.db, bucket, cutoff: new Date(), limits: LIMITS });
+
+    expect(keys()).toEqual([
+      `works/0123/img/${IMG(1)}`,
+      `works/123/not-an-upload/1.html`,
+      `works/x/img/${IMG(1)}`,
+    ]);
   });
 });
