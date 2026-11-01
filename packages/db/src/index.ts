@@ -7,6 +7,7 @@ export {
   getLiveWork,
   getWorkAvailability,
   hideWork,
+  restoreWork,
   listLiveWorksByTag,
   liveTagSpellings,
   NOT_RATED,

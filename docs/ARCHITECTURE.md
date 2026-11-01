@@ -249,7 +249,7 @@ Chapter text isn't indexed.
      `container.xml`, the OPF or the NCX isn't well-formed XML.
    - **`too_large`:** the input is over 25 MB, or the documents together pass
      the parser's node budget (300,000 elements and text nodes).
-   - **`parse_failed`:** elements are nested more than 256 deep, or a content
+   - **`parse_failed`:** elements are nested 256 or more deep (the root element is level 1), or a content
      document (XHTML) fails to parse in some other way. Malformed package XML
      (container, OPF, NCX) is `not_epub`, above.
 3. **Index files.** `META-INF/container.xml` points to the OPF, which gives the
