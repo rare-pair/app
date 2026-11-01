@@ -15,6 +15,7 @@ import {
   WORK_COLUMNS,
   type Row,
 } from "./admin-pages";
+import { adminItems, adminSameOrigin } from "./admin-items";
 import type { Bindings } from "./env";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
@@ -25,7 +26,7 @@ export type ModeratorRole = "moderator" | "admin";
 /** Set by `adminGate` for every /admin handler: the moderator's role, and the request's database. */
 export type AdminVariables = { role: ModeratorRole; db: Kysely<Database> };
 
-type AdminEnv = {
+export type AdminEnv = {
   Bindings: Bindings;
   Variables: SecurityVariables & SessionVariables & AdminVariables;
 };
@@ -76,6 +77,9 @@ const refuse = (c: AdminContext) => c.notFound();
 
 const iso = (date: Date) => date.toISOString();
 
+/** The detail page of a queue row, by the row's own id. */
+const itemHref = (queue: string, id: string) => `/admin/${queue}/${encodeURIComponent(id)}`;
+
 /** "Title (AO3 ID)", for a queue's work column. */
 const workCell = (title: string, ao3WorkId: number) => `${title} (${ao3WorkId})`;
 
@@ -88,6 +92,7 @@ export async function showReports(c: AdminContext) {
     .selectFrom("reports")
     .innerJoin("works", "works.id", "reports.work_id")
     .select([
+      "reports.id",
       "reports.created_at",
       "reports.kind",
       "reports.body",
@@ -101,12 +106,10 @@ export async function showReports(c: AdminContext) {
     .orderBy("reports.id")
     .limit(QUEUE_LIMIT + 1)
     .execute();
-  const cells = rows.map((r): Row => [
-    iso(r.created_at),
-    workCell(r.title, r.ao3_work_id),
-    r.kind,
-    r.body ?? "",
-  ]);
+  const cells = rows.map((r): Row => ({
+    href: itemHref("reports", r.id),
+    cells: [iso(r.created_at), workCell(r.title, r.ao3_work_id), r.kind, r.body ?? ""],
+  }));
   return c.html(queuePage("Reports", REPORT_COLUMNS, cells));
 }
 
@@ -122,6 +125,7 @@ export async function showTakedowns(c: AdminContext) {
     .selectFrom("takedowns")
     .innerJoin("works", "works.id", "takedowns.work_id")
     .select([
+      "takedowns.id",
       "takedowns.created_at",
       "takedowns.requester",
       "takedowns.basis",
@@ -138,16 +142,19 @@ export async function showTakedowns(c: AdminContext) {
     .orderBy("takedowns.id")
     .limit(QUEUE_LIMIT + 1)
     .execute();
-  const cells = rows.map((r): Row => [
-    iso(r.created_at),
-    workCell(r.title, r.ao3_work_id),
-    r.requester,
-    r.basis,
-    r.infringing_material,
-    r.signature,
-    statements(r),
-    r.incomplete ? "Incomplete" : "",
-  ]);
+  const cells = rows.map((r): Row => ({
+    href: itemHref("takedowns", r.id),
+    cells: [
+      iso(r.created_at),
+      workCell(r.title, r.ao3_work_id),
+      r.requester,
+      r.basis,
+      r.infringing_material,
+      r.signature,
+      statements(r),
+      r.incomplete ? "Incomplete" : "",
+    ],
+  }));
   return c.html(queuePage("Takedowns", TAKEDOWN_COLUMNS, cells));
 }
 
@@ -158,6 +165,7 @@ export async function showRequests(c: AdminContext) {
     // An opt-out names a pseud, not a work.
     .leftJoin("works", "works.id", "requests.work_id")
     .select([
+      "requests.id",
       "requests.created_at",
       "requests.kind",
       "requests.pseud_norm",
@@ -171,15 +179,18 @@ export async function showRequests(c: AdminContext) {
     .orderBy("requests.id")
     .limit(QUEUE_LIMIT + 1)
     .execute();
-  const cells = rows.map((r): Row => [
-    iso(r.created_at),
-    r.kind,
-    r.title === null || r.ao3_work_id === null
-      ? (r.pseud_norm ?? "")
-      : workCell(r.title, r.ao3_work_id),
-    r.contact_email,
-    r.statement,
-  ]);
+  const cells = rows.map((r): Row => ({
+    href: itemHref("requests", r.id),
+    cells: [
+      iso(r.created_at),
+      r.kind,
+      r.title === null || r.ao3_work_id === null
+        ? (r.pseud_norm ?? "")
+        : workCell(r.title, r.ao3_work_id),
+      r.contact_email,
+      r.statement,
+    ],
+  }));
   return c.html(queuePage("Requests", REQUEST_COLUMNS, cells));
 }
 
@@ -200,8 +211,11 @@ export function showWorksToCheck(c: AdminContext) {
  */
 export const admin = new Hono<AdminEnv>();
 admin.use(adminGate);
+// After the gate, so a cross-site post gets the same 404 as any other refusal.
+admin.use(adminSameOrigin);
 admin.get("/", showAdminHome);
 admin.get("/reports", showReports);
 admin.get("/takedowns", showTakedowns);
 admin.get("/requests", showRequests);
 admin.get("/works", showWorksToCheck);
+admin.route("/", adminItems);

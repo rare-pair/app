@@ -1,4 +1,4 @@
-import { XMLParser } from "fast-xml-parser";
+import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { MAX_DEPTH, nodeBudget, type NodeBudget } from "./dom";
 import { EpubError } from "./errors";
 import { LIMITS } from "./unzip";
@@ -91,6 +91,14 @@ function decodeXml(bytes: Uint8Array, what: string): string {
 
 function parseXml(bytes: Uint8Array, what: string): XmlNode {
   const text = decodeXml(bytes, what);
+  // The parser is lenient: it pops an end tag without comparing names and accepts a
+  // document that ends with tags still open. Well-formedness is checked first. Leading
+  // whitespace is trimmed for the check only, as the parser has always tolerated it. The
+  // nav document keeps its own parser and is not validated: it was never in the scenario.
+  // oxlint-disable-next-line typescript/no-deprecated -- fast-xml-parser 5 still ships it; its successor fast-xml-validator would be a new dependency
+  if (XMLValidator.validate(text.trimStart()) !== true) {
+    throw new EpubError("not_epub", `${what} is not valid XML`);
+  }
   try {
     // SAFETY: the parser returns an object for any document it accepts. XmlNode claims only
     // that: its values are unknown, so TS makes each one be checked before it is used.
@@ -142,7 +150,7 @@ function parseNav(bytes: Uint8Array, budget: NodeBudget): OrderedNode[] {
     if (e instanceof Error && e.message === "Maximum nested tags exceeded") {
       throw new EpubError(
         "parse_failed",
-        `Elements nested more than ${MAX_DEPTH} deep in the nav document`,
+        `Elements nested ${MAX_DEPTH} or more deep in the nav document`,
         { cause: e },
       );
     }
