@@ -152,9 +152,11 @@ describe("makeVersionCurrent", () => {
     const moderator = await addModerator();
     const w = await replacedWork("mclog");
 
-    expect(await makeVersionCurrent(t.db, w.workId, w.v1, { actor: moderator })).toBe(true);
+    const made = await makeVersionCurrent(t.db, w.workId, w.v1, { actor: moderator });
     // Already current: nothing changed, so nothing more is logged.
-    expect(await makeVersionCurrent(t.db, w.workId, w.v1, { actor: moderator })).toBe(true);
+    const again = await makeVersionCurrent(t.db, w.workId, w.v1, { actor: moderator });
+
+    expect([made, again]).toEqual([true, true]);
 
     expect(await logOf(w.v1)).toEqual([
       { moderator_id: moderator, action: "make_current", target_kind: "version", target_id: w.v1 },
