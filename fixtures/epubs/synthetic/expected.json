@@ -1,0 +1,51 @@
+{
+  "synthetic-one-shot-01.epub": {
+    "workIdSha": "d06cc4c6e9cb5281e55bb15d42923fe7d02cd08fa49516c3a49c5cc00317c1ad",
+    "titleSha": "608a8e62732a3895673fe77f4269ac9aa5baeae50d3068f03cfc229b41be509b",
+    "authors": [
+      {
+        "pseudSha": "2a59d59e3809f827ce709d3815e3950eef4a6a93af5557a93a7fdfba71460843",
+        "userSha": "2a59d59e3809f827ce709d3815e3950eef4a6a93af5557a93a7fdfba71460843"
+      }
+    ],
+    "rating": "General Audiences",
+    "fandomShas": [
+      "8b4117924c48f204afa08396171a937c24997ae43abd423bc0adaabf96ac3032"
+    ],
+    "relationships": 1,
+    "characters": 2,
+    "freeforms": 2,
+    "words": 480,
+    "published": "2020-03-04",
+    "opening": {
+      "offset": 8,
+      "length": 40,
+      "sha": "a50a270961c19dbac311536134d5389998719cb34ef33a75f656c0c3f4cd3987"
+    },
+    "relationshipIncludesSha": "b5917bf616ac59c5dde06ff4935d673a29a0456fd2a5df69c3f9c4f250cca887"
+  },
+  "synthetic-one-shot-02-anonymous.epub": {
+    "workIdSha": "9693d77c06ac215f34f02cc0371ed9a6b95c8682a7c1dba305821b1db910642f",
+    "titleSha": "8739f4752b1d811770ae5ca805b658e370cdaa5bdb0a141182fb35efa14fb451",
+    "authors": [
+      {
+        "pseudSha": "e7a8aa2df7e5d0b233da615af4e7fef148bec39aef1709da0a80391ad0316563",
+        "userSha": null
+      }
+    ],
+    "rating": "General Audiences",
+    "fandomShas": [
+      "8b4117924c48f204afa08396171a937c24997ae43abd423bc0adaabf96ac3032"
+    ],
+    "relationships": 0,
+    "characters": 1,
+    "freeforms": 2,
+    "words": 480,
+    "published": "2021-07-08",
+    "opening": {
+      "offset": 8,
+      "length": 40,
+      "sha": "a50a270961c19dbac311536134d5389998719cb34ef33a75f656c0c3f4cd3987"
+    }
+  }
+}

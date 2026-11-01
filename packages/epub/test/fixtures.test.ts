@@ -2,15 +2,18 @@ import { describe, expect, it, inject } from "vitest";
 import { processEpub, type ParsedWork } from "../src";
 import { fromBase64 } from "./helpers";
 
-// Real AO3 epubs live in fixtures/epubs/ locally and are git-ignored (the repo is
-// public). The repo holds no real text and no expected values: they live in the
-// git-ignored fixtures/epubs/expected.json (see expected.example.json), keyed by epub
-// file name. Each real string is compared by the SHA-256 of its UTF-8 bytes. A fixture
-// with no entry there gets the generic checks only.
+// Two sets of fixtures run here. The synthetic ones in fixtures/epubs/synthetic/ are
+// committed, with their expected.json, so these tests always run. Real AO3 epubs live
+// in fixtures/epubs/ locally and are git-ignored (the repo is public): the repo holds
+// no real text and no expected values; those live in the git-ignored
+// fixtures/epubs/expected.json (see expected.example.json), keyed by epub file name.
+// Each expected string is compared by the SHA-256 of its UTF-8 bytes. A fixture with
+// no entry gets the generic checks only.
 
 const fixtures = inject("epubFixtures");
 const EXPECTED = inject("epubExpected");
 const names = Object.keys(fixtures);
+const syntheticNames = inject("epubSyntheticNames");
 
 async function sha256(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -24,7 +27,7 @@ function expectClean(html: string): void {
   expect(html).not.toMatch(/class=|style=|<script|calibre|\son\w+=/i);
 }
 
-describe.skipIf(names.length === 0)("real AO3 fixtures (all present)", () => {
+describe.skipIf(names.length === 0)("epub fixtures (all present)", () => {
   it.each(names)("%s: parses deterministically and sanitizes everything", async (name) => {
     const bytes = fromBase64(fixtures[name]!);
     const a = await processEpub(bytes);
@@ -44,6 +47,14 @@ describe.skipIf(names.length === 0)("real AO3 fixtures (all present)", () => {
     console.log(
       `${name}: AO3 words ${a.stats.words}, counted ${a.chapters.reduce((n, c) => n + c.words, 0)}`,
     );
+  });
+});
+
+// Synthetic fixtures only: real ones are fanworks, so their output stays out of the repo.
+// A changed snapshot must be listed in the PR with the reason.
+describe.skipIf(syntheticNames.length === 0)("synthetic fixture snapshots", () => {
+  it.each(syntheticNames)("%s", async (name) => {
+    expect(await processEpub(fromBase64(fixtures[name]!))).toMatchSnapshot();
   });
 });
 

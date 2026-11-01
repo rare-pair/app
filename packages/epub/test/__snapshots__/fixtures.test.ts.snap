@@ -1,0 +1,330 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`synthetic fixture snapshots > synthetic-images-01.epub 1`] = `
+{
+  "ao3WorkId": "1000104",
+  "authors": [
+    {
+      "pseud": "someone",
+      "user": "someone",
+    },
+  ],
+  "categories": [],
+  "chapters": [
+    {
+      "html": "<div><p>Sentence 1 of the synthetic picture work, filler text with no meaning. Sentence 2 of the synthetic picture work, filler text with no meaning. Sentence 3 of the synthetic picture work, filler text with no meaning. Sentence 4 of the synthetic picture work, filler text with no meaning. Sentence 5 of the synthetic picture work, filler text with no meaning.</p>
+<p><img src="63ef318d96b5d0d0ceba6e04a4e622b1158335cdc67c49e27839132c6f655058" alt="A synthetic figure"></p>
+<p>Sentence 6 of the synthetic picture work, filler text with no meaning. Sentence 7 of the synthetic picture work, filler text with no meaning. Sentence 8 of the synthetic picture work, filler text with no meaning. Sentence 9 of the synthetic picture work, filler text with no meaning. Sentence 10 of the synthetic picture work, filler text with no meaning.</p></div>",
+      "n": 1,
+      "title": "Synthetic Pictures",
+      "words": 120,
+    },
+  ],
+  "characters": [],
+  "endNotesHtml": "<p>Synthetic end notes.</p>",
+  "fandoms": [
+    "Test Fandom",
+  ],
+  "freeforms": [
+    "Tag A",
+    "Tag & B",
+  ],
+  "images": [
+    {
+      "key": "63ef318d96b5d0d0ceba6e04a4e622b1158335cdc67c49e27839132c6f655058",
+      "mediaType": "image/png",
+      "size": 68,
+      "sourcePath": "images/figure 1.png",
+    },
+  ],
+  "language": "English",
+  "notesHtml": "<p>Synthetic notes.</p>",
+  "rating": "General Audiences",
+  "rawMeta": {},
+  "relationships": [],
+  "reviewReasons": [],
+  "series": [],
+  "stats": {
+    "chapters": {
+      "posted": 1,
+      "total": 1,
+    },
+    "completed": null,
+    "published": "2023-05-06",
+    "updated": null,
+    "words": 120,
+  },
+  "summaryHtml": "<p>A synthetic summary.</p>",
+  "title": "Synthetic Pictures",
+  "warnings": [
+    "No Archive Warnings Apply",
+  ],
+}
+`;
+
+exports[`synthetic fixture snapshots > synthetic-multi-chapter-01.epub 1`] = `
+{
+  "ao3WorkId": "1000103",
+  "authors": [
+    {
+      "pseud": "someone",
+      "user": "someone",
+    },
+  ],
+  "categories": [
+    "Gen",
+  ],
+  "chapters": [
+    {
+      "html": "<div><p>Sentence 1 of the synthetic multi-chapter work, filler text with no meaning. Sentence 2 of the synthetic multi-chapter work, filler text with no meaning. Sentence 3 of the synthetic multi-chapter work, filler text with no meaning. Sentence 4 of the synthetic multi-chapter work, filler text with no meaning. Sentence 5 of the synthetic multi-chapter work, filler text with no meaning.</p>
+<p>Sentence 6 of the synthetic multi-chapter work, filler text with no meaning. Sentence 7 of the synthetic multi-chapter work, filler text with no meaning. Sentence 8 of the synthetic multi-chapter work, filler text with no meaning. Sentence 9 of the synthetic multi-chapter work, filler text with no meaning. Sentence 10 of the synthetic multi-chapter work, filler text with no meaning.</p>
+<p>Sentence 11 of the synthetic multi-chapter work, filler text with no meaning. Sentence 12 of the synthetic multi-chapter work, filler text with no meaning. Sentence 13 of the synthetic multi-chapter work, filler text with no meaning. Sentence 14 of the synthetic multi-chapter work, filler text with no meaning. Sentence 15 of the synthetic multi-chapter work, filler text with no meaning.</p></div>",
+      "n": 1,
+      "title": "1. First",
+      "words": 180,
+    },
+    {
+      "html": "<div><p>Sentence 16 of the synthetic multi-chapter work, filler text with no meaning. Sentence 17 of the synthetic multi-chapter work, filler text with no meaning. Sentence 18 of the synthetic multi-chapter work, filler text with no meaning. Sentence 19 of the synthetic multi-chapter work, filler text with no meaning. Sentence 20 of the synthetic multi-chapter work, filler text with no meaning.</p>
+<p>Sentence 21 of the synthetic multi-chapter work, filler text with no meaning. Sentence 22 of the synthetic multi-chapter work, filler text with no meaning. Sentence 23 of the synthetic multi-chapter work, filler text with no meaning. Sentence 24 of the synthetic multi-chapter work, filler text with no meaning. Sentence 25 of the synthetic multi-chapter work, filler text with no meaning.</p></div><div><p>Sentence 26 of the synthetic multi-chapter work, filler text with no meaning. Sentence 27 of the synthetic multi-chapter work, filler text with no meaning. Sentence 28 of the synthetic multi-chapter work, filler text with no meaning. Sentence 29 of the synthetic multi-chapter work, filler text with no meaning. Sentence 30 of the synthetic multi-chapter work, filler text with no meaning.</p></div>",
+      "n": 2,
+      "title": "2. Second",
+      "words": 180,
+    },
+    {
+      "html": "<div><p>Sentence 31 of the synthetic multi-chapter work, filler text with no meaning. Sentence 32 of the synthetic multi-chapter work, filler text with no meaning. Sentence 33 of the synthetic multi-chapter work, filler text with no meaning. Sentence 34 of the synthetic multi-chapter work, filler text with no meaning. Sentence 35 of the synthetic multi-chapter work, filler text with no meaning.</p>
+<p>Sentence 36 of the synthetic multi-chapter work, filler text with no meaning. Sentence 37 of the synthetic multi-chapter work, filler text with no meaning. Sentence 38 of the synthetic multi-chapter work, filler text with no meaning. Sentence 39 of the synthetic multi-chapter work, filler text with no meaning. Sentence 40 of the synthetic multi-chapter work, filler text with no meaning.</p>
+<p>Sentence 41 of the synthetic multi-chapter work, filler text with no meaning. Sentence 42 of the synthetic multi-chapter work, filler text with no meaning. Sentence 43 of the synthetic multi-chapter work, filler text with no meaning. Sentence 44 of the synthetic multi-chapter work, filler text with no meaning. Sentence 45 of the synthetic multi-chapter work, filler text with no meaning.</p></div>",
+      "n": 3,
+      "title": "3. Third",
+      "words": 180,
+    },
+  ],
+  "characters": [],
+  "endNotesHtml": "<p>Synthetic end notes.</p>",
+  "fandoms": [
+    "Test Fandom",
+  ],
+  "freeforms": [
+    "Tag A",
+    "Tag & B",
+  ],
+  "images": [],
+  "language": "English",
+  "notesHtml": "<p>Synthetic notes.</p>",
+  "rating": "General Audiences",
+  "rawMeta": {},
+  "relationships": [],
+  "reviewReasons": [],
+  "series": [
+    {
+      "ao3SeriesId": "2000101",
+      "name": "Synthetic Series",
+      "part": 2,
+    },
+  ],
+  "stats": {
+    "chapters": {
+      "posted": 3,
+      "total": 3,
+    },
+    "completed": "2022-03-04",
+    "published": "2022-01-02",
+    "updated": null,
+    "words": 540,
+  },
+  "summaryHtml": "<p>A synthetic summary.</p>",
+  "title": "Synthetic Multi-Chapter",
+  "warnings": [
+    "No Archive Warnings Apply",
+  ],
+}
+`;
+
+exports[`synthetic fixture snapshots > synthetic-one-shot-01.epub 1`] = `
+{
+  "ao3WorkId": "1000101",
+  "authors": [
+    {
+      "pseud": "someone",
+      "user": "someone",
+    },
+  ],
+  "categories": [
+    "M/M",
+  ],
+  "chapters": [
+    {
+      "html": "<div><p>Sentence 1 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 2 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 3 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 4 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 5 of the synthetic one-shot 1000101, filler text with no meaning.</p>
+<p>Sentence 6 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 7 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 8 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 9 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 10 of the synthetic one-shot 1000101, filler text with no meaning.</p>
+<p>Sentence 11 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 12 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 13 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 14 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 15 of the synthetic one-shot 1000101, filler text with no meaning.</p>
+<p>Sentence 16 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 17 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 18 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 19 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 20 of the synthetic one-shot 1000101, filler text with no meaning.</p>
+<p>Sentence 21 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 22 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 23 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 24 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 25 of the synthetic one-shot 1000101, filler text with no meaning.</p>
+<p>Sentence 26 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 27 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 28 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 29 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 30 of the synthetic one-shot 1000101, filler text with no meaning.</p>
+<p>Sentence 31 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 32 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 33 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 34 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 35 of the synthetic one-shot 1000101, filler text with no meaning.</p>
+<p>Sentence 36 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 37 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 38 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 39 of the synthetic one-shot 1000101, filler text with no meaning. Sentence 40 of the synthetic one-shot 1000101, filler text with no meaning.</p></div>",
+      "n": 1,
+      "title": "Synthetic One-Shot One",
+      "words": 480,
+    },
+  ],
+  "characters": [
+    "Char One",
+    "Char Two",
+  ],
+  "endNotesHtml": "<p>Synthetic end notes.</p>",
+  "fandoms": [
+    "Test Fandom",
+  ],
+  "freeforms": [
+    "Tag A",
+    "Tag & B",
+  ],
+  "images": [],
+  "language": "English",
+  "notesHtml": "<p>Synthetic notes.</p>",
+  "rating": "General Audiences",
+  "rawMeta": {},
+  "relationships": [
+    "Char One/Char Two",
+  ],
+  "reviewReasons": [],
+  "series": [],
+  "stats": {
+    "chapters": {
+      "posted": 1,
+      "total": 1,
+    },
+    "completed": null,
+    "published": "2020-03-04",
+    "updated": null,
+    "words": 480,
+  },
+  "summaryHtml": "<p>A synthetic summary.</p>",
+  "title": "Synthetic One-Shot One",
+  "warnings": [
+    "No Archive Warnings Apply",
+  ],
+}
+`;
+
+exports[`synthetic fixture snapshots > synthetic-one-shot-02-anonymous.epub 1`] = `
+{
+  "ao3WorkId": "1000102",
+  "authors": [
+    {
+      "pseud": "Anonymous",
+      "user": null,
+    },
+  ],
+  "categories": [
+    "M/M",
+  ],
+  "chapters": [
+    {
+      "html": "<div><p>Sentence 1 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 2 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 3 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 4 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 5 of the synthetic one-shot 1000102, filler text with no meaning.</p>
+<p>Sentence 6 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 7 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 8 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 9 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 10 of the synthetic one-shot 1000102, filler text with no meaning.</p>
+<p>Sentence 11 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 12 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 13 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 14 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 15 of the synthetic one-shot 1000102, filler text with no meaning.</p>
+<p>Sentence 16 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 17 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 18 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 19 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 20 of the synthetic one-shot 1000102, filler text with no meaning.</p>
+<p>Sentence 21 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 22 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 23 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 24 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 25 of the synthetic one-shot 1000102, filler text with no meaning.</p>
+<p>Sentence 26 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 27 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 28 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 29 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 30 of the synthetic one-shot 1000102, filler text with no meaning.</p>
+<p>Sentence 31 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 32 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 33 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 34 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 35 of the synthetic one-shot 1000102, filler text with no meaning.</p>
+<p>Sentence 36 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 37 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 38 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 39 of the synthetic one-shot 1000102, filler text with no meaning. Sentence 40 of the synthetic one-shot 1000102, filler text with no meaning.</p></div>",
+      "n": 1,
+      "title": "Synthetic One-Shot Two",
+      "words": 480,
+    },
+  ],
+  "characters": [
+    "Char Three",
+  ],
+  "endNotesHtml": "<p>Synthetic end notes.</p>",
+  "fandoms": [
+    "Test Fandom",
+  ],
+  "freeforms": [
+    "Tag A",
+    "Tag & B",
+  ],
+  "images": [],
+  "language": "English",
+  "notesHtml": "<p>Synthetic notes.</p>",
+  "rating": "General Audiences",
+  "rawMeta": {},
+  "relationships": [],
+  "reviewReasons": [],
+  "series": [],
+  "stats": {
+    "chapters": {
+      "posted": 1,
+      "total": 1,
+    },
+    "completed": null,
+    "published": "2021-07-08",
+    "updated": null,
+    "words": 480,
+  },
+  "summaryHtml": "<p>A synthetic summary.</p>",
+  "title": "Synthetic One-Shot Two",
+  "warnings": [
+    "No Archive Warnings Apply",
+  ],
+}
+`;
+
+exports[`synthetic fixture snapshots > synthetic-rtl-01.epub 1`] = `
+{
+  "ao3WorkId": "1000105",
+  "authors": [
+    {
+      "pseud": "someone",
+      "user": "someone",
+    },
+  ],
+  "categories": [],
+  "chapters": [
+    {
+      "html": "<div dir="rtl"><p dir="rtl" lang="ar">الجملة رقم 1 نص تجريبي بلا معنى. الجملة رقم 2 نص تجريبي بلا معنى. الجملة رقم 3 نص تجريبي بلا معنى. الجملة رقم 4 نص تجريبي بلا معنى. الجملة رقم 5 نص تجريبي بلا معنى.</p>
+<p dir="rtl" lang="ar">الجملة رقم 6 نص تجريبي بلا معنى. الجملة رقم 7 نص تجريبي بلا معنى. الجملة رقم 8 نص تجريبي بلا معنى. الجملة رقم 9 نص تجريبي بلا معنى. الجملة رقم 10 نص تجريبي بلا معنى.</p>
+<p dir="rtl" lang="ar">الجملة رقم 11 نص تجريبي بلا معنى. الجملة رقم 12 نص تجريبي بلا معنى. الجملة رقم 13 نص تجريبي بلا معنى. الجملة رقم 14 نص تجريبي بلا معنى. الجملة رقم 15 نص تجريبي بلا معنى.</p>
+<p dir="rtl" lang="ar">الجملة رقم 16 نص تجريبي بلا معنى. الجملة رقم 17 نص تجريبي بلا معنى. الجملة رقم 18 نص تجريبي بلا معنى. الجملة رقم 19 نص تجريبي بلا معنى. الجملة رقم 20 نص تجريبي بلا معنى.</p>
+<p dir="rtl" lang="ar">الجملة رقم 21 نص تجريبي بلا معنى. الجملة رقم 22 نص تجريبي بلا معنى. الجملة رقم 23 نص تجريبي بلا معنى. الجملة رقم 24 نص تجريبي بلا معنى. الجملة رقم 25 نص تجريبي بلا معنى.</p>
+<p dir="rtl" lang="ar">الجملة رقم 26 نص تجريبي بلا معنى. الجملة رقم 27 نص تجريبي بلا معنى. الجملة رقم 28 نص تجريبي بلا معنى. الجملة رقم 29 نص تجريبي بلا معنى. الجملة رقم 30 نص تجريبي بلا معنى.</p></div>",
+      "n": 1,
+      "title": "عمل تجريبي",
+      "words": 210,
+    },
+  ],
+  "characters": [],
+  "endNotesHtml": "<p>Synthetic end notes.</p>",
+  "fandoms": [
+    "Test Fandom",
+  ],
+  "freeforms": [
+    "Tag A",
+    "Tag & B",
+  ],
+  "images": [],
+  "language": "العربية",
+  "notesHtml": "<p>Synthetic notes.</p>",
+  "rating": "General Audiences",
+  "rawMeta": {},
+  "relationships": [],
+  "reviewReasons": [],
+  "series": [],
+  "stats": {
+    "chapters": {
+      "posted": 1,
+      "total": 1,
+    },
+    "completed": null,
+    "published": "2024-09-10",
+    "updated": null,
+    "words": 210,
+  },
+  "summaryHtml": "<p dir="rtl" lang="ar">ملخص تجريبي.</p>",
+  "title": "عمل تجريبي",
+  "warnings": [
+    "No Archive Warnings Apply",
+  ],
+}
+`;
