@@ -193,7 +193,9 @@ export async function saveSettings(c: SettingsContext) {
   const user = c.var.session?.user;
   const warnings = form.get(WARNINGS_FIELD);
   if (user && (warnings === "skip" || warnings === "show")) {
-    await setWarningsOff(c, user.id, warnings === "skip");
+    const off = warnings === "skip";
+    // Only a change writes; a save of the font size alone leaves the row be.
+    if (off !== (user.warningsOff === true)) await setWarningsOff(c, user.id, off);
   }
 
   c.header("Set-Cookie", settingsCookie(settings), { append: true });

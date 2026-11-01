@@ -83,15 +83,18 @@ export function safeWarningsNext(id: number, next: string | undefined) {
   return next !== undefined && positiveInt(tail) !== null ? next : first;
 }
 
+// Whether the work gets the screen for this reader: it needs one, and a signed-in
+// reader hasn't turned it off on their account.
+const screenApplies = (c: ReaderContext, live: LiveWork) =>
+  needsWarnings(live) && !c.var.session?.user.warningsOff;
+
 /**
  * The redirect to the screen for a reader who hasn't seen it, or null to read on.
  * `next` is the page asked for, built by the caller from numbers.
  */
 export function warningsRedirect(c: ReaderContext, live: LiveWork, next: string) {
   const id = live.work.ao3_work_id;
-  if (!needsWarnings(live) || warnedIds(c).includes(id) || c.var.session?.user.warningsOff) {
-    return null;
-  }
+  if (!screenApplies(c, live) || warnedIds(c).includes(id)) return null;
   c.header("Cache-Control", "private, no-store");
   return c.redirect(`/works/${id}/warnings?next=${encodeURIComponent(next)}`, 302);
 }
@@ -113,7 +116,7 @@ export async function showWarnings(c: ReaderContext) {
   const next = safeWarningsNext(id, c.req.query("next"));
   // Nothing to warn about, or the reader turned the screen off: on to the page asked for.
   const user = c.var.session?.user;
-  if (!needsWarnings(live) || user?.warningsOff) {
+  if (!screenApplies(c, live)) {
     c.header("Cache-Control", "private, no-store");
     return c.redirect(next, 302);
   }
@@ -128,7 +131,7 @@ export async function showWarnings(c: ReaderContext) {
 <p class="rating">Rating: ${rating}</p>
 ${warnings.length === 0 ? "" : `<ul class="warnings">${warnings.map((tag) => `<li>${escapeHtml(tag.name)}</li>`).join("")}</ul>\n`}<form method="post" action="/works/${id}/warnings">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
-${user ? `<p><label><input type="checkbox" name="${TURN_OFF_FIELD}"> Don't show this screen again</label></p>\n` : ""}<button type="submit">Continue</button>
+${user ? `<p><label><input type="checkbox" name="${TURN_OFF_FIELD}"> Don't show this screen again</label></p>\n<p class="note">You can turn it back on in <a href="/settings/reader">reader settings</a>.</p>\n` : ""}<button type="submit">Continue</button>
 <p class="note">Continue remembers this choice for the work in a session cookie, so cookies need to be on.</p>
 </form>
 <p><a href="/works/${id}">Back to the work</a></p>`,
@@ -144,7 +147,15 @@ export async function continueWarnings(c: ReaderContext) {
   if (form === null) return c.body(null, 413);
   // Only a signed-in reader's tick counts; signed out, the field is ignored.
   const user = c.var.session?.user;
-  if (user && form.has(TURN_OFF_FIELD)) await setWarningsOff(c, user.id, true);
+  if (user && form.has(TURN_OFF_FIELD)) {
+    // Reading doesn't wait on a preference: if the write fails, Continue still goes on
+    // and the screen shows again next time.
+    try {
+      await setWarningsOff(c, user.id, true);
+    } catch {
+      // Nothing to log: the reader's account stays as it was.
+    }
+  }
   const ids = warnedIds(c).filter((seen) => seen !== id);
   c.header("Set-Cookie", warnedCookie([...ids, id]), { append: true });
   c.header("Cache-Control", "private, no-store");
