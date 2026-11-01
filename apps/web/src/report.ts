@@ -33,7 +33,7 @@ const REASONS = {
 } as const;
 
 /** An AO3 work ID from the URL: plain decimal digits, within Postgres's int4. */
-function workId(text: string | undefined): number | null {
+export function workId(text: string | undefined): number | null {
   if (text === undefined || !/^[1-9]\d{0,9}$/.test(text)) return null;
   const value = Number(text);
   return value <= MAX_INT4 ? value : null;

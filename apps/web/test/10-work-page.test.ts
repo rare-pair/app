@@ -310,6 +310,19 @@ describe("10-work-page, its links", () => {
       /^https:\/\/content\.rarepair\.fans\/originals\/[A-Za-z0-9_-][A-Za-z0-9._-]*$/,
     );
   });
+
+  it("Remove link prefills the request form", async () => {
+    const { html } = await page(`/works/${W}`);
+    const links = [...html.matchAll(/<a href="([^"]*)">Ask for this to be removed<\/a>/g)];
+    expect(links).toHaveLength(1);
+    expect(links[0]?.[1]).toBe(`/remove?work=${W}`);
+    // Followed with no cookie, it is the form, with this work's address in the field.
+    const form = await fetchW(links[0]?.[1] ?? "/missing");
+    expect(form.status).toBe(200);
+    expect(await form.text()).toMatch(
+      new RegExp(`<input[^>]*name="work"[^>]*value="https://rarepair\\.fans/works/${W}"`),
+    );
+  });
 });
 
 describe("10-work-page, the review notice", () => {

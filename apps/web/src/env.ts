@@ -26,6 +26,10 @@ export type Bindings = {
   /** The least milliseconds `POST /waitlist` takes to answer (src/floor.ts), as a number. */
   WAITLIST_FLOOR_MS: string;
   TURNSTILE_SECRET_KEY: string;
+  /** Keys the HMAC of a requester's network address (src/ip-hash.ts). */
+  IP_HASH_KEY: string;
+  /** The moderators' contact address, shown to a visitor without JavaScript (wrangler.jsonc). */
+  MODERATORS_EMAIL: string;
   /** Signs Better Auth's session cookies. */
   BETTER_AUTH_SECRET: string;
   /** The bucket presigned upload URLs PUT into (src/presign.ts). */

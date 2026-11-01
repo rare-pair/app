@@ -507,6 +507,40 @@ html[data-face="sans"] {
   font-weight: bold;
 }
 
+/* the removal form (X1): a field a line, full width, a wrong one marked by more than colour */
+
+.remove-form label {
+  display: block;
+  margin-top: calc(var(--space) * 4);
+}
+
+.remove-form input[type="email"],
+.remove-form input[type="text"],
+.remove-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  margin: var(--space) 0;
+  font: inherit;
+}
+
+.remove-form [aria-invalid="true"] {
+  border: 2px solid currentColor;
+}
+
+.field-error {
+  margin: var(--space) 0 0;
+  font-weight: 600;
+}
+
+.field-error::before {
+  content: "Error: ";
+}
+
+.remove-form .cf-turnstile,
+.remove-form button {
+  margin-top: calc(var(--space) * 4);
+}
+
 .fandom-list {
   display: flex;
   flex-wrap: wrap;

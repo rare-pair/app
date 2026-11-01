@@ -1,6 +1,5 @@
 // The shared layout every app page goes through, and the pages built on it:
-// the sign-in pages, the Turnstile placeholders (U3 and X1 replace them), the not-found page
-// and the static about, terms and privacy pages.
+// the sign-in pages, the not-found page and the static about, terms and privacy pages.
 
 import { TURNSTILE_ORIGIN } from "./security";
 import { LINK_LIFETIME_MINUTES } from "./signin";
@@ -66,14 +65,6 @@ ${heading}
 </body>
 </html>`,
 });
-
-/** A page with a Turnstile check: the challenge script carries the page nonce. */
-export const turnstilePage = (title: string, nonce: string) =>
-  layout(
-    title,
-    `<noscript><p>This page needs JavaScript for its anti-spam check. Reading works without it.</p></noscript>`,
-    `<script src="${TURNSTILE_API}" nonce="${escapeHtml(nonce)}" async defer></script>`,
-  );
 
 /** The search box, shared by the home page and the not-found page. */
 export const SEARCH_FORM = `<form role="search" method="get" action="/search">

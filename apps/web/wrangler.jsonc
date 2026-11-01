@@ -94,14 +94,22 @@
     // a path slower than itself. 2000 is a first value, to be checked against measured
     // Hyperdrive timing before launch.
     "WAITLIST_FLOOR_MS": "2000",
+    // Where the removal form's <noscript> message sends a visitor without JavaScript. A
+    // placeholder on the reserved example.invalid domain. The operator deploys with the
+    // moderators' real address in its place (`wrangler deploy --var MODERATORS_EMAIL:...`);
+    // the repo's code, notes and tests never hold one.
+    "MODERATORS_EMAIL": "moderators@example.invalid",
   },
-  // Set with `wrangler secret put`. The R2 ones sign upload URLs: an R2 API token with Object
+  // Set with `wrangler secret put`. IP_HASH_KEY keys the HMAC of a requester's stored network
+  // address (src/ip-hash.ts): a long random value, kept for as long as stored hashes are
+  // matched, since changing it orphans them. The R2 ones sign upload URLs: an R2 API token with Object
   // Read and Write on the rarepair bucket only. Only its secret key is secret: every issued URL
   // shows the access key id and the account id, which are here only to keep them out of the repo.
   "secrets": {
     "required": [
       "BETTER_AUTH_SECRET",
       "TURNSTILE_SECRET_KEY",
+      "IP_HASH_KEY",
       "R2_ACCOUNT_ID",
       "R2_ACCESS_KEY_ID",
       "R2_SECRET_ACCESS_KEY",

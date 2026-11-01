@@ -65,6 +65,7 @@ const worker = (bindings: Record<string, string> = {}) =>
         // Throwaway test values, not credentials.
         BETTER_AUTH_SECRET: "test-only-auth-value-not-used-anywhere-else",
         TURNSTILE_SECRET_KEY,
+        IP_HASH_KEY: "test-only-ip-hash-key-not-used-anywhere-else",
         // Presigning makes no request, so these are never sent anywhere.
         R2_ACCOUNT_ID: "test0000000000000000000000000acct",
         R2_ACCESS_KEY_ID: "test-only-access-key-id",

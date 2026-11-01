@@ -12,7 +12,8 @@ import { showTagListing } from "./listing";
 import { requestSignIn, showSignIn } from "./login";
 import { jumpToChapter, showChapter } from "./reader";
 import { sameOriginOnly, showReportForm, submitReport } from "./report";
-import { aboutPage, notFoundPage, privacyPage, termsPage, turnstilePage } from "./pages";
+import { aboutPage, notFoundPage, privacyPage, termsPage } from "./pages";
+import { showRemoveForm, submitRemove } from "./remove";
 import { pageState } from "./page-state";
 import { SETTINGS_SCRIPT, SETTINGS_SCRIPT_PATH } from "./reader-settings";
 import { closedBeforeLaunch, disableClosedLinks, isPrelaunch } from "./prelaunch";
@@ -48,6 +49,7 @@ app.use(contentSecurityPolicy);
 // Before the session, so a cross-site upload or report is refused without a lookup.
 app.post("/uploads", sameOriginUpload);
 app.post("/works/:id/report", sameOriginOnly);
+app.post("/remove", sameOriginOnly);
 app.post("/dmca", sameOriginOnly);
 // The session, once, for every page; routes read c.var.session and never mount it
 // again. Static files skip it, and the lookup's database connection with it. Then
@@ -86,7 +88,8 @@ app.post("/waitlist/unsubscribe", unsubscribeWaitlist);
 app.get("/waitlist", (c) => (isPrelaunch(c.env) ? c.notFound() : c.redirect("/", 302)));
 app.get("/upload", showUpload);
 app.post("/uploads", requestUpload);
-app.get("/remove", (c) => c.html(turnstilePage("Request removal", c.get("nonce"))));
+app.get("/remove", showRemoveForm);
+app.post("/remove", submitRemove);
 app.get("/dmca", showDmcaForm);
 app.post("/dmca", submitDmca);
 
