@@ -12,6 +12,7 @@ import { isSendableAddress } from "../../mailer/src/message";
 import type { Bindings } from "./env";
 import { ipHash } from "./ip-hash";
 import { MAX_EMAIL, NO_STORE, readForm } from "./login";
+import { emailKey, ipKey, isLimited, REMOVE_WINDOW_SECONDS, tooManyRequests } from "./rate-limit";
 import { workId } from "./report";
 import {
   MAX_PSEUD,
@@ -71,6 +72,11 @@ export async function submitRemove(c: RemoveContext) {
   const nonce = c.get("nonce");
   const siteKey = c.env.TURNSTILE_SITE_KEY;
   const page = (form: RemoveForm) => removePage(nonce, siteKey, c.env.MODERATORS_EMAIL, form);
+  // Before the body is read, so a flood costs neither a Turnstile check nor a database write.
+  const clientIp = c.req.header("cf-connecting-ip") ?? null;
+  if (await isLimited(c.env.REMOVE_IP_LIMIT, await ipKey("remove", clientIp))) {
+    return tooManyRequests(REMOVE_WINDOW_SECONDS);
+  }
   const form = await readForm(c.req.raw, MAX_REMOVE_BODY);
   if (form === null) {
     // Nothing of it is shown back: the form comes again empty.
@@ -78,7 +84,6 @@ export async function submitRemove(c: RemoveContext) {
     return c.html(page({ error }), 413, NO_STORE);
   }
 
-  const clientIp = c.req.header("cf-connecting-ip") ?? null;
   // What was typed comes back, except an email too long to be an address.
   const email = field(form, "email");
   const typedWork = field(form, "work");
@@ -108,6 +113,9 @@ export async function submitRemove(c: RemoveContext) {
   const fieldErrors: Partial<Record<RemoveField, string>> = {};
   if (!isSendableAddress(email.toLowerCase()) || email.length > MAX_EMAIL) {
     fieldErrors.email = "Enter a valid email address, so a moderator can reply.";
+  } else if (await isLimited(c.env.REMOVE_EMAIL_LIMIT, await emailKey("remove", email))) {
+    // After Turnstile and a valid address, so only a solved check can spend an address's limit.
+    return tooManyRequests(REMOVE_WINDOW_SECONDS);
   }
   const pseudTooLong = typedPseud.length > MAX_PSEUD;
   const pseudNorm = pseudTooLong ? "" : normalizePseud(typedPseud);

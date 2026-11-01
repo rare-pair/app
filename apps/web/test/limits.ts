@@ -13,3 +13,8 @@ export const WAITLIST_FLOOR_MIN_MS = 2000;
 
 // POST /dmca, per client IP over the same window.
 export const DMCA_IP_LIMIT = 5;
+
+// POST /remove: per client IP, and per contact email once Turnstile is solved. First values,
+// to be revisited before launch.
+export const REMOVE_IP_LIMIT = 5;
+export const REMOVE_EMAIL_LIMIT = 3;
