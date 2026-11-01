@@ -5,7 +5,7 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (step 2), § Rejection codes,
 ## Setup
 - `packages/epub` unzips with `fflate`, and its tests run in the Workers runtime
 - Hand-built bad files: zip bombs, a zip whose index under-reports sizes, path traversal names, duplicate entry names, wrong or missing `mimetype` entry, a non-zip file, a ZIP64 archive, a zip whose central directory disagrees with its local headers, a missing `META-INF/container.xml`, a missing OPF, an OPF that declares XML entities, a malformed `container.xml`, OPF or NCX, a document nested more than 256 elements deep, and an epub whose documents hold more than 300,000 elements and text nodes in total
-- Size-edge fixtures built for each limit: entry counts of 2,000 and 2,001; uncompressed totals of exactly 100 MB and just over; a single entry of exactly 20 MB and just over
+- Size-edge fixtures built for each limit: entry counts of 2,000 and 2,001; uncompressed totals of exactly 40 MB and just over; a single entry of exactly 20 MB and just over
 
 ## Cases
 
@@ -15,7 +15,7 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (step 2), § Rejection codes,
 - THEN no unzip rule is broken and processing continues to indexing
 
 ### Zip index is checked before anything is decompressed
-- GIVEN a zip whose file index declares more than 100 MB uncompressed in total
+- GIVEN a zip whose file index declares more than 40 MB uncompressed in total
 - WHEN the processor reads it
 - THEN it is rejected with `zip_bomb` from the file index alone, before any entry is decompressed
 
@@ -29,13 +29,13 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (step 2), § Rejection codes,
 - WHEN the processor unzips it
 - THEN it is rejected with `zip_bomb`
 
-### Exactly 100 MB uncompressed in total is accepted
-- GIVEN an otherwise valid epub whose entries total exactly 100 MB uncompressed
+### Exactly 40 MB uncompressed in total is accepted
+- GIVEN an otherwise valid epub whose entries total exactly 40 MB uncompressed
 - WHEN the processor unzips it
 - THEN the total size rule is not broken
 
-### More than 100 MB uncompressed in total is rejected
-- GIVEN an epub whose entries total more than 100 MB uncompressed
+### More than 40 MB uncompressed in total is rejected
+- GIVEN an epub whose entries total more than 40 MB uncompressed
 - WHEN the processor unzips it
 - THEN it is rejected with `zip_bomb`
 
