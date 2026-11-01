@@ -1,13 +1,14 @@
 // The chapter reader: /works/:id/chapters/:n renders the current version's
 // sanitized fragment from R2 inline in the page (ARCHITECTURE, Reading).
 
-import { createDb, getLiveWork } from "@archive/db";
+import { createDb, getLiveWork, getWorkAvailability } from "@archive/db";
 import type { Context } from "hono";
 import type { Bindings } from "./env";
 import { escapeHtml, layout } from "./pages";
 import { reviewNotice } from "./review-notice";
 import type { SecurityVariables } from "./security";
 import { barSettings, settingsScriptTag } from "./settings";
+import { withheldResponse } from "./withheld";
 
 export type ReaderContext = Context<{ Bindings: Bindings; Variables: SecurityVariables }>;
 
@@ -26,19 +27,24 @@ export const positiveInt = (text: string | undefined) => {
 export async function showChapter(c: ReaderContext) {
   const id = positiveInt(c.req.param("id"));
   const n = positiveInt(c.req.param("n"));
-  if (id === null || n === null) return c.notFound();
+  if (id === null) return c.notFound();
 
-  // One query, so one connection.
+  // Two sequential queries at most, so one connection.
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
   let live;
+  let withheld;
   try {
     live = await getLiveWork(db, id);
+    if (!live) withheld = await getWorkAvailability(db, id);
   } finally {
     c.executionCtx.waitUntil(db.destroy());
   }
-  const at = live?.chapters.findIndex((ch) => ch.n === n) ?? -1;
+  // A hidden or removed work answers 451 or 410 for any chapter number, in range or
+  // not, so a 404 on one and a 451 on another can't give away its chapter count.
+  if (withheld) return withheldResponse(c, withheld);
+  const at = n === null ? -1 : (live?.chapters.findIndex((ch) => ch.n === n) ?? -1);
   const chapter = live?.chapters[at];
-  if (!live || !chapter) return c.notFound();
+  if (!live || n === null || !chapter) return c.notFound();
 
   // Chapter HTML comes only from a fragment the sanitizer wrote, under works/ and this
   // version's own prefix: never an upload, an original or an image, whatever the row says.
