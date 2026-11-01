@@ -120,8 +120,13 @@ export async function saveWork(
       return;
     } catch (error) {
       // The save's own refusals and a lost lease pass through as they are.
-      if (error instanceof SaveRejected || error instanceof LeaseLost) throw error;
-      if (error instanceof WorkRemoved) throw error;
+      if (
+        error instanceof SaveRejected ||
+        error instanceof LeaseLost ||
+        error instanceof WorkRemoved
+      ) {
+        throw error;
+      }
       if (error instanceof Stale) {
         // Read the work as the other job left it and decide again: a second upload of the same
         // newer version, say, is now a duplicate. Out of attempts, it is a failure worth a retry.
