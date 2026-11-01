@@ -11,6 +11,7 @@ import { continueWarnings, showWarnings } from "./warnings";
 import { homePage } from "./home";
 import { deadLetteredLaunchEmails } from "./launch-dead-letter";
 import { showTagListing } from "./listing";
+import { showSearch } from "./search";
 import { requestSignIn, showSignIn } from "./login";
 import { jumpToChapter, showChapter } from "./reader";
 import { sameOriginOnly, showReportForm, submitReport } from "./report";
@@ -124,6 +125,7 @@ app.get("/works/:id", showWork);
 app.get("/works/:id/report", showReportForm);
 app.post("/works/:id/report", submitReport);
 app.get("/tags/:type/:name", showTagListing);
+app.get("/search", showSearch);
 
 // The URL carries a hash of the content, so the response never changes under it.
 app.get(STYLESHEET_PATH, (c) =>
