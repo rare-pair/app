@@ -71,7 +71,10 @@ export const POSITION_SCRIPT = `"use strict";
   const room = () => root.scrollHeight - window.innerHeight;
   const percent = () =>
     room() > 0 ? Math.min(100, Math.max(0, Math.round((window.scrollY / room()) * 100))) : 0;
+  let timer = 0;
   const send = () => {
+    clearTimeout(timer);
+    timer = 0;
     const body = new URLSearchParams({ pct: String(percent()) });
     if (page[2]) body.set("n", page[2]);
     fetch("/works/" + page[1] + "/position", { method: "POST", body, keepalive: true }).catch(() => {});
@@ -79,11 +82,13 @@ export const POSITION_SCRIPT = `"use strict";
   const place = location.hash.match(/^#pos=([0-9]{1,3})$/);
   if (place) {
     history.replaceState(null, "", location.pathname + location.search);
-    const restore = () => window.scrollTo(0, (room() * Math.min(100, Number(place[1]))) / 100);
+    // Not if the reader has already started scrolling by the time the page has loaded.
+    const restore = () => {
+      if (window.scrollY === 0) window.scrollTo(0, (room() * Math.min(100, Number(place[1]))) / 100);
+    };
     if (document.readyState === "complete") restore();
     else window.addEventListener("load", restore, { once: true });
   }
-  let timer = 0;
   window.addEventListener(
     "scroll",
     () => {
@@ -92,6 +97,10 @@ export const POSITION_SCRIPT = `"use strict";
     },
     { passive: true },
   );
+  // A reader who leaves within the pause (next chapter, closing the tab) still saves, once.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden" && timer !== 0) send();
+  });
 })();
 `;
 

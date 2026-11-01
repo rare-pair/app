@@ -1,5 +1,12 @@
+import { Script } from "node:vm";
 import { describe, expect, it } from "vitest";
-import { continueHref, parsePosition, positionKey, serializePosition } from "../src/position";
+import {
+  continueHref,
+  parsePosition,
+  POSITION_SCRIPT,
+  positionKey,
+  serializePosition,
+} from "../src/position";
 
 // The pure parts of the saved reading position: key, value and link. Numbers only.
 
@@ -34,6 +41,13 @@ describe("parsePosition", () => {
     ]) {
       expect(parsePosition(raw), String(raw)).toBeNull();
     }
+  });
+});
+
+describe("POSITION_SCRIPT", () => {
+  it("is syntactically valid script text", () => {
+    // Compiled, never called: there is no DOM here to run it against.
+    expect(() => new Script(POSITION_SCRIPT)).not.toThrow();
   });
 });
 
