@@ -62,16 +62,29 @@ describe("images", () => {
     for (let i = 1; i <= 7; i++) expect(html).toContain(`img-${i}`);
   });
 
-  const withPng = () =>
-    ao3Epub({
-      files: [
-        {
-          name: "pics_split_001.xhtml",
-          body: `<div id="chapters"><p>pic <img src="images/p.png" alt="Ren&eacute;e"/></p></div>`,
-        },
-      ],
-      extraManifest: [{ href: "images/p.png", mediaType: "image/png", data: PNG }],
+  const pngSpec = () => ({
+    files: [
+      {
+        name: "pics_split_001.xhtml",
+        body: `<div id="chapters"><p>pic <img src="images/p.png" alt="Ren&eacute;e"/></p></div>`,
+      },
+    ],
+    extraManifest: [{ href: "images/p.png", mediaType: "image/png", data: PNG }],
+  });
+  const withPng = () => ao3Epub(pngSpec());
+
+  it("gives a function imageBase the work's ID", async () => {
+    const seen: string[] = [];
+    const work = await processEpub(ao3Epub({ workId: 4242, ...pngSpec() }), {
+      imageBase: (id) => {
+        seen.push(id);
+        return `https://content.example/works/${id}/img/`;
+      },
     });
+    const key = work.images[0]!.key;
+    expect(seen).toEqual(["4242"]);
+    expect(work.chapters[0]!.html).toContain(`src="https://content.example/works/4242/img/${key}"`);
+  });
 
   it("awaits an async onImage before resolving, and decodes alt text", async () => {
     const done: string[] = [];
