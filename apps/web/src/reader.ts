@@ -3,6 +3,7 @@
 
 import { createDb, getLiveWork, getWorkAvailability } from "@archive/db";
 import type { Context } from "hono";
+import { fragmentText } from "./edge-cache";
 import type { Bindings } from "./env";
 import { escapeHtml, layout } from "./pages";
 import { reviewNotice } from "./review-notice";
@@ -62,14 +63,19 @@ export async function showChapter(c: ReaderContext) {
     return unavailable(c);
   }
   // The fragment is trusted markup only because the sanitizer wrote it; it goes in unescaped.
-  let fragment: string;
+  // The same fragment for every reader, from the Worker's cache after the first read.
+  let fragment: string | null;
   try {
-    const object = await c.env.BUCKET.get(key);
-    if (!object) return unavailable(c);
-    fragment = await object.text();
+    fragment = await fragmentText(caches.default, c.env.BUCKET, {
+      id,
+      n,
+      versionId: live.version.id,
+      r2Key: key,
+    });
   } catch {
     return unavailable(c);
   }
+  if (fragment === null) return unavailable(c);
 
   // Previous and next are the neighbours in the version's chapter list.
   const options = chapterOptions(n, live.chapters);
