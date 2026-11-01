@@ -10,6 +10,7 @@ import { positionScriptTag } from "./position";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
 import { barSettings, settingsScriptTag } from "./settings";
+import { warningsRedirect } from "./warnings";
 import { withheldResponse } from "./withheld";
 
 export type ReaderContext = Context<{
@@ -51,6 +52,8 @@ export async function showChapter(c: ReaderContext) {
   const at = live.chapters.findIndex((ch) => ch.n === n);
   const chapter = live.chapters[at];
   if (!chapter) return c.notFound();
+  const gate = warningsRedirect(c, live, chapterUrl(id, n));
+  if (gate) return gate;
 
   // Chapter HTML comes only from a fragment the sanitizer wrote, under works/ and this
   // version's own prefix: never an upload, an original or an image, whatever the row says.

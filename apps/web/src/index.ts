@@ -7,6 +7,7 @@ import type { Bindings } from "./env";
 import { showDmcaForm, submitDmca } from "./dmca";
 import { showFull } from "./full";
 import { POSITION_SCRIPT, POSITION_SCRIPT_PATH, savePosition } from "./position";
+import { continueWarnings, showWarnings } from "./warnings";
 import { homePage } from "./home";
 import { deadLetteredLaunchEmails } from "./launch-dead-letter";
 import { showTagListing } from "./listing";
@@ -54,6 +55,7 @@ app.post("/uploads", sameOriginUpload);
 app.post("/uploads/:id/complete", sameOriginUpload);
 app.post("/works/:id/report", sameOriginOnly);
 app.post("/works/:id/position", sameOriginOnly);
+app.post("/works/:id/warnings", sameOriginOnly);
 app.post("/remove", sameOriginOnly);
 app.post("/dmca", sameOriginOnly);
 // The session, once, for every page; routes read c.var.session and never mount it
@@ -106,6 +108,8 @@ app.get("/works/:id/chapters", jumpToChapter);
 app.get("/works/:id/full", showFull);
 // A signed-in reader's saved place, posted by the position script.
 app.post("/works/:id/position", savePosition);
+app.get("/works/:id/warnings", showWarnings);
+app.post("/works/:id/warnings", continueWarnings);
 
 // Reader settings, signed in or not. Closed before launch, like the reader.
 app.get(SETTINGS_PATH, showSettings);
