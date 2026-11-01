@@ -94,13 +94,34 @@ describe("03-upload-status: My uploads", () => {
       "not_ao3",
       "opted_out",
       "parse_failed",
-      "over_quota",
     ];
     const ids = await Promise.all(codes.map((code) => upload(userId, code)));
 
     const html = await (await page(cookie)).text();
 
     for (const id of ids) expect(badgeOf(html, id)).toBe("Rejected");
+  });
+
+  it("An upload over the daily quota is not called rejected", async () => {
+    const { userId, cookie } = await signIn();
+    const id = await upload(userId, "over_quota");
+
+    expect(badgeOf(await (await page(cookie)).text(), id)).toBe("Daily limit reached");
+  });
+
+  it("A work title is escaped and an empty one falls back to the date", async () => {
+    const { userId, cookie } = await signIn();
+    const hostile = await seedWork(db, { ao3WorkId: 16109, title: `<b>"x"</b>` });
+    const blank = await seedWork(db, { ao3WorkId: 16110, title: "  " });
+    await upload(userId, "live", { workId: hostile.workId });
+    const blankId = await upload(userId, "live", { workId: blank.workId });
+
+    const html = await (await page(cookie)).text();
+
+    expect(html).toContain("&lt;b&gt;");
+    expect(html).not.toContain("<b>");
+    expect(html).not.toContain(`<a href="/works/16110"></a>`);
+    expect(html).toMatch(new RegExp(`data-upload-id="${blankId}"[^>]*>Upload of `));
   });
 
   it("A live upload row is named by its work's title, the others by date", async () => {
@@ -123,14 +144,21 @@ describe("03-upload-status: My uploads", () => {
   it("The list is newest first and holds at most 50 uploads", async () => {
     const { userId, cookie } = await signIn();
     const ids: string[] = [];
-    for (let i = 0; i < 52; i++) ids.push(await upload(userId, "held_for_review"));
-    for (const [i, id] of ids.entries()) {
-      await db
-        .updateTable("uploads")
-        .set({ created_at: new Date(Date.UTC(2026, 0, 1, 0, i)) })
-        .where("id", "=", id)
-        .execute();
-    }
+    const add = async (count: number) => {
+      for (let i = 0; i < count; i++) {
+        const id = await upload(userId, "held_for_review");
+        await db
+          .updateTable("uploads")
+          .set({ created_at: new Date(Date.UTC(2026, 0, 1, 0, ids.length)) })
+          .where("id", "=", id)
+          .execute();
+        ids.push(id);
+      }
+    };
+    await add(50);
+    // Exactly 50: all of them shown, and nothing was cut.
+    expect(await (await page(cookie)).text()).not.toContain("Showing your");
+    await add(2);
 
     const html = await (await page(cookie)).text();
     const listed = [...html.matchAll(/data-upload-id="([^"]+)"/g)].map((m) => m[1]);

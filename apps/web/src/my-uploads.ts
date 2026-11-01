@@ -21,8 +21,8 @@ const LIST_LIMIT = 50;
 // Seconds between refreshes while an upload is in progress.
 const REFRESH_SECONDS = 5;
 
-// The badge text for each status that isn't a rejection. Every other status is a
-// rejection code, so one added later still gets the generic label. Draft copy: U6c
+// The badge text for each status that isn't a rejection. Every other status is treated
+// as a rejection code, so one added later still gets the generic label. Draft copy: U6c
 // words the messages for each code.
 const LABELS: Partial<Record<UploadStatus, string>> = {
   pending: "Not uploaded yet",
@@ -30,6 +30,8 @@ const LABELS: Partial<Record<UploadStatus, string>> = {
   live: "Live",
   held_for_review: "Held for review",
   duplicate: "Already in the archive",
+  // ARCHITECTURE: over_quota is not a rejection, the day's limit was spent.
+  over_quota: "Daily limit reached",
 };
 const REJECTED = "Rejected";
 
@@ -57,7 +59,7 @@ interface Row {
 function item(row: Row): string {
   const link = uploadStatusBody(row, joinedWork(row)).work;
   const name =
-    link !== null && row.title !== null
+    link !== null && row.title !== null && row.title.trim() !== ""
       ? `<a href="${escapeHtml(link.url)}">${escapeHtml(row.title)}</a>`
       : escapeHtml(`Upload of ${utcMinute(row.created_at)}`);
   const label = badgeLabel(row.status, row.quota_counted_at !== null);
@@ -68,7 +70,7 @@ function item(row: Row): string {
  * The `/me/uploads` page, in `layout`. The meta refresh sits in the head, and only
  * while some upload is in progress.
  */
-export function myUploadsPage(rows: Row[]) {
+export function myUploadsPage(rows: Row[], cut: boolean) {
   const refresh = rows.some((r) => inProgress(r.status, r.quota_counted_at !== null))
     ? `<meta http-equiv="refresh" content="${REFRESH_SECONDS}">`
     : "";
@@ -76,9 +78,7 @@ export function myUploadsPage(rows: Row[]) {
     rows.length === 0
       ? `<p>You haven't uploaded anything yet. <a href="/upload">Upload a work</a>.</p>`
       : `<ul class="upload-list">\n${rows.map(item).join("\n")}\n</ul>${
-          rows.length === LIST_LIMIT
-            ? `\n<p>Showing your ${LIST_LIMIT} most recent uploads.</p>`
-            : ""
+          cut ? `\n<p>Showing your ${LIST_LIMIT} most recent uploads.</p>` : ""
         }`;
   return layout("My uploads", body, refresh);
 }
@@ -106,10 +106,11 @@ export async function showMyUploads(c: MyUploadsContext) {
       .where("uploads.user_id", "=", user.id)
       .orderBy("uploads.created_at", "desc")
       .orderBy("uploads.id")
-      .limit(LIST_LIMIT)
+      // One more than shown, to know whether the list was cut.
+      .limit(LIST_LIMIT + 1)
       .execute();
     c.header("Cache-Control", "no-store");
-    return c.html(myUploadsPage(rows));
+    return c.html(myUploadsPage(rows.slice(0, LIST_LIMIT), rows.length > LIST_LIMIT));
   } finally {
     c.executionCtx.waitUntil(db.destroy());
   }
