@@ -22,6 +22,7 @@ export {
   rejectOverQuotaUpload,
   getUploadQuota,
   useUploadQuota,
+  countUploadQuota,
   refundUploadQuota,
   type OwnUpload,
   type ListedWork,

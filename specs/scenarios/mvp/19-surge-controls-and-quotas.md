@@ -51,7 +51,7 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Load target), § Surge con
 - GIVEN user E who has used all of today's quota
 - WHEN E requests another upload, or confirms one
 - THEN the response is 429 with a `Retry-After` header and a plain message saying when E can upload again (the next midnight UTC)
-- AND an upload refused at confirm because the quota was already spent stays pending, so E can confirm it after the reset
+- AND an upload refused at confirm is marked `over_quota` and its object is deleted
 
 ### Quota is a hard limit under concurrency
 - GIVEN user E with one upload left in today's quota, and two uploaded files

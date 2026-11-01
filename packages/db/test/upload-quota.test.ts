@@ -1,6 +1,7 @@
 import { sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  countUploadQuota,
   createDb,
   getUploadQuota,
   insertUpload,
@@ -28,7 +29,7 @@ async function freshUser() {
   return w.userId;
 }
 
-const setUsed = (userId: string, used: number, day: typeof YESTERDAY | null) =>
+const setUsed = (userId: string, used: number, day: typeof TODAY | null) =>
   t.db
     .updateTable("user")
     .set({ upload_quota_used: used, upload_quota_day: day })
@@ -42,6 +43,7 @@ const usedOf = (userId: string) =>
     .where("id", "=", userId)
     .executeTakeFirstOrThrow();
 
+const TODAY = sql<string>`(now() at time zone 'utc')::date`;
 // The database's UTC day before today, the clock the quota itself uses, not the JS clock.
 const YESTERDAY = sql<string>`(now() at time zone 'utc')::date - 1`;
 
@@ -101,22 +103,96 @@ describe("19-surge-controls-and-quotas: the counter", () => {
     }
   });
 
-  it("a refund gives one use back, and not below zero or across days", async () => {
-    const userId = await freshUser();
-    await useUploadQuota(t.db, userId, 2);
-    await refundUploadQuota(t.db, userId);
-    expect((await usedOf(userId)).upload_quota_used).toBe(0);
-    await refundUploadQuota(t.db, userId);
-    expect((await usedOf(userId)).upload_quota_used).toBe(0);
-    await setUsed(userId, 4, YESTERDAY);
-    await refundUploadQuota(t.db, userId);
-    expect((await usedOf(userId)).upload_quota_used).toBe(4);
-  });
-
   it("reads the role with the count", async () => {
     const userId = await freshUser();
     await t.db.updateTable("user").set({ role: "moderator" }).where("id", "=", userId).execute();
     expect((await getUploadQuota(t.db, userId))?.role).toBe("moderator");
+  });
+});
+
+// A pending upload for `userId`.
+const pendingFor = async (userId: string) =>
+  (await insertUpload(t.db, { userId, r2Key: `uploads/${crypto.randomUUID()}`, bytes: 10 })).id;
+
+const countedAtOf = async (uploadId: string) =>
+  (
+    await t.db
+      .selectFrom("uploads")
+      .select("quota_counted_at")
+      .where("id", "=", uploadId)
+      .executeTakeFirstOrThrow()
+  ).quota_counted_at;
+
+describe("19-surge-controls-and-quotas: counting an upload once", () => {
+  it("counts an upload once, however often it is confirmed", async () => {
+    const userId = await freshUser();
+    const up = await pendingFor(userId);
+    const outcomes = [
+      await countUploadQuota(t.db, userId, up, 3),
+      await countUploadQuota(t.db, userId, up, 3),
+    ];
+    expect(outcomes).toEqual(["counted", "already"]);
+    expect((await usedOf(userId)).upload_quota_used).toBe(1);
+    expect(await countedAtOf(up)).not.toBeNull();
+  });
+
+  it("a spent quota changes nothing, and the upload can be counted later", async () => {
+    const userId = await freshUser();
+    await setUsed(userId, 2, TODAY);
+    const up = await pendingFor(userId);
+    expect(await countUploadQuota(t.db, userId, up, 2)).toBe("spent");
+    expect((await usedOf(userId)).upload_quota_used).toBe(2);
+    expect(await countedAtOf(up)).toBeNull();
+    expect(await countUploadQuota(t.db, userId, up, 3)).toBe("counted");
+  });
+
+  it("parallel confirms of one upload with one use left count it once and both go on", async () => {
+    const userId = await freshUser();
+    await setUsed(userId, 2, TODAY);
+    const up = await pendingFor(userId);
+    const clients = [0, 1].map(() => createDb({ connectionString: t.connectionString, max: 1 }));
+    try {
+      const outcomes = await Promise.all(clients.map((c) => countUploadQuota(c, userId, up, 3)));
+      expect([...outcomes].sort((x, y) => x.localeCompare(y))).toEqual(["already", "counted"]);
+      expect((await usedOf(userId)).upload_quota_used).toBe(3);
+    } finally {
+      await Promise.all(clients.map((c) => c.destroy()));
+    }
+  });
+
+  it("an upload counted is not rejected over the quota", async () => {
+    const userId = await freshUser();
+    const up = await pendingFor(userId);
+    await countUploadQuota(t.db, userId, up, 5);
+    expect(await rejectOverQuotaUpload(t.db, up)).toBe(false);
+  });
+
+  it("a refund gives the use back once, and the upload can be counted again", async () => {
+    const userId = await freshUser();
+    const up = await pendingFor(userId);
+    await countUploadQuota(t.db, userId, up, 5);
+    await refundUploadQuota(t.db, userId, up);
+    expect((await usedOf(userId)).upload_quota_used).toBe(0);
+    expect(await countedAtOf(up)).toBeNull();
+    // A second refund has nothing to give back.
+    await refundUploadQuota(t.db, userId, up);
+    expect((await usedOf(userId)).upload_quota_used).toBe(0);
+    expect(await countUploadQuota(t.db, userId, up, 5)).toBe("counted");
+  });
+
+  it("a refund after the day has turned leaves the new day's count alone", async () => {
+    const userId = await freshUser();
+    const up = await pendingFor(userId);
+    await countUploadQuota(t.db, userId, up, 5);
+    // The use was taken yesterday; today another upload has counted.
+    await t.db
+      .updateTable("uploads")
+      .set({ quota_counted_at: sql<Date>`now() - interval '1 day'` })
+      .where("id", "=", up)
+      .execute();
+    await setUsed(userId, 3, TODAY);
+    await refundUploadQuota(t.db, userId, up);
+    expect((await usedOf(userId)).upload_quota_used).toBe(3);
   });
 });
 

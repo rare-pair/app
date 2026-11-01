@@ -466,13 +466,18 @@ export async function rejectOversizedUpload(db: Kysely<Database>, id: string): P
   return row !== undefined;
 }
 
-/** Marks a `pending` upload `over_quota`. False when it wasn't `pending`. */
+/**
+ * Marks a `pending` upload `over_quota`. False when it wasn't `pending`, or when a confirm has
+ * counted it against the quota: a parallel confirm of the same upload that won its use must
+ * not have its upload rejected, nor its object deleted, by one that lost.
+ */
 export async function rejectOverQuotaUpload(db: Kysely<Database>, id: string): Promise<boolean> {
   const row = await db
     .updateTable("uploads")
     .set({ status: "over_quota" })
     .where("id", "=", id)
     .where("status", "=", "pending")
+    .where("quota_counted_at", "is", null)
     .returning("id")
     .executeTakeFirst();
   return row !== undefined;
@@ -531,17 +536,65 @@ export async function useUploadQuota(
 }
 
 /**
- * Gives back one use of today's quota, for a confirm that counted and then failed to queue
- * its upload. Does nothing when the count is dated an earlier day or already zero.
+ * Counts a pending upload against its owner's daily quota of `limit`, once. `counted` took a
+ * use; `already` means an earlier or parallel confirm of the same upload took it, so nothing
+ * more is counted (the upload's row is locked by the claim, so two confirms of one upload
+ * can't both count it); `spent` means the quota had no use left, and nothing was changed.
  */
-export async function refundUploadQuota(db: Kysely<Database>, userId: string): Promise<void> {
-  await db
-    .updateTable("user")
-    .set({ upload_quota_used: sql`upload_quota_used - 1` })
-    .where("id", "=", userId)
-    .where("upload_quota_day", "=", TODAY_UTC)
-    .where("upload_quota_used", ">", 0)
-    .execute();
+export async function countUploadQuota(
+  db: Kysely<Database>,
+  userId: string,
+  uploadId: string,
+  limit: number,
+): Promise<"counted" | "already" | "spent"> {
+  return db.transaction().execute(async (trx) => {
+    const claimed = await trx
+      .updateTable("uploads")
+      .set({ quota_counted_at: sql<Date>`now()` })
+      .where("id", "=", uploadId)
+      .where("quota_counted_at", "is", null)
+      .returning("id")
+      .executeTakeFirst();
+    if (claimed === undefined) return "already";
+    if (await useUploadQuota(trx, userId, limit)) return "counted";
+    // Not counted: the claim is undone, in the same transaction.
+    await trx
+      .updateTable("uploads")
+      .set({ quota_counted_at: null })
+      .where("id", "=", uploadId)
+      .execute();
+    return "spent";
+  });
+}
+
+/**
+ * Gives back the use `countUploadQuota` took for this upload, for a confirm that counted and
+ * then failed to queue it. The use is returned to the day it was taken on: when that day has
+ * passed, the new day's count is left alone. Does nothing for an upload that wasn't counted.
+ */
+export async function refundUploadQuota(
+  db: Kysely<Database>,
+  userId: string,
+  uploadId: string,
+): Promise<void> {
+  await db.transaction().execute(async (trx) => {
+    await trx
+      .updateTable("user")
+      .set({ upload_quota_used: sql`upload_quota_used - 1` })
+      .where("id", "=", userId)
+      .where("upload_quota_used", ">", 0)
+      .where(
+        "upload_quota_day",
+        "=",
+        sql<string>`(select (quota_counted_at at time zone 'utc')::date from uploads where id = ${uploadId})`,
+      )
+      .execute();
+    await trx
+      .updateTable("uploads")
+      .set({ quota_counted_at: null })
+      .where("id", "=", uploadId)
+      .execute();
+  });
 }
 
 export interface PopularFandom {

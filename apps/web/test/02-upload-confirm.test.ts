@@ -345,28 +345,27 @@ describe("19-surge-controls-and-quotas", () => {
     await setUsedToday(userId, NEW_LIMIT);
     const over = await uploaded(userId, randomBytes());
     await expectSpent(await complete(over.id, { cookie }));
-    // Refused before the object is read: not counted, not queued, and the upload is left
-    // pending with its object, to be confirmed after the reset.
+    // Refused before the object is read: not counted, not queued, the object is deleted and
+    // the upload marked, so a spent quota can't pile up stored files.
     expect(await usedOf(userId)).toBe(NEW_LIMIT);
-    expect(await env.BUCKET.head(over.key)).not.toBeNull();
-    expect((await rowOf(over.id)).status).toBe("pending");
+    expect(await env.BUCKET.head(over.key)).toBeNull();
+    expect((await rowOf(over.id)).status).toBe("over_quota");
     const control = await signIn("u4-past-limit-control@example.test");
     await queueDrained(control.userId, control.cookie);
     expect(await ingestSent(over.id)).toEqual([]);
   });
 
-  it("an upload refused for a spent quota can be confirmed after the reset", async () => {
-    const { userId, cookie } = await signIn("u4-after-reset@example.test");
-    await setUsedToday(userId, NEW_LIMIT);
+  it("Confirming the same upload twice at once with one use left counts it once and queues it", async () => {
+    const { userId, cookie } = await signIn("u4-same-upload@example.test");
+    await setUsedToday(userId, NEW_LIMIT - 1);
     const up = await uploaded(userId, randomBytes());
-    await expectSpent(await complete(up.id, { cookie }));
-    await db
-      .updateTable("user")
-      .set({ upload_quota_day: "2000-01-01" })
-      .where("id", "=", userId)
-      .execute();
-    expect((await complete(up.id, { cookie })).status).toBe(200);
-    expect(await ingestFor(up.id)).toEqual([{ upload_id: up.id }]);
+    const replies = await Promise.all([complete(up.id, { cookie }), complete(up.id, { cookie })]);
+    expect(replies.map((r) => r.status)).toEqual([200, 200]);
+    expect(await usedOf(userId)).toBe(NEW_LIMIT);
+    // Neither request rejected the other's upload or deleted its object.
+    expect((await rowOf(up.id)).status).toBe("pending");
+    expect(await env.BUCKET.head(up.key)).not.toBeNull();
+    expect(await ingestFor(up.id)).not.toEqual([]);
   });
 
   it("Quota is a hard limit under concurrency", async () => {
@@ -377,12 +376,12 @@ describe("19-surge-controls-and-quotas", () => {
     const [ra, rb] = await Promise.all([complete(a.id, { cookie }), complete(b.id, { cookie })]);
     expect([ra.status, rb.status].sort((x, y) => x - y)).toEqual([200, 429]);
     expect(await usedOf(userId)).toBe(NEW_LIMIT);
-    // Only the winner is queued. The loser is `over_quota` when it lost at the count, or still
-    // `pending` when the winner finished before its early check: either way it isn't queued.
+    // Only the winner is queued. The loser is refused at the early check or at the count,
+    // and either way is marked over quota and not queued.
     const [winner, loser] = ra.status === 200 ? [a, b] : [b, a];
     expect(await ingestFor(winner.id)).toEqual([{ upload_id: winner.id }]);
     expect(await ingestSent(loser.id)).toEqual([]);
-    expect((await rowOf(loser.id)).status).toMatch(/^(over_quota|pending)$/);
+    expect((await rowOf(loser.id)).status).toBe("over_quota");
   });
 
   it("Brand-new accounts get the lower quota", async () => {

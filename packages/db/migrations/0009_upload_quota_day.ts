@@ -8,6 +8,10 @@
 export default /* sql */ `
 alter table "user" add column "upload_quota_day" date;
 
+-- When a confirm counted the upload against its owner's quota. It makes the count once per
+-- upload, and lets a refund go back to the day the use was taken on.
+alter table "uploads" add column "quota_counted_at" timestamptz;
+
 alter table "uploads" drop constraint "uploads_status_check";
 alter table "uploads" add constraint "uploads_status_check"
   check ("status" in (

@@ -15,6 +15,12 @@ describe("19-surge-controls-and-quotas", () => {
     expect(limitFor("admin", vars)).toBeGreaterThan(limitFor(null, vars));
   });
 
+  it("the trusted tier is never below the new-account tier", () => {
+    const only = { UPLOAD_QUOTA_NEW: "500", UPLOAD_QUOTA_TRUSTED: undefined };
+    expect(limitFor("admin", only)).toBe(500);
+    expect(limitFor("admin", { UPLOAD_QUOTA_NEW: "50", UPLOAD_QUOTA_TRUSTED: "10" })).toBe(50);
+  });
+
   it("a missing, zero or malformed var keeps the default, so a typo never opens or closes the quota", () => {
     for (const bad of [undefined, "", "0", "-3", "1.5", "lots", "1e3", "99999999999"]) {
       const broken = { UPLOAD_QUOTA_NEW: bad, UPLOAD_QUOTA_TRUSTED: bad };

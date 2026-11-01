@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { isModerator } from "./admin";
 
 // The daily upload quota's pure parts (ARCHITECTURE, Surge controls). The count is kept in
 // Postgres (`useUploadQuota` in @archive/db); the day is the UTC calendar day.
@@ -25,9 +26,11 @@ export function limitFor(
   role: string | null,
   vars: { UPLOAD_QUOTA_NEW?: string; UPLOAD_QUOTA_TRUSTED?: string },
 ): number {
-  return role === "moderator" || role === "admin"
-    ? limitOf(vars.UPLOAD_QUOTA_TRUSTED, DEFAULT_TRUSTED_LIMIT)
-    : limitOf(vars.UPLOAD_QUOTA_NEW, DEFAULT_NEW_LIMIT);
+  const lower = limitOf(vars.UPLOAD_QUOTA_NEW, DEFAULT_NEW_LIMIT);
+  // Never below the new-account limit: setting only that one can't leave the trusted tier worse.
+  return isModerator(role)
+    ? Math.max(lower, limitOf(vars.UPLOAD_QUOTA_TRUSTED, DEFAULT_TRUSTED_LIMIT))
+    : lower;
 }
 
 /** Whole seconds to the next midnight UTC, rounded up: the quota's reset, and `Retry-After`. */

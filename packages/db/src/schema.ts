@@ -192,6 +192,8 @@ export interface UploadTable {
   bytes: number;
   status: ColumnType<UploadStatus, UploadStatus | undefined, UploadStatus>;
   lease_until: Timestamp | null;
+  /** When a confirm counted this upload against the daily quota; NULL until then. */
+  quota_counted_at: ColumnType<Date | null, Date | string | null | undefined, Date | string | null>;
   error_stage: string | null;
   error: string | null;
   work_id: string | null;

@@ -3,10 +3,10 @@ import {
   getUploadOf,
   getUploadQuota,
   recordUploadHash,
+  countUploadQuota,
   refundUploadQuota,
   rejectOverQuotaUpload,
   rejectOversizedUpload,
-  useUploadQuota,
 } from "@archive/db";
 import type { Context } from "hono";
 import type { Bindings } from "./env";
@@ -64,13 +64,30 @@ export async function completeUpload(c: CompleteContext) {
       refuse(409, "That upload was already handled. Check its status on the upload page.");
     if (upload.status !== "pending") return taken();
 
+    // An upload over the quota is marked first, and only the request that marks it deletes the
+    // object, as for an oversized one. The mark is refused for an upload another confirm has
+    // counted, so a loser never rejects or deletes what a parallel confirm of the same upload
+    // won. A delete that fails leaves the object for the 7-day lifecycle rule.
+    const discardOverQuota = async () => {
+      if (!(await rejectOverQuotaUpload(db, upload.id))) return null;
+      try {
+        await c.env.BUCKET.delete(upload.r2_key);
+      } catch (error) {
+        console.error("deleting an over-quota object failed", error);
+      }
+      return quotaSpent(c);
+    };
+
     // A spent quota is refused before the object is read or hashed, which costs the most. The
-    // upload stays `pending` with its object, so it can be confirmed after the reset. The
-    // atomic count below is what holds the cap; this read only saves work.
+    // atomic count below is what holds the cap; this read only saves work. An upload that is
+    // already counted goes on instead: its confirm is a repeat.
     const quota = await getUploadQuota(db, user.id);
     if (quota === null) return refuse(404, "There is no such upload.");
     const limit = limitFor(quota.role, c.env);
-    if (quota.usedToday >= limit) return quotaSpent(c);
+    if (quota.usedToday >= limit) {
+      const refused = await discardOverQuota();
+      if (refused !== null) return refused;
+    }
 
     const missing = () => refuse(400, "That file didn't finish uploading. Please upload it again.");
     // The declared size was checked at POST /uploads, but the PUT can store more. The row is
@@ -124,17 +141,12 @@ export async function completeUpload(c: CompleteContext) {
     // The daily quota counts the uploads that reach the queue, and this is where its hard cap
     // holds: one conditional UPDATE, so parallel confirms can't pass it together. A duplicate
     // costs no ingest, so it was answered above without counting.
-    if (!(await useUploadQuota(db, user.id, limit))) {
-      // Only a confirm that lost a race for the last use gets here: the row is marked first,
-      // and only the request that marks it deletes the object, as for an oversized one. A
-      // delete that fails leaves it for the 7-day lifecycle rule.
-      if (!(await rejectOverQuotaUpload(db, upload.id))) return taken();
-      try {
-        await c.env.BUCKET.delete(upload.r2_key);
-      } catch (error) {
-        console.error("deleting an over-quota object failed", error);
-      }
-      return quotaSpent(c);
+    // An upload is counted once: a repeat confirm of one that is counted is `already`, and is
+    // queued again (ingest's lease makes a second job a no-op) without taking another use.
+    const counted = await countUploadQuota(db, user.id, upload.id, limit);
+    if (counted === "spent") {
+      // Lost a race for the last use.
+      return (await discardOverQuota()) ?? taken();
     }
 
     // The hash is stored by now, so a failed send leaves a `pending` row that a retried
@@ -145,7 +157,7 @@ export async function completeUpload(c: CompleteContext) {
     } catch (error) {
       console.error("ingest queue send failed", error);
       try {
-        await refundUploadQuota(db, user.id);
+        await refundUploadQuota(db, user.id, upload.id);
       } catch (refundError) {
         console.error(
           "refunding the quota failed",
