@@ -55,7 +55,7 @@ export async function copyVersionToWork(
 }
 
 /** Inserts the work's byline in the order given. The work must have none yet. */
-export async function writeWorkAuthors(
+async function writeWorkAuthors(
   trx: Kysely<Database>,
   workId: string,
   authors: VersionAuthor[],
@@ -73,7 +73,7 @@ export async function writeWorkAuthors(
  * Upserts the tags and links them to the work in the order given. The work must have none
  * yet, and each tag must appear once.
  */
-export async function writeWorkTags(
+async function writeWorkTags(
   trx: Kysely<Database>,
   workId: string,
   tags: VersionTag[],

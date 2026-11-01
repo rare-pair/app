@@ -41,7 +41,7 @@ export {
   type ModerationEntry,
 } from "./moderation-actions";
 export { refreshWorkSearch } from "./search-index";
-export { copyVersionToWork, writeWorkAuthors, writeWorkTags } from "./version-copy";
+export { copyVersionToWork } from "./version-copy";
 export { searchLiveWorks, type SearchOptions, type SearchResults } from "./search";
 export type {
   Database,

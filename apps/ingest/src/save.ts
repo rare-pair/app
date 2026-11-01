@@ -1,8 +1,5 @@
 import {
   copyVersionToWork,
-  refreshWorkSearch,
-  writeWorkAuthors,
-  writeWorkTags,
   type Database,
   type HoldReason,
   type TagType,
@@ -319,11 +316,10 @@ async function writeFirst(
   // That job's work is committed now: read it and decide as for any later upload.
   if (row === undefined) throw new Stale();
   const workId = row.id;
-  await writeWorkAuthors(trx, workId, distinctAuthors(work));
-  await writeWorkTags(trx, workId, distinctTags(work));
   const versionId = await insertVersion(trx, lease, work, workId, prefix, chapters);
-  // The index follows the title, byline and tags just written, in this transaction.
-  await refreshWorkSearch(trx, workId);
+  // The work describes its version, as after any replace: the byline, tags and search text,
+  // in this transaction.
+  await copyVersionToWork(trx, workId, versionId);
   // The work's last write: it goes `live` with its version current.
   await trx
     .updateTable("works")
@@ -364,13 +360,13 @@ async function insertVersion(
   chapters: Chapters,
   holdReason: HoldReason | null = null,
 ): Promise<string> {
-  const { chapters_count: _count, chapters_total: total, ...own } = workColumns(work);
+  const { chapters_count: count, chapters_total: total, ...own } = workColumns(work);
   const version = await trx
     .insertInto("work_versions")
     .values({
       work_id: workId,
       upload_id: lease.id,
-      chapter_count: work.chapters.length,
+      chapter_count: count,
       chapter_total: total,
       r2_prefix: prefix,
       review_reasons: work.reviewReasons,
