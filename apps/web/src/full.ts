@@ -14,6 +14,7 @@ import {
 } from "./reader";
 import { reviewNotice } from "./review-notice";
 import { settingsScriptTag } from "./settings";
+import { warningsRedirect } from "./warnings";
 import { withheldResponse } from "./withheld";
 
 /** A fragment's bytes, or null when the key is missing. Anything with R2's `get`. */
@@ -124,6 +125,8 @@ export async function showFull(c: ReaderContext) {
     c.executionCtx.waitUntil(db.destroy());
   }
   if (!live) return withheld ? withheldResponse(c, withheld) : c.notFound();
+  const gate = warningsRedirect(c, live, `/works/${id}/full`);
+  if (gate) return gate;
 
   // Chapter HTML comes only from fragments the sanitizer wrote, under works/ and this
   // version's own prefix. Every key is checked before anything is read or sent.
