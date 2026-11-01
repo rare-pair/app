@@ -169,7 +169,7 @@ adminItems.get("/requests/:id{[A-Za-z0-9_-]+}", async (c) => {
 });
 
 /** The work with this AO3 work ID, from a URL segment, or null for no such work. */
-async function workByAo3Id(c: Context<AdminEnv>, segment: string) {
+export async function workByAo3Id(c: Context<AdminEnv>, segment: string) {
   if (!/^\d{1,10}$/.test(segment) || Number(segment) < 1 || Number(segment) > MAX_INT4) {
     return null;
   }
