@@ -1,3 +1,4 @@
+import { putFragments } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
 import { ao3Epub } from "../../../packages/epub/test/helpers";
@@ -185,53 +186,60 @@ describe("04-ingest-job-lifecycle", () => {
     expect(result.retryMessages).toEqual([]);
   });
 
-  it("Failure inside the transaction leaves an existing work's current version unchanged", async () => {
-    // Another job saves the work while this one writes R2: past the check before R2, this job
-    // finds the work only inside its transaction, which rolls back.
+  it("A first upload that finds another job saved the work meanwhile is decided as a later one", async () => {
+    // Another job saves the work while this one writes R2: this job found no work when it
+    // read, finds one inside its transaction, rolls back, and decides again against it.
     const workId = freshAo3WorkId();
     const id = await pendingUpload(ao3Epub({ workId }));
     // SAFETY: the bucket's put below assigns it; null until then.
     let existing = null as Awaited<ReturnType<typeof seededWork>> | null;
     const { handler } = watchedWorker({
       bucket: beforePut(async (key) => {
-        if (key.startsWith("originals/")) existing = await seededWork({ ao3WorkId: workId });
+        if (!key.startsWith("originals/")) return;
+        existing = await seededWork({ ao3WorkId: workId });
+        await putFragments(env.BUCKET, existing.fragments);
       }),
     });
 
     const result = await deliver([{ upload_id: id }], { handler });
 
+    // Not newer than the saved version (one chapter, an earlier date): a duplicate, with no
+    // version of its own, and the work still at the version the other job saved.
     const live = await liveWork(workId);
     expect(live?.version.id).toBe(existing?.versionId);
     expect(live?.chapters.map((c) => c.r2_key)).toEqual(existing?.chapterKeys);
     expect((await savedRows(workId, id)).versions).toEqual([]);
     expect(await uploadRow(id)).toMatchObject({
-      status: "parse_failed",
-      error_stage: "save",
-      error: "work_exists",
+      status: "duplicate",
+      work_id: live?.work.id,
+      error: null,
     });
     expect(result.explicitAcks).toEqual(["msg-0"]);
+    expect(result.retryMessages).toEqual([]);
   });
 
-  it("refuses an upload of a known work before writing anything", async () => {
+  it("keeps an upload of a known work's files, whatever it is decided", async () => {
     const existing = await seededWork({ ao3WorkId: freshAo3WorkId(), chapters: 2 });
+    await putFragments(env.BUCKET, existing.fragments);
     const before = await savedRows(existing.ao3WorkId, existing.uploadId);
     const id = await pendingUpload(ao3Epub({ workId: existing.ao3WorkId }));
 
     const result = await deliver([{ upload_id: id }]);
 
+    // One chapter and an earlier date than the saved two: a duplicate. It changes nothing.
     expect(await savedRows(existing.ao3WorkId, existing.uploadId)).toEqual(before);
     expect(before.works[0]?.current_version_id).toBe(existing.versionId);
     const live = await liveWork(existing.ao3WorkId);
     expect(live?.chapters.map((c) => c.r2_key)).toEqual(existing.chapterKeys);
     expect((await savedRows(existing.ao3WorkId, id)).versions).toEqual([]);
-    // Refused before R2: nothing of the upload is kept.
-    expect(await bucketKeys(`works/${existing.ao3WorkId}/${id}/`)).toEqual([]);
-    expect(await bucketKeys(`originals/${id}`)).toEqual([]);
-    // Later uploads of a known work are I4's (#33): until then this one is refused.
+    // Stored but not used: its fragments and its original are kept.
+    expect(await bucketKeys(`works/${existing.ao3WorkId}/${id}/`)).toEqual([
+      `works/${existing.ao3WorkId}/${id}/1.html`,
+    ]);
+    expect(await bucketKeys(`originals/${id}`)).toEqual([`originals/${id}.epub`]);
     const row = await uploadRow(id);
-    expect(row.status).toBe("parse_failed");
-    expect(row.error_stage).toBe("save");
-    expect(row.error).toBe("work_exists");
+    expect(row.status).toBe("duplicate");
+    expect(row.work_id).toBe(existing.workId);
     expect(result.explicitAcks).toEqual(["msg-0"]);
   });
 
