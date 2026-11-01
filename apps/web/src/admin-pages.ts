@@ -131,3 +131,51 @@ export function resultPage(message: string, back: string | null) {
   const link = back === null ? "" : `<p><a href="${escapeHtml(back)}">Back to the item</a></p>`;
   return layout("Done", `${nav}\n<p>${escapeHtml(message)}</p>\n${link}`);
 }
+
+/** One version of a work, as its admin page lists it. */
+export type VersionRow = {
+  id: string;
+  added: string;
+  uploader: string;
+  chapters: number;
+  current: boolean;
+  /** Held for review: only a moderator's approval makes it current (MOD3). */
+  held: boolean;
+};
+
+/**
+ * A work's admin page: its status and every version, oldest first, each with a "Make
+ * current" form unless it is held for review; the current one is marked. The uploader is the
+ * account's email: moderators only, on admin pages only. `actions` is `workActions`.
+ */
+export function workAdminPage(
+  title: string,
+  ao3WorkId: number,
+  status: string,
+  versions: VersionRow[],
+  actions: string,
+) {
+  const makeCurrent = (v: VersionRow) =>
+    v.held
+      ? "Held for review"
+      : `${v.current ? "Current " : ""}<form method="post" action="/admin/works/${ao3WorkId}/current"><input type="hidden" name="version" value="${escapeHtml(v.id)}"><button type="submit">Make current</button></form>`;
+  const rows = versions
+    .map(
+      (v) =>
+        `<tr><td>${escapeHtml(v.added)}</td><td>${escapeHtml(v.uploader)}</td><td>${v.chapters}</td><td>${makeCurrent(v)}</td></tr>`,
+    )
+    .join("\n");
+  return layout(
+    `${title} (${ao3WorkId})`,
+    `${nav}
+<p>Status: ${escapeHtml(status)}</p>
+<table>
+<caption>Versions, oldest first</caption>
+<thead><tr><th scope="col">Added</th><th scope="col">Uploader</th><th scope="col">Chapters</th><th scope="col">Action</th></tr></thead>
+<tbody>
+${rows}
+</tbody>
+</table>
+${actions}`,
+  );
+}
