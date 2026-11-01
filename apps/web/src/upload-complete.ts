@@ -64,6 +64,14 @@ export async function completeUpload(c: CompleteContext) {
       refuse(409, "That upload was already handled. Check its status on the upload page.");
     if (upload.status !== "pending") return taken();
 
+    // A spent quota is refused before the object is read or hashed, which costs the most. The
+    // upload stays `pending` with its object, so it can be confirmed after the reset. The
+    // atomic count below is what holds the cap; this read only saves work.
+    const quota = await getUploadQuota(db, user.id);
+    if (quota === null) return refuse(404, "There is no such upload.");
+    const limit = limitFor(quota.role, c.env);
+    if (quota.usedToday >= limit) return quotaSpent(c);
+
     const missing = () => refuse(400, "That file didn't finish uploading. Please upload it again.");
     // The declared size was checked at POST /uploads, but the PUT can store more. The row is
     // marked first, and only the request that marks it deletes the object. A delete that fails
@@ -116,11 +124,10 @@ export async function completeUpload(c: CompleteContext) {
     // The daily quota counts the uploads that reach the queue, and this is where its hard cap
     // holds: one conditional UPDATE, so parallel confirms can't pass it together. A duplicate
     // costs no ingest, so it was answered above without counting.
-    const quota = await getUploadQuota(db, user.id);
-    if (quota === null) return refuse(404, "There is no such upload.");
-    if (!(await useUploadQuota(db, user.id, limitFor(quota.role, c.env)))) {
-      // The row is marked first, and only the request that marks it deletes the object, as
-      // for an oversized one. A delete that fails leaves it for the 7-day lifecycle rule.
+    if (!(await useUploadQuota(db, user.id, limit))) {
+      // Only a confirm that lost a race for the last use gets here: the row is marked first,
+      // and only the request that marks it deletes the object, as for an oversized one. A
+      // delete that fails leaves it for the 7-day lifecycle rule.
       if (!(await rejectOverQuotaUpload(db, upload.id))) return taken();
       try {
         await c.env.BUCKET.delete(upload.r2_key);
@@ -137,7 +144,14 @@ export async function completeUpload(c: CompleteContext) {
       await c.env.INGEST.send({ upload_id: upload.id });
     } catch (error) {
       console.error("ingest queue send failed", error);
-      await refundUploadQuota(db, user.id);
+      try {
+        await refundUploadQuota(db, user.id);
+      } catch (refundError) {
+        console.error(
+          "refunding the quota failed",
+          refundError instanceof Error ? refundError.name : "unknown",
+        );
+      }
       return refuse(503, "We couldn't queue that file just now. Please try again in a minute.");
     }
     return c.json({ status: "queued" }, 200, NO_STORE);

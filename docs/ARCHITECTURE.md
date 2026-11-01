@@ -386,8 +386,9 @@ including one whose AO3 work URL is only in the OPF (step 4). `opted_out`
 covers the opt-out list and the takedown list of moderator-removed works.
 `parse_failed` also covers a job that fails for good (step 8). (`held_for_review`
 and `duplicate` are statuses, not rejections, and review reasons are neither. Nor is
-`over_quota`: the status of an upload confirmed after the account's daily quota was
-spent, whose object is deleted and whose confirm answers 429.)
+`over_quota`: the status of an upload whose confirm lost a race for the account's last
+daily use, whose object is deleted and whose confirm answered 429. A confirm made
+after the quota is already spent answers 429 too, but leaves the upload `pending`.)
 
 **Testing.** `HTMLRewriter` exists only in the Workers runtime, so the
 `packages/epub` tests run in it (`packages/epub/vitest.config.ts`). Fixtures are
