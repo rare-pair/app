@@ -109,17 +109,30 @@ describe("moderation action log", () => {
   });
 
   it("A row that cannot be written rolls the action back", async () => {
-    const { workId } = await seedWork(t.db);
-    await expect(
-      hideWork(t.db, workId, "moderator", { actor: "modlog-no-such-user" }),
-    ).rejects.toThrow();
-    expect((await state(workId)).status).toBe("live");
+    // The log has no foreign key to fail on, so make every insert fail with a trigger.
+    await sql`
+      create function modlog_refuse() returns trigger language plpgsql as
+      $$ begin raise exception 'modlog refused'; end $$`.execute(t.db);
+    await sql`
+      create trigger modlog_refuse before insert on moderation_actions
+      for each row execute function modlog_refuse()`.execute(t.db);
+    try {
+      const moderator = await addUser();
+      const { workId } = await seedWork(t.db);
+      await expect(hideWork(t.db, workId, "moderator", { actor: moderator })).rejects.toThrow(
+        "modlog refused",
+      );
+      expect((await state(workId)).status).toBe("live");
 
-    const hidden = await seedWork(t.db, { status: "hidden", hiddenCause: "moderator" });
-    await expect(
-      restoreWork(t.db, hidden.workId, { actor: "modlog-no-such-user" }),
-    ).rejects.toThrow();
-    expect((await state(hidden.workId)).status).toBe("hidden");
+      const hidden = await seedWork(t.db, { status: "hidden", hiddenCause: "moderator" });
+      await expect(restoreWork(t.db, hidden.workId, { actor: moderator })).rejects.toThrow(
+        "modlog refused",
+      );
+      expect((await state(hidden.workId)).status).toBe("hidden");
+    } finally {
+      await sql`drop trigger modlog_refuse on moderation_actions`.execute(t.db);
+      await sql`drop function modlog_refuse()`.execute(t.db);
+    }
   });
 
   it("A restore inside a caller's transaction joins it", async () => {
@@ -162,6 +175,29 @@ describe("moderation action log", () => {
       RangeError,
     );
     expect(await rowsFor("modlog-request-2")).toEqual([]);
+  });
+
+  it("Deleting a moderator's account keeps their log rows", async () => {
+    const moderator = await addUser();
+    const { workId } = await seedWork(t.db);
+    await hideWork(t.db, workId, "moderator", { actor: moderator });
+    await t.db.deleteFrom("user").where("id", "=", moderator).execute();
+    expect(await rowsFor(workId)).toMatchObject([{ moderator_id: moderator, action: "hide" }]);
+  });
+
+  it("The log has no foreign key, and moderator_id stays required and indexed", async () => {
+    const { rows: fks } = await sql`
+      select 1 from pg_constraint
+      where conrelid = 'moderation_actions'::regclass and contype = 'f'`.execute(t.db);
+    expect(fks).toEqual([]);
+    const { rows: cols } = await sql<{ is_nullable: string }>`
+      select is_nullable from information_schema.columns
+      where table_name = 'moderation_actions' and column_name = 'moderator_id'`.execute(t.db);
+    expect(cols).toEqual([{ is_nullable: "NO" }]);
+    const { rows: idx } = await sql`
+      select 1 from pg_indexes
+      where indexname = 'moderation_actions_moderator_id_idx'`.execute(t.db);
+    expect(idx).toHaveLength(1);
   });
 
   it("The table has the columns and the migration keeps them", async () => {

@@ -141,7 +141,8 @@ requests     (id, kind, work_id NULL, pseud_norm NULL, contact_email, statement,
 optouts      (id, pseud_norm, ao3_user NULL, request_id, active, created_at)  -- checked at ingest
 requester_blocks (id, contact_email NULL, ip_hash NULL, created_by, created_at)
 moderation_actions (id, moderator_id, action, target_kind, target_id, note NULL,
-              created_at)  -- no FK on target_id (it points at different tables); action and
+              created_at)  -- no FK on moderator_id (rows outlive the account) or target_id (it
+                           -- points at different tables); action and
                            -- target_kind are free text; note is short, never reader data
                            -- or a requester's email
 waitlist     (email PRIMARY KEY,               -- trimmed and lowercased; deleted after launch
@@ -753,8 +754,8 @@ epub, under the normal versioning rules.
   no moderator chose (the reports' automatic hide, a removal request's hide)
   writes none. Hide, restore and the request and takedown rejects write a row
   today; each later action calls the same helper, `logModerationAction`, when
-  it is built. The row's `moderator_id` keeps its foreign key to `user`, so
-  an account with logged actions can't be deleted. Anyone
+  it is built. The row's `moderator_id` has no foreign key to `user`, so
+  deleting an account keeps its log rows, with the id as it was. Anyone
   without the moderator or admin role, signed out included, gets 404 for every
   `/admin` URL, so the admin area isn't advertised.
 
