@@ -175,10 +175,18 @@ describe("search operators and limits", () => {
     expect(await searchLiveWorks(t.db, "-lantern -marsh")).toEqual({ works: [], total: 0 });
   });
 
-  it("caps the page size", async () => {
-    const r = await searchLiveWorks(t.db, word, { pageSize: 70_000 });
-    expect(r.works.length).toBe(2);
-    expect(r.total).toBe(2);
+  it("finds nothing for exclusions around no usable word", async () => {
+    expect(await ids("!!! -lantern")).toEqual([]);
+  });
+
+  it("caps the page size at 100", async () => {
+    const many = "cormorantledge";
+    await Promise.all(
+      Array.from({ length: 101 }, (_, i) => seedWork(t.db, { title: `${many} ${i}` })),
+    );
+    const r = await searchLiveWorks(t.db, many, { pageSize: 70_000 });
+    expect(r.total).toBe(101);
+    expect(r.works).toHaveLength(100);
   });
 
   it("indexes a very long summary without failing the save", async () => {

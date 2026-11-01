@@ -39,7 +39,11 @@ export async function searchLiveWorks(
 ): Promise<SearchResults> {
   // Postgres refuses a NUL in text.
   // Cut by code point, so an astral character isn't split.
-  const q = Array.from(query.replaceAll("\0", " ")).slice(0, MAX_QUERY).join("").trim();
+  // Cut first at twice the limit in code units, so a huge input isn't expanded whole.
+  const q = Array.from(query.slice(0, MAX_QUERY * 2).replaceAll("\0", " "))
+    .slice(0, MAX_QUERY)
+    .join("")
+    .trim();
   // What the trigram path reads: the words asked for, without excluded ones ("-word")
   // or quote marks, which only the full-text path understands. A query of nothing
   // but exclusions asks for no word, so it finds nothing.
@@ -52,7 +56,9 @@ export async function searchLiveWorks(
   // A query that excludes a word is matched by full text alone: similarity can't honour it.
   const excludes = /(^|\s)-\S+/.test(q);
   const matches = excludes
-    ? sql<boolean>`(works.search @@ ${tsq})`
+    ? // The words asked for must make at least one term, or "!!! -word" would match every other work.
+      sql<boolean>`(works.search @@ ${tsq}
+        and numnode(websearch_to_tsquery('simple', ${fuzzy}::text)) > 0)`
     : sql<boolean>`(works.search @@ ${tsq} or works.search_text %> ${fuzzy}::text)`;
   const rank = sql<number>`(coalesce(ts_rank_cd(works.search, ${tsq}, 32), 0)
     + coalesce(word_similarity(${fuzzy}::text, works.search_text), 0))`;
