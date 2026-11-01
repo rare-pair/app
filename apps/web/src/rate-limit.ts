@@ -13,6 +13,9 @@ export const WAITLIST_WINDOW_SECONDS = 60;
 /** The notice form's limit window, as wrangler.jsonc sets it: the binding doesn't say. */
 export const DMCA_WINDOW_SECONDS = 60;
 
+/** The removal form's limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
+export const REMOVE_WINDOW_SECONDS = 60;
+
 /**
  * A limiter key: a hex SHA-256 of the value under its prefix, so the limiter is never handed
  * the address itself. Unkeyed, so not a secret: an IPv4 key can be reversed by trying every
