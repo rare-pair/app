@@ -87,9 +87,25 @@ async function sweepWork(deps: SweepDeps, ao3WorkId: number): Promise<void> {
     if (!page.truncated) break;
     cursor = page.cursor;
   }
+  const candidates = new Map<string, string>();
   for (const prefix of prefixes) {
     const segment = prefix.slice(folder.length, -1);
-    if (!UPLOAD_ID.test(segment) || versionPrefixes.has(prefix)) continue;
+    if (UPLOAD_ID.test(segment) && !versionPrefixes.has(prefix)) candidates.set(segment, prefix);
+  }
+  // The uploads a job may still be writing for: a prefix's own, or one already tied to the work.
+  const inFlight = await db
+    .selectFrom("uploads")
+    .select("id")
+    .where("status", "in", ["pending", "processing"])
+    .where((eb) => {
+      const arms = [];
+      if (candidates.size > 0) arms.push(eb("id", "in", [...candidates.keys()]));
+      if (work !== undefined) arms.push(eb("work_id", "=", work.id));
+      return eb.or(arms);
+    })
+    .execute();
+  for (const { id } of inFlight) candidates.delete(id);
+  for (const prefix of candidates.values()) {
     const objects = await listAll(bucket, prefix);
     // A prefix goes whole or not at all: one object put since the cutoff keeps all of it.
     if (objects.some((o) => o.uploaded >= cutoff)) continue;
@@ -98,6 +114,8 @@ async function sweepWork(deps: SweepDeps, ao3WorkId: number): Promise<void> {
       objects.map((o) => o.key),
     );
   }
+  // A job may be about to commit a version that references images already here.
+  if (inFlight.length > 0) return;
   const referenced = new Set<string>();
   if (work !== undefined) {
     for (const key of imageRefs(work.summary_html ?? "", ao3WorkId)) referenced.add(key);
