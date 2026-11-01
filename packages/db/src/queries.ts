@@ -14,6 +14,7 @@ import type {
 } from "./schema";
 import { inTransaction, logModerationAction } from "./moderation-actions";
 import { compareCodeUnits, normalizeTagName } from "./tags";
+import { copyVersionToWork } from "./version-copy";
 
 /** A work's own fields, as a page shows them. */
 export type WorkSummary = Pick<
@@ -827,6 +828,52 @@ export async function restoreWork(
         action: "restore",
         targetKind: "work",
         targetId: workId,
+      });
+    }
+    return true;
+  });
+}
+
+/**
+ * Makes one of a work's versions current: moves `current_version_id` to it and makes the
+ * work describe it (`copyVersionToWork`: its non-NULL columns, its byline and tags, the
+ * search text), in one transaction. True when the version is current afterwards. A removed
+ * work, or one ingest is still finishing (it sets the version itself), is left as it is:
+ * false. The work's row is locked first, as ingest's replace locks it, so a concurrent
+ * replace or hold waits and decides against the version made current here. It doesn't check
+ * the version's upload: the caller decides whether a held version may become current (only
+ * an approval makes one current).
+ *
+ * With `actor`, the acting moderator's user id, it also logs `make_current` on the version
+ * when the pointer moved. It runs in the caller's transaction when `db` is one.
+ */
+export async function makeVersionCurrent(
+  db: Kysely<Database>,
+  workId: string,
+  versionId: string,
+  options: { actor?: string } = {},
+): Promise<boolean> {
+  return inTransaction(db, async (trx) => {
+    const work = await trx
+      .selectFrom("works")
+      .select("current_version_id")
+      .where("id", "=", workId)
+      .where("status", "in", ["live", "hidden"])
+      .forNoKeyUpdate()
+      .executeTakeFirst();
+    if (work === undefined) return false;
+    await trx
+      .updateTable("works")
+      .set({ current_version_id: versionId })
+      .where("id", "=", workId)
+      .execute();
+    await copyVersionToWork(trx, workId, versionId);
+    if (options.actor !== undefined && work.current_version_id !== versionId) {
+      await logModerationAction(trx, {
+        moderatorId: options.actor,
+        action: "make_current",
+        targetKind: "version",
+        targetId: versionId,
       });
     }
     return true;
