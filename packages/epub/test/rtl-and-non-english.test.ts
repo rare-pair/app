@@ -18,6 +18,9 @@ interface Script {
   chapter: string;
   /** The attributes the source markup carries, kept verbatim. */
   attrs: string;
+  lang: string;
+  /** Words in `chapter`: split on spaces for Arabic and Hebrew, one per character for Japanese. */
+  words: number;
 }
 
 const scripts: Script[] = [
@@ -31,6 +34,8 @@ const scripts: Script[] = [
     endNotes: "ملاحظات ختامية قصيرة.",
     chapter: "كتبنا هذه الجملة للاختبار فقط.",
     attrs: 'dir="rtl" lang="ar"',
+    lang: "ar",
+    words: 5,
   },
   {
     name: "Hebrew",
@@ -42,6 +47,8 @@ const scripts: Script[] = [
     endNotes: "הערות סיום קצרות.",
     chapter: "כתבנו את המשפט הזה לבדיקה בלבד.",
     attrs: 'dir="rtl" lang="he"',
+    lang: "he",
+    words: 6,
   },
   {
     name: "Japanese",
@@ -53,22 +60,29 @@ const scripts: Script[] = [
     endNotes: "短い後書き。",
     chapter: "これはテストのためだけに書いた文です。",
     attrs: 'dir="ltr" lang="ja"',
+    lang: "ja",
+    words: 18,
   },
 ];
 
+/** The paragraph the source carries: the sanitizer must strip its `class` and `xml:lang`. */
+const sourceP = (s: Script, text: string) =>
+  `<p class="calibre7" xml:lang="${s.lang}" ${s.attrs}>${text}</p>`;
+/** The paragraph that should come out. */
+const keptP = (s: Script, text: string) => `<p ${s.attrs}>${text}</p>`;
+
 function scriptEpub(s: Script): Uint8Array {
   const name = "Synthetic_split_001.xhtml";
-  const p = (text: string) => `<p ${s.attrs}>${text}</p>`;
   return ao3Epub({
     title: s.title,
     extraDl: `<dt>Language:</dt><dd>${s.language}</dd>`,
-    summary: p(s.summary),
-    notes: p(s.notes),
-    endNotes: p(s.endNotes),
+    summary: sourceP(s, s.summary),
+    notes: sourceP(s, s.notes),
+    endNotes: sourceP(s, s.endNotes),
     files: [
       {
         name,
-        body: `<div id="chapters"><div class="userstuff2">${p(s.chapter)}</div></div>`,
+        body: `<div id="chapters"><div class="userstuff2">${sourceP(s, s.chapter)}</div></div>`,
       },
     ],
     navPoints: [{ label: s.chapterTitle, src: encodeURI(name) }],
@@ -76,30 +90,27 @@ function scriptEpub(s: Script): Uint8Array {
 }
 
 describe("06-ao3-preface-and-chapters", () => {
-  it("Right-to-left and non-English text survive parsing", async () => {
-    for (const s of scripts) {
-      const epub = scriptEpub(s);
-      const work = await processEpub(epub.slice());
-      const p = (text: string) => `<p ${s.attrs}>${text}</p>`;
+  it.each(scripts)("Right-to-left and non-English text survive parsing: $name", async (s) => {
+    const epub = scriptEpub(s);
+    const work = await processEpub(epub.slice());
 
-      expect(work.title, s.name).toBe(s.title);
-      expect(work.language, s.name).toBe(s.language);
-      expect(work.summaryHtml, s.name).toContain(p(s.summary));
-      expect(work.notesHtml, s.name).toContain(p(s.notes));
-      expect(work.endNotesHtml, s.name).toContain(p(s.endNotes));
-      expect(work.chapters, s.name).toHaveLength(1);
-      expect(work.chapters[0]?.title, s.name).toBe(s.chapterTitle);
-      expect(work.chapters[0]?.html, s.name).toContain(p(s.chapter));
-      expect(work.chapters[0]?.words, s.name).toBeGreaterThan(0);
-      expect(work.reviewReasons, s.name).toEqual([]);
+    expect(work.title).toBe(s.title);
+    expect(work.language).toBe(s.language);
+    expect(work.summaryHtml).toContain(keptP(s, s.summary));
+    expect(work.notesHtml).toContain(keptP(s, s.notes));
+    expect(work.endNotesHtml).toContain(keptP(s, s.endNotes));
+    expect(work.chapters).toHaveLength(1);
+    expect(work.chapters[0]?.title).toBe(s.chapterTitle);
+    expect(work.chapters[0]?.html).toContain(keptP(s, s.chapter));
+    expect(work.chapters[0]?.words).toBe(s.words);
+    expect(work.reviewReasons).toEqual([]);
 
-      const html = [work.summaryHtml, work.notesHtml, work.endNotesHtml, work.chapters[0]?.html];
-      for (const part of html) {
-        expect(part, s.name).not.toContain("xml:lang");
-        expect(part, s.name).not.toContain("class=");
-      }
-
-      expect(await processEpub(epub.slice()), s.name).toEqual(work);
+    const html = [work.summaryHtml, work.notesHtml, work.endNotesHtml, work.chapters[0]?.html];
+    for (const part of html) {
+      expect(part).not.toContain("xml:lang");
+      expect(part).not.toContain("class=");
     }
+
+    expect(await processEpub(epub.slice())).toEqual(work);
   });
 });
