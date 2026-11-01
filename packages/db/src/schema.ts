@@ -328,6 +328,16 @@ export interface WaitlistTable {
   created_at: CreatedTimestamp;
 }
 
+/** Where the periodic sweep (apps/sweep) stopped: one row, `id` 1. */
+export interface SweepStateTable {
+  id: ColumnType<number, never, never>;
+  /** The R2 key the next run lists after, past the last folder swept. NULL for the first folder. */
+  after: string | null;
+  /** The folder a run is sweeping, cleared when it ends. Set at a run's start: the last one was killed there. */
+  current: string | null;
+  updated_at: CreatedTimestamp;
+}
+
 export interface Database {
   user: UserTable;
   session: SessionTable;
@@ -348,4 +358,5 @@ export interface Database {
   requester_blocks: RequesterBlockTable;
   moderation_actions: ModerationActionTable;
   waitlist: WaitlistTable;
+  sweep_state: SweepStateTable;
 }
