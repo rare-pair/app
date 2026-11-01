@@ -1,5 +1,5 @@
 // The detail page of each report, takedown and request under /admin, and the actions on
-// them: hide and restore a work (keyed by its AO3 work ID) and reject an item (keyed by
+// them: hide, restore and remove a work (keyed by its AO3 work ID) and reject an item (keyed by
 // its own id). Mounted in admin.ts, behind `adminGate`.
 
 import { hideWork, logModerationAction, removeWork, restoreWork } from "@archive/db";
@@ -21,7 +21,7 @@ import { isSameOrigin } from "./signin";
 /** An AO3 work ID is an int4. */
 const MAX_INT4 = 2_147_483_647;
 
-/** Plenty for the one field these forms carry. */
+/** Plenty for the fields these forms carry: `from`, and `confirm` on a remove. */
 const MAX_FORM = 1024;
 
 /**

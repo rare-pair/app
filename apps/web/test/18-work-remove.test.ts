@@ -161,7 +161,7 @@ describe("Remove work: who may, and which works", () => {
   });
 
   it("An unknown work gets 404", async () => {
-    for (const id of [String(W + 99), "0", "x", "99999999999"]) {
+    for (const id of [String(W + 99), "0", "x", "2147483648", "99999999999"]) {
       expect(
         (await post(`/admin/works/${id}/remove`, moderator, { confirm: "yes" })).status,
         id,

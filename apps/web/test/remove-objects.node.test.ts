@@ -38,6 +38,19 @@ describe("deleteWorkObjects", () => {
     expect([...held].sort()).toEqual(neighbour);
   });
 
+  it("Deletes exactly 1000 and 1001 listed keys, with upload keys across the batch edge", async () => {
+    for (const n of [1000, 1001]) {
+      const id = 140000 + n;
+      const { bucket, held } = fakeBucket([
+        ...chapters(`works/${id}/up-1/`, n),
+        `originals/up-${n}.epub`,
+        `uploads/up-${n}.epub`,
+      ]);
+      await deleteWorkObjects(bucket, id, [{ id: `up-${n}`, r2_key: `uploads/up-${n}.epub` }]);
+      expect(held.size, String(n)).toBe(0);
+    }
+  });
+
   it("Deletes each upload's original and raw file, and nothing else", async () => {
     const { bucket, held } = fakeBucket([
       "originals/up-1.epub",
