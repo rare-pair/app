@@ -839,8 +839,10 @@ export async function restoreWork(
  * work describe it (`copyVersionToWork`: its non-NULL columns, its byline and tags, the
  * search text), in one transaction. True when the version is current afterwards. A removed
  * work, or one ingest is still finishing (it sets the version itself), is left as it is:
- * false. The work's row is locked first, as ingest's replace locks it, so a concurrent
- * replace or hold waits and decides against the version made current here. It doesn't check
+ * false. A version already current is left as it is: true, with nothing written. Otherwise the
+ * work's row is locked (for no key update, the lock ingest's compare-and-swap takes) before
+ * any tag row, and every change to the work comes with the pointer's move, so a replace, hold
+ * or duplicate that read the old pointer fails its pointer check and decides again. It doesn't check
  * the version's upload: the caller decides whether a held version may become current (only
  * an approval makes one current).
  *
@@ -862,13 +864,16 @@ export async function makeVersionCurrent(
       .forNoKeyUpdate()
       .executeTakeFirst();
     if (work === undefined) return false;
+    // Nothing changes, so nothing is written or logged: a copy without a pointer move would
+    // change the facts an ingest decided on without failing its pointer check.
+    if (work.current_version_id === versionId) return true;
     await trx
       .updateTable("works")
       .set({ current_version_id: versionId })
       .where("id", "=", workId)
       .execute();
     await copyVersionToWork(trx, workId, versionId);
-    if (options.actor !== undefined && work.current_version_id !== versionId) {
+    if (options.actor !== undefined) {
       await logModerationAction(trx, {
         moderatorId: options.actor,
         action: "make_current",

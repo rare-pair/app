@@ -1,7 +1,7 @@
 // Copies a version onto its work, and writes a work's byline and tags. Shared by ingest's
 // replace and first upload, make-current, approval and the seed helper. It imports only
 // Kysely and pure modules, so ingest and the seed module, which load in workerd, can use it.
-import { sql, type Kysely } from "kysely";
+import { sql, type Transaction } from "kysely";
 import type { Database, VersionAuthor, VersionTag } from "./schema";
 import { refreshWorkSearch } from "./search-index";
 import { compareTagKeys, normalizeTagName } from "./tags";
@@ -20,7 +20,7 @@ const ROWS_PER_INSERT = 1_000;
  * pointer are one writer's.
  */
 export async function copyVersionToWork(
-  trx: Kysely<Database>,
+  trx: Transaction<Database>,
   workId: string,
   versionId: string,
 ): Promise<void> {
@@ -56,7 +56,7 @@ export async function copyVersionToWork(
 
 /** Inserts the work's byline in the order given. The work must have none yet. */
 async function writeWorkAuthors(
-  trx: Kysely<Database>,
+  trx: Transaction<Database>,
   workId: string,
   authors: VersionAuthor[],
 ): Promise<void> {
@@ -74,7 +74,7 @@ async function writeWorkAuthors(
  * yet, and each tag must appear once.
  */
 async function writeWorkTags(
-  trx: Kysely<Database>,
+  trx: Transaction<Database>,
   workId: string,
   tags: VersionTag[],
 ): Promise<void> {
