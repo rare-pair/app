@@ -59,6 +59,7 @@ export type {
   WorkStatus,
   HiddenCause,
   TagType,
+  HoldReason,
   UploadStatus,
   RateLimitTable,
   ReportTable,

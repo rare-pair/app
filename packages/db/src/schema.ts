@@ -159,7 +159,25 @@ export interface WorkVersionTable {
   tags: ColumnType<VersionTag[] | null, string | null | undefined, string | null>;
   /** This version's byline in the file's order. NULL before migration 0010. Write it with `JSON.stringify`. */
   authors: ColumnType<VersionAuthor[] | null, string | null | undefined, string | null>;
+  // This version's own copy of the `works` columns that describe it, as its file gave them:
+  // NULL for a field the file lacked, and on every version saved before migration 0012 that
+  // wasn't then current. `works` holds the current version's.
+  title: string | null;
+  summary_html: string | null;
+  rating: string | null;
+  language: string | null;
+  words: number | null;
+  complete: boolean | null;
+  published_at: Timestamp | null;
+  updated_at: Timestamp | null;
+  /** Write it with `JSON.stringify`. */
+  raw_meta: ColumnType<Record<string, string> | null, string | null | undefined, string | null>;
+  /** Why ingest held this version for review. NULL for a version it didn't hold. */
+  hold_reason: HoldReason | null;
 }
+
+/** `decideVersion`'s reasons for holding a newer version (ARCHITECTURE, EPUB processor step 7). */
+export type HoldReason = "chapters_changed" | "tags_changed" | "authors_changed";
 
 export interface VersionTag {
   type: TagType;
