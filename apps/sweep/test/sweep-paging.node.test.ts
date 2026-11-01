@@ -184,6 +184,51 @@ describe("sweep safety", () => {
     for (const ao3WorkId of failing) expect(keys()).toContain(`works/${ao3WorkId}/img/${IMG(1)}`);
   });
 
+  it("A run saves its place after each work, and stops if another run moved it", async () => {
+    const files: Record<string, string> = {};
+    for (const ao3WorkId of [5_000_001, 5_000_002, 5_000_003]) {
+      const work = await seedWork(t.db, { ao3WorkId });
+      for (const f of work.fragments) files[f.key] = f.body;
+      files[`works/${ao3WorkId}/img/${IMG(1)}`] = "";
+    }
+    const seen: (string | null)[] = [];
+    const { bucket, keys } = pagingBucket(files, async (key) => {
+      if (!key.startsWith("works/5000002/")) return;
+      const row = await t.db.selectFrom("sweep_state").select("after").executeTakeFirstOrThrow();
+      seen.push(row.after);
+      // Another run, meanwhile, has gone further.
+      await t.db.updateTable("sweep_state").set({ after: "works/6/~" }).execute();
+    });
+
+    const report = await sweep({ db: t.db, bucket, cutoff: new Date(), limits: LIMITS });
+
+    // The first work's place was saved before the second began.
+    expect(seen).toEqual(["works/5000001/~"]);
+    expect(report.overlapped).toBe(true);
+    expect(keys()).toContain(`works/5000003/img/${IMG(1)}`);
+    const row = await t.db.selectFrom("sweep_state").select("after").executeTakeFirstOrThrow();
+    expect(row.after).toBe("works/6/~");
+  });
+
+  it("The reference scan stops once every old image is referenced", async () => {
+    const chapters = Array.from({ length: 30 }, () => ({
+      html: `<img src="/works/7000001/img/${IMG(1)}">`,
+    }));
+    const work = await seedWork(t.db, { ao3WorkId: 7_000_001, chapters });
+    const files: Record<string, string> = Object.fromEntries(
+      work.fragments.map((f) => [f.key, f.body]),
+    );
+    files[`works/7000001/img/${IMG(1)}`] = "";
+    let gets = 0;
+    const { bucket, keys } = pagingBucket(files, async () => void gets++);
+
+    await sweep({ db: t.db, bucket, cutoff: new Date(), limits: LIMITS });
+
+    expect(keys()).toContain(`works/7000001/img/${IMG(1)}`);
+    // The first reads find it; the pool takes no more.
+    expect(gets).toBeLessThan(30);
+  });
+
   it("A folder not named as ingest names one is left alone", async () => {
     const { bucket, keys } = pagingBucket({
       [`works/0123/img/${IMG(1)}`]: "",

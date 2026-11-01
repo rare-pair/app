@@ -15,8 +15,10 @@
   // subrequests (src/sweep.ts), so it needs Workers Paid.
   "triggers": { "crons": ["17 3 * * *"] },
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "rarepair" }],
-  // Neon Postgres. The id is a placeholder until the Hyperdrive config is created; tests replace
-  // the local connection string with their own database.
+  // Neon Postgres. The id is a placeholder until the Hyperdrive config is created, with
+  // `--caching-disabled`: the sweep decides what to delete from what it reads, so every read
+  // must be fresh (src/sweep.ts also keeps its reads uncacheable). Tests replace the local
+  // connection string with their own database.
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",

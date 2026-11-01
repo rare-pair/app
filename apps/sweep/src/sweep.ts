@@ -1,6 +1,14 @@
 import type { Database } from "@archive/db";
-import type { Kysely } from "kysely";
+import { sql, type Kysely } from "kysely";
 import { imageRefs } from "./refs";
+
+/**
+ * Selected beside every read. Hyperdrive caches read queries (60 seconds by default) but never
+ * one that calls a STABLE function such as this, so the sweep always sees the database as it is:
+ * a stale "nothing in flight" or "no such version" would delete what a job just made. The
+ * sweep's Hyperdrive config should have caching disabled too.
+ */
+const FRESH = sql<Date>`now()`.as("read_at");
 
 /** An object in a listing, as far as the sweep reads it. */
 export interface ListedObject {
@@ -38,8 +46,9 @@ export interface Limits {
 }
 
 /**
- * Well under the platform's limits, so one daily run always ends cleanly. The subrequests bound
- * the R2 work; the works bound the Postgres queries (about four a work).
+ * Under the platform's limits (10,000 subrequests on Workers Paid; 15 minutes of CPU for a daily
+ * cron). The subrequests bound the R2 work; the works bound the Postgres queries, at most seven a
+ * work (two to look at the folder, two to read references, two to look again, one to save).
  */
 export const LIMITS: Limits = { works: 1_000, subrequests: 8_000 };
 
@@ -63,6 +72,8 @@ export interface RunReport {
   skipped: { ao3WorkId: number; reason: SkipReason; error?: string }[];
   /** The run reached the last folder: the next one starts from the first. */
   finished: boolean;
+  /** Another run moved the saved place meanwhile, so this one stopped. */
+  overlapped?: true;
   subrequestsLeft: number;
 }
 
@@ -112,10 +123,25 @@ export async function sweep(deps: SweepDeps): Promise<RunReport> {
   };
   const state = await db
     .selectFrom("sweep_state")
-    .select("after")
+    .select(["after", FRESH])
     .where("id", "=", 1)
     .executeTakeFirstOrThrow();
   let after = state.after;
+  // Saved after every work, so a run the platform ends keeps what it did; and only over the
+  // value this run last saw, so a run that overlaps another stops instead of moving it back.
+  let saved = state.after;
+  const save = async (): Promise<boolean> => {
+    if (after === saved) return true;
+    const result = await db
+      .updateTable("sweep_state")
+      .set({ after, updated_at: new Date() })
+      .where("id", "=", 1)
+      .where(sql<boolean>`"after" is not distinct from ${saved}`)
+      .executeTakeFirst();
+    if (result.numUpdatedRows === 0n) return false;
+    saved = after;
+    return true;
+  };
   try {
     let cursor: string | undefined;
     walk: for (;;) {
@@ -132,27 +158,30 @@ export async function sweep(deps: SweepDeps): Promise<RunReport> {
         if (ao3WorkId !== null) {
           try {
             await sweepWork({ ...deps, bucket }, ao3WorkId, report);
+            report.works++;
           } catch (error) {
-            if (!(error instanceof BudgetSpent)) {
-              // Passed over, so one work that always fails doesn't stop every run on it; a few
-              // in one run look like an outage, and end it.
-              report.skipped.push({ ao3WorkId, reason: "error", error: errorCode(error) });
-              after = past(folder);
-              if (report.skipped.filter((s) => s.reason === "error").length >= MAX_ERRORS) {
-                break walk;
+            if (error instanceof BudgetSpent) {
+              // A work too big for a whole run would stop every run on it: the first is passed.
+              if (report.works === 0) {
+                report.skipped.push({ ao3WorkId, reason: "budget" });
+                after = past(folder);
               }
-              continue;
+              break walk;
             }
-            // A work too big for a whole run would stop every run on it: the first is passed.
-            if (report.works === 0) {
-              report.skipped.push({ ao3WorkId, reason: "budget" });
+            // Passed over, so one work that always fails doesn't stop every run on it; a few in
+            // one run look like an outage, and end it.
+            report.skipped.push({ ao3WorkId, reason: "error", error: errorCode(error) });
+            if (report.skipped.filter((s) => s.reason === "error").length >= MAX_ERRORS) {
               after = past(folder);
+              break walk;
             }
-            break walk;
           }
-          report.works++;
         }
         after = past(folder);
+        if (!(await save())) {
+          report.overlapped = true;
+          break walk;
+        }
       }
       if (!page.truncated) {
         after = null;
@@ -165,11 +194,7 @@ export async function sweep(deps: SweepDeps): Promise<RunReport> {
     if (!(error instanceof BudgetSpent)) throw error;
   } finally {
     report.subrequestsLeft = budget.left;
-    await db
-      .updateTable("sweep_state")
-      .set({ after, updated_at: new Date() })
-      .where("id", "=", 1)
-      .execute();
+    if (!report.overlapped && !(await save())) report.overlapped = true;
   }
   return report;
 }
@@ -253,7 +278,7 @@ async function folderState(
   // tied to any work.
   const inFlight = await db
     .selectFrom("uploads")
-    .select("id")
+    .select(["id", FRESH])
     .where("status", "in", ["pending", "processing"])
     .where((eb) =>
       eb.or([
@@ -269,7 +294,7 @@ async function folderState(
   const versions = await db
     .selectFrom("work_versions")
     .innerJoin("works", "works.id", "work_versions.work_id")
-    .select("work_versions.r2_prefix")
+    .select(["work_versions.r2_prefix", FRESH])
     .where("works.ao3_work_id", "=", ao3WorkId)
     .execute();
   return {
@@ -322,10 +347,15 @@ async function sweepWork(deps: SweepDeps, ao3WorkId: number, report: RunReport):
   if (old.length === 0) return;
   const work = await db
     .selectFrom("works")
-    .select(["id", "summary_html"])
+    .select(["id", "summary_html", FRESH])
     .where("ao3_work_id", "=", ao3WorkId)
     .executeTakeFirst();
-  const referenced = await referencedImages(deps, ao3WorkId, work);
+  const referenced = await referencedImages(
+    deps,
+    ao3WorkId,
+    work,
+    new Set(old.map((o) => o.key.slice(img.length))),
+  );
   if (referenced === null) {
     report.skipped.push({ ao3WorkId, reason: "unreadable_fragment" });
     return;
@@ -344,35 +374,49 @@ async function sweepWork(deps: SweepDeps, ao3WorkId: number, report: RunReport):
 }
 
 /**
- * The image keys any version of the work references: in every fragment of every version
- * (a held one can be made current), and in the work's summary. Null when a fragment is missing,
- * so the scan is incomplete.
+ * Which of `candidates` any version of the work references: in every fragment of every version
+ * (a held one can be made current), and in the work's summary. The scan stops early once every
+ * candidate is referenced, since nothing is left to delete. Null when a fragment is missing, so
+ * the scan is incomplete.
  */
 async function referencedImages(
   { db, bucket }: SweepDeps,
   ao3WorkId: number,
   work: { id: string; summary_html: string | null } | undefined,
+  candidates: Set<string>,
 ): Promise<Set<string> | null> {
   const referenced = new Set<string>();
+  const note = (html: string) => {
+    for (const key of imageRefs(html, ao3WorkId)) if (candidates.has(key)) referenced.add(key);
+  };
   if (work === undefined) return referenced;
-  for (const key of imageRefs(work.summary_html ?? "", ao3WorkId)) referenced.add(key);
+  note(work.summary_html ?? "");
   const chapters = await db
     .selectFrom("chapters")
-    .select("r2_key")
+    .select(["r2_key", FRESH])
     .where("work_id", "=", work.id)
     .execute();
   // SAFETY: the readers below assign it; TypeScript can't see a callback's assignment.
   let complete = true as boolean;
+  // SAFETY: as `complete`.
+  let stop = false as boolean;
   const queue = chapters.values();
   const reader = async () => {
     for (const c of queue) {
-      if (!complete) return;
-      const object = await bucket.get(c.r2_key);
-      if (object === null) {
-        complete = false;
-        return;
+      if (stop || referenced.size === candidates.size) return;
+      try {
+        const object = await bucket.get(c.r2_key);
+        if (object === null) {
+          complete = false;
+          stop = true;
+          return;
+        }
+        note(await object.text());
+      } catch (error) {
+        // The other readers stop too, rather than spend the budget on a work already failed.
+        stop = true;
+        throw error;
       }
-      for (const key of imageRefs(await object.text(), ao3WorkId)) referenced.add(key);
     }
   };
   await Promise.all(Array.from({ length: Math.min(GET_POOL, chapters.length) }, reader));

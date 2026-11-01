@@ -411,8 +411,8 @@ Chapter text isn't indexed.
    `authors`); the upload is `held_for_review`. A `duplicate` adds no
    version; the upload is `duplicate`, with its `work_id` set and its
    original kept under `originals/`. No version points at its `<upload_id>/`
-   fragments, so the periodic sweep deletes them once they are 24 hours old,
-   like any orphaned prefix. A replace never changes the work's status: a hidden work stays so (a
+   fragments, so the periodic sweep deletes them, like any orphaned prefix,
+   on its first pass over the work after they are 24 hours old. A replace never changes the work's status: a hidden work stays so (a
    removed work takes no upload). Only a work's first upload sets it `live`.
 
 **Rejection codes:** `not_epub`, `zip_bomb`, `too_large`, `not_ao3`,
