@@ -3,12 +3,11 @@
 // and /settings/reader both write it here.
 
 import { createDb } from "@archive/db";
-import type { Context } from "hono";
 import type { Bindings } from "./env";
 
 /** Sets `user.warnings_off` for `userId`. One query, so one connection. */
 export async function setWarningsOff(
-  c: Context<{ Bindings: Bindings }>,
+  c: { env: Bindings; executionCtx: { waitUntil(promise: Promise<unknown>): void } },
   userId: string,
   off: boolean,
 ) {
