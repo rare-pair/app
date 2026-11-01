@@ -5,6 +5,7 @@ import { assetRoute } from "./assets";
 import { confirmSignIn, showConfirm } from "./confirm";
 import type { Bindings } from "./env";
 import { showFull } from "./full";
+import { homePage } from "./home";
 import { deadLetteredLaunchEmails } from "./launch-dead-letter";
 import { showTagListing } from "./listing";
 import { requestSignIn, showSignIn } from "./login";
@@ -62,11 +63,11 @@ app.route("/admin", admin);
 // The wait list pages' fonts and stylesheet. S1 serves its own stylesheet elsewhere under /assets/.
 app.get("/assets/waitlist/*", assetRoute);
 
-// The coming-soon page before launch. After it there is no home page yet.
-app.get("/", (c) =>
+// The coming-soon page before launch, the home page after it.
+app.get("/", async (c) =>
   isPrelaunch(c.env)
     ? c.html(comingSoonPage(c.get("nonce"), c.env.TURNSTILE_SITE_KEY))
-    : c.notFound(),
+    : c.html(await homePage(c.env, c.executionCtx)),
 );
 app.get("/login", showSignIn);
 app.post("/login", requestSignIn);
