@@ -21,6 +21,10 @@ describe("22-waitlist", () => {
     const { queues } = readConfig();
 
     expect(queues.consumers.map((c) => c.queue)).toEqual(["email-bulk-dlq"]);
-    expect(queues.producers).toEqual([{ binding: "EMAIL", queue: "email" }]);
+    // Beside the ingest producer that POST /uploads/:id/complete sends to.
+    expect(queues.producers).toEqual([
+      { binding: "EMAIL", queue: "email" },
+      { binding: "INGEST", queue: "ingest" },
+    ]);
   });
 });

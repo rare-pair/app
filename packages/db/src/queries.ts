@@ -8,6 +8,7 @@ import type {
   HiddenCause,
   TagTable,
   TagType,
+  UploadStatus,
   WorkTable,
   WorkVersionTable,
 } from "./schema";
@@ -385,6 +386,84 @@ export async function insertUpload(
     .returning("id")
     .executeTakeFirstOrThrow();
   return { id: row.id, status: "pending" };
+}
+
+/** The upload `/complete` needs to act on: its R2 key and where it stands. */
+export interface OwnUpload {
+  id: string;
+  r2_key: string;
+  status: UploadStatus;
+}
+
+/** The upload with this id if `userId` made it, else null: another user's is no different from none. */
+export async function getUploadOf(
+  db: Kysely<Database>,
+  id: string,
+  userId: string,
+): Promise<OwnUpload | null> {
+  const row = await db
+    .selectFrom("uploads")
+    .select(["id", "r2_key", "status"])
+    .where("id", "=", id)
+    .where("user_id", "=", userId)
+    .executeTakeFirst();
+  return row ?? null;
+}
+
+/**
+ * Stores a `pending` upload's SHA-256 (lowercase hex), and marks it `duplicate` of work W when
+ * an earlier upload with that hash was ingested into W while W is `live` or `hidden`
+ * (ARCHITECTURE, Ingestion pipeline, step 3). An earlier upload still `pending` or `processing`,
+ * rejected, or whose work was removed gives no match. Returns W's id as `duplicateOf`, or null
+ * for no match; returns null itself, writing nothing, when the upload isn't `pending`.
+ */
+export async function recordUploadHash(
+  db: Kysely<Database>,
+  id: string,
+  sha256: string,
+): Promise<{ duplicateOf: string | null } | null> {
+  return db.transaction().execute(async (trx) => {
+    const stored = await trx
+      .updateTable("uploads")
+      .set({ sha256 })
+      .where("id", "=", id)
+      .where("status", "=", "pending")
+      .returning("id")
+      .executeTakeFirst();
+    if (stored === undefined) return null;
+    const match = await trx
+      .selectFrom("uploads")
+      .innerJoin("works", "works.id", "uploads.work_id")
+      .select("works.id as work_id")
+      .where("uploads.sha256", "=", sha256)
+      .where("uploads.id", "!=", id)
+      .where("uploads.status", "in", ["live", "held_for_review", "duplicate"])
+      .where("works.status", "in", ["live", "hidden"])
+      // The same upload every time two works match.
+      .orderBy("uploads.created_at")
+      .orderBy("uploads.id")
+      .limit(1)
+      .executeTakeFirst();
+    if (match === undefined) return { duplicateOf: null };
+    await trx
+      .updateTable("uploads")
+      .set({ status: "duplicate", work_id: match.work_id })
+      .where("id", "=", id)
+      .execute();
+    return { duplicateOf: match.work_id };
+  });
+}
+
+/** Marks a `pending` upload `too_large`. False when it wasn't `pending`. */
+export async function rejectOversizedUpload(db: Kysely<Database>, id: string): Promise<boolean> {
+  const row = await db
+    .updateTable("uploads")
+    .set({ status: "too_large" })
+    .where("id", "=", id)
+    .where("status", "=", "pending")
+    .returning("id")
+    .executeTakeFirst();
+  return row !== undefined;
 }
 
 export interface PopularFandom {

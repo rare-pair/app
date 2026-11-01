@@ -32,6 +32,12 @@ export async function deliveredEmails(): Promise<unknown[]> {
   return (await (await env.EMAIL_SINK.fetch("https://email-sink/")).json()) as unknown[];
 }
 
+/** Every message the `ingest` queue has delivered so far, from vitest.config.ts's ingest-sink. */
+export async function deliveredIngest(): Promise<unknown[]> {
+  // SAFETY: the sink answers with the JSON array of message bodies it was delivered.
+  return (await (await env.INGEST_SINK.fetch("https://ingest-sink/")).json()) as unknown[];
+}
+
 /**
  * Waits for the queue to deliver `atLeast` messages to `to`, and returns every one it has.
  * Fails, naming the address, if they haven't come in 10 seconds.

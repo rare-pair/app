@@ -49,6 +49,15 @@ export default {
 };
 `;
 
+// The stand-in consumer `name` for `queue`: `email` (apps/mailer) and `ingest` (apps/ingest).
+const sink = (name: string, queue: string) => ({
+  name,
+  modules: true,
+  script: EMAIL_SINK,
+  compatibilityDate: "2026-08-01",
+  queueConsumers: { [queue]: { maxBatchSize: 1, maxBatchTimeout: 0 } },
+});
+
 /**
  * The Worker in workerd, as wrangler.jsonc deploys it, with `bindings` over its
  * own. The entry, compatibility date and bindings come from wrangler.jsonc, so
@@ -72,16 +81,8 @@ const worker = (bindings: Record<string, string> = {}) =>
         R2_SECRET_ACCESS_KEY: "test-only-secret-access-key",
         ...bindings,
       },
-      serviceBindings: { EMAIL_SINK: "email-sink" },
-      workers: [
-        {
-          name: "email-sink",
-          modules: true,
-          script: EMAIL_SINK,
-          compatibilityDate: "2026-08-01",
-          queueConsumers: { email: { maxBatchSize: 1, maxBatchTimeout: 0 } },
-        },
-      ],
+      serviceBindings: { EMAIL_SINK: "email-sink", INGEST_SINK: "ingest-sink" },
+      workers: [sink("email-sink", "email"), sink("ingest-sink", "ingest")],
     },
   }));
 
