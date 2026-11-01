@@ -123,8 +123,10 @@ export interface WorkTable {
   current_version_id: string | null;
   /** Preface labels the parser doesn't understand yet. Write it with `JSON.stringify`. */
   raw_meta: ColumnType<Record<string, string>, string | undefined, string>;
-  /** Filled by search, not here. */
+  /** A tsvector over `search_text`. Filled by `refreshWorkSearch`, in SQL, never as a bound string. */
   search: string | null;
+  /** The title, bylines, tags and summary text the trigram index reads. Filled by `refreshWorkSearch`. */
+  search_text: string | null;
 }
 
 export interface WorkAuthorTable {
