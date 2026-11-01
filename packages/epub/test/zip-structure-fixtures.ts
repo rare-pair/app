@@ -97,11 +97,21 @@ export function withUnusedZip64Locator(zip: Uint8Array): Uint8Array {
  * Gives `name`'s central entry a Zip64 extra field (id 0x0001) and declares its
  * sizes as 0xffffffff, as a ZIP64 writer does; the archive itself stays small.
  */
-export function withZip64Extra(zip: Uint8Array, name: string): Uint8Array {
-  const extra = new Uint8Array(12);
+export function withZip64Extra(
+  zip: Uint8Array,
+  name: string,
+  { maxSizes = true, after = 0, overrun = false } = {},
+): Uint8Array {
+  // `after` empty unknown fields (id 0x7777) come first; `overrun` makes the last one claim more
+  // bytes than the extra block holds.
+  const extra = new Uint8Array(after * 4 + 12);
   const e = viewOf(extra);
-  e.setUint16(0, 0x0001, true);
-  e.setUint16(2, 8, true);
+  for (let i = 0; i < after; i++) {
+    e.setUint16(i * 4, 0x7777, true);
+    e.setUint16(i * 4 + 2, overrun ? 0x1000 : 0, true);
+  }
+  e.setUint16(after * 4, 0x0001, true);
+  e.setUint16(after * 4 + 2, 8, true);
   let entryAt = -1;
   patchHeaders(zip, name, (_view, local, _size, nameAt) => {
     if (!local) entryAt = nameAt - 46;
@@ -114,8 +124,10 @@ export function withZip64Extra(zip: Uint8Array, name: string): Uint8Array {
   out.set(zip.subarray(nameEnd), nameEnd + extra.length);
   const view = viewOf(out);
   view.setUint16(entryAt + 30, view.getUint16(entryAt + 30, true) + extra.length, true);
-  view.setUint32(entryAt + 20, 0xffffffff, true);
-  view.setUint32(entryAt + 24, 0xffffffff, true);
+  if (maxSizes) {
+    view.setUint32(entryAt + 20, 0xffffffff, true);
+    view.setUint32(entryAt + 24, 0xffffffff, true);
+  }
   const eocd = eocdAt(out);
   view.setUint32(eocd + 12, view.getUint32(eocd + 12, true) + extra.length, true);
   return out;

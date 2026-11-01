@@ -117,16 +117,41 @@ describe("05 epub unzip limits: zip structure", () => {
       },
     );
 
-    it("with a ZIP64 EOCD record and locator", async () => {
-      await expectEpubError(processEpub(withZip64Eocd(ao3Epub())), "not_epub");
-    });
-
-    it("when a ZIP64 locator is present but the EOCD fields hold real values", async () => {
-      await expectEpubError(processEpub(withUnusedZip64Locator(ao3Epub())), "not_epub");
-    });
-
     it("when a central entry carries a Zip64 extra field", async () => {
       await expectEpubError(processEpub(withZip64Extra(ao3Epub(), "toc.ncx")), "not_epub");
+    });
+
+    // The cases below also check the log message, so a fixture that breaks some other rule
+    // (also `not_epub`) can't pass for the wrong reason.
+    it("when a Zip64 extra field sits beside real sizes", async () => {
+      const zip = withZip64Extra(ao3Epub(), "toc.ncx", { maxSizes: false });
+      await expect(processEpub(zip)).rejects.toThrow(/ZIP64 archives are not supported/);
+    });
+
+    it("when the Zip64 extra field is not the first field", async () => {
+      const zip = withZip64Extra(ao3Epub(), "toc.ncx", { maxSizes: false, after: 2 });
+      await expect(processEpub(zip)).rejects.toThrow(/ZIP64 archives are not supported/);
+    });
+
+    it("when an extra field claims more bytes than the block holds", async () => {
+      const zip = withZip64Extra(ao3Epub(), "toc.ncx", {
+        maxSizes: false,
+        after: 1,
+        overrun: true,
+      });
+      await expect(processEpub(zip)).rejects.toThrow(/bad extra field/);
+    });
+
+    it("with a ZIP64 locator and real EOCD fields", async () => {
+      await expect(processEpub(withUnusedZip64Locator(ao3Epub()))).rejects.toThrow(
+        /ZIP64 archives are not supported/,
+      );
+    });
+
+    it("with a ZIP64 EOCD record and locator", async () => {
+      await expect(processEpub(withZip64Eocd(ao3Epub()))).rejects.toThrow(
+        /ZIP64 archives are not supported/,
+      );
     });
   });
 });
