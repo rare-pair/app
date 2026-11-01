@@ -22,6 +22,8 @@ import {
 const W = 12600;
 /** No work has it. */
 const UNKNOWN = 12699;
+/** Hidden by a moderator already. */
+const HIDDEN = 12601;
 const WORK_URL = `${BASE}/works/${W}`;
 const RECEIVED = "Your request was received; a moderator will review it and email you.";
 
@@ -36,6 +38,9 @@ beforeAll(async () => {
       { type: "fandom", name: "x1-Fandom" },
     ],
   });
+});
+beforeAll(async () => {
+  await seedWork(db, { ao3WorkId: HIDDEN, status: "hidden", hiddenCause: "moderator" });
 });
 afterAll(() => db.destroy());
 
@@ -337,6 +342,22 @@ describe("16-removal-and-opt-out", () => {
       const res = await post({ email, work: `${BASE}/works/${UNKNOWN}`, statement: "x1" });
       expect(res.status).toBe(200);
       expect(await res.text()).toContain(RECEIVED);
+      expect(await requestsFrom(email)).toEqual([]);
+    });
+
+    it("stores a request for a work already hidden, so it isn't lost", async () => {
+      const email = "x1-hidden-work@example.test";
+      const res = await post({ email, work: `${BASE}/works/${HIDDEN}`, statement: "x1" });
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain(RECEIVED);
+      expect((await requestsFrom(email))[0]?.kind).toBe("remove_work");
+    });
+
+    it("refuses a pseud over its limit with its own message", async () => {
+      const email = "x1-long-pseud@example.test";
+      const res = await post({ email, pseud: "p".repeat(101), statement: "x1" });
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain("A pseud can be up to 100 characters.");
       expect(await requestsFrom(email)).toEqual([]);
     });
 

@@ -621,7 +621,11 @@ epub, under the normal versioning rules.
   - **Held** (a `held_for_review` version, never public): 404 to the public.
     The work keeps serving its current version. The held version is visible
     to its uploader in My uploads and to moderators.
-  - **Removed** (`removed`): 410 everywhere, "This work has been removed".
+  - **Removed** (`removed`): 410 on the work page, every chapter URL and `/full`,
+    "This work has been removed".
+  - **The report routes** (`GET` and `POST /works/:id/report`) answer 404 for a
+    hidden or removed work, as for one that doesn't exist: only the work,
+    chapter and full pages show 451 or 410.
 - **Removal really removes.** Setting a work to `removed`, through a takedown,
   an author request or a moderator, also deletes `works/<ao3_work_id>/` and the raw
   upload from R2, and purges the work's pages, cached fragments, images and

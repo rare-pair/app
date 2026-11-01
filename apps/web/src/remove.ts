@@ -113,12 +113,16 @@ export async function submitRemove(c: RemoveContext) {
   if (!isSendableAddress(email.toLowerCase()) || email.length > MAX_EMAIL) {
     fieldErrors.email = "Enter a valid email address, so a moderator can reply.";
   }
-  const pseudNorm = typedPseud.length > MAX_PSEUD ? "" : normalizePseud(typedPseud);
+  const pseudTooLong = typedPseud.length > MAX_PSEUD;
+  const pseudNorm = pseudTooLong ? "" : normalizePseud(typedPseud);
   const id = typedWork.length > MAX_WORK ? null : workIdOf(typedWork);
-  if (typedWork === "" && pseudNorm === "") {
+  if (pseudTooLong) {
+    fieldErrors.pseud = `A pseud can be up to ${MAX_PSEUD} characters.`;
+  } else if (typedWork === "" && pseudNorm === "") {
     fieldErrors.work = "Enter the web address of a work, or a pseud below.";
     fieldErrors.pseud = "Enter a pseud, or the web address of a work above.";
-  } else if (typedWork !== "" && id === null) {
+  }
+  if (typedWork !== "" && id === null) {
     fieldErrors.work = "That is not the web address of a work, here or at the original archive.";
   }
   if (values.statement.length > MAX_STATEMENT) {
@@ -135,8 +139,8 @@ export async function submitRemove(c: RemoveContext) {
     const base = { contact_email: email, statement: values.statement, ip_hash };
     if (typedWork !== "") {
       // X2 (#62) widens this: it hides the work at once and answers a work the archive
-      // doesn't hold with its own page. Until then a work that isn't live is not stored,
-      // and the reply is the same.
+      // doesn't hold with its own page. Until then a work of any status is stored, so a
+      // request for one already hidden is not lost, and one the archive doesn't hold is not.
       const work =
         id === null
           ? undefined
@@ -144,8 +148,6 @@ export async function submitRemove(c: RemoveContext) {
               .selectFrom("works")
               .select("id")
               .where("ao3_work_id", "=", id)
-              .where("status", "=", "live")
-              .where("current_version_id", "is not", null)
               .executeTakeFirst();
       if (work !== undefined) {
         await db
