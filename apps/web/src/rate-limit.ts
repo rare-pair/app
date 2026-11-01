@@ -16,6 +16,9 @@ export const DMCA_WINDOW_SECONDS = 60;
 /** The removal form's limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
 export const REMOVE_WINDOW_SECONDS = 60;
 
+/** The upload limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
+export const UPLOAD_WINDOW_SECONDS = 60;
+
 /**
  * A limiter key: a hex SHA-256 of the value under its prefix, so the limiter is never handed
  * the address itself. Unkeyed, so not a secret: an IPv4 key can be reversed by trying every
@@ -88,6 +91,12 @@ export const ipKey = (scope: string, address: string | null) =>
 /** A limit's key for an email address, however it was spelt: trimmed and lowercased. */
 export const emailKey = (scope: string, address: string) =>
   hashKey(`${scope}-email:`, address.trim().toLowerCase());
+
+/**
+ * A limit's key for a signed-in user, from the user's id as is: an id is not an email address,
+ * so it isn't trimmed or lowercased.
+ */
+export const userKey = (scope: string, userId: string) => hashKey(`${scope}-user:`, userId);
 
 /**
  * Whether `key` is over its limit in the current window. When the binding fails the request
