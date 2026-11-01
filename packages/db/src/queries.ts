@@ -545,3 +545,42 @@ export async function listRecentLiveWorks(
     .execute();
   return rows.map(asListed);
 }
+
+/**
+ * How many distinct accounts have an open report that counts toward hiding the
+ * work, as a SQL expression. A `wrong_version` report never counts, and an
+ * account counts once however often it reports. The one place this rule
+ * lives: a later rule (a blocked requester's accounts) changes it here.
+ */
+const countedReporters = (workId: string) => sql<number>`(
+  select count(distinct reports.reporter_id) from reports
+  where reports.work_id = ${workId} and reports.status = 'open' and reports.kind <> 'wrong_version'
+)`;
+
+/**
+ * Hides a `live` work with its cause, in one UPDATE that sets the status and
+ * the cause together, as the schema's check requires. True when it hid it. A
+ * hidden or removed work is left as it is, so no cause is overwritten.
+ *
+ * With `minReporters`, the work is hidden only when that many accounts have
+ * counted reports (see `countedReporters`). The count sits inside the UPDATE,
+ * not in a read before it: reads may come from Hyperdrive's cache and miss the
+ * report just stored, but writes never do.
+ */
+export async function hideWork(
+  db: Kysely<Database>,
+  workId: string,
+  cause: HiddenCause,
+  options: { minReporters?: number } = {},
+): Promise<boolean> {
+  let update = db
+    .updateTable("works")
+    .set({ status: "hidden", hidden_cause: cause })
+    .where("id", "=", workId)
+    .where("status", "=", "live");
+  if (options.minReporters !== undefined) {
+    update = update.where(sql<boolean>`${countedReporters(workId)} >= ${options.minReporters}`);
+  }
+  const result = await update.executeTakeFirst();
+  return result.numUpdatedRows > 0n;
+}
