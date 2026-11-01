@@ -156,6 +156,38 @@ describe("search paging and ranking", () => {
   });
 });
 
+describe("search operators and limits", () => {
+  const word = "heronpool";
+  let both: number;
+  let only: number;
+  beforeAll(async () => {
+    both = (await seedWork(t.db, { title: `${word} lantern` })).ao3WorkId;
+    only = (await seedWork(t.db, { title: `${word} marsh` })).ao3WorkId;
+  });
+
+  it("keeps a word the reader excluded out, the trigram path included", async () => {
+    const found = await ids(`${word} -lantern`);
+    expect(found).toContain(only);
+    expect(found).not.toContain(both);
+  });
+
+  it("finds nothing for a query of exclusions alone", async () => {
+    expect(await searchLiveWorks(t.db, "-lantern -marsh")).toEqual({ works: [], total: 0 });
+  });
+
+  it("caps the page size", async () => {
+    const r = await searchLiveWorks(t.db, word, { pageSize: 70_000 });
+    expect(r.works.length).toBe(2);
+    expect(r.total).toBe(2);
+  });
+
+  it("indexes a very long summary without failing the save", async () => {
+    const long = Array.from({ length: 150_000 }, (_, i) => `w${i}`).join(" ");
+    const w = await seedWork(t.db, { title: "Long Summary Cove", summary: `<p>${long}</p>` });
+    expect(await ids("long summary cove")).toContain(w.ao3WorkId);
+  });
+});
+
 describe("search of hostile input", () => {
   it("returns nothing for a blank query", async () => {
     for (const q of ["", "   ", "\n\t"]) {

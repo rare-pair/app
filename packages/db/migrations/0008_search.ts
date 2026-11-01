@@ -30,7 +30,8 @@ from (
     coalesce((select string_agg(t."name", ' ' order by wt."position")
        from "work_tags" wt join "tags" t on t."id" = wt."tag_id"
       where wt."work_id" = w."id"), '') as "tags",
-    regexp_replace(coalesce(w."summary_html", ''), '<[^>]*>|&[#a-zA-Z0-9]+;', ' ', 'g') as "summary"
+    -- Cut, so a tsvector never nears Postgres's 1 MB limit.
+    left(regexp_replace(coalesce(w."summary_html", ''), '<[^>]*>|&[#a-zA-Z0-9]+;', ' ', 'g'), 20000) as "summary"
   from "works" w
 ) indexed
 where "works"."id" = indexed."id";
