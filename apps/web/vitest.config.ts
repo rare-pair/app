@@ -32,9 +32,9 @@ async function outbound(request: Request): Promise<Response> {
   return Response.json({ success: false, "error-codes": ["invalid-input-response"] });
 }
 
-// Stands in for apps/mailer as the `email` queue's consumer, and answers a fetch
+// Stands in for a queue's consumer (apps/mailer for `email`, apps/ingest for `ingest`), and answers a fetch
 // with every message body it has been delivered. One message a batch, delivered at once.
-const EMAIL_SINK = /* js */ `
+const QUEUE_SINK = /* js */ `
 const delivered = [];
 export default {
   async queue(batch) {
@@ -48,6 +48,15 @@ export default {
   },
 };
 `;
+
+// The stand-in consumer `name` for `queue`: `email` (apps/mailer) and `ingest` (apps/ingest).
+const sink = (name: string, queue: string) => ({
+  name,
+  modules: true,
+  script: QUEUE_SINK,
+  compatibilityDate: "2026-08-01",
+  queueConsumers: { [queue]: { maxBatchSize: 1, maxBatchTimeout: 0 } },
+});
 
 /**
  * The Worker in workerd, as wrangler.jsonc deploys it, with `bindings` over its
@@ -72,16 +81,8 @@ const worker = (bindings: Record<string, string> = {}) =>
         R2_SECRET_ACCESS_KEY: "test-only-secret-access-key",
         ...bindings,
       },
-      serviceBindings: { EMAIL_SINK: "email-sink" },
-      workers: [
-        {
-          name: "email-sink",
-          modules: true,
-          script: EMAIL_SINK,
-          compatibilityDate: "2026-08-01",
-          queueConsumers: { email: { maxBatchSize: 1, maxBatchTimeout: 0 } },
-        },
-      ],
+      serviceBindings: { EMAIL_SINK: "email-sink", INGEST_SINK: "ingest-sink" },
+      workers: [sink("email-sink", "email"), sink("ingest-sink", "ingest")],
     },
   }));
 
