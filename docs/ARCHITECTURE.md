@@ -122,7 +122,12 @@ work_versions(id, work_id, upload_id, chapter_count,
               r2_prefix, created_at,
               review_reasons text[],  -- from the parser; non-empty shows the notice
               checked_at NULL,        -- set when a moderator approves the version
-              tags jsonb, authors jsonb)  -- this version's own tags and byline, in the file's order; work_tags and work_authors hold only the current version's
+              tags jsonb, authors jsonb,  -- this version's own tags and byline, in the file's order; work_tags and work_authors hold only the current version's
+              title, summary_html, rating, language, words, complete,  -- this version's own copy of the works
+              published_at, updated_at, raw_meta jsonb,                -- columns, exactly as its file had them
+                                      -- (NULL for a field it lacked); all NULL on a version saved
+                                      -- before migration 0012 that wasn't current then
+              hold_reason NULL)       -- chapters_changed | tags_changed | authors_changed, on a held version
 chapters     (work_id, version_id, n, title, words, r2_key)
 tags         (id, type, name, name_norm) -- type: fandom|relationship|character|freeform|warning|category|rating
 work_tags    (work_id, tag_id,
@@ -377,6 +382,23 @@ Chapter text isn't indexed.
    uploader, chapter count) with a "Make current" action that repoints
    `current_version_id`. Readers who spot a bad version report it as "This
    version is wrong" (Author requests & takedowns, Reports).
+
+   **Where a work's columns live.** Each version keeps its own copy of the
+   columns that describe it (title, summary, rating, language, words,
+   complete, dates, raw metadata, chapter count and total, tags and byline),
+   exactly as its file had them, with NULL for a field the file lacked; a held
+   version also keeps its hold reason. `works`, `work_tags` and
+   `work_authors` describe the current version only, so every reader (the
+   work page, listings, search, and the next upload's decision, which reads
+   `works.updated_at`) sees the current version. They are copied from the
+   version whenever it becomes current: on a `replace`, on "Make current",
+   and when a moderator approves a held version. The copy is
+   `copyVersionToWork` in `packages/db`, in the transaction that moves the
+   pointer: each non-NULL field of the version is copied, a NULL one keeps
+   the work's value (so a replace whose file lacks a field never blanks the
+   stored one, and the title is never NULL), the byline and tags are
+   rewritten from the version's own unless those are NULL, and the search
+   text is refreshed.
 8. **Save, in order.** Write chapter fragments and images to R2. Then run one
    Postgres transaction that upserts the work, adds the version, chapters and
    tags, and points `current_version_id` at the new version. Set the work
@@ -390,13 +412,14 @@ Chapter text isn't indexed.
    facts read before it (the current version's chapter text comes from R2,
    never read under a lock). A `replace` adds the version and chapters, then
    moves `current_version_id` with one compare-and-swap (`update ... where
-   current_version_id = <the one read>`), then rewrites the work's columns,
-   byline and tags from the new version and refreshes its search text; the
-   upload is `live`. A job that loses the swap rolls back, reads the work
+   current_version_id = <the one read>`), then copies the new version onto
+   the work (its columns, keeping the stored value for a field the file
+   lacks, its byline and tags) and refreshes its search text; the upload is
+   `live`. A job that loses the swap rolls back, reads the work
    again and decides again, so two uploads at once leave one current version.
    A `hold` adds the version and chapters and leaves the work, its byline and
-   tags alone (the version keeps its own in `work_versions.tags` and
-   `authors`); the upload is `held_for_review`. A `duplicate` adds no
+   tags alone (the version keeps its own columns, `tags`, `authors` and
+   `hold_reason`); the upload is `held_for_review`. A `duplicate` adds no
    version; the upload is `duplicate`, with its `work_id` set and its files
    kept. A replace never changes the work's status: a hidden or removed work
    stays so. Only a work's first upload sets it `live`.
@@ -739,7 +762,8 @@ epub, under the normal versioning rules.
   outside the database, such as removing a work's files, can't join that
   transaction.) A reject that also lifts a hide logs only the reject. A hide
   no moderator chose (the reports' automatic hide, a removal request's hide)
-  writes none. Hide, restore and the request and takedown rejects write a row
+  writes none. Hide, restore, make current (logged on the version, and only when the
+  pointer moved) and the request and takedown rejects write a row
   today; each later action calls the same helper, `logModerationAction`, when
   it is built. The row's `moderator_id` keeps its foreign key to `user`, so
   an account with logged actions can't be deleted. Anyone
