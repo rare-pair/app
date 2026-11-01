@@ -431,8 +431,9 @@ export async function listRecentLiveWorks(
     .select(bylineAndTags)
     .where("works.status", "=", "live")
     .orderBy("first.added_at", "desc")
-    // AO3 work ID last: a total order, so a tie reads the same each time.
-    .orderBy("works.ao3_work_id")
+    // AO3 work ID last, highest first: a total order, so a tie (one transaction
+    // adds many works at one instant) reads the same each time.
+    .orderBy("works.ao3_work_id", "desc")
     .limit(isCount(limit) ? limit : RECENT_WORKS)
     .execute();
   return rows.map(asListed);

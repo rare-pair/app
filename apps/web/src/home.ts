@@ -17,14 +17,19 @@ export async function homePage(
   try {
     const fandoms = await listPopularFandoms(db);
     const works = await listRecentLiveWorks(db);
+    // No fandom tag among the live works: no empty list under a heading.
+    const popular =
+      fandoms.length === 0
+        ? ""
+        : `<h2>Popular fandoms</h2>
+<ul class="fandom-list" role="list">
+${fandoms.map((f) => `<li><a href="${tagHref("fandom", f.name_norm)}">${escapeHtml(f.name)}</a></li>`).join("\n")}
+</ul>`;
     // Nothing live: one plain line. Draft copy, for the operator to proof.
     const lists =
       works.length === 0
         ? `<p>There are no works here yet.</p>\n${DRAFT}`
-        : `<h2>Popular fandoms</h2>
-<ul class="fandom-list" role="list">
-${fandoms.map((f) => `<li><a href="${tagHref("fandom", f.name_norm)}">${escapeHtml(f.name)}</a></li>`).join("\n")}
-</ul>
+        : `${popular}
 <h2>Recently added</h2>
 ${workList(works)}`;
     return layout("Home", `${SEARCH_FORM}\n${lists}`);
