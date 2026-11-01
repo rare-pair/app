@@ -10,3 +10,6 @@ export const WAITLIST_EMAIL_LIMIT = 3;
 
 /** The least `WAITLIST_FLOOR_MS` may be set to in wrangler.jsonc, so a refactor can't zero it. */
 export const WAITLIST_FLOOR_MIN_MS = 2000;
+
+// POST /dmca, per client IP over the same window.
+export const DMCA_IP_LIMIT = 5;

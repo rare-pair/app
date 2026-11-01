@@ -4,6 +4,7 @@ import { admin } from "./admin";
 import { assetRoute } from "./assets";
 import { confirmSignIn, showConfirm } from "./confirm";
 import type { Bindings } from "./env";
+import { showDmcaForm, submitDmca } from "./dmca";
 import { showFull } from "./full";
 import { deadLetteredLaunchEmails } from "./launch-dead-letter";
 import { showTagListing } from "./listing";
@@ -46,6 +47,7 @@ app.use(contentSecurityPolicy);
 // Before the session, so a cross-site upload or report is refused without a lookup.
 app.post("/uploads", sameOriginUpload);
 app.post("/works/:id/report", sameOriginOnly);
+app.post("/dmca", sameOriginOnly);
 // The session, once, for every page; routes read c.var.session and never mount it
 // again. Static files skip it, and the lookup's database connection with it. Then
 // an account that hasn't accepted the terms is sent to accept them.
@@ -84,6 +86,8 @@ app.get("/waitlist", (c) => (isPrelaunch(c.env) ? c.notFound() : c.redirect("/",
 app.get("/upload", showUpload);
 app.post("/uploads", requestUpload);
 app.get("/remove", (c) => c.html(turnstilePage("Request removal", c.get("nonce"))));
+app.get("/dmca", showDmcaForm);
+app.post("/dmca", submitDmca);
 
 // The reader. Closed before launch, like every /works/ page.
 app.get("/works/:id/chapters/:n", showChapter);

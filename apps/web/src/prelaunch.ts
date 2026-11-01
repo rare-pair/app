@@ -56,7 +56,7 @@ export const disableClosedLinks: MiddlewareHandler<{
   if (!isPrelaunch(c.env)) return;
   if (!c.res.headers.get("content-type")?.toLowerCase().startsWith("text/html")) return;
   c.res = new HTMLRewriter()
-    .on('footer a[href="/remove"]', {
+    .on('footer a[href="/remove"], footer a[href="/dmca"]', {
       element(a) {
         a.removeAttribute("href");
         a.setAttribute("role", "link");
