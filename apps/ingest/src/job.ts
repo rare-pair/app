@@ -106,7 +106,7 @@ async function run(
   } catch (error) {
     // A removed work stays so until a moderator restores it: no retry changes the verdict.
     if (error instanceof WorkRemoved) {
-      return { status: "work_removed", failure: { stage: "save", error: "work removed" } };
+      return { status: "work_removed", failure: { stage: "save", error: "work_removed" } };
     }
     if (!(error instanceof SaveRejected)) throw error;
     return { status: "parse_failed", failure: { stage: "save", error: error.code } };

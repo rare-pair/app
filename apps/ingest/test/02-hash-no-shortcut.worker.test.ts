@@ -68,7 +68,7 @@ describe("02-upload-handshake: hash matches that get no shortcut", () => {
     ) {
       expect(row.status).toBe("work_removed");
       expect(row.error_stage).toBe("save");
-      expect(row.error).toBe("work removed");
+      expect(row.error).toBe("work_removed");
       expect(row.work_id).toBeNull();
       expect(row.lease_until).toBeNull();
       expect(result.explicitAcks).toEqual(["msg-0"]);

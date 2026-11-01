@@ -130,8 +130,9 @@ export async function saveWork(
       if (error instanceof Stale) {
         // Read the work as the other job left it and decide again: a second upload of the same
         // newer version, say, is now a duplicate. Out of attempts, it is a failure worth a retry.
-        if (attempt >= MAX_ATTEMPTS) throw new Error("the work kept changing under the save");
+        // Read first, so a removal that caused the `Stale` is refused even on the last attempt.
         current = await readCurrent(deps, ao3WorkId);
+        if (attempt >= MAX_ATTEMPTS) throw new Error("the work kept changing under the save");
         continue;
       }
       const state = sqlState(error);
