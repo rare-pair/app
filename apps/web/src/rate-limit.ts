@@ -17,17 +17,6 @@ export const DMCA_WINDOW_SECONDS = 60;
 /** The removal form's limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
 export const REMOVE_WINDOW_SECONDS = 60;
 
-/**
- * A 429 for a script endpoint: `{ error, retryAfter }` as JSON, `Retry-After` the same whole
- * seconds, and `no-store`.
- */
-export function tooManyRequestsJson(c: Context, error: string, retryAfter: number): Response {
-  return c.json({ error, retryAfter }, 429, {
-    "Cache-Control": "no-store",
-    "Retry-After": String(retryAfter),
-  });
-}
-
 /** The upload limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
 export const UPLOAD_WINDOW_SECONDS = 60;
 
@@ -140,5 +129,17 @@ export function tooManyRequests(seconds: number): Response {
       "Retry-After": String(wait),
       "Cache-Control": "no-store",
     },
+  });
+}
+
+/**
+ * A 429 for a script endpoint: `{ error, retryAfter }` as JSON, `Retry-After` the same whole
+ * number of seconds (rounded up, at least one), and `no-store`.
+ */
+export function tooManyRequestsJson(c: Context, error: string, seconds: number): Response {
+  const retryAfter = Math.max(1, Math.ceil(seconds));
+  return c.json({ error, retryAfter }, 429, {
+    "Cache-Control": "no-store",
+    "Retry-After": String(retryAfter),
   });
 }

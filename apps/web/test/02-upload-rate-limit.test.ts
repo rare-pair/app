@@ -109,6 +109,18 @@ describe("02-upload-handshake", () => {
 });
 
 describe("19-surge-controls", () => {
+  it("A user over their limit doesn't spend the budget of an address others share", async () => {
+    await windowHeadroom(UPLOAD_WINDOW_SECONDS);
+    const ip = freshIp();
+    const [noisy, quiet] = [await signIn("shared-noisy"), await signIn("shared-quiet")];
+    await spend(noisy.cookie, UPLOAD_USER_LIMIT, ip);
+    // More refused requests than the IP has budget left for.
+    for (let i = 0; i < UPLOAD_IP_LIMIT; i++) {
+      expect((await requestUpload(noisy.cookie, UPLOAD_TOKEN, ip)).status).toBe(429);
+    }
+    expect((await requestUpload(quiet.cookie, UPLOAD_TOKEN, ip)).status).toBe(200);
+  });
+
   it("Upload requests are throttled per user", async () => {
     await windowHeadroom(UPLOAD_WINDOW_SECONDS);
     const { userId, cookie } = await signIn("throttle-user");
