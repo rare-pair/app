@@ -2,7 +2,7 @@
 // them: hide and restore a work (keyed by its AO3 work ID) and reject an item (keyed by
 // its own id). Mounted in admin.ts, behind `adminGate`.
 
-import { hideWork, restoreWork } from "@archive/db";
+import { hideWork, logModerationAction, restoreWork } from "@archive/db";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import type { AdminEnv } from "./admin";
 import {
@@ -185,12 +185,12 @@ adminItems.post("/works/:id/hide", async (c) => {
   const work = await workByAo3Id(c, c.req.param("id"));
   if (!work) return c.notFound();
   const from = await fromField(c.req.raw);
-  const hid = await hideWork(c.var.db, work.id, "moderator");
+  const hid = await hideWork(c.var.db, work.id, "moderator", { actor: c.var.userId });
   return c.html(
     resultPage(
       hid
         ? "The work is hidden by a moderator."
-        : "Nothing changed: the work is not live or hidden.",
+        : "Nothing changed: the work is not live, or a moderator already hid it.",
       from,
     ),
   );
@@ -200,7 +200,7 @@ adminItems.post("/works/:id/restore", async (c) => {
   const work = await workByAo3Id(c, c.req.param("id"));
   if (!work) return c.notFound();
   const from = await fromField(c.req.raw);
-  const restored = await restoreWork(c.var.db, work.id);
+  const restored = await restoreWork(c.var.db, work.id, { actor: c.var.userId });
   return c.html(
     resultPage(
       restored ? "The work is live again." : "Nothing changed: the work is not hidden.",
@@ -211,22 +211,55 @@ adminItems.post("/works/:id/restore", async (c) => {
 
 adminItems.post("/requests/:id{[A-Za-z0-9_-]+}/reject", async (c) => {
   const id = c.req.param("id");
-  const rejected = await c.var.db
-    .updateTable("requests")
-    .set({ status: "rejected" })
-    .where("id", "=", id)
-    .where("status", "=", "pending")
-    .returning("work_id")
-    .executeTakeFirst();
-  if (!rejected) return decidedOrMissing(c, "requests", id);
-  // The hide a request caused comes off, never a moderator's or the reports', and
-  // not while another removal request for the work is still waiting.
-  const restored =
-    rejected.work_id !== null &&
-    (await restoreWork(c.var.db, rejected.work_id, {
-      cause: "removal_request",
-      noPendingRequests: true,
-    }));
+  // One transaction: the status, the hide coming off and the log row stand or fall
+  // together. Inside it only `trx` is used: `c.var.db` has one connection, which the
+  // transaction holds.
+  const decided = await c.var.db.transaction().execute(async (trx) => {
+    // Lock the work first: two moderators deciding the last two requests at once
+    // must not each see the other's as pending (the check in `restoreWork` reads
+    // only committed rows) and leave the work hidden for good. The second waits
+    // here for the first to commit.
+    const asked = await trx
+      .selectFrom("requests")
+      .select("work_id")
+      .where("id", "=", id)
+      .where("status", "=", "pending")
+      .executeTakeFirst();
+    if (asked?.work_id) {
+      await trx
+        .selectFrom("works")
+        .select("id")
+        .where("id", "=", asked.work_id)
+        .forNoKeyUpdate()
+        .execute();
+    }
+    const rejected = await trx
+      .updateTable("requests")
+      .set({ status: "rejected" })
+      .where("id", "=", id)
+      .where("status", "=", "pending")
+      .returning("work_id")
+      .executeTakeFirst();
+    if (!rejected) return null;
+    // The hide a request caused comes off, never a moderator's or the reports', and
+    // not while another removal request for the work is still waiting. It is a
+    // consequence of the reject, so only the reject is logged.
+    const restored =
+      rejected.work_id !== null &&
+      (await restoreWork(trx, rejected.work_id, {
+        cause: "removal_request",
+        noPendingRequests: true,
+      }));
+    await logModerationAction(trx, {
+      moderatorId: c.var.userId,
+      action: "reject",
+      targetKind: "request",
+      targetId: id,
+    });
+    return { restored };
+  });
+  if (!decided) return decidedOrMissing(c, "requests", id);
+  const { restored } = decided;
   return c.html(
     resultPage(
       restored ? "Rejected. The work is live again." : "Rejected.",
@@ -237,13 +270,23 @@ adminItems.post("/requests/:id{[A-Za-z0-9_-]+}/reject", async (c) => {
 
 adminItems.post("/takedowns/:id{[A-Za-z0-9_-]+}/reject", async (c) => {
   const id = c.req.param("id");
-  const rejected = await c.var.db
-    .updateTable("takedowns")
-    .set({ status: "rejected", resolved_by: c.var.session?.user.id ?? null })
-    .where("id", "=", id)
-    .where("status", "=", "pending")
-    .returning("id")
-    .executeTakeFirst();
+  const rejected = await c.var.db.transaction().execute(async (trx) => {
+    const row = await trx
+      .updateTable("takedowns")
+      .set({ status: "rejected", resolved_by: c.var.userId })
+      .where("id", "=", id)
+      .where("status", "=", "pending")
+      .returning("id")
+      .executeTakeFirst();
+    if (!row) return null;
+    await logModerationAction(trx, {
+      moderatorId: c.var.userId,
+      action: "reject",
+      targetKind: "takedown",
+      targetId: id,
+    });
+    return row;
+  });
   if (!rejected) return decidedOrMissing(c, "takedowns", id);
   return c.html(resultPage("Rejected.", `/admin/takedowns/${encodeURIComponent(id)}`));
 });

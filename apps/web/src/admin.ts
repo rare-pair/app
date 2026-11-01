@@ -24,8 +24,8 @@ import type { SessionVariables } from "./session";
 /** The roles with every moderator power (ARCHITECTURE, Data model): an admin has them too. */
 export type ModeratorRole = "moderator" | "admin";
 
-/** Set by `adminGate` for every /admin handler: the moderator's role, and the request's database. */
-export type AdminVariables = { role: ModeratorRole; db: Kysely<Database> };
+/** Set by `adminGate` for every /admin handler: the moderator's role, user id, and the request's database. */
+export type AdminVariables = { role: ModeratorRole; db: Kysely<Database>; userId: string };
 
 export type AdminEnv = {
   Bindings: Bindings;
@@ -65,6 +65,7 @@ export const adminGate: MiddlewareHandler<AdminEnv> = async (c, next) => {
     if (!isModerator(role)) return await refuse(c);
     c.set("role", role);
     c.set("db", db);
+    c.set("userId", userId);
     await next();
     // After the handler: its own Response doesn't keep headers set before it.
     c.header("Cache-Control", "no-store");
