@@ -1,4 +1,4 @@
-import { createDb, getLiveWork, insertUpload, type Database } from "@archive/db";
+import { createDb, getLiveWork, insertUpload, searchLiveWorks, type Database } from "@archive/db";
 import { seedWork, type SeedWorkOptions } from "@archive/db/seed";
 import { processEpub, type ParsedWork } from "@archive/epub";
 import { createExecutionContext, createMessageBatch, getQueueResult } from "cloudflare:test";
@@ -404,3 +404,7 @@ export async function bucketObject(
     contentType: object.httpMetadata?.contentType,
   };
 }
+
+/** The AO3 work IDs a search finds, as the web Worker would read them. */
+export const searchedIds = (query: string) =>
+  withDb(async (db) => (await searchLiveWorks(db, query)).works.map((w) => w.work.ao3_work_id));

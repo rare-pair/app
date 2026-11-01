@@ -1,4 +1,10 @@
-import { compareTagKeys, normalizeTagName, type Database, type TagType } from "@archive/db";
+import {
+  compareTagKeys,
+  normalizeTagName,
+  refreshWorkSearch,
+  type Database,
+  type TagType,
+} from "@archive/db";
 import type { ParsedWork } from "@archive/epub";
 import type { Kysely, Transaction } from "kysely";
 import type { Lease } from "./lease";
@@ -208,6 +214,9 @@ async function writeRows(
     r2_key: c.key,
   }));
   for (const part of chunks(rows)) await trx.insertInto("chapters").values(part).execute();
+
+  // The index follows the title, byline and tags just written, in this transaction.
+  await refreshWorkSearch(trx, workId);
 
   // The work's last write: it goes `live` with its version current.
   await trx
