@@ -60,7 +60,7 @@ function item(row: Row): string {
   const link = uploadStatusBody(row, joinedWork(row)).work;
   const name =
     link !== null && row.title !== null && row.title.trim() !== ""
-      ? `<a href="${escapeHtml(link.url)}">${escapeHtml(row.title)}</a>`
+      ? `<a href="${escapeHtml(link.url)}"><bdi>${escapeHtml(row.title)}</bdi></a>`
       : escapeHtml(`Upload of ${utcMinute(row.created_at)}`);
   const label = badgeLabel(row.status, row.quota_counted_at !== null);
   return `<li data-upload-id="${escapeHtml(row.id)}" data-status="${escapeHtml(row.status)}">${name} <span class="badge">${label}</span><p class="upload-message"></p></li>`;
@@ -89,6 +89,8 @@ export async function showMyUploads(c: MyUploadsContext) {
   const user = c.var.session?.user;
   if (user === undefined) return c.notFound();
 
+  // Set before the query, so a failure's reply is not cached either.
+  c.header("Cache-Control", "no-store");
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
   try {
     const rows = await db
@@ -109,7 +111,6 @@ export async function showMyUploads(c: MyUploadsContext) {
       // One more than shown, to know whether the list was cut.
       .limit(LIST_LIMIT + 1)
       .execute();
-    c.header("Cache-Control", "no-store");
     return c.html(myUploadsPage(rows.slice(0, LIST_LIMIT), rows.length > LIST_LIMIT));
   } finally {
     c.executionCtx.waitUntil(db.destroy());
