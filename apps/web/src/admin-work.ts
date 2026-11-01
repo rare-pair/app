@@ -2,6 +2,7 @@
 // repoints the work at one of them (FRONTEND-DISCOVERY, Moderation queues). Mounted in
 // admin.ts, behind `adminGate`.
 
+import { makeVersionCurrent } from "@archive/db";
 import { Hono } from "hono";
 import type { AdminEnv } from "./admin";
 import { workByAo3Id } from "./admin-items";
@@ -80,14 +81,11 @@ adminWork.post("/works/:id/current", async (c) => {
   if (version.status !== "live") {
     return c.html(resultPage("Nothing changed: that version is held for review.", back));
   }
-  const changed = await c.var.db
-    .updateTable("works")
-    .set({ current_version_id: versionId })
-    .where("id", "=", found.id)
-    // Not a removed work, and not one ingest is still finishing (it sets the version itself).
-    .where("status", "in", ["live", "hidden"])
-    .returning("id")
-    .executeTakeFirst();
+  // The work then describes the version: its columns, byline, tags and search text. Not a
+  // removed work, and not one ingest is still finishing (it sets the version itself).
+  const changed = await makeVersionCurrent(c.var.db, found.id, versionId, {
+    actor: c.var.userId,
+  });
   return c.html(
     resultPage(
       changed
