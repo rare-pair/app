@@ -793,10 +793,10 @@ markup: its inline `style` attributes become stylesheet rules, because
   solved on one form is refused by every other. Cloudflare's published test
   secret keys, which don't promise an action, skip the action comparison only.
 - The Workers rate-limiting binding covers abuse throttling on login, the
-  wait list, upload requests and search, keyed per IP and per user (per
-  email for login and the wait list). It's approximate and counts
-  per Cloudflare location, over 10- or 60-second windows. That's fine for
-  slowing abuse, but not for hard limits.
+  wait list, removal requests, DMCA notices, upload requests and search, keyed
+  per IP and per user (per email for login, the wait list and removal
+  requests). It's approximate and counts per Cloudflare location, over 10- or
+  60-second windows. That's fine for slowing abuse, but not for hard limits.
 - **Status codes.** A rate limit or quota that is hit returns **429** with
   `Retry-After` and a plain page saying when to try again. A failed or missing
   Turnstile token returns **400** and shows the form again with an error (as does

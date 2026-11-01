@@ -3,16 +3,20 @@ import { seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ipHash } from "../src/ip-hash";
+import { REMOVE_WINDOW_SECONDS } from "../src/rate-limit";
 import {
   BASE,
   fetchW,
   freshIp,
   LOGIN_TOKEN,
   nonceOf,
+  REMOVE_EMAIL_LIMIT,
+  REMOVE_IP_LIMIT,
   REMOVE_TOKEN,
   TURNSTILE,
   UPLOAD_TOKEN,
   WAITLIST_TOKEN,
+  windowHeadroom,
   withoutNonce,
 } from "./helpers";
 
@@ -229,7 +233,8 @@ describe("16-removal-and-opt-out", () => {
       "https://rarepair.fans/works/99999999999",
       `https://rarepair.fans/works/${"1".repeat(600)}`,
     ])("refuses %s as a work address, marking the work field and storing nothing", async (work) => {
-      const email = "x1-bad-work@example.test";
+      // A new address each case: an address's posts are limited, and each case posts once.
+      const email = `x1-bad-work-${crypto.randomUUID().slice(0, 8)}@example.test`;
       const res = await post({ email, work, statement: "x1 bad work" });
       expect(res.status).toBe(400);
       const html = await res.text();
@@ -244,7 +249,7 @@ describe("16-removal-and-opt-out", () => {
       `RAREPAIR.FANS/works/${W}#top`,
       `  ${WORK_URL}  `,
     ])("accepts %s as a work address", async (work) => {
-      const email = `x1-good-work-${W}@example.test`;
+      const email = `x1-good-work-${crypto.randomUUID().slice(0, 8)}@example.test`;
       const res = await post({ email, work, statement: "x1 good work" });
       expect(res.status).toBe(200);
       expect((await requestsFrom(email)).at(-1)?.kind).toBe("remove_work");
@@ -410,6 +415,100 @@ describe("16-removal-and-opt-out", () => {
       const [row] = await requestsFrom(email);
       expect(row?.kind).toBe("remove_work");
       expect(row?.pseud_norm).toBeNull();
+    });
+  });
+  describe("Requests are rate-limited", () => {
+    /** The shared 429: `Retry-After` and a plain page, both saying the window. */
+    async function expectTooManyRequests(res: Response) {
+      expect(res.status).toBe(429);
+      expect(res.headers.get("retry-after")).toBe(String(REMOVE_WINDOW_SECONDS));
+      const html = await res.text();
+      expect(html).toContain("<h1>Too many requests</h1>");
+      expect(html).toContain(`Please try again in ${REMOVE_WINDOW_SECONDS} seconds.`);
+    }
+
+    /** An address no other test uses, in lowercase. */
+    const fresh = (name: string) => `${name}-${crypto.randomUUID().slice(0, 8)}@example.test`;
+
+    it("Requests are rate-limited per email", async () => {
+      await windowHeadroom(REMOVE_WINDOW_SECONDS);
+      const email = fresh("x5-per-email");
+      // The limit's worth of requests, each from another IP, each storing a row: a pseud
+      // opt-out each time, so no work's status is in play.
+      for (let i = 0; i < REMOVE_EMAIL_LIMIT; i++) {
+        const res = await post({
+          email,
+          pseud: `x5 pseud ${crypto.randomUUID()}`,
+          statement: "x5",
+        });
+        expect(res.status).toBe(200);
+      }
+      const before = await requestsFrom(email);
+      expect(before).toHaveLength(REMOVE_EMAIL_LIMIT);
+
+      // From yet another IP, and spelt differently: the same address.
+      const refused = await post({
+        email: ` ${email.toUpperCase()} `,
+        work: WORK_URL,
+        statement: "x5",
+      });
+      await expectTooManyRequests(refused);
+      expect(await requestsFrom(email)).toEqual(before);
+      expect(await statusOfW()).toBe("live");
+
+      // A different address from a new IP is not held up with it.
+      expect((await post({ email: fresh("x5-other"), pseud: "x5 other" })).status).toBe(200);
+    });
+
+    it("Requests are rate-limited per IP", async () => {
+      await windowHeadroom(REMOVE_WINDOW_SECONDS);
+      const ip = freshIp();
+      // Spends the IP's limit on posts Turnstile refuses: the IP is counted before the form
+      // is read, so they count all the same.
+      for (let i = 0; i < REMOVE_IP_LIMIT; i++) {
+        const res = await post(
+          { email: fresh("x5-filler"), "cf-turnstile-response": "a-failing-token" },
+          { ip },
+        );
+        expect(res.status).toBe(400);
+      }
+
+      // Even a good request for a different address is refused, and stores and hides nothing.
+      const email = fresh("x5-per-ip");
+      await expectTooManyRequests(await post({ email, work: WORK_URL, statement: "x5" }, { ip }));
+      expect(await requestsFrom(email)).toEqual([]);
+      expect(await statusOfW()).toBe("live");
+
+      // Another IP is not held up with it.
+      expect((await post({ email, work: WORK_URL, statement: "x5" })).status).toBe(200);
+      expect(await requestsFrom(email)).toHaveLength(1);
+    });
+
+    it("Requests Turnstile refuses don't count against the address, but a solved one that fails its fields does", async () => {
+      await windowHeadroom(REMOVE_WINDOW_SECONDS);
+      const email = fresh("x5-spend");
+      for (let i = 0; i < REMOVE_EMAIL_LIMIT; i++) {
+        const res = await post({
+          email,
+          work: WORK_URL,
+          "cf-turnstile-response": "a-failing-token",
+        });
+        expect(res.status).toBe(400);
+      }
+      // Solved, but with no work or pseud: the address is valid, so each spends the limit.
+      for (let i = 0; i < REMOVE_EMAIL_LIMIT; i++) {
+        expect((await post({ email })).status).toBe(400);
+      }
+      await expectTooManyRequests(await post({ email, work: WORK_URL }));
+      expect(await requestsFrom(email)).toEqual([]);
+    });
+    it("A post with no sendable address doesn't spend the email limit", async () => {
+      await windowHeadroom(REMOVE_WINDOW_SECONDS);
+      // Each from its own IP, so only the email limit could refuse them.
+      for (let i = 0; i <= REMOVE_EMAIL_LIMIT; i++) {
+        const res = await post({ email: "not an address", work: WORK_URL });
+        expect(res.status).toBe(400);
+      }
     });
   });
 });
