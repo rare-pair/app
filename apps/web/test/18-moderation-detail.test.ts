@@ -353,3 +353,70 @@ describe("18 moderation detail pages", () => {
     expect((await state(W)).status).toBe("live");
   });
 });
+
+describe("18 moderation action log", () => {
+  const moderatorId = async () =>
+    (
+      await db
+        .selectFrom("user")
+        .select("id")
+        .where("email", "=", "mod2-moderator@example.test")
+        .executeTakeFirstOrThrow()
+    ).id;
+
+  const logFor = (targetId: string) =>
+    db.selectFrom("moderation_actions").selectAll().where("target_id", "=", targetId).execute();
+
+  it("Hide and restore each write one row with the signed-in moderator", async () => {
+    const W = 14120;
+    const workId = await seed(W);
+    await post(`/admin/works/${W}/hide`, moderator);
+    expect(await logFor(workId)).toMatchObject([
+      { moderator_id: await moderatorId(), action: "hide", target_kind: "work", note: null },
+    ]);
+    await post(`/admin/works/${W}/restore`, moderator);
+    const rows = await logFor(workId);
+    expect(rows.map((r) => r.action).sort()).toEqual(["hide", "restore"]);
+    expect(new Set(rows.map((r) => r.moderator_id))).toEqual(new Set([await moderatorId()]));
+  });
+
+  it("A request reject writes one row on the request, and none for the work it restored", async () => {
+    const W = 14121;
+    const workId = await seed(W, { status: "hidden", hiddenCause: "removal_request" });
+    await addRequest("mod2-log-request", workId, "remove_work");
+    await post("/admin/requests/mod2-log-request/reject", moderator);
+    expect(await state(W)).toEqual({ status: "live", hidden_cause: null });
+    expect(await logFor("mod2-log-request")).toMatchObject([
+      { moderator_id: await moderatorId(), action: "reject", target_kind: "request" },
+    ]);
+    expect(await logFor(workId)).toEqual([]);
+  });
+
+  it("A takedown reject writes one row with the moderator", async () => {
+    const workId = await seed(14122);
+    await addTakedown("mod2-log-takedown", workId);
+    await post("/admin/takedowns/mod2-log-takedown/reject", moderator);
+    expect(await logFor("mod2-log-takedown")).toMatchObject([
+      { moderator_id: await moderatorId(), action: "reject", target_kind: "takedown" },
+    ]);
+  });
+
+  it("An action that changes nothing writes no row", async () => {
+    const removed = await seed(14123, { status: "removed" });
+    await post("/admin/works/14123/hide", moderator);
+    await post("/admin/works/14123/restore", moderator);
+    expect(await logFor(removed)).toEqual([]);
+    const workId = await seed(14124);
+    await addRequest("mod2-log-decided", workId, "remove_work");
+    await post("/admin/requests/mod2-log-decided/reject", moderator);
+    await post("/admin/requests/mod2-log-decided/reject", moderator);
+    expect(await logFor("mod2-log-decided")).toHaveLength(1);
+  });
+
+  it("A refused post writes no row", async () => {
+    const workId = await seed(14125);
+    await post("/admin/works/14125/hide", undefined);
+    await post("/admin/works/14125/hide", moderator, {}, { origin: "https://evil.example" });
+    expect(await logFor(workId)).toEqual([]);
+  });
+});
