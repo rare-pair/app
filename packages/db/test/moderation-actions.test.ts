@@ -1,3 +1,4 @@
+import { sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hideWork, logModerationAction, restoreWork } from "../src/index";
 import { seedWork } from "../src/seed";
@@ -148,20 +149,17 @@ describe("moderation action log", () => {
   });
 
   it("The table has the columns and the migration keeps them", async () => {
-    const cols = await t.db
-      .selectFrom("information_schema.columns" as never)
-      .select(["column_name" as never])
-      .where("table_name" as never, "=", "moderation_actions" as never)
-      .execute();
-    expect(
-      cols
-        .map((c) => (c as { column_name: string }).column_name)
-        .slice()
-        .sort(),
-    ).toEqual(
-      ["action", "created_at", "id", "moderator_id", "note", "target_id", "target_kind"]
-        .slice()
-        .sort(),
-    );
+    const { rows } = await sql<{ column_name: string }>`
+      select column_name from information_schema.columns
+      where table_name = 'moderation_actions' order by column_name`.execute(t.db);
+    expect(rows.map((r) => r.column_name)).toEqual([
+      "action",
+      "created_at",
+      "id",
+      "moderator_id",
+      "note",
+      "target_id",
+      "target_kind",
+    ]);
   });
 });
