@@ -840,7 +840,9 @@ export interface RemovedWork {
    * `processing`: an ingest job is still saving it, so it was left as it is.
    */
   outcome: "removed" | "already_removed" | "processing";
-  /** Every upload of the work, with its raw file's key (`uploads.r2_key`). */
+  /** The work's AO3 work ID, which keys its objects under `works/`. */
+  ao3WorkId: number;
+  /** Every upload of the work, with its raw file's key (`uploads.r2_key`). Empty while processing. */
   uploads: { id: string; r2_key: string }[];
 }
 
@@ -861,22 +863,19 @@ export async function removeWork(
     // Locked, so a concurrent remove waits and then sees this one's status.
     const work = await trx
       .selectFrom("works")
-      .select("status")
+      .select(["status", "ao3_work_id"])
       .where("id", "=", workId)
       .forNoKeyUpdate()
       .executeTakeFirst();
     if (!work) return null;
+    const ao3WorkId = work.ao3_work_id;
+    if (work.status === "processing") return { outcome: "processing", ao3WorkId, uploads: [] };
     const uploads = await trx
       .selectFrom("uploads")
       .select(["id", "r2_key"])
       .where("work_id", "=", workId)
       .execute();
-    if (work.status === "processing" || work.status === "removed") {
-      return {
-        outcome: work.status === "removed" ? "already_removed" : "processing",
-        uploads,
-      };
-    }
+    if (work.status === "removed") return { outcome: "already_removed", ao3WorkId, uploads };
     await trx
       .updateTable("works")
       .set({ status: "removed", hidden_cause: null })
@@ -888,6 +887,6 @@ export async function removeWork(
       targetKind: "work",
       targetId: workId,
     });
-    return { outcome: "removed", uploads };
+    return { outcome: "removed", ao3WorkId, uploads };
   });
 }

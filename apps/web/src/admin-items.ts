@@ -38,7 +38,7 @@ export const adminItems = new Hono<AdminEnv>();
 
 const iso = (date: Date) => date.toISOString();
 
-/** The `from` field of a hide, restore or reject form, if it names an item page. */
+/** The `from` field of a hide, restore or reject form, if it names an item page (remove reads its form itself, for `confirm`). */
 async function fromField(request: Request) {
   const form = await readForm(request, MAX_FORM);
   return safeFrom(form?.get("from"));
@@ -177,7 +177,7 @@ export async function workByAo3Id(c: Context<AdminEnv>, segment: string) {
   }
   const row = await c.var.db
     .selectFrom("works")
-    .select("id")
+    .select(["id", "title", "ao3_work_id"])
     .where("ao3_work_id", "=", Number(segment))
     .executeTakeFirst();
   return row ?? null;
@@ -217,12 +217,7 @@ adminItems.post("/works/:id/remove", async (c) => {
   const form = await readForm(c.req.raw, MAX_FORM);
   const from = safeFrom(form?.get("from"));
   if (form?.get("confirm") !== "yes") {
-    const { title, ao3_work_id } = await c.var.db
-      .selectFrom("works")
-      .select(["title", "ao3_work_id"])
-      .where("id", "=", work.id)
-      .executeTakeFirstOrThrow();
-    return c.html(removeConfirmPage(title, ao3_work_id, from));
+    return c.html(removeConfirmPage(work.title, work.ao3_work_id, from));
   }
   // The status and the log row commit first, then R2: a delete that fails partway
   // leaves a removed work with leftover bytes, never a live one with missing bytes.
@@ -234,7 +229,7 @@ adminItems.post("/works/:id/remove", async (c) => {
     );
   }
   // A repeat remove deletes again, so a remove whose deletes failed can be retried.
-  await deleteWorkObjects(c.env.BUCKET, Number(c.req.param("id")), removed.uploads);
+  await deleteWorkObjects(c.env.BUCKET, removed.ao3WorkId, removed.uploads);
   return c.html(
     resultPage(
       removed.outcome === "removed"

@@ -35,9 +35,10 @@ const rowsFor = (targetId: string) =>
 describe("removeWork", () => {
   it("Removes a live work and logs it with the moderator", async () => {
     const moderator = await addUser();
-    const { workId } = await seedWork(t.db);
+    const { workId, ao3WorkId } = await seedWork(t.db);
     const result = await removeWork(t.db, workId, moderator);
     expect(result?.outcome).toBe("removed");
+    expect(result?.ao3WorkId).toBe(ao3WorkId);
     expect(await state(workId)).toEqual({ status: "removed", hidden_cause: null });
     const rows = await rowsFor(workId);
     expect(rows).toHaveLength(1);

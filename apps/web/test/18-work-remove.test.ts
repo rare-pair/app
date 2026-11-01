@@ -2,7 +2,7 @@ import { createDb } from "@archive/db";
 import { putFragments, seedVersion, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { BASE, emailsTo, fetchW, LOGIN_TOKEN, postLogin } from "./helpers";
+import { BASE, fetchW, signIn } from "./helpers";
 
 // One database and one bucket serve every test file in the run. This file keeps to AO3
 // work IDs 14300 to 14399, plus 143001 (a neighbour whose ID starts with W's digits), and
@@ -11,19 +11,11 @@ const W = 14300;
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 afterAll(() => db.destroy());
 
-/** A copy of 18-moderation.test.ts's `signIn`: A4 (#24) brings the shared one to helpers.ts. */
-async function signIn(email: string, role: string | null): Promise<string> {
-  expect((await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN })).status).toBe(200);
-  const [sent] = await emailsTo(email);
-  const token = new URL(sent!.url).searchParams.get("token")!;
-  const res = await postLogin({ token, next: "/" }, { url: "/login/confirm" });
-  expect(res.status).toBe(303);
-  await db
-    .updateTable("user")
-    .set({ role, terms_accepted_at: new Date() })
-    .where("email", "=", email)
-    .execute();
-  return res.headers.getSetCookie()[0]!.split(";")[0]!;
+/** Signs `email` in with the terms accepted, and gives the account `role`. */
+async function signInAs(email: string, role: string | null): Promise<string> {
+  const cookie = await signIn(email, { acceptTerms: true });
+  await db.updateTable("user").set({ role }).where("email", "=", email).execute();
+  return cookie;
 }
 
 const get = (path: string, cookie?: string) =>
@@ -95,8 +87,8 @@ let moderator: string;
 let plainUser: string;
 
 beforeAll(async () => {
-  moderator = await signIn("xr1a-moderator@example.test", "moderator");
-  plainUser = await signIn("xr1a-user@example.test", null);
+  moderator = await signInAs("xr1a-moderator@example.test", "moderator");
+  plainUser = await signInAs("xr1a-user@example.test", null);
 });
 
 describe("18 moderation", () => {
