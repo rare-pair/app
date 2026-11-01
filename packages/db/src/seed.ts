@@ -22,6 +22,8 @@ export interface SeedVersionOptions {
   /** The planned total. Default null: unknown, and a current version replaces the work's total with it. */
   chapterTotal?: number | null;
   reviewReasons?: string[];
+  /** When the version was created here. Default: now. */
+  addedAt?: string;
 }
 
 export interface SeedWorkOptions extends SeedVersionOptions {
@@ -233,7 +235,7 @@ async function addVersion(
   work: { workId: string; ao3WorkId: number; userId: string },
   options: SeedVersionOptions & { current: boolean },
 ): Promise<SeededVersion> {
-  const { current, reviewReasons = [], chapterTotal = null } = options;
+  const { current, reviewReasons = [], chapterTotal = null, addedAt } = options;
   const chapters = planChapters(options.chapters);
   // Chosen here rather than by the database, because the R2 keys name it.
   const uploadId = crypto.randomUUID();
@@ -259,6 +261,7 @@ async function addVersion(
       chapter_total: chapterTotal,
       r2_prefix: r2Prefix,
       review_reasons: reviewReasons,
+      created_at: addedAt,
     })
     .returning("id")
     .executeTakeFirstOrThrow();
