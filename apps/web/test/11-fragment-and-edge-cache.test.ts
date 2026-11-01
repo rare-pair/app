@@ -20,18 +20,6 @@ const chapterUrl = (id: number, n: number) => `/works/${id}/chapters/${n}`;
 const articleOf = (html: string) =>
   html.match(/<article class="chapter">([\s\S]*)<\/article>/)?.[1] ?? null;
 
-/**
- * Waits for the Worker's cache to hold `key`, put in a `waitUntil` that may outlast the
- * response. Fails if it hasn't in 5 seconds.
- */
-async function kept(key: string) {
-  const deadline = Date.now() + 5_000;
-  while ((await caches.default.match(key)) === undefined) {
-    if (Date.now() > deadline) throw new Error(`${key} not cached in 5 seconds`);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-}
-
 /** Every chapter article's markup, in page order. */
 const articlesOf = (html: string) =>
   [...html.matchAll(/<article class="chapter">([\s\S]*?)<\/article>/g)].map(([, inner]) => inner);
@@ -202,17 +190,36 @@ describe("11 reader and CSP", () => {
     });
     await putFragments(env.BUCKET, w.fragments);
     const full = `/works/25002/full`;
+    const settings = { headers: { cookie: "__Host-reader=theme=dark" } };
 
-    const first = await fetchW(full);
-    expect(first.status).toBe(200);
-    expect(articlesOf(await first.text())).toEqual(["<p>R7-FULL-ONE</p>", "<p>R7-FULL-TWO</p>"]);
+    // Streamed from R2 on a cold cache, and not kept: a copy would buffer the stream.
+    const cold = await fetchW(full, settings);
+    expect(cold.status).toBe(200);
+    expect(articlesOf(await cold.text())).toEqual(["<p>R7-FULL-ONE</p>", "<p>R7-FULL-TWO</p>"]);
+    expect(await caches.default.match(fragmentCacheKey(25002, 1, w.versionId))).toBeUndefined();
 
-    // Both fragments were kept as the page streamed, in waitUntil; R2 is then no longer
-    // needed for either.
-    for (const n of [1, 2]) await kept(fragmentCacheKey(25002, n, w.versionId));
+    // Once each chapter page has been read, its fragment comes from the cache, R2 or not.
+    for (const n of [1, 2]) expect((await fetchW(chapterUrl(25002, n), settings)).status).toBe(200);
     for (const key of w.chapterKeys) await env.BUCKET.delete(key);
-    const second = await fetchW(full);
-    expect(second.status).toBe(200);
-    expect(articlesOf(await second.text())).toEqual(["<p>R7-FULL-ONE</p>", "<p>R7-FULL-TWO</p>"]);
+    const warm = await fetchW(full, settings);
+    expect(warm.status).toBe(200);
+    expect(articlesOf(await warm.text())).toEqual(["<p>R7-FULL-ONE</p>", "<p>R7-FULL-TWO</p>"]);
+  });
+
+  it("An empty fragment is served from the cache too", async () => {
+    const w = await seedWork(db, {
+      ao3WorkId: 25003,
+      chapters: [{ html: "" }, { html: "<p>R7-EMPTY-TWO</p>" }],
+    });
+    await putFragments(env.BUCKET, w.fragments);
+    const settings = { headers: { cookie: "__Host-reader=theme=dark" } };
+    for (const n of [1, 2]) expect((await fetchW(chapterUrl(25003, n), settings)).status).toBe(200);
+    for (const key of w.chapterKeys) await env.BUCKET.delete(key);
+
+    for (const path of [chapterUrl(25003, 1), `/works/25003/full`]) {
+      const res = await fetchW(path, settings);
+      expect(res.status, path).toBe(200);
+      expect(articlesOf(await res.text())[0], path).toBe("");
+    }
   });
 });

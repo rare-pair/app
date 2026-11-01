@@ -31,8 +31,9 @@ export const fragmentCacheKey = (id: number, n: number, versionId: string) =>
 export const workCacheTag = (id: number) => `work-${id}`;
 
 /**
- * Every key a version of a work can hold: its chapter pages, then its fragments. A purge
- * by tag is the complete one; this list covers the version given only.
+ * The keys of a version's chapter pages, then of its fragments. Not every key the work
+ * may have: pages for chapters only an older, longer version had, and older versions'
+ * fragments, are not listed. A purge by tag is the complete one.
  */
 export const workCacheKeys = (id: number, version: { id: string }, chapters: { n: number }[]) => [
   ...chapters.map((ch) => chapterPageKey(id, ch.n)),
@@ -116,7 +117,14 @@ export async function fragmentText(
 ) {
   const key = fragmentCacheKey(id, n, versionId);
   const hit = await matchEntry(cache, key);
-  if (hit) return hit.text();
+  if (hit) {
+    // An entry whose body fails to read is a miss too: R2 still has the fragment.
+    try {
+      return await hit.text();
+    } catch (error) {
+      logFailure("read", error);
+    }
+  }
   const object = await bucket.get(r2Key);
   if (!object) return null;
   const text = await object.text();
@@ -129,16 +137,15 @@ const fragmentEntry = (body: BodyInit, id: number) =>
   entry(body, id, FRAGMENT_CACHE_CONTROL, "text/html; charset=utf-8");
 
 /**
- * A version's fragments as streams, from the cache, else from R2 while a copy goes into
- * the cache in `waitUntil`, so the reader never waits on the put. `chapters` are the
- * version's own, every key already checked by the caller; any other key is read from
- * R2 alone and never cached. On a miss the put reads the object as fast as R2 sends it,
- * so a slow reader can have up to that one fragment buffered, never more.
+ * A version's fragments as streams, from the cache, else straight from R2. A miss is not
+ * kept: copying the stream into the cache would buffer up to a whole fragment for a slow
+ * reader and read on after the reader left, so the chapter page fills the cache instead.
+ * At most two binding calls per chapter. `chapters` are the version's own, every key
+ * already checked by the caller; any other key is read from R2 alone.
  */
 export function cachedFragments(
   cache: Cache,
   bucket: Pick<R2Bucket, "get">,
-  waitUntil: (promise: Promise<unknown>) => void,
   id: number,
   versionId: string,
   chapters: { n: number; r2_key: string }[],
@@ -148,15 +155,9 @@ export function cachedFragments(
   return {
     async get(r2Key: string) {
       const n = numbers.get(r2Key);
-      if (n === undefined) return bucket.get(r2Key);
-      const key = fragmentCacheKey(id, n, versionId);
-      const hit = await matchEntry(cache, key);
-      if (hit?.body) return { body: hit.body };
-      const object = await bucket.get(r2Key);
-      if (!object) return null;
-      const [mine, kept] = object.body.tee();
-      waitUntil(putEntry(cache, key, fragmentEntry(kept, id)));
-      return { body: mine };
+      const key = n === undefined ? null : fragmentCacheKey(id, n, versionId);
+      const hit = key === null ? undefined : await matchEntry(cache, key);
+      return hit?.body ? { body: hit.body } : bucket.get(r2Key);
     },
   };
 }
