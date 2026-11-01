@@ -3,7 +3,13 @@
 // continued is a session cookie of work IDs. Every reading page makes one call to
 // `warningsRedirect` before it reads a fragment.
 
-import { createDb, getLiveWork, getWorkAvailability, normalizeTagName } from "@archive/db";
+import {
+  createDb,
+  getLiveWork,
+  getWorkAvailability,
+  NOT_RATED,
+  normalizeTagName,
+} from "@archive/db";
 import type { LiveWork } from "@archive/db";
 import { getCookie } from "hono/cookie";
 import { readForm } from "./login";
@@ -67,9 +73,9 @@ const warnedIds = (c: ReaderContext) => parseWarned(getCookie(c, WARNED_COOKIE))
 export function safeWarningsNext(id: number, next: string | undefined) {
   const first = `/works/${id}/chapters/1`;
   if (next === `/works/${id}/full`) return next;
-  const n = next?.match(/^\/works\/\d+\/chapters\/(.+)$/)?.[1];
-  const number = positiveInt(n);
-  return number !== null && next === `/works/${id}/chapters/${number}` ? next : first;
+  const prefix = `/works/${id}/chapters/`;
+  const tail = next?.startsWith(prefix) ? next.slice(prefix.length) : "";
+  return next !== undefined && positiveInt(tail) !== null ? next : first;
 }
 
 /**
@@ -104,7 +110,7 @@ export async function showWarnings(c: ReaderContext) {
     return c.redirect(next, 302);
   }
 
-  const rating = escapeHtml(live.work.rating?.trim() || "Not Rated");
+  const rating = escapeHtml(live.work.rating?.trim() || NOT_RATED);
   const warnings = live.tags.filter((tag) => tag.type === "warning");
   const title = live.work.title.trim() || "Untitled work";
   return c.html(
