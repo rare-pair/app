@@ -1,3 +1,4 @@
+import { sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createDb,
@@ -27,7 +28,7 @@ async function freshUser() {
   return w.userId;
 }
 
-const setUsed = (userId: string, used: number, day: string | null) =>
+const setUsed = (userId: string, used: number, day: typeof YESTERDAY | null) =>
   t.db
     .updateTable("user")
     .set({ upload_quota_used: used, upload_quota_day: day })
@@ -41,7 +42,8 @@ const usedOf = (userId: string) =>
     .where("id", "=", userId)
     .executeTakeFirstOrThrow();
 
-const YESTERDAY = new Date(Date.now() - 36 * 3600 * 1000).toISOString().slice(0, 10);
+// The database's UTC day before today, the clock the quota itself uses, not the JS clock.
+const YESTERDAY = sql<string>`(now() at time zone 'utc')::date - 1`;
 
 describe("19-surge-controls-and-quotas: the counter", () => {
   it("counts a use against today and stops at the limit", async () => {

@@ -1,6 +1,7 @@
 import { createDb, insertUpload } from "@archive/db";
 import { seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
+import { sql } from "kysely";
 import { afterAll, describe, expect, it } from "vitest";
 import { deliveredIngest, fetchW, postLogin, signIn as signInAs } from "./helpers";
 
@@ -296,12 +297,14 @@ describe("02-upload-confirm refusals", () => {
 // The tiers' numbers are wrangler.jsonc's vars, so the tests follow them.
 const NEW_LIMIT = Number(env.UPLOAD_QUOTA_NEW);
 const TRUSTED_LIMIT = Number(env.UPLOAD_QUOTA_TRUSTED);
-const today = () => new Date().toISOString().slice(0, 10);
+// The database's UTC day, the clock the quota itself uses: never the JS clock, which can
+// disagree with it for a moment around 00:00 UTC.
+const today = sql<string>`(now() at time zone 'utc')::date`;
 
 const setUsedToday = (userId: string, used: number) =>
   db
     .updateTable("user")
-    .set({ upload_quota_used: used, upload_quota_day: today() })
+    .set({ upload_quota_used: used, upload_quota_day: today })
     .where("id", "=", userId)
     .execute();
 

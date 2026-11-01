@@ -1,5 +1,6 @@
 import { createDb } from "@archive/db";
 import { env } from "cloudflare:workers";
+import { sql } from "kysely";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   fetchW,
@@ -233,11 +234,12 @@ describe("19-surge-controls-and-quotas", () => {
 // `POST /uploads` only refuses early, when the quota is already spent.
 const NEW_LIMIT = Number(env.UPLOAD_QUOTA_NEW);
 const TRUSTED_LIMIT = Number(env.UPLOAD_QUOTA_TRUSTED);
-const today = () => new Date().toISOString().slice(0, 10);
+// The database's UTC day, the clock the quota itself uses, not the JS clock.
+const today = sql<string>`(now() at time zone 'utc')::date`;
 const setUsedToday = (userId: string, used: number) =>
   db
     .updateTable("user")
-    .set({ upload_quota_used: used, upload_quota_day: today() })
+    .set({ upload_quota_used: used, upload_quota_day: today })
     .where("id", "=", userId)
     .execute();
 

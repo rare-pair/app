@@ -43,18 +43,21 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Load target), § Surge con
 
 ### Daily quota allows uploads up to the limit
 - GIVEN user E with one upload left in today's quota
-- WHEN E requests an upload
-- THEN the request succeeds and the quota is used up
+- WHEN E confirms an upload (`POST /uploads/:id/complete`)
+- THEN the confirm succeeds and the quota is used up
+- AND the quota counts confirmed uploads, by UTC day, and resets at midnight UTC
 
 ### Daily quota refuses uploads past the limit
 - GIVEN user E who has used all of today's quota
-- WHEN E requests another upload
-- THEN the response is 429 with a `Retry-After` header and a plain message saying when E can upload again
+- WHEN E requests another upload, or confirms one
+- THEN the response is 429 with a `Retry-After` header and a plain message saying when E can upload again (the next midnight UTC)
+- AND an upload refused at confirm because the quota was already spent stays pending, so E can confirm it after the reset
 
 ### Quota is a hard limit under concurrency
-- GIVEN user E with one upload left in today's quota
-- WHEN E sends two upload requests at the same time from different locations
+- GIVEN user E with one upload left in today's quota, and two uploaded files
+- WHEN E confirms both at the same time from different locations
 - THEN exactly one succeeds, because the quota is counted in Postgres rather than the approximate rate limiter
+- AND the other is refused with 429 and is never queued
 
 ### Brand-new accounts get the lower quota
 - GIVEN brand-new user N
