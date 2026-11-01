@@ -4,8 +4,8 @@
 
 import { createDb, listPopularFandoms, listRecentLiveWorks } from "@archive/db";
 import type { Bindings } from "./env";
-import { workCard } from "./listing";
-import { escapeHtml, layout, SEARCH_FORM } from "./pages";
+import { workList } from "./listing";
+import { DRAFT, escapeHtml, layout, SEARCH_FORM } from "./pages";
 import { tagHref } from "./tag-links";
 
 export async function homePage(
@@ -20,15 +20,13 @@ export async function homePage(
     // Nothing live: one plain line. Draft copy, for the operator to proof.
     const lists =
       works.length === 0
-        ? `<p>There are no works here yet.</p>\n<p class="draft">Draft: this text has not been proofread yet.</p>`
+        ? `<p>There are no works here yet.</p>\n${DRAFT}`
         : `<h2>Popular fandoms</h2>
 <ul class="fandom-list" role="list">
 ${fandoms.map((f) => `<li><a href="${tagHref("fandom", f.name_norm)}">${escapeHtml(f.name)}</a></li>`).join("\n")}
 </ul>
 <h2>Recently added</h2>
-<ol class="work-list" role="list">
-${works.map(workCard).join("\n")}
-</ol>`;
+${workList(works)}`;
     return layout("Home", `${SEARCH_FORM}\n${lists}`);
   } finally {
     ctx.waitUntil(db.destroy());

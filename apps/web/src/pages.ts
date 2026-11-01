@@ -89,7 +89,7 @@ export const notFoundPage = () =>
 ${SEARCH_FORM}`,
   );
 
-const DRAFT = `<p class="draft">Draft: this text has not been proofread yet.</p>`;
+export const DRAFT = `<p class="draft">Draft: this text has not been proofread yet.</p>`;
 
 // Drafts for the operator to proof before launch. They describe provenance
 // without naming the original archive or its organisation (branding rule).

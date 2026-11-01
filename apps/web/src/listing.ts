@@ -130,10 +130,7 @@ export async function showTagListing(c: Context<{ Bindings: Bindings }>) {
     const last = Math.max(1, Math.ceil(total / PAGE_SIZE));
     if (page > last) return c.notFound();
     const href = (n: number) => listingHref(type, name, paramsOf(query, n));
-    const list =
-      works.length === 0
-        ? "<p>No works match these filters.</p>"
-        : `<ol class="work-list" role="list">\n${works.map(workCard).join("\n")}\n</ol>`;
+    const list = works.length === 0 ? "<p>No works match these filters.</p>" : workList(works);
     // Spellings of the tags share one canonical page: their folded names, with no
     // redirect, since folding a folded name again can change it.
     const tagNorm = query.tag && tagNameKeys(query.tag.type, query.tag.name)[0];
@@ -293,6 +290,10 @@ const lastUpdated = ({ updated_at, published_at }: ListedWork["work"]) => {
 /** A card line, or nothing when it would be empty. */
 const line = (className: string, html: string) =>
   html ? `<p class="${className}">${html}</p>` : "";
+
+/** Work cards as a list. */
+export const workList = (works: ListedWork[]) =>
+  `<ol class="work-list" role="list">\n${works.map(workCard).join("\n")}\n</ol>`;
 
 /** The six lines, in order: title and author, rating and warnings, fandoms, summary, tags, stats. */
 export function workCard({ work, authors, tags }: ListedWork): string {
