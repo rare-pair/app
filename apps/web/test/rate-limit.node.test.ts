@@ -187,6 +187,11 @@ describe("the rate limits in wrangler.jsonc", () => {
     });
   });
 
+  it("let two users each spend half the upload IP limit, which the upload test relies on", () => {
+    expect(UPLOAD_IP_LIMIT % 2).toBe(0);
+    expect(UPLOAD_IP_LIMIT / 2).toBeLessThanOrEqual(UPLOAD_USER_LIMIT);
+  });
+
   it("set the wait list's response-time floor no lower than the least the design allows", () => {
     const floor = Number(rawConfig.vars?.WAITLIST_FLOOR_MS);
     expect(floor).toBeGreaterThanOrEqual(WAITLIST_FLOOR_MIN_MS);
