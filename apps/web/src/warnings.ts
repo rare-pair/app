@@ -3,7 +3,7 @@
 // continued is a session cookie of work IDs. Every reading page makes one call to
 // `warningsRedirect` before it reads a fragment.
 
-import { createDb, getLiveWork, getWorkAvailability } from "@archive/db";
+import { createDb, getLiveWork, getWorkAvailability, normalizeTagName } from "@archive/db";
 import type { LiveWork } from "@archive/db";
 import { getCookie } from "hono/cookie";
 import { readForm } from "./login";
@@ -21,6 +21,8 @@ const WARNED_ATTRIBUTES = "; Path=/; SameSite=Lax; Secure; HttpOnly";
 // The most work IDs kept; the oldest are dropped past it.
 const MAX_WARNED = 50;
 
+// The archive-warnings tag that says there is nothing to warn about, as stored.
+const NO_WARNINGS = normalizeTagName("warning", "No Archive Warnings Apply");
 const MILD_RATINGS = ["general audiences", "teen and up audiences"];
 
 /**
@@ -38,9 +40,7 @@ export function needsWarnings({
   // spelled rating included, shows it.
   const rating = work.rating?.trim().toLowerCase() ?? "";
   if (!MILD_RATINGS.includes(rating)) return true;
-  return tags.some(
-    (tag) => tag.type === "warning" && tag.name_norm !== "no archive warnings apply",
-  );
+  return tags.some((tag) => tag.type === "warning" && tag.name_norm !== NO_WARNINGS);
 }
 
 /** The work IDs a cookie value holds, oldest first: digits only, anything else dropped. */
@@ -115,6 +115,7 @@ export async function showWarnings(c: ReaderContext) {
 ${warnings.length === 0 ? "" : `<ul class="warnings">${warnings.map((tag) => `<li>${escapeHtml(tag.name)}</li>`).join("")}</ul>\n`}<form method="post" action="/works/${id}/warnings">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
 <button type="submit">Continue</button>
+<p class="note">Continue remembers this choice for the work in a session cookie, so cookies need to be on.</p>
 </form>
 <p><a href="/works/${id}">Back to the work</a></p>`,
     ),
