@@ -105,6 +105,11 @@ describe("05-epub-unzip-limits: package rules", () => {
       ["a mismatched inner end tag", (xml) => xml.replace(/<\/(\w+)>/, "</x$1>")],
     ];
 
+    it("still accepts whitespace before the XML declaration", async () => {
+      const opf = `\n  ${entry("content.opf")}`;
+      await expect(processEpub(withEntries({ "content.opf": opf }))).resolves.toBeDefined();
+    });
+
     for (const name of ["META-INF/container.xml", "content.opf", "toc.ncx"])
       it.each(damages)(`rejects ${name}: %s`, async (_label, damage) => {
         const bytes = withEntries({ [name]: damage(entry(name)) });
