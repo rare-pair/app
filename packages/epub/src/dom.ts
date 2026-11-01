@@ -200,7 +200,7 @@ export async function parseHtml(
         if (stack.length >= MAX_DEPTH) {
           failure = new EpubError(
             "parse_failed",
-            `Elements nested more than ${MAX_DEPTH} deep in ${file}`,
+            `Elements nested ${MAX_DEPTH} or more deep in ${file}`,
           );
           return;
         }

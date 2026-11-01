@@ -248,7 +248,7 @@ Chapter text isn't indexed.
      `container.xml`, the OPF or the NCX isn't well-formed XML.
    - **`too_large`:** the input is over 25 MB, or the documents together pass
      the parser's node budget (300,000 elements and text nodes).
-   - **`parse_failed`:** elements are nested more than 256 deep, or a content
+   - **`parse_failed`:** elements are nested 256 or more deep (the root element is level 1), or a content
      document (XHTML) fails to parse in some other way. Malformed package XML
      (container, OPF, NCX) is `not_epub`, above.
 3. **Index files.** `META-INF/container.xml` points to the OPF, which gives the
@@ -334,6 +334,33 @@ Chapter text isn't indexed.
 
    Nobody's upload gets special treatment, the author's included. We can't
    tell who the author is while AO3 is down.
+
+   The decision is a pure function of the two versions' facts
+   (`apps/ingest/src/versioning.ts`, never the uploader). Its defaults are
+   fixed in that file, and the similarity threshold is a named, per-call
+   option:
+   - **Newer** means more posted chapters (the count of chapters in the file,
+     not the planned total), or a later date: Updated, else Completed, else
+     Published, at day granularity (anything that is not a real `YYYY-MM-DD`
+     date counts as missing). Equal chapter counts and equal dates are
+     not newer, and a missing date never makes an upload newer. An upload with
+     fewer chapters but a later date, or more chapters but an earlier date, is
+     newer.
+   - **Near-identical** means every chapter number both versions have, paired
+     by chapter number, is at least
+     90% similar (`SIMILARITY_THRESHOLD`, 0.9). The chapter's sanitized text
+     is normalized by removing markup and collapsing whitespace; case and
+     punctuation count. Equal normalized text is identical, and only a
+     mismatch is measured: the Dice coefficient of the two texts' word pairs.
+     A short chapter has little room: one changed word in under 20 breaks 90%,
+     so it is held. Titles, summary and notes are not compared, and a chapter
+     number only one version has is not compared either.
+   - **Tags and authors changed** compares sets, not order: tags by type and
+     normalized name (`name_norm`), every type including rating and warning;
+     authors by normalized pseud and AO3 user (where there is one).
+   - **Not newer is a `duplicate`** even when its tags or authors changed.
+     When several checks fail, the held reason is the first of: chapters, tags,
+     authors.
 
    Every version is kept, so a bad replacement can be rolled back. Only
    moderators roll back: a work's admin page lists every version (date,
