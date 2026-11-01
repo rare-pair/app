@@ -374,8 +374,12 @@ describe("19-surge-controls-and-quotas", () => {
     const [ra, rb] = await Promise.all([complete(a.id, { cookie }), complete(b.id, { cookie })]);
     expect([ra.status, rb.status].sort((x, y) => x - y)).toEqual([200, 429]);
     expect(await usedOf(userId)).toBe(NEW_LIMIT);
-    const rows = await Promise.all([rowOf(a.id), rowOf(b.id)]);
-    expect(rows.map((r) => r.status).sort()).toEqual(["over_quota", "pending"]);
+    // Only the winner is queued. The loser is `over_quota` when it lost at the count, or still
+    // `pending` when the winner finished before its early check: either way it isn't queued.
+    const [winner, loser] = ra.status === 200 ? [a, b] : [b, a];
+    expect(await ingestFor(winner.id)).toEqual([{ upload_id: winner.id }]);
+    expect(await ingestSent(loser.id)).toEqual([]);
+    expect((await rowOf(loser.id)).status).toMatch(/^(over_quota|pending)$/);
   });
 
   it("Brand-new accounts get the lower quota", async () => {
