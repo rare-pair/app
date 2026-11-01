@@ -4,9 +4,12 @@ import {
   freshAo3WorkId,
   imageKey,
   putImages,
+  putPrefix,
   resetSweepState,
   runSweep,
+  seededVersion,
   seededWork,
+  upload,
   withImages,
 } from "./helpers";
 
@@ -38,6 +41,23 @@ describe("07-sanitizing-and-images", () => {
     const img = `works/${ao3WorkId}/img/`;
     expect(await bucketKeys(img)).toEqual(
       [inChapter1, inChapter2, inSummary].map((k) => img + k).sort(),
+    );
+  });
+});
+
+describe("sweep of orphaned version prefixes", () => {
+  it("A prefix no version points at is deleted, and every version's prefix is kept", async () => {
+    const ao3WorkId = freshAo3WorkId();
+    const work = await seededWork({ ao3WorkId, chapters: 2 });
+    const held = await seededVersion(work);
+    // A refused save's leftovers: fragments, with no version row.
+    const refused = await upload(work.userId, "parse_failed");
+    await putPrefix(ao3WorkId, refused, 3);
+
+    await runSweep(25);
+
+    expect(await bucketKeys(`works/${ao3WorkId}/`)).toEqual(
+      [...work.chapterKeys, ...held.chapterKeys].sort(),
     );
   });
 });

@@ -1,4 +1,4 @@
-import { createDb, type Database } from "@archive/db";
+import { createDb, type Database, type UploadStatus } from "@archive/db";
 import { putFragments, seedVersion, seedWork, type SeedWorkOptions } from "@archive/db/seed";
 import {
   createExecutionContext,
@@ -81,6 +81,50 @@ export async function seededVersion(
   const version = await withDb((db) => seedVersion(db, work, { current: false, ...options }));
   await putFragments(env.BUCKET, version.fragments);
   return version;
+}
+
+/**
+ * An upload by `userId` (a new user when null) in `status`, with no version. Returns its id,
+ * which names its prefix.
+ */
+export async function upload(userId: string | null, status: UploadStatus): Promise<string> {
+  const id = crypto.randomUUID();
+  await withDb(async (db) => {
+    const user = userId ?? `sweep-${id}`;
+    if (userId === null) {
+      await db
+        .insertInto("user")
+        .values({
+          id: user,
+          name: "Sweep uploader",
+          email: `${user}@example.test`,
+          email_verified: true,
+        })
+        .execute();
+    }
+    await db
+      .insertInto("uploads")
+      .values({ id, user_id: user, r2_key: `uploads/${id}.epub`, bytes: 1024, status })
+      .execute();
+  });
+  return id;
+}
+
+/**
+ * Puts `chapters` synthetic fragments under `works/<ao3WorkId>/<uploadId>/`, as a job writes
+ * them before its transaction. Returns their keys.
+ */
+export async function putPrefix(
+  ao3WorkId: number,
+  uploadId: string,
+  chapters: number,
+): Promise<string[]> {
+  const keys = Array.from(
+    { length: chapters },
+    (_, i) => `works/${ao3WorkId}/${uploadId}/${i + 1}.html`,
+  );
+  await Promise.all(keys.map((k) => env.BUCKET.put(k, "<p>Synthetic fragment.</p>")));
+  return keys;
 }
 
 /** The keys in the bucket under `prefix`, sorted. */

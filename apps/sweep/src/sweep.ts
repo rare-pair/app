@@ -17,6 +17,8 @@ export interface SweepDeps {
 }
 
 const IMAGE_KEY = /^[0-9a-f]{64}$/;
+/** An upload's id, as Postgres's `gen_random_uuid()` writes it. Any other segment is left alone. */
+const UPLOAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** Keys per R2 list page and per delete call: R2's most. */
 const PAGE = 1000;
 
@@ -51,13 +53,51 @@ async function listAll(bucket: SweepBucket, prefix: string): Promise<R2Object[]>
   }
 }
 
+async function deleteKeys(bucket: SweepBucket, keys: string[]): Promise<void> {
+  for (let i = 0; i < keys.length; i += PAGE) {
+    await bucket.delete(keys.slice(i, i + PAGE));
+  }
+}
+
 async function sweepWork(deps: SweepDeps, ao3WorkId: number): Promise<void> {
   const { db, bucket, cutoff } = deps;
+  const folder = `works/${ao3WorkId}/`;
   const work = await db
     .selectFrom("works")
     .select(["id", "summary_html"])
     .where("ao3_work_id", "=", ao3WorkId)
     .executeTakeFirst();
+  const versionPrefixes = new Set(
+    work === undefined
+      ? []
+      : (
+          await db
+            .selectFrom("work_versions")
+            .select("r2_prefix")
+            .where("work_id", "=", work.id)
+            .execute()
+        ).map((v) => v.r2_prefix),
+  );
+  // Every `<upload_id>/` prefix under the folder: one level, beside `img/`.
+  const prefixes: string[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await bucket.list({ prefix: folder, delimiter: "/", limit: PAGE, cursor });
+    prefixes.push(...page.delimitedPrefixes);
+    if (!page.truncated) break;
+    cursor = page.cursor;
+  }
+  for (const prefix of prefixes) {
+    const segment = prefix.slice(folder.length, -1);
+    if (!UPLOAD_ID.test(segment) || versionPrefixes.has(prefix)) continue;
+    const objects = await listAll(bucket, prefix);
+    // A prefix goes whole or not at all: one object put since the cutoff keeps all of it.
+    if (objects.some((o) => o.uploaded >= cutoff)) continue;
+    await deleteKeys(
+      bucket,
+      objects.map((o) => o.key),
+    );
+  }
   const referenced = new Set<string>();
   if (work !== undefined) {
     for (const key of imageRefs(work.summary_html ?? "", ao3WorkId)) referenced.add(key);
@@ -80,7 +120,5 @@ async function sweepWork(deps: SweepDeps, ao3WorkId: number): Promise<void> {
       const name = key.slice(img.length);
       return IMAGE_KEY.test(name) && !referenced.has(name);
     });
-  for (let i = 0; i < unreferenced.length; i += PAGE) {
-    await bucket.delete(unreferenced.slice(i, i + PAGE));
-  }
+  await deleteKeys(bucket, unreferenced);
 }
