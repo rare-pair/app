@@ -107,16 +107,34 @@ export const safeFrom = (from: string | null | undefined) =>
     ? from
     : null;
 
+/** The hidden field that carries `from` through an action's form, or nothing. */
+const fromInput = (from: string | null) =>
+  from === null ? "" : `<input type="hidden" name="from" value="${escapeHtml(from)}">`;
+
 /**
- * The hide and restore forms for a work, by its AO3 work ID, posting to
- * `/admin/works/:id/hide` and `/restore`. MOD4's work page includes the same forms.
+ * The hide, restore and remove forms for a work, by its AO3 work ID, posting to
+ * `/admin/works/:id/hide`, `/restore` and `/remove` (which asks to confirm first).
+ * MOD4's work page includes the same forms.
  * `from` is the page to link back to afterwards, or null.
  */
 export function workActions(ao3WorkId: number, from: string | null) {
-  const back = from === null ? "" : `<input type="hidden" name="from" value="${escapeHtml(from)}">`;
+  const back = fromInput(from);
   const form = (action: string, label: string) =>
     `<form method="post" action="/admin/works/${ao3WorkId}/${action}">${back}<button type="submit">${label}</button></form>`;
-  return `${form("hide", "Hide work")}\n${form("restore", "Restore work")}`;
+  return `${form("hide", "Hide work")}\n${form("restore", "Restore work")}\n${form("remove", "Remove work")}`;
+}
+
+/**
+ * The step before a remove, which can't be undone: names the work and posts the
+ * remove again with `confirm`, carrying `from` on.
+ */
+export function removeConfirmPage(title: string, ao3WorkId: number, from: string | null) {
+  return layout(
+    "Remove work",
+    `${nav}
+<p>Remove ${escapeHtml(title)} (${ao3WorkId})? Its pages answer 410 and its files are deleted. This can't be undone.</p>
+<form method="post" action="/admin/works/${ao3WorkId}/remove">${fromInput(from)}<input type="hidden" name="confirm" value="yes"><button type="submit">Remove work for good</button></form>`,
+  );
 }
 
 /** A form that rejects a takedown or a request, by the row's own id. */
