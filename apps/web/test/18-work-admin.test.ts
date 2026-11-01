@@ -136,7 +136,7 @@ describe("08 versioning and dedupe", () => {
     const held = await post(`/admin/works/${W}/current`, moderator, { version: heldId });
     expect(held.status).toBe(200);
     expect(await held.text()).toContain("held for review");
-    for (const version of [otherV, "mod4-no-such-version"]) {
+    for (const version of [otherV, "mod4-no-such-version", "mod4\0nul", "", "x".repeat(65)]) {
       const res = await post(`/admin/works/${W}/current`, moderator, { version });
       expect(res.status, version).toBe(404);
     }

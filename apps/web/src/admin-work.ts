@@ -47,7 +47,7 @@ adminWork.get("/works/:id", async (c) => {
         uploader: v.email ?? "",
         chapters: v.chapter_count,
         current: v.id === work.current_version_id,
-        held: v.upload_status === "held_for_review",
+        held: v.upload_status !== "live",
       })),
       workActions(work.ao3_work_id, null),
     ),
@@ -57,10 +57,13 @@ adminWork.get("/works/:id", async (c) => {
 adminWork.post("/works/:id/current", async (c) => {
   const found = await workByAo3Id(c, c.req.param("id"));
   if (!found) return c.notFound();
-  const back = `/admin/works/${encodeURIComponent(c.req.param("id"))}`;
+  const back = `/admin/works/${found.ao3_work_id}`;
   const form = await readForm(c.req.raw, MAX_FORM);
   const versionId = form?.get("version");
-  if (versionId === null || versionId === undefined) return c.notFound();
+  // Ids are uuids: anything else is no version, and never reaches the database.
+  if (versionId === null || versionId === undefined || !/^[\w-]{1,64}$/.test(versionId)) {
+    return c.notFound();
+  }
   // Only one of this work's own versions: the database refuses any other (a composite
   // foreign key), and a version of another work is a page that isn't there.
   const version = await c.var.db
@@ -71,20 +74,24 @@ adminWork.post("/works/:id/current", async (c) => {
     .where("work_versions.work_id", "=", found.id)
     .executeTakeFirst();
   if (!version) return c.notFound();
-  // Only a moderator's approval makes a held version current (ARCHITECTURE, step 7).
-  if (version.status === "held_for_review") {
+  // Only a moderator's approval makes a held version current (ARCHITECTURE, step 7), so
+  // only a version whose upload went live (as every replaced one did) is offered here.
+  if (version.status !== "live") {
     return c.html(resultPage("Nothing changed: that version is held for review.", back));
   }
   const changed = await c.var.db
     .updateTable("works")
     .set({ current_version_id: versionId })
     .where("id", "=", found.id)
-    .where("status", "<>", "removed")
+    // Not a removed work, and not one ingest is still finishing (it sets the version itself).
+    .where("status", "in", ["live", "hidden"])
     .returning("id")
     .executeTakeFirst();
   return c.html(
     resultPage(
-      changed ? "That version is now current." : "Nothing changed: the work is removed.",
+      changed
+        ? "That version is now current."
+        : "Nothing changed: the work is removed or not finished processing.",
       back,
     ),
   );
