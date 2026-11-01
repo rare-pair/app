@@ -2,7 +2,7 @@
 // needs an account (ARCHITECTURE, Author requests & takedowns, Reports). No
 // script and no Turnstile, so it works with JavaScript off.
 
-import { createDb } from "@archive/db";
+import { createDb, hideWork } from "@archive/db";
 import type { Context, MiddlewareHandler } from "hono";
 import type { Bindings } from "./env";
 import { readForm } from "./login";
@@ -19,6 +19,9 @@ type ReportContext = Context<{
 type Db = ReturnType<typeof createDb>;
 
 const MAX_INT4 = 2_147_483_647;
+
+/** Open reports from this many distinct accounts hide a work (ARCHITECTURE, Reports). */
+const REPORTERS_TO_HIDE = 3;
 
 /**
  * The reasons a reader can give, by the `kind` stored. Only `wrong_version` is
@@ -212,6 +215,9 @@ export async function submitReport(c: ReportContext) {
         body: details.trim() === "" ? null : details,
       })
       .execute();
+    // The count is inside the hiding UPDATE: a read could come from Hyperdrive's
+    // cache and miss the report just stored.
+    await hideWork(db, work.id, "reports", { minReporters: REPORTERS_TO_HIDE });
     return c.html(reportedPage(reason), 200, NO_STORE);
   } finally {
     c.executionCtx.waitUntil(db.destroy());
