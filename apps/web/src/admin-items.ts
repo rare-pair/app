@@ -230,7 +230,7 @@ adminItems.post("/requests/:id{[A-Za-z0-9_-]+}/reject", async (c) => {
         .selectFrom("works")
         .select("id")
         .where("id", "=", asked.work_id)
-        .forUpdate()
+        .forNoKeyUpdate()
         .execute();
     }
     const rejected = await trx

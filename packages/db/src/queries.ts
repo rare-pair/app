@@ -721,7 +721,8 @@ const countedReporters = (workId: string) => sql<number>`(
  * the cause together, as the schema's check requires. True when it hid it. A
  * hidden or removed work is left as it is, so no cause is overwritten, with one
  * exception: a moderator's hide takes over a hidden work's cause (a moderator has
- * looked at it, so an auto-hide no longer decides when it comes back).
+ * looked at it, so an auto-hide no longer decides when it comes back). A work a
+ * moderator already hid is left too: that hide returns false.
  *
  * With `minReporters`, the work is hidden only when that many accounts have
  * counted reports (see `countedReporters`). The count sits inside the UPDATE,
