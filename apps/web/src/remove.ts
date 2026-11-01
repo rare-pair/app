@@ -116,7 +116,8 @@ export async function submitRemove(c: RemoveContext) {
   const pseudTooLong = typedPseud.length > MAX_PSEUD;
   const pseudNorm = pseudTooLong ? "" : normalizePseud(typedPseud);
   const id = typedWork.length > MAX_WORK ? null : workIdOf(typedWork);
-  if (pseudTooLong) {
+  // The pseud is only used when no work is given, so only then is it held to its limit.
+  if (pseudTooLong && typedWork === "") {
     fieldErrors.pseud = `A pseud can be up to ${MAX_PSEUD} characters.`;
   } else if (typedWork === "" && pseudNorm === "") {
     fieldErrors.work = "Enter the web address of a work, or a pseud below.";
