@@ -6,6 +6,7 @@ import { confirmSignIn, showConfirm } from "./confirm";
 import type { Bindings } from "./env";
 import { showDmcaForm, submitDmca } from "./dmca";
 import { showFull } from "./full";
+import { continueWarnings, showWarnings } from "./warnings";
 import { homePage } from "./home";
 import { deadLetteredLaunchEmails } from "./launch-dead-letter";
 import { showTagListing } from "./listing";
@@ -52,6 +53,7 @@ app.use(contentSecurityPolicy);
 app.post("/uploads", sameOriginUpload);
 app.post("/uploads/:id/complete", sameOriginUpload);
 app.post("/works/:id/report", sameOriginOnly);
+app.post("/works/:id/warnings", sameOriginOnly);
 app.post("/remove", sameOriginOnly);
 app.post("/dmca", sameOriginOnly);
 // The session, once, for every page; routes read c.var.session and never mount it
@@ -102,6 +104,8 @@ app.post("/dmca", submitDmca);
 app.get("/works/:id/chapters/:n", showChapter);
 app.get("/works/:id/chapters", jumpToChapter);
 app.get("/works/:id/full", showFull);
+app.get("/works/:id/warnings", showWarnings);
+app.post("/works/:id/warnings", continueWarnings);
 
 // Reader settings, signed in or not. Closed before launch, like the reader.
 app.get(SETTINGS_PATH, showSettings);

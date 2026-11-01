@@ -50,6 +50,8 @@ const expected = {
     created_at: { type: "timestamptz", nullable: false },
     review_reasons: { type: "_text", nullable: false },
     checked_at: { type: "timestamptz", nullable: true },
+    tags: { type: "jsonb", nullable: true },
+    authors: { type: "jsonb", nullable: true },
   },
   chapters: {
     work_id: { type: "text", nullable: false },
