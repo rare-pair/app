@@ -6,6 +6,7 @@ import { confirmSignIn, showConfirm } from "./confirm";
 import type { Bindings } from "./env";
 import { showDmcaForm, submitDmca } from "./dmca";
 import { showFull } from "./full";
+import { POSITION_SCRIPT, POSITION_SCRIPT_PATH, savePosition } from "./position";
 import { homePage } from "./home";
 import { deadLetteredLaunchEmails } from "./launch-dead-letter";
 import { showTagListing } from "./listing";
@@ -52,6 +53,7 @@ app.use(contentSecurityPolicy);
 app.post("/uploads", sameOriginUpload);
 app.post("/uploads/:id/complete", sameOriginUpload);
 app.post("/works/:id/report", sameOriginOnly);
+app.post("/works/:id/position", sameOriginOnly);
 app.post("/remove", sameOriginOnly);
 app.post("/dmca", sameOriginOnly);
 // The session, once, for every page; routes read c.var.session and never mount it
@@ -102,6 +104,8 @@ app.post("/dmca", submitDmca);
 app.get("/works/:id/chapters/:n", showChapter);
 app.get("/works/:id/chapters", jumpToChapter);
 app.get("/works/:id/full", showFull);
+// A signed-in reader's saved place, posted by the position script.
+app.post("/works/:id/position", savePosition);
 
 // Reader settings, signed in or not. Closed before launch, like the reader.
 app.get(SETTINGS_PATH, showSettings);
@@ -129,6 +133,15 @@ app.get(STYLESHEET_PATH, (c) =>
 // The reader settings script, likewise hashed. Loaded with the page's nonce.
 app.get(SETTINGS_SCRIPT_PATH, (c) =>
   c.body(SETTINGS_SCRIPT, 200, {
+    "Content-Type": "text/javascript; charset=utf-8",
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+  }),
+);
+
+// The reading position script, likewise hashed. Loaded with the page's nonce.
+app.get(POSITION_SCRIPT_PATH, (c) =>
+  c.body(POSITION_SCRIPT, 200, {
     "Content-Type": "text/javascript; charset=utf-8",
     "Cache-Control": "public, max-age=31536000, immutable",
     "X-Content-Type-Options": "nosniff",

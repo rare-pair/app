@@ -13,6 +13,8 @@ export type Bindings = {
   HYPERDRIVE: Hyperdrive;
   /** Chapter fragments, under works/ (ARCHITECTURE, Reading). */
   BUCKET: R2Bucket;
+  /** Signed-in readers' saved reading positions, one key each (src/position.ts). */
+  POSITIONS: KVNamespace;
   /** The queue apps/mailer sends from. */
   EMAIL: Queue<EmailMessage>;
   /** The queue apps/ingest consumes: one `{ upload_id }` per confirmed upload. */
