@@ -110,7 +110,9 @@ works        (id, ao3_work_id UNIQUE NOT NULL, title, summary_html, rating, lang
               complete, published_at, updated_at,
               status,            -- processing | live | hidden | removed
               hidden_cause NULL, -- removal_request | reports | moderator, while hidden
-              current_version_id, raw_meta jsonb, search tsvector)
+              current_version_id, raw_meta jsonb,
+              search tsvector,   -- title A, byline and tags B, summary C; text search config `simple`
+              search_text)       -- the same text, for pg_trgm fuzzy matching
 work_authors (work_id, pseud, ao3_user NULL,
               position)  -- the author's place in the byline, from 0; unique per work
 work_versions(id, work_id, upload_id, chapter_count,
