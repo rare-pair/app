@@ -33,6 +33,13 @@ export {
   type WorkAvailability,
   type WorkSummary,
 } from "./queries";
+export {
+  logModerationAction,
+  inTransaction,
+  type ModerationAction,
+  type ModerationTargetKind,
+  type ModerationEntry,
+} from "./moderation-actions";
 export { refreshWorkSearch } from "./search-index";
 export { searchLiveWorks, type SearchOptions, type SearchResults } from "./search";
 export type {
@@ -60,6 +67,7 @@ export type {
   RequestTable,
   OptoutTable,
   RequesterBlockTable,
+  ModerationActionTable,
   RequestKind,
   WaitlistTable,
 } from "./schema";

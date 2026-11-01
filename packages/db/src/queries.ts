@@ -12,6 +12,7 @@ import type {
   WorkTable,
   WorkVersionTable,
 } from "./schema";
+import { inTransaction, logModerationAction } from "./moderation-actions";
 import { compareCodeUnits, normalizeTagName } from "./tags";
 
 /** A work's own fields, as a page shows them. */
@@ -726,23 +727,39 @@ const countedReporters = (workId: string) => sql<number>`(
  * counted reports (see `countedReporters`). The count sits inside the UPDATE,
  * not in a read before it: reads may come from Hyperdrive's cache and miss the
  * report just stored, but writes never do.
+ *
+ * With `actor`, the acting moderator's user id, it also logs the hide
+ * (`logModerationAction`) when it changed the work, in the same transaction, or
+ * in the caller's when `db` is one. No row for a hide that changed nothing, and
+ * none for the automatic hide, which has no moderator.
  */
 export async function hideWork(
   db: Kysely<Database>,
   workId: string,
   cause: HiddenCause,
-  options: { minReporters?: number } = {},
+  options: { minReporters?: number; actor?: string } = {},
 ): Promise<boolean> {
-  let update = db
-    .updateTable("works")
-    .set({ status: "hidden", hidden_cause: cause })
-    .where("id", "=", workId)
-    .where("status", "in", cause === "moderator" ? ["live", "hidden"] : ["live"]);
-  if (options.minReporters !== undefined) {
-    update = update.where(sql<boolean>`${countedReporters(workId)} >= ${options.minReporters}`);
-  }
-  const result = await update.executeTakeFirst();
-  return result.numUpdatedRows > 0n;
+  return inTransaction(db, async (trx) => {
+    let update = trx
+      .updateTable("works")
+      .set({ status: "hidden", hidden_cause: cause })
+      .where("id", "=", workId)
+      .where("status", "in", cause === "moderator" ? ["live", "hidden"] : ["live"]);
+    if (options.minReporters !== undefined) {
+      update = update.where(sql<boolean>`${countedReporters(workId)} >= ${options.minReporters}`);
+    }
+    const result = await update.executeTakeFirst();
+    if (result.numUpdatedRows === 0n) return false;
+    if (options.actor !== undefined) {
+      await logModerationAction(trx, {
+        moderatorId: options.actor,
+        action: "hide",
+        targetKind: "work",
+        targetId: workId,
+      });
+    }
+    return true;
+  });
 }
 
 /**
@@ -755,13 +772,17 @@ export async function hideWork(
  * `noPendingRequests`, it stays hidden while any request for it is pending. A live or
  * removed work is left as it is (a hidden work always has
  * a current version: the schema's check, so it can't come back without one).
+ *
+ * With `actor`, the acting moderator's user id, it also logs the restore when it
+ * restored the work (see `hideWork`). It runs in the caller's transaction when
+ * `db` is one, so a handler can make it part of a larger action.
  */
 export async function restoreWork(
   db: Kysely<Database>,
   workId: string,
-  options: { cause?: HiddenCause; noPendingRequests?: boolean } = {},
+  options: { cause?: HiddenCause; noPendingRequests?: boolean; actor?: string } = {},
 ): Promise<boolean> {
-  return db.transaction().execute(async (trx) => {
+  return inTransaction(db, async (trx) => {
     let update = trx
       .updateTable("works")
       .set({ status: "live", hidden_cause: null })
@@ -791,6 +812,14 @@ export async function restoreWork(
       .where("work_id", "=", workId)
       .where("status", "=", "open")
       .execute();
+    if (options.actor !== undefined) {
+      await logModerationAction(trx, {
+        moderatorId: options.actor,
+        action: "restore",
+        targetKind: "work",
+        targetId: workId,
+      });
+    }
     return true;
   });
 }

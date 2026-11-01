@@ -295,6 +295,19 @@ export interface RequesterBlockTable {
   created_at: CreatedTimestamp;
 }
 
+/** One row per moderation action (ARCHITECTURE, Data model). Ids only: no reader data. */
+export interface ModerationActionTable {
+  id: Generated<string>;
+  /** The acting moderator or admin. */
+  moderator_id: string;
+  action: string;
+  target_kind: string;
+  /** The target row's own id. No foreign key: it points at different tables. */
+  target_id: string;
+  note: string | null;
+  created_at: CreatedTimestamp;
+}
+
 /**
  * The launch wait list (ARCHITECTURE, Wait list): only what the launch email needs.
  * Tokens are stored as SHA-256 hex hashes, never as themselves.
@@ -332,5 +345,6 @@ export interface Database {
   requests: RequestTable;
   optouts: OptoutTable;
   requester_blocks: RequesterBlockTable;
+  moderation_actions: ModerationActionTable;
   waitlist: WaitlistTable;
 }
