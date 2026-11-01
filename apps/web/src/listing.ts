@@ -295,7 +295,7 @@ const line = (className: string, html: string) =>
   html ? `<p class="${className}">${html}</p>` : "";
 
 /** The six lines, in order: title and author, rating and warnings, fandoms, summary, tags, stats. */
-function workCard({ work, authors, tags }: ListedWork): string {
+export function workCard({ work, authors, tags }: ListedWork): string {
   const href = `/works/${work.ao3_work_id}`;
   const ofType = (type: TagType) => tags.filter((t) => t.type === type);
   // Spelled out in bold, never a colour or a symbol, and never clamped.

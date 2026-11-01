@@ -3,10 +3,12 @@ import {
   getLiveWork,
   insertUpload,
   listLiveWorksByTag,
+  listPopularFandoms,
+  listRecentLiveWorks,
   liveTagSpellings,
   normalizeTagName,
 } from "../src/index";
-import { seedWork } from "../src/seed";
+import { seedVersion, seedWork } from "../src/seed";
 import { createTestDb, type TestDb } from "../src/testing";
 
 let t: TestDb;
@@ -296,5 +298,78 @@ describe("packages/db uploads", () => {
       status: "pending",
       sha256: null,
     });
+  });
+});
+
+// Its own database, so the other tests' works don't share the fandoms and recent works.
+describe("14 browse and home: the home page's lists", () => {
+  let h: TestDb;
+  beforeAll(async () => {
+    h = await createTestDb();
+  });
+  afterAll(async () => {
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- unset if beforeAll failed
+    await h?.close();
+  });
+
+  const fandom = (name: string) => [{ type: "fandom" as const, name }];
+
+  it("Popular fandoms are ranked by their live works, one fandom per normalized name", async () => {
+    for (const name of ["Harry Potter", "harry  potter!"]) {
+      await seedWork(h.db, { tags: fandom(name) });
+    }
+    await seedWork(h.db, { tags: fandom("Harry Potter") });
+    for (let i = 0; i < 2; i++) await seedWork(h.db, { tags: fandom("Sherlock") });
+    await seedWork(h.db, { tags: fandom("Zelda") });
+    await seedWork(h.db, { tags: fandom("Abba") });
+    await seedWork(h.db, {
+      status: "hidden",
+      hiddenCause: "removal_request",
+      tags: fandom("Only Gone"),
+    });
+    await seedWork(h.db, { status: "removed", tags: fandom("Only Gone") });
+
+    const popular = await listPopularFandoms(h.db, 4);
+
+    expect(popular.map((f) => [f.name, f.count])).toEqual([
+      ["Harry Potter", 3],
+      ["Sherlock", 2],
+      ["Abba", 1],
+      ["Zelda", 1],
+    ]);
+    expect(popular[0]?.name_norm).toBe(normalizeTagName("fandom", "Harry Potter"));
+    expect((await listPopularFandoms(h.db)).map((f) => f.name)).not.toContain("Only Gone");
+  });
+
+  it("Popular fandoms are ten by default", async () => {
+    for (let i = 0; i < 12; i++) await seedWork(h.db, { tags: fandom(`Cap Fandom ${i}`) });
+
+    expect(await listPopularFandoms(h.db)).toHaveLength(10);
+  });
+
+  it("Recently added works are the live ones, by when their first version was added, newest first", async () => {
+    const old = await seedWork(h.db, { addedAt: "2031-01-01T00:00:00Z" });
+    const newest = await seedWork(h.db, { addedAt: "2031-03-01T00:00:00Z", updatedAt: null });
+    const middle = await seedWork(h.db, { addedAt: "2031-02-01T00:00:00Z" });
+    await seedWork(h.db, {
+      addedAt: "2031-04-01T00:00:00Z",
+      status: "hidden",
+      hiddenCause: "removal_request",
+    });
+    await seedWork(h.db, { addedAt: "2031-05-01T00:00:00Z", status: "removed" });
+    // A later version doesn't make the work newer.
+    await seedVersion(h.db, old, { addedAt: "2031-06-01T00:00:00Z" });
+
+    const recent = await listRecentLiveWorks(h.db, 3);
+
+    expect(recent.map((w) => w.work.id)).toEqual([newest.workId, middle.workId, old.workId]);
+    expect(recent[0]?.authors).toEqual([{ pseud: "Seed Author", ao3_user: "seed_author" }]);
+    expect(recent[0]?.tags.map((t) => t.type)).toContain("fandom");
+  });
+
+  it("Recently added works are twelve by default", async () => {
+    for (let i = 0; i < 14; i++) await seedWork(h.db, { addedAt: "2032-01-01T00:00:00Z" });
+
+    expect(await listRecentLiveWorks(h.db)).toHaveLength(12);
   });
 });
