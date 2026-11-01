@@ -1,0 +1,28 @@
+{
+  // Sweep Worker: once a day it deletes, under each `works/<ao3_work_id>/` folder in R2, the
+  // images no version references and the `<upload_id>/` prefixes no version or in-flight job
+  // owns, older than 24 hours (ARCHITECTURE, EPUB processor). It reads Postgres through
+  // Hyperdrive. No routes: nothing reaches it but the cron.
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "rarepair-sweep",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-08-01",
+  // pg needs Node's net and crypto.
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  // Daily, at 03:17 UTC: off-peak, and off the hour. A run spends a bounded number of
+  // subrequests (src/sweep.ts), so it needs Workers Paid.
+  "triggers": { "crons": ["17 3 * * *"] },
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "rarepair" }],
+  // Neon Postgres. The id is a placeholder until the Hyperdrive config is created; tests replace
+  // the local connection string with their own database.
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "00000000000000000000000000000000",
+      "localConnectionString": "postgresql://postgres:postgres@127.0.0.1:5432/postgres",
+    },
+  ],
+  "observability": { "enabled": true },
+}
