@@ -121,7 +121,8 @@ work_versions(id, work_id, upload_id, chapter_count,
               chapter_total NULL,  -- the planned total as this version's preface gave it
               r2_prefix, created_at,
               review_reasons text[],  -- from the parser; non-empty shows the notice
-              checked_at NULL)        -- set when a moderator approves the version
+              checked_at NULL,        -- set when a moderator approves the version
+              tags jsonb, authors jsonb)  -- this version's own tags and byline, in the file's order; work_tags and work_authors hold only the current version's
 chapters     (work_id, version_id, n, title, words, r2_key)
 tags         (id, type, name, name_norm) -- type: fandom|relationship|character|freeform|warning|category|rating
 work_tags    (work_id, tag_id,
@@ -377,6 +378,21 @@ Chapter text isn't indexed.
    delete. A
    job that fails for good goes to the dead-letter queue as `parse_failed`,
    with the stage and error recorded on the upload row.
+
+   A later upload of a known work is decided in the same transaction, from
+   facts read before it (the current version's chapter text comes from R2,
+   never read under a lock). A `replace` adds the version and chapters, then
+   moves `current_version_id` with one compare-and-swap (`update ... where
+   current_version_id = <the one read>`), then rewrites the work's columns,
+   byline and tags from the new version and refreshes its search text; the
+   upload is `live`. A job that loses the swap rolls back, reads the work
+   again and decides again, so two uploads at once leave one current version.
+   A `hold` adds the version and chapters and leaves the work, its byline and
+   tags alone (the version keeps its own in `work_versions.tags` and
+   `authors`); the upload is `held_for_review`. A `duplicate` adds no
+   version; the upload is `duplicate`, with its `work_id` set and its files
+   kept. A replace never changes the work's status: a hidden or removed work
+   stays so. Only a work's first upload sets it `live`.
 
 **Rejection codes:** `not_epub`, `zip_bomb`, `too_large`, `not_ao3`,
 `opted_out`, `parse_failed`. Each one shows a plain-language message to the

@@ -43,6 +43,8 @@ export type {
   VerificationTable,
   WorkTable,
   WorkAuthorTable,
+  VersionAuthor,
+  VersionTag,
   WorkVersionTable,
   ChapterTable,
   TagTable,

@@ -155,6 +155,20 @@ export interface WorkVersionTable {
   review_reasons: ColumnType<string[], string[] | undefined, string[]>;
   /** Set when a moderator approves the version. */
   checked_at: Timestamp | null;
+  /** This version's tags in the file's order, as ingest read them. NULL before migration 0010. Write it with `JSON.stringify`. */
+  tags: ColumnType<VersionTag[] | null, string | null | undefined, string | null>;
+  /** This version's byline in the file's order. NULL before migration 0010. Write it with `JSON.stringify`. */
+  authors: ColumnType<VersionAuthor[] | null, string | null | undefined, string | null>;
+}
+
+export interface VersionTag {
+  type: TagType;
+  name: string;
+}
+
+export interface VersionAuthor {
+  pseud: string;
+  user: string | null;
 }
 
 export interface ChapterTable {
