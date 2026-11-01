@@ -113,7 +113,9 @@ describe("05 epub unzip limits: zip structure", () => {
     it.each(["count", "offset"] as const)(
       "when the EOCD %s field is at its maximum",
       async (field) => {
-        await expectEpubError(processEpub(markEocd(ao3Epub(), field)), "not_epub");
+        await expect(processEpub(markEocd(ao3Epub(), field))).rejects.toThrow(
+          /ZIP64 archives are not supported/,
+        );
       },
     );
 
@@ -131,6 +133,12 @@ describe("05 epub unzip limits: zip structure", () => {
     it("when the Zip64 extra field is not the first field", async () => {
       const zip = withZip64Extra(ao3Epub(), "toc.ncx", { maxSizes: false, after: 2 });
       await expect(processEpub(zip)).rejects.toThrow(/ZIP64 archives are not supported/);
+    });
+
+    it("but an archive whose entry has other extra fields is accepted", async () => {
+      const zip = withZip64Extra(ao3Epub(), "toc.ncx", { maxSizes: false, after: 1, id: 0x7075 });
+      const work = await processEpub(zip);
+      expect(work.chapters).toHaveLength(1);
     });
 
     it("when an extra field claims more bytes than the block holds", async () => {

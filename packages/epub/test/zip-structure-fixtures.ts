@@ -100,7 +100,7 @@ export function withUnusedZip64Locator(zip: Uint8Array): Uint8Array {
 export function withZip64Extra(
   zip: Uint8Array,
   name: string,
-  { maxSizes = true, after = 0, overrun = false } = {},
+  { maxSizes = true, after = 0, overrun = false, id = 0x0001 } = {},
 ): Uint8Array {
   // `after` empty unknown fields (id 0x7777) come first; `overrun` makes the last one claim more
   // bytes than the extra block holds.
@@ -110,7 +110,7 @@ export function withZip64Extra(
     e.setUint16(i * 4, 0x7777, true);
     e.setUint16(i * 4 + 2, overrun ? 0x1000 : 0, true);
   }
-  e.setUint16(after * 4, 0x0001, true);
+  e.setUint16(after * 4, id, true);
   e.setUint16(after * 4 + 2, 8, true);
   let entryAt = -1;
   patchHeaders(zip, name, (_view, local, _size, nameAt) => {

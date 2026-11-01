@@ -80,9 +80,11 @@ function readCentralDirectory(bytes: Uint8Array): [string, string][] {
       view.getUint32(at + 42, true) === 0xffffffff
     )
       throw zip64();
-    for (let x = nameEnd; x + 4 <= extraEnd; x += 4 + view.getUint16(x + 2, true)) {
-      if (x + 4 + view.getUint16(x + 2, true) > extraEnd) throw corrupt("bad extra field");
+    for (let x = nameEnd; x + 4 <= extraEnd;) {
+      const next = x + 4 + view.getUint16(x + 2, true);
+      if (next > extraEnd) throw corrupt("bad extra field");
       if (view.getUint16(x, true) === 0x0001) throw zip64();
+      x = next;
     }
     const raw = bytes.subarray(at + 46, nameEnd);
     const decoded: [string, string] = [strFromU8(raw), strFromU8(raw, true)];
