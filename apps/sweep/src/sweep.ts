@@ -2,11 +2,31 @@ import type { Database } from "@archive/db";
 import type { Kysely } from "kysely";
 import { imageRefs } from "./refs";
 
-/** What the sweep uses of the bucket. */
+/** An object in a listing, as far as the sweep reads it. */
+export interface ListedObject {
+  key: string;
+  uploaded: Date;
+}
+
+/** One page of an R2 listing, as far as the sweep reads it. */
+export interface Listing {
+  objects: ListedObject[];
+  delimitedPrefixes: string[];
+  truncated: boolean;
+  cursor?: string;
+}
+
+/** What the sweep uses of the bucket: R2's `list`, `get` and batch `delete`. */
 export interface SweepBucket {
-  list(options: R2ListOptions): Promise<R2Objects>;
-  get(key: string): Promise<R2ObjectBody | null>;
-  delete(keys: string | string[]): Promise<void>;
+  list(options: {
+    prefix: string;
+    delimiter?: string;
+    limit: number;
+    cursor?: string;
+    startAfter?: string;
+  }): Promise<Listing>;
+  get(key: string): Promise<{ text(): Promise<string> } | null>;
+  delete(keys: string[]): Promise<void>;
 }
 
 /** What one run may spend. */
@@ -102,9 +122,10 @@ export async function sweep(deps: SweepDeps): Promise<RunReport> {
           } catch (error) {
             if (!(error instanceof BudgetSpent)) throw error;
             // A work too big for a whole run would stop every run on it: the first is passed.
-            if (report.works > 0) break walk;
-            report.skipped.push({ ao3WorkId, reason: "budget" });
-            after = past(folder);
+            if (report.works === 0) {
+              report.skipped.push({ ao3WorkId, reason: "budget" });
+              after = past(folder);
+            }
             break walk;
           }
           report.works++;
@@ -162,8 +183,8 @@ async function listAll(
   bucket: SweepBucket,
   prefix: string,
   delimiter?: string,
-): Promise<{ objects: R2Object[]; prefixes: string[] }> {
-  const objects: R2Object[] = [];
+): Promise<{ objects: ListedObject[]; prefixes: string[] }> {
+  const objects: ListedObject[] = [];
   const prefixes: string[] = [];
   let cursor: string | undefined;
   for (;;) {
@@ -189,40 +210,42 @@ async function sweepWork(deps: SweepDeps, ao3WorkId: number, report: RunReport):
     .select(["id", "summary_html"])
     .where("ao3_work_id", "=", ao3WorkId)
     .executeTakeFirst();
-  const versionPrefixes = new Set(
-    work === undefined
-      ? []
-      : (
-          await db
-            .selectFrom("work_versions")
-            .select("r2_prefix")
-            .where("work_id", "=", work.id)
-            .execute()
-        ).map((v) => v.r2_prefix),
-  );
-  // Every `<upload_id>/` prefix under the folder: one level, beside `img/`.
-  const candidates = new Map<string, string>();
-  for (const prefix of (await listAll(bucket, folder, "/")).prefixes) {
+  const [versions, listing] = await Promise.all([
+    db
+      .selectFrom("work_versions")
+      .innerJoin("works", "works.id", "work_versions.work_id")
+      .select("work_versions.r2_prefix")
+      .where("works.ao3_work_id", "=", ao3WorkId)
+      .execute(),
+    // Every `<upload_id>/` prefix under the folder: one level, beside `img/`.
+    listAll(bucket, folder, "/"),
+  ]);
+  const versionPrefixes = new Set(versions.map((v) => v.r2_prefix));
+  const candidates = new Set<string>();
+  for (const prefix of listing.prefixes) {
     const segment = prefix.slice(folder.length, -1);
-    if (UPLOAD_ID.test(segment) && !versionPrefixes.has(prefix)) candidates.set(segment, prefix);
+    if (UPLOAD_ID.test(segment) && !versionPrefixes.has(prefix)) candidates.add(segment);
   }
   // The uploads a job may still be writing for: a prefix's own (a job writes its fragments
   // before its images), or one already tied to the work. A `pending` upload with neither can't
   // be tied to any work.
-  const inFlight = await db
-    .selectFrom("uploads")
-    .select("id")
-    .where("status", "in", ["pending", "processing"])
-    .where((eb) => {
-      const arms = [];
-      if (candidates.size > 0) arms.push(eb("id", "in", [...candidates.keys()]));
-      if (work !== undefined) arms.push(eb("work_id", "=", work.id));
-      return eb.or(arms);
-    })
-    .execute();
+  const inFlight =
+    candidates.size === 0 && work === undefined
+      ? []
+      : await db
+          .selectFrom("uploads")
+          .select("id")
+          .where("status", "in", ["pending", "processing"])
+          .where((eb) =>
+            eb.or([
+              ...(candidates.size > 0 ? [eb("id", "in", [...candidates])] : []),
+              ...(work !== undefined ? [eb("work_id", "=", work.id)] : []),
+            ]),
+          )
+          .execute();
   for (const { id } of inFlight) candidates.delete(id);
-  for (const prefix of candidates.values()) {
-    const { objects } = await listAll(bucket, prefix);
+  for (const uploadId of candidates) {
+    const { objects } = await listAll(bucket, `${folder}${uploadId}/`);
     // A prefix goes whole or not at all: one object put since the cutoff keeps all of it.
     if (objects.length === 0 || objects.some((o) => o.uploaded >= cutoff)) continue;
     await deleteKeys(
@@ -231,24 +254,27 @@ async function sweepWork(deps: SweepDeps, ao3WorkId: number, report: RunReport):
     );
     report.prefixesDeleted++;
   }
+  const img = `${folder}img/`;
+  if (!listing.prefixes.includes(img)) return;
   // A job may be about to commit a version that references images already here.
   if (inFlight.length > 0) {
     report.skipped.push({ ao3WorkId, reason: "in_flight" });
     return;
   }
+  // Old enough to go, if nothing references them. Listed first, so a work with none reads no
+  // fragments.
+  const old = (await listAll(bucket, img)).objects.filter(
+    (o) => o.uploaded < cutoff && IMAGE_KEY.test(o.key.slice(img.length)),
+  );
+  if (old.length === 0) return;
   const referenced = await referencedImages(deps, ao3WorkId, work);
   if (referenced === null) {
     report.skipped.push({ ao3WorkId, reason: "unreadable_fragment" });
     return;
   }
-  const img = `${folder}img/`;
-  const unreferenced = (await listAll(bucket, img)).objects
-    .filter((o) => o.uploaded < cutoff)
-    .map((o) => o.key)
-    .filter((key) => {
-      const name = key.slice(img.length);
-      return IMAGE_KEY.test(name) && !referenced.has(name);
-    });
+  const unreferenced = old
+    .filter((o) => !referenced.has(o.key.slice(img.length)))
+    .map((o) => o.key);
   await deleteKeys(bucket, unreferenced);
   report.imagesDeleted += unreferenced.length;
 }

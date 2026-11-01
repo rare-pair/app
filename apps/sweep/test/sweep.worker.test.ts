@@ -138,7 +138,7 @@ describe("sweep bounds", () => {
 
   it("A work the run's budget can't finish keeps its images", async () => {
     const [first, second] = await twoWorks();
-    // Enough to list the folders and the first work's prefixes, not to read its fragment.
+    // Enough to list the folders and the first work's prefixes, not its images.
     const handler = sweepWorker({ works: 10, subrequests: 2 });
 
     await runSweep(25, { handler });

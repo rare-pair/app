@@ -17,6 +17,9 @@ export default defineConfig({
           name: "node",
           include: ["test/**/*.node.test.ts"],
           environment: "node",
+          // PGlite starts and migrates in the paging test's hook.
+          testTimeout: 30_000,
+          hookTimeout: 60_000,
         },
       },
       {
