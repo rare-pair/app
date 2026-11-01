@@ -271,7 +271,8 @@ async function referencedImages(
     .select("r2_key")
     .where("work_id", "=", work.id)
     .execute();
-  let complete = true;
+  // SAFETY: the readers below assign it; TypeScript can't see a callback's assignment.
+  let complete = true as boolean;
   const queue = chapters.values();
   const reader = async () => {
     for (const c of queue) {

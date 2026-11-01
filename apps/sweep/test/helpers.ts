@@ -7,7 +7,7 @@ import {
 } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import type { Kysely } from "kysely";
-import worker from "../src/worker";
+import worker, { type Env } from "../src/worker";
 
 // Shared by the workerd tests. One database serves every test (test/global-setup.ts), so each
 // seeds its own works; the bucket is each test's own.
@@ -24,7 +24,7 @@ export async function withDb<T>(fn: (db: Kysely<Database>) => Promise<T>): Promi
   }
 }
 
-type Handler = Pick<Required<typeof worker>, "scheduled">;
+type Handler = { scheduled: NonNullable<ExportedHandler<Env>["scheduled"]> };
 
 /**
  * Fires the cron as Cloudflare would, `hoursLater` hours from now. Local R2 stamps every

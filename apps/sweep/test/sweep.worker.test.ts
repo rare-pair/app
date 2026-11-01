@@ -84,7 +84,9 @@ describe("07-sanitizing-and-images", () => {
   it("No image is deleted when a version's fragment can't be read", async () => {
     const ao3WorkId = freshAo3WorkId();
     const work = await seededWork({ ao3WorkId, chapters: 2 });
-    await env.BUCKET.delete(work.chapterKeys[1] as string);
+    const [, second] = work.chapterKeys;
+    // SAFETY: the work was seeded with two chapters.
+    await env.BUCKET.delete(second as string);
     const unreferenced = imageKey();
     await putImages(ao3WorkId, unreferenced);
 
@@ -112,19 +114,18 @@ describe("07-sanitizing-and-images", () => {
 
 describe("sweep bounds", () => {
   /** Two works, each with an unreferenced image; returns their img prefixes in R2's order. */
-  async function twoWorks() {
-    const ids = [freshAo3WorkId(), freshAo3WorkId()].sort((a, b) =>
-      `works/${a}/` < `works/${b}/` ? -1 : 1,
-    );
+  async function twoWorks(): Promise<[string, string]> {
+    const [a, b] = [freshAo3WorkId(), freshAo3WorkId()];
+    const ids = `works/${a}/` < `works/${b}/` ? [a, b] : [b, a];
     for (const ao3WorkId of ids) {
       await seededWork({ ao3WorkId });
       await putImages(ao3WorkId, imageKey());
     }
-    return ids.map((id) => `works/${id}/img/`);
+    return [`works/${ids[0]}/img/`, `works/${ids[1]}/img/`];
   }
 
   it("A run sweeps a bounded number of works, and the next run goes on from there", async () => {
-    const [first, second] = (await twoWorks()) as [string, string];
+    const [first, second] = await twoWorks();
     const handler = sweepWorker({ works: 1, subrequests: 1000 });
 
     await runSweep(25, { handler });
@@ -136,7 +137,7 @@ describe("sweep bounds", () => {
   });
 
   it("A work the run's budget can't finish keeps its images", async () => {
-    const [first, second] = (await twoWorks()) as [string, string];
+    const [first, second] = await twoWorks();
     // Enough to list the folders and the first work's prefixes, not to read its fragment.
     const handler = sweepWorker({ works: 10, subrequests: 2 });
 

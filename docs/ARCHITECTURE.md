@@ -149,6 +149,9 @@ waitlist     (email PRIMARY KEY,               -- trimmed and lowercased; delete
               confirm_count,                    -- confirmation emails sent, 3 at most
               confirmed_at NULL, notified_at NULL,
               unsubscribe_token_hash NULL, created_at)  -- no IP, user agent or referrer
+sweep_state  (id,                -- one row: id 1
+              after NULL,        -- the R2 key the periodic sweep's next run lists after; NULL starts over
+              updated_at)
 ```
 
 `user.role` is `user`, `moderator` or `admin`. An admin has every moderator
@@ -948,6 +951,7 @@ apps/web/          Hono Worker: pages, auth, upload handshake, search, admin
 apps/content/      Worker serving epub images and original downloads from R2
 apps/ingest/       Queue consumer: epub processing
 apps/mailer/       Queue consumer: sends email (Resend, with failover)
+apps/sweep/        Daily cron: deletes unreferenced images and orphaned upload prefixes from R2
 packages/epub/     unzip + OPF + AO3 preface parser + sanitizer (tested in workerd)
 packages/db/       SQL migrations + typed queries
 fixtures/epubs/    real AO3 epub samples for parser and sanitizer tests
