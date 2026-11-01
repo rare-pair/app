@@ -64,17 +64,24 @@ async function seedWithObjects(ao3WorkId: number, hidden = false) {
   const held = await seedVersion(db, seeded, { current: false, chapters: 1 });
   const uploadIds = [seeded.uploadId, second.uploadId, held.uploadId];
   await putFragments(env.BUCKET, [...seeded.fragments, ...second.fragments, ...held.fragments]);
+  // The raw file's key as the upload route stores it (no extension), not the seed's.
+  const rawKey = `uploads/${seeded.uploadId}`;
+  await db
+    .updateTable("uploads")
+    .set({ r2_key: rawKey })
+    .where("id", "=", seeded.uploadId)
+    .execute();
   const others = [
     `works/${ao3WorkId}/img/${IMAGE_SHA}`,
     ...uploadIds.map((u) => `originals/${u}.epub`),
-    `uploads/${seeded.uploadId}.epub`,
+    rawKey,
   ];
   await Promise.all(others.map((key) => env.BUCKET.put(key, "xr1a-bytes")));
   const keys = [...seeded.fragments, ...second.fragments, ...held.fragments]
     .map((f) => f.key)
     .concat(others)
     .sort();
-  return { seeded, uploadIds, keys };
+  return { seeded, uploadIds, rawKey, keys };
 }
 
 /** Which of `keys` the bucket still holds, sorted. */
@@ -109,8 +116,29 @@ describe("18 moderation", () => {
     expect((await workRow(id)).status).toBe("live");
   });
 
+  it("The confirm page escapes the work's title", async () => {
+    const id = W + 3;
+    await seedWork(db, { ao3WorkId: id, title: "<script>xr1a()</script><form>" });
+    const html = await (await post(`/admin/works/${id}/remove`, moderator)).text();
+    expect(html).not.toContain("<script>xr1a()");
+    expect(html).toContain("&lt;script&gt;xr1a()&lt;/script&gt;&lt;form&gt;");
+  });
+
+  it("An unsafe from is dropped from the confirm page and the result page", async () => {
+    const id = W + 4;
+    await seedWork(db, { ao3WorkId: id });
+    for (const from of ["https://evil.example/admin/reports/x", "javascript:alert(1)"]) {
+      const posts: Record<string, string>[] = [{ from }, { from, confirm: "yes" }];
+      for (const fields of posts) {
+        const html = await (await post(`/admin/works/${id}/remove`, moderator, fields)).text();
+        expect(html, from).not.toContain('name="from"');
+        expect(html, from).not.toContain("Back to the item");
+      }
+    }
+  });
+
   it("Moderator removes a work", async () => {
-    const { seeded, uploadIds } = await seedWithObjects(W);
+    const { seeded, uploadIds, rawKey } = await seedWithObjects(W);
     const neighbour = await seedWithObjects(143001);
     const res = await post(`/admin/works/${W}/remove`, moderator, { confirm: "yes" });
     expect(res.status).toBe(200);
@@ -121,8 +149,8 @@ describe("18 moderation", () => {
     expect((await env.BUCKET.list({ prefix: `works/${W}/` })).objects).toEqual([]);
     for (const uploadId of uploadIds) {
       expect(await env.BUCKET.get(`originals/${uploadId}.epub`), uploadId).toBeNull();
-      expect(await env.BUCKET.get(`uploads/${uploadId}.epub`), uploadId).toBeNull();
     }
+    expect(await env.BUCKET.get(rawKey)).toBeNull();
     // The neighbour, whose ID starts with W's digits, keeps every object.
     expect(await bucketKeys(neighbour.keys)).toEqual(neighbour.keys);
     const moderatorId = (

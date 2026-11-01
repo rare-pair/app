@@ -30,7 +30,12 @@ export async function deleteWorkObjects(
 ): Promise<void> {
   // The trailing slash keeps works/12/ from matching works/123/.
   const prefix = `works/${ao3WorkId}/`;
-  const keys = uploads.flatMap((u) => [`originals/${u.id}.epub`, u.r2_key]);
+  // A stored raw-file key is trusted only under uploads/, so a bad row can't reach
+  // another work's objects.
+  const keys = uploads.flatMap((u) => [
+    `originals/${u.id}.epub`,
+    ...(u.r2_key.startsWith("uploads/") ? [u.r2_key] : []),
+  ]);
   let cursor: string | undefined;
   for (;;) {
     const page = await bucket.list({ prefix, cursor, limit: R2_BATCH });
