@@ -29,6 +29,7 @@ import { requireSignIn, sessionMiddleware, type SessionVariables } from "./sessi
 import { saveSettings, SETTINGS_PATH, showSettings } from "./settings";
 import { STYLESHEET, STYLESHEET_PATH } from "./styles";
 import { acceptTerms, showTerms, termsGate, WELCOME_TERMS } from "./terms";
+import { showMyUploads } from "./my-uploads";
 import { requestUpload, sameOriginUpload, showUpload } from "./upload";
 import { completeUpload } from "./upload-complete";
 import { showUploadStatus } from "./upload-status";
@@ -97,6 +98,7 @@ app.get("/upload", showUpload);
 app.post("/uploads", requestUpload);
 app.post("/uploads/:id/complete", completeUpload);
 app.get("/uploads/:id", showUploadStatus);
+app.get("/me/uploads", requireSignIn, showMyUploads);
 app.get("/remove", showRemoveForm);
 app.post("/remove", submitRemove);
 app.get("/dmca", showDmcaForm);
