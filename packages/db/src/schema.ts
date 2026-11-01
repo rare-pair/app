@@ -102,7 +102,8 @@ export type UploadStatus =
   | "opted_out"
   | "parse_failed"
   | "over_quota"
-  | "work_removed";
+  | "work_removed"
+  | "account_banned";
 
 export interface WorkTable {
   id: Generated<string>;
