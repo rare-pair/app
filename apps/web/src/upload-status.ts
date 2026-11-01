@@ -58,7 +58,7 @@ export async function showUploadStatus(c: StatusContext) {
       .selectFrom("uploads")
       .leftJoin("works", "works.id", "uploads.work_id")
       .select(["uploads.id", "uploads.status", "works.ao3_work_id", "works.status as work_status"])
-      .where("uploads.id", "=", c.req.param("id"))
+      .where("uploads.id", "=", c.req.param("id") ?? "")
       .where("uploads.user_id", "=", user.id)
       .executeTakeFirst();
     if (row === undefined) return c.json({ error: "That upload wasn't found." }, 404, NO_STORE);

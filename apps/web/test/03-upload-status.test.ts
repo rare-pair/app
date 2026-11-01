@@ -155,7 +155,7 @@ describe("03-upload-status", () => {
 
     const text = await (await poll(id, cookie)).text();
 
-    expect(Object.keys(JSON.parse(text)).toSorted()).toEqual(["id", "status", "work"]);
+    expect(Object.keys(JSON.parse(text)).sort()).toEqual(["id", "status", "work"]);
     for (const leak of ["uploads/", "aaaaaaaa", "1234", "marker", userId]) {
       expect(text).not.toContain(leak);
     }
