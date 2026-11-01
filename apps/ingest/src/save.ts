@@ -85,6 +85,7 @@ export async function saveWork(
   // Read before the writes below and never inside the transaction: the current version's text
   // comes from R2, which is slow, and a row lock must not be held across it.
   let current = await readCurrent(deps, ao3WorkId);
+  const facts = factsOf(work);
   const prefix = `works/${ao3WorkId}/${lease.id}/`;
   const chapters = work.chapters.map((c) => ({ ...c, key: `${prefix}${c.n}.html` }));
   await inPool(chapters, async (c) => {
@@ -104,7 +105,7 @@ export async function saveWork(
   });
   for (let attempt = 1; ; attempt++) {
     try {
-      const decision = current === null ? null : decideVersion(current.facts, factsOf(work));
+      const decision = current === null ? null : decideVersion(current.facts, facts);
       await deps.db
         .transaction()
         .execute((trx) =>
@@ -195,8 +196,8 @@ function factsOf(work: ParsedWork): VersionFacts {
   return {
     date: updatedAtOf(work)?.slice(0, 10) ?? null,
     chapters: work.chapters.map((c) => ({ n: c.n, text: c.html })),
-    tags: uniqueBy(tagsOf(work), tagKey),
-    authors: uniqueBy(work.authors, authorKey).map((a) => ({ pseud: a.pseud, user: a.user })),
+    tags: distinctTags(work),
+    authors: distinctAuthors(work),
   };
 }
 
@@ -350,10 +351,8 @@ async function insertVersion(
       review_reasons: work.reviewReasons,
       // Kept with the version, as `works` holds only the current one's: a held version's are
       // what a moderator's approval applies.
-      tags: JSON.stringify(uniqueBy(tagsOf(work), tagKey)),
-      authors: JSON.stringify(
-        uniqueBy(work.authors, authorKey).map((a) => ({ pseud: a.pseud, user: a.user })),
-      ),
+      tags: JSON.stringify(distinctTags(work)),
+      authors: JSON.stringify(distinctAuthors(work)),
     })
     .returning("id")
     .executeTakeFirstOrThrow();
@@ -396,7 +395,7 @@ async function writeAuthors(
   workId: string,
   work: ParsedWork,
 ): Promise<void> {
-  const bylines = uniqueBy(work.authors, authorKey).map((a, position) => ({
+  const bylines = distinctAuthors(work).map((a, position) => ({
     work_id: workId,
     pseud: a.pseud,
     ao3_user: a.user,
@@ -411,7 +410,7 @@ async function writeTags(
   workId: string,
   work: ParsedWork,
 ): Promise<void> {
-  const tags = uniqueBy(tagsOf(work), tagKey).map((tag, position) => ({ ...tag, position }));
+  const tags = distinctTags(work).map((tag, position) => ({ ...tag, position }));
   // Upserted in the shared lock order, a statement of rows at a time (Postgres takes a
   // statement's rows in VALUES order), so concurrent ingests sharing tags can't deadlock. The
   // update makes RETURNING give an existing tag's id, and brings its `name_norm` up to the rule.
@@ -445,6 +444,13 @@ async function writeTags(
   const workTags = tags.map((t) => ({ work_id: workId, tag_id: idOf(t), position: t.position }));
   for (const part of chunks(workTags)) await trx.insertInto("work_tags").values(part).execute();
 }
+
+/** The work's tags, a repeated one keeping its first place. */
+const distinctTags = (work: ParsedWork) => uniqueBy(tagsOf(work), tagKey);
+
+/** The byline, a repeated entry keeping its first place. */
+const distinctAuthors = (work: ParsedWork) =>
+  uniqueBy(work.authors, authorKey).map((a) => ({ pseud: a.pseud, user: a.user }));
 
 const tagKey = (t: { type: TagType; name: string }) => JSON.stringify([t.type, t.name]);
 const authorKey = (a: { pseud: string; user: string | null }) => JSON.stringify([a.pseud, a.user]);

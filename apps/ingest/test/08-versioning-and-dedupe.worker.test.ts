@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ao3Epub } from "../../../packages/epub/test/helpers";
 import {
+  beforePut,
   bucketKeys,
   bucketText,
   deliver,
@@ -338,6 +339,35 @@ describe("08-versioning-and-dedupe", () => {
     );
     expect(winner.result.explicitAcks).toEqual(["msg-0"]);
     expect(loser.result.explicitAcks).toEqual(["msg-0"]);
+  });
+
+  it("A hold decided against a version that was replaced meanwhile is decided again", async () => {
+    const { workId } = await workAtV1();
+    // B read v1 and decided to hold (chapter 2 rewritten); then A replaces v1 with the same
+    // four chapters but for chapter 2. Against A, B is not newer: a duplicate with no version
+    // of its own. A hold that committed against the moved pointer would leave a third version.
+    let replaced = () => {};
+    const aDone = new Promise<void>((resolve) => (replaced = resolve));
+    let read = () => {};
+    const bRead = new Promise<void>((resolve) => (read = resolve));
+    const heldCandidate = ingestParsed(fixture(workId, { count: 4, rewritten: [2] }), {
+      // The first write is after the job's read of the work; the last waits for A to commit.
+      bucket: beforePut(async (key) => {
+        read();
+        if (key.startsWith("originals/")) await aDone;
+      }),
+    });
+    await bRead;
+    const a = await ingestParsed(fixture(workId, { count: 4 }));
+    replaced();
+    const b = await heldCandidate;
+
+    expect(a.row.status).toBe("live");
+    expect(b.row.status).toBe("duplicate");
+    const rows = await versionsOf(workId);
+    expect(rows.versions.map((v) => v.upload_id)).not.toContain(b.id);
+    expect(rows.versions).toHaveLength(2);
+    expect(rows.current).toBe(rows.versions.find((v) => v.upload_id === a.id)?.id);
   });
 
   it("Two first uploads of a work at once leave one version and one duplicate or replace", async () => {
