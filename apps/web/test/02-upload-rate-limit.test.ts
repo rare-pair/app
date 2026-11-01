@@ -60,7 +60,12 @@ async function expectTooManyRequests(res: Response) {
   expect(res.headers.get("cache-control")).toBe("no-store");
   expect(res.headers.get("content-type")).toMatch(/^application\/json/);
   // SAFETY: POST /uploads answers JSON.
-  const body = (await res.json()) as Record<string, unknown>;
+  const body = (await res.json()) as {
+    id?: string;
+    url?: string;
+    error?: string;
+    retryAfter?: number;
+  };
   expect(body.url).toBeUndefined();
   expect(body.id).toBeUndefined();
   expect(body.retryAfter).toBe(UPLOAD_WINDOW_SECONDS);
