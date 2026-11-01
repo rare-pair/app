@@ -21,6 +21,19 @@ export type Steps = Pick<JobDeps, "process" | "save"> & {
   bucket: (real: R2Bucket) => JobBucket;
 };
 
+/** Where the content Worker serves a work's images from. */
+const CONTENT_ORIGIN = "https://content.rarepair.fans";
+
+/**
+ * The processor, with each image's `src` pointed at the content origin under the work's `img`
+ * prefix, and the images it accepts added to `images`, to be written by the save.
+ */
+const processForStorage: JobDeps["process"] = (bytes, images) =>
+  processEpub(bytes, {
+    imageBase: (ao3WorkId) => `${CONTENT_ORIGIN}/works/${ao3WorkId}/img/`,
+    onImage: (ref, data) => void images?.set(ref.key, { mediaType: ref.mediaType, bytes: data }),
+  });
+
 /** The queue handler, with `steps` over the real ones. */
 export function ingestWorker(steps: Partial<Steps> = {}) {
   return {
@@ -40,8 +53,10 @@ export function ingestWorker(steps: Partial<Steps> = {}) {
       const deps: JobDeps = {
         db,
         bucket,
-        process: steps.process ?? processEpub,
-        save: steps.save ?? ((lease, work, bytes) => saveWork({ db, bucket }, lease, work, bytes)),
+        process: steps.process ?? processForStorage,
+        save:
+          steps.save ??
+          ((lease, work, bytes, images) => saveWork({ db, bucket }, lease, work, bytes, images)),
       };
       let invalid = 0;
       try {
