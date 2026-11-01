@@ -334,8 +334,9 @@ Chapter text isn't indexed.
    tell who the author is while AO3 is down.
 
    The decision is a pure function of the two versions' facts
-   (`apps/ingest/src/versioning.ts`, never the uploader). Its defaults, each a
-   named parameter:
+   (`apps/ingest/src/versioning.ts`, never the uploader). Its defaults are
+   fixed in that file, and the similarity threshold is a named, per-call
+   option:
    - **Newer** means more posted chapters (the count of chapters in the file,
      not the planned total), or a later date: Updated, else Completed, else
      Published, at day granularity (anything that is not a real `YYYY-MM-DD`
@@ -349,8 +350,9 @@ Chapter text isn't indexed.
      is normalized by removing markup and collapsing whitespace; case and
      punctuation count. Equal normalized text is identical, and only a
      mismatch is measured: the Dice coefficient of the two texts' word pairs.
-     Titles, summary and notes are not compared, and chapters past the shorter
-     version's are not either.
+     A short chapter has little room: one changed word in under 20 breaks 90%,
+     so it is held. Titles, summary and notes are not compared, and a chapter
+     number only one version has is not compared either.
    - **Tags and authors changed** compares sets, not order: tags by type and
      normalized name (`name_norm`), every type including rating and warning;
      authors by normalized pseud and AO3 user (where there is one).

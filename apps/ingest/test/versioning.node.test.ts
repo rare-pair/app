@@ -268,6 +268,16 @@ describe("decideVersion edges", () => {
     }
   });
 
+  it("accepts a real leap day and refuses a false one", () => {
+    expect(decideVersion(facts({ date: "2024-02-28" }), facts({ date: "2024-02-29" }))).toEqual(
+      REPLACE,
+    );
+    expect(decideVersion(facts({ date: "2025-02-28" }), facts({ date: "2025-02-29" }))).toEqual(
+      DUPLICATE,
+    );
+    expect(decideVersion(facts(), facts({ date: "2026-02-01T10:00:00Z" }))).toEqual(DUPLICATE);
+  });
+
   it("refuses a similarity threshold outside 0 to 1", () => {
     for (const threshold of [Number.NaN, -0.1, 1.1]) {
       expect(() => decideVersion(facts(), facts({ chapters: 4 }), { threshold })).toThrow(
