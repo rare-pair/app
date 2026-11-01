@@ -42,7 +42,7 @@ async function fromField(request: Request) {
   return safeFrom(form?.get("from"));
 }
 
-adminItems.get("/reports/:id", async (c) => {
+adminItems.get("/reports/:id{[A-Za-z0-9_-]+}", async (c) => {
   const row = await c.var.db
     .selectFrom("reports")
     .innerJoin("works", "works.id", "reports.work_id")
@@ -76,7 +76,7 @@ adminItems.get("/reports/:id", async (c) => {
   );
 });
 
-adminItems.get("/takedowns/:id", async (c) => {
+adminItems.get("/takedowns/:id{[A-Za-z0-9_-]+}", async (c) => {
   const id = c.req.param("id");
   const row = await c.var.db
     .selectFrom("takedowns")
@@ -113,7 +113,7 @@ adminItems.get("/takedowns/:id", async (c) => {
   );
 });
 
-adminItems.get("/requests/:id", async (c) => {
+adminItems.get("/requests/:id{[A-Za-z0-9_-]+}", async (c) => {
   const id = c.req.param("id");
   const row = await c.var.db
     .selectFrom("requests")
@@ -159,7 +159,7 @@ adminItems.get("/requests/:id", async (c) => {
 });
 
 /** The work with this AO3 work ID, from a URL segment, or null for no such work. */
-async function workByAo3Id(c: { var: AdminEnv["Variables"] }, segment: string) {
+async function workByAo3Id(c: Context<AdminEnv>, segment: string) {
   if (!/^\d{1,10}$/.test(segment) || Number(segment) < 1 || Number(segment) > MAX_INT4) {
     return null;
   }
@@ -199,7 +199,7 @@ adminItems.post("/works/:id/restore", async (c) => {
   );
 });
 
-adminItems.post("/requests/:id/reject", async (c) => {
+adminItems.post("/requests/:id{[A-Za-z0-9_-]+}/reject", async (c) => {
   const id = c.req.param("id");
   const rejected = await c.var.db
     .updateTable("requests")
@@ -209,10 +209,20 @@ adminItems.post("/requests/:id/reject", async (c) => {
     .returning("work_id")
     .executeTakeFirst();
   if (!rejected) return decidedOrMissing(c, "requests", id);
-  // The hide this request caused comes off, never a moderator's or the reports'.
-  const restored =
-    rejected.work_id !== null &&
-    (await restoreWork(c.var.db, rejected.work_id, { cause: "removal_request" }));
+  // The hide a request caused comes off, never a moderator's or the reports', and
+  // not while another removal request for the work is still waiting.
+  let restored = false;
+  if (rejected.work_id !== null) {
+    const other = await c.var.db
+      .selectFrom("requests")
+      .select("id")
+      .where("work_id", "=", rejected.work_id)
+      .where("status", "=", "pending")
+      .executeTakeFirst();
+    if (!other) {
+      restored = await restoreWork(c.var.db, rejected.work_id, { cause: "removal_request" });
+    }
+  }
   return c.html(
     resultPage(
       restored ? "Rejected. The work is live again." : "Rejected.",
@@ -221,7 +231,7 @@ adminItems.post("/requests/:id/reject", async (c) => {
   );
 });
 
-adminItems.post("/takedowns/:id/reject", async (c) => {
+adminItems.post("/takedowns/:id{[A-Za-z0-9_-]+}/reject", async (c) => {
   const id = c.req.param("id");
   const rejected = await c.var.db
     .updateTable("takedowns")

@@ -251,6 +251,24 @@ describe("18 moderation detail pages", () => {
     expect(await state(W)).toEqual({ status: "hidden", hidden_cause: "moderator" });
   });
 
+  it("Rejecting one of two removal requests keeps the work hidden until both are decided", async () => {
+    const W = 14113;
+    const workId = await seed(W, { status: "hidden", hiddenCause: "removal_request" });
+    await addRequest("mod2-two-request-a", workId, "remove_work");
+    await addRequest("mod2-two-request-b", workId, "remove_work");
+    await post("/admin/requests/mod2-two-request-a/reject", moderator);
+    expect(await state(W)).toEqual({ status: "hidden", hidden_cause: "removal_request" });
+    await post("/admin/requests/mod2-two-request-b/reject", moderator);
+    expect(await state(W)).toEqual({ status: "live", hidden_cause: null });
+  });
+
+  it("An id with odd characters is not found", async () => {
+    for (const path of ["/admin/reports/%00", "/admin/requests/a%20b", "/admin/takedowns/%2e%2e"]) {
+      expect((await get(path, moderator)).status, path).toBe(404);
+    }
+    expect((await post("/admin/requests/%00/reject", moderator)).status).toBe(404);
+  });
+
   it("Rejecting an opt-out or a takedown only sets its status", async () => {
     const workId = await seed(14107);
     await addRequest("mod2-reject-optout", null, "opt_out");
