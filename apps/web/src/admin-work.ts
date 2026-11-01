@@ -57,7 +57,8 @@ adminWork.get("/works/:id", async (c) => {
 adminWork.post("/works/:id/current", async (c) => {
   const found = await workByAo3Id(c, c.req.param("id"));
   if (!found) return c.notFound();
-  const back = `/admin/works/${found.ao3_work_id}`;
+  // The segment passed `workByAo3Id`, so it is digits: normalised, as the page's forms are.
+  const back = `/admin/works/${Number(c.req.param("id"))}`;
   const form = await readForm(c.req.raw, MAX_FORM);
   const versionId = form?.get("version");
   // Ids are uuids: anything else is no version, and never reaches the database.
