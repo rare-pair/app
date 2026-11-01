@@ -4,7 +4,7 @@ import type { Bindings } from "./env";
 import { readForm } from "./login";
 import { uploadPage } from "./pages";
 import { presignPut } from "./presign";
-import { limitFor, quotaSpent } from "./quota";
+import { limitFor, quotaSpent, tooManyUploads } from "./quota";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
 import { ipKey, isLimited, UPLOAD_WINDOW_SECONDS, userKey } from "./rate-limit";
@@ -72,13 +72,10 @@ export async function requestUpload(c: UploadContext) {
     (await isLimited(c.env.UPLOAD_IP_LIMIT, await ipKey("upload", clientIp))) ||
     (await isLimited(c.env.UPLOAD_USER_LIMIT, await userKey("upload", user.id)))
   ) {
-    return c.json(
-      {
-        error: "You're uploading too fast. Please wait a moment and try again.",
-        retryAfter: UPLOAD_WINDOW_SECONDS,
-      },
-      429,
-      { ...NO_STORE, "Retry-After": String(UPLOAD_WINDOW_SECONDS) },
+    return tooManyUploads(
+      c,
+      "You're uploading too fast. Please wait a moment and try again.",
+      UPLOAD_WINDOW_SECONDS,
     );
   }
 

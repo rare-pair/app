@@ -51,7 +51,12 @@ export function quotaSpentMessage(seconds: number): string {
  */
 export function quotaSpent(c: Context): Response {
   const retryAfter = secondsToReset(new Date());
-  return c.json({ error: quotaSpentMessage(retryAfter), retryAfter }, 429, {
+  return tooManyUploads(c, quotaSpentMessage(retryAfter), retryAfter);
+}
+
+/** A 429 for a script endpoint: `{ error, retryAfter }` as JSON, `Retry-After` the same, `no-store`. */
+export function tooManyUploads(c: Context, error: string, retryAfter: number): Response {
+  return c.json({ error, retryAfter }, 429, {
     "Cache-Control": "no-store",
     "Retry-After": String(retryAfter),
   });
