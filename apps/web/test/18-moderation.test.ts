@@ -374,7 +374,9 @@ function rowWith(html: string, marker: string): string[] {
   const rows = html.match(/<tr><td>.*?<\/tr>/g) ?? [];
   const [row, ...others] = rows.filter((r) => r.includes(marker));
   expect(others, marker).toEqual([]);
-  return [...(row ?? "").matchAll(/<td>(.*?)<\/td>/g)].map((m) => m[1] ?? "");
+  return [...(row ?? "").matchAll(/<td>(.*?)<\/td>/g)].map((m) =>
+    (m[1] ?? "").replace(/^<a href="[^"]*">(.*)<\/a>$/, "$1"),
+  );
 }
 
 /** The page any unknown URL gets. */
