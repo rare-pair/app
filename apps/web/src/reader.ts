@@ -6,12 +6,17 @@ import type { Context } from "hono";
 import type { Bindings } from "./env";
 import { escapeHtml, layout } from "./pages";
 import { reviewNotice } from "./review-notice";
+import { positionScriptTag } from "./position";
 import type { SecurityVariables } from "./security";
+import type { SessionVariables } from "./session";
 import { barSettings, settingsScriptTag } from "./settings";
 import { warningsRedirect } from "./warnings";
 import { withheldResponse } from "./withheld";
 
-export type ReaderContext = Context<{ Bindings: Bindings; Variables: SecurityVariables }>;
+export type ReaderContext = Context<{
+  Bindings: Bindings;
+  Variables: SecurityVariables & SessionVariables;
+}>;
 
 const MAX_INT4 = 2_147_483_647;
 
@@ -82,7 +87,7 @@ export async function showChapter(c: ReaderContext) {
 <h2 class="chapter-title">${escapeHtml(chapterTitle(chapter))}</h2>
 <article class="chapter">${fragment}</article>
 ${nav("bottom")}`,
-      settingsScriptTag(c.get("nonce")),
+      `${settingsScriptTag(c.get("nonce"))}${positionScriptTag(c.get("nonce"), c.var.session)}`,
       bar,
     ),
   );

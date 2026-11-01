@@ -33,6 +33,11 @@
   // Chapter fragments, which the reader reads under works/ only. The same bucket
   // apps/content serves images and originals from.
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "rarepair" }],
+  // Reading positions: one `pos:<user id>:<work id>` key per signed-in reader and work, holding a
+  // chapter number and a scroll percentage, expiring after a year (src/position.ts). The id is a
+  // placeholder, like Hyperdrive's, until the operator creates the namespace
+  // (wrangler kv namespace create POSITIONS); tests use a local one.
+  "kv_namespaces": [{ "binding": "POSITIONS", "id": "00000000000000000000000000000000" }],
   // Sign-in emails, sent by apps/mailer. This Worker also consumes email-bulk-dlq, where a launch
   // email both providers refused lands: src/launch-dead-letter.ts clears its address's
   // notified_at so the launch send queues it again (ARCHITECTURE, Wait list). Retention is

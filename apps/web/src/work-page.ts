@@ -6,11 +6,13 @@ import { createDb, getLiveWork, getWorkAvailability, type LiveWork } from "@arch
 import type { Context } from "hono";
 import type { Bindings } from "./env";
 import { escapeHtml, layout } from "./pages";
+import { continueHref, loadPosition, type Position } from "./position";
 import type { SecurityVariables } from "./security";
+import type { SessionVariables } from "./session";
 import { TAG_LABELS, tagHref, type LinkedType } from "./tag-links";
 import { withheldResponse } from "./withheld";
 
-type WorkContext = Context<{ Bindings: Bindings; Variables: SecurityVariables }>;
+type WorkContext = Context<{ Bindings: Bindings; Variables: SecurityVariables & SessionVariables }>;
 
 type Tag = LiveWork["tags"][number];
 
@@ -37,8 +39,18 @@ const isLinked = (tag: Tag): tag is Tag & { type: LinkedType } =>
 const originalHref = (r2Prefix: string) =>
   `https://content.rarepair.fans/originals/${encodeURIComponent(r2Prefix.split("/")[2] ?? "")}`;
 
+/**
+ * The reader's place, as a link: to the saved chapter or the entire-work page, with the
+ * saved percentage in the fragment. Nothing when there is no saved place, or its chapter
+ * isn't in the current version. The page itself never moves the reader.
+ */
+const continueLink = (live: LiveWork, position: Position | null) =>
+  position === null || (position.n !== null && !live.chapters.some((ch) => ch.n === position.n))
+    ? ""
+    : `<p class="continue"><a href="${continueHref(live.work.ao3_work_id, position)}">Continue where you left off</a></p>\n`;
+
 /** The work page's markup. Every stored string is escaped except the summary, sanitized at ingest. */
-export function workPage(live: LiveWork): string {
+export function workPage(live: LiveWork, position: Position | null = null): string {
   const { work, authors, tags, chapters, version } = live;
   // The reading pages go by the AO3 work ID too, a number, so safe in an href.
   const base = `/works/${work.ao3_work_id}`;
@@ -67,7 +79,7 @@ export function workPage(live: LiveWork): string {
     `<p class="authors">by ${byline}</p>
 <p class="rating-warnings">${ratingLine}</p>
 ${block("p", "fandoms", fandoms.map(tagLink).join(", "))}${block("section", "summary", work.summary_html ?? "")}${block("p", "tags", listed.map(tagLink).join(", "))}<p class="stats">${stats.join(" · ")}</p>
-${needsCheck ? `<p class="review-notice">Chapters may be imperfect; a moderator will check.</p>\n` : ""}<ol class="chapters">${chapters.map((ch) => `<li><a href="${base}/chapters/${ch.n}">${escapeHtml(ch.title)}</a></li>`).join("")}</ol>
+${needsCheck ? `<p class="review-notice">Chapters may be imperfect; a moderator will check.</p>\n` : ""}${continueLink(live, position)}<ol class="chapters">${chapters.map((ch) => `<li><a href="${base}/chapters/${ch.n}">${escapeHtml(ch.title)}</a></li>`).join("")}</ol>
 <p class="full"><a href="${base}/full">Read the entire work on one page</a></p>
 <p class="download"><a href="${originalHref(version.r2_prefix)}">Download original epub</a></p>
 <p class="report"><a href="${base}/report">Report</a></p>
@@ -87,7 +99,10 @@ export async function showWork(c: WorkContext) {
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString });
   try {
     const live = await getLiveWork(db, id);
-    if (live) return c.html(workPage(live));
+    if (live) {
+      const position = await loadPosition(c.env.POSITIONS, c.var.session, id);
+      return c.html(workPage(live, position));
+    }
     // Hidden and removed works have their own answer; anything else is no page.
     const withheld = await getWorkAvailability(db, id);
     return withheld ? withheldResponse(c, withheld) : c.notFound();

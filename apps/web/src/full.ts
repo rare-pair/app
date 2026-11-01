@@ -12,6 +12,7 @@ import {
   unavailable,
   type ReaderContext,
 } from "./reader";
+import { positionScriptTag } from "./position";
 import { reviewNotice } from "./review-notice";
 import { settingsScriptTag } from "./settings";
 import { warningsRedirect } from "./warnings";
@@ -161,7 +162,7 @@ export async function showFull(c: ReaderContext) {
   const { before, after } = layoutAround(
     `${workTitle}, entire work`,
     "",
-    `${readerBar(workTitle, `/works/${id}/full`)}\n${settingsScriptTag(c.get("nonce"), "async")}`,
+    `${readerBar(workTitle, `/works/${id}/full`)}\n${settingsScriptTag(c.get("nonce"), "async")}${positionScriptTag(c.get("nonce"), c.var.session, "async")}`,
   );
   // The fragments are trusted markup only because the sanitizer wrote them; they go in
   // unescaped. The chapter headings' ids stay stable: links may point at them. The
