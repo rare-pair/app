@@ -32,6 +32,7 @@ const expected = {
     current_version_id: { type: "text", nullable: true },
     raw_meta: { type: "jsonb", nullable: false },
     search: { type: "tsvector", nullable: true },
+    search_text: { type: "text", nullable: true },
   },
   work_authors: {
     work_id: { type: "text", nullable: false },

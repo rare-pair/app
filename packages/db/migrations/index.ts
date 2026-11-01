@@ -7,6 +7,7 @@ import m0004 from "./0004_requests_reports_moderation";
 import m0005 from "./0005_chapter_total_and_author_order";
 import m0006 from "./0006_waitlist";
 import m0007 from "./0007_dmca_notice_elements";
+import m0008 from "./0008_search";
 
 export const migrations: ReadonlyArray<{ name: string; sql: string }> = [
   { name: "0001_better_auth", sql: m0001 },
@@ -16,4 +17,5 @@ export const migrations: ReadonlyArray<{ name: string; sql: string }> = [
   { name: "0005_chapter_total_and_author_order", sql: m0005 },
   { name: "0006_waitlist", sql: m0006 },
   { name: "0007_dmca_notice_elements", sql: m0007 },
+  { name: "0008_search", sql: m0008 },
 ];

@@ -24,6 +24,8 @@ export {
   type WorkAvailability,
   type WorkSummary,
 } from "./queries";
+export { refreshWorkSearch } from "./search-index";
+export { searchLiveWorks, type SearchOptions, type SearchResults } from "./search";
 export type {
   Database,
   UserTable,
