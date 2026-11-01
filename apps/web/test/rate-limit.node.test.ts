@@ -6,6 +6,7 @@ import {
   ipKey,
   isLimited,
   LOGIN_WINDOW_SECONDS,
+  REMOVE_WINDOW_SECONDS,
   tooManyRequests,
   WAITLIST_WINDOW_SECONDS,
 } from "../src/rate-limit";
@@ -13,6 +14,8 @@ import {
   DMCA_IP_LIMIT,
   LOGIN_EMAIL_LIMIT,
   LOGIN_IP_LIMIT,
+  REMOVE_EMAIL_LIMIT,
+  REMOVE_IP_LIMIT,
   WAITLIST_EMAIL_LIMIT,
   WAITLIST_FLOOR_MIN_MS,
   WAITLIST_IP_LIMIT,
@@ -159,6 +162,8 @@ describe("the rate limits in wrangler.jsonc", () => {
       WAITLIST_IP_LIMIT: { limit: WAITLIST_IP_LIMIT, period: WAITLIST_WINDOW_SECONDS },
       WAITLIST_EMAIL_LIMIT: { limit: WAITLIST_EMAIL_LIMIT, period: WAITLIST_WINDOW_SECONDS },
       DMCA_IP_LIMIT: { limit: DMCA_IP_LIMIT, period: DMCA_WINDOW_SECONDS },
+      REMOVE_IP_LIMIT: { limit: REMOVE_IP_LIMIT, period: REMOVE_WINDOW_SECONDS },
+      REMOVE_EMAIL_LIMIT: { limit: REMOVE_EMAIL_LIMIT, period: REMOVE_WINDOW_SECONDS },
     });
   });
 
