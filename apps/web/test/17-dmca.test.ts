@@ -227,7 +227,11 @@ describe("17-reports-and-dmca: DMCA", () => {
     const res = await postNotice({ ...COMPLETE, work: String(UNKNOWN), contact: marker });
     expect(res.status).toBe(404);
     expect(res.headers.get("cache-control")).toBe("no-store");
-    expect(await res.text()).toContain("not in the archive");
+    const html = await res.text();
+    expect(html).toContain("not in the archive");
+    // The form comes back with what was typed, so a mistaken address costs no retyping.
+    expect(html).toContain(marker);
+    expect(html).toContain(COMPLETE.infringing_material);
     expect(await noticesFrom(marker)).toEqual([]);
   });
 
@@ -238,6 +242,9 @@ describe("17-reports-and-dmca: DMCA", () => {
       "   ",
       "not a work",
       "https://example.test/stories/12",
+      // Only this site's and the original archive's addresses name a work.
+      `https://evil.example/works/${W}`,
+      `https://rarepair.fans.evil.example/works/${W}`,
       "0",
       "99999999999",
     ]) {

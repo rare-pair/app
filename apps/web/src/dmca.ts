@@ -32,15 +32,18 @@ const MAX_SIGNATURE = 200;
 // room, so such a notice gets the 400 with what was typed and not a 413 that loses it.
 const MAX_DMCA_BODY = 256 * 1024;
 
+// A work's address here or on the original archive, and no other host: an address on any
+// other site names nothing here, and must not be read as if it did.
+const WORK_ADDRESS =
+  /^(?:https?:\/\/)?(?:www\.)?(?:rarepair\.fans|archiveofourown\.org)\/works\/([1-9]\d{0,9})(?:[/?#]|$)/i;
+
 /**
  * The AO3 work ID a requester named: a bare ID, or an address with `/works/<id>` in it,
  * here or on the original archive. Plain decimal digits, within Postgres's int4.
  */
 export function workIdOf(text: string): number | null {
   const reference = text.trim();
-  const digits =
-    /^[1-9]\d{0,9}$/.exec(reference)?.[0] ??
-    /^(?:https?:\/\/)?[\w.-]+(?::\d+)?\/works\/([1-9]\d{0,9})(?:[/?#]|$)/i.exec(reference)?.[1];
+  const digits = /^[1-9]\d{0,9}$/.exec(reference)?.[0] ?? WORK_ADDRESS.exec(reference)?.[1];
   if (digits === undefined) return null;
   const value = Number(digits);
   return value <= MAX_INT4 ? value : null;
@@ -117,13 +120,6 @@ const receivedPage = () =>
 <p>Thank you. A moderator will look at your notice. The work stays up until a moderator has decided.</p>`,
   );
 
-const notInArchivePage = () =>
-  layout(
-    "Work not found",
-    `<p class="draft">Draft: this text has not been proofread yet.</p>
-<p>That work is not in the archive, so nothing was sent. <a href="/dmca">Check the address and try again.</a></p>`,
-  );
-
 /** `GET /dmca`: the form, for anyone. */
 export const showDmcaForm = (c: DmcaContext) => c.html(dmcaPage(), 200, NO_STORE);
 
@@ -179,7 +175,11 @@ export async function submitDmca(c: DmcaContext) {
       .select("id")
       .where("ao3_work_id", "=", ao3WorkId)
       .executeTakeFirst();
-    if (!work) return c.html(notInArchivePage(), 404, NO_STORE);
+    if (!work) {
+      // The form comes back with what was typed, so a mistaken address costs no retyping.
+      const error = "That work is not in the archive, so nothing was sent.";
+      return c.html(dmcaPage(notice, error), 404, NO_STORE);
+    }
     await db
       .insertInto("takedowns")
       .values({
