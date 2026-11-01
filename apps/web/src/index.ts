@@ -29,6 +29,7 @@ import { STYLESHEET, STYLESHEET_PATH } from "./styles";
 import { acceptTerms, showTerms, termsGate, WELCOME_TERMS } from "./terms";
 import { requestUpload, sameOriginUpload, showUpload } from "./upload";
 import { completeUpload } from "./upload-complete";
+import { showUploadStatus } from "./upload-status";
 import { joinWaitlist } from "./waitlist";
 import { confirmWaitlist, showWaitlistConfirm } from "./waitlist-confirm";
 import { comingSoonPage } from "./waitlist-pages";
@@ -91,6 +92,7 @@ app.get("/waitlist", (c) => (isPrelaunch(c.env) ? c.notFound() : c.redirect("/",
 app.get("/upload", showUpload);
 app.post("/uploads", requestUpload);
 app.post("/uploads/:id/complete", completeUpload);
+app.get("/uploads/:id", showUploadStatus);
 app.get("/remove", showRemoveForm);
 app.post("/remove", submitRemove);
 app.get("/dmca", showDmcaForm);
