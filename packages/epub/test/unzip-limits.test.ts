@@ -35,9 +35,10 @@ describe("05-epub-unzip-limits", () => {
       }
       return zip;
     }
-    // Method 99 in a local header: inflating that entry fails as a corrupt entry.
+    // Method 99 in the local header (the method field sits 22 bytes before the
+    // name there) of the first entry the unzipper inflates: reaching it fails.
     const breakLocalData = (zip: Uint8Array) =>
-      patchHeaders(zip, "pad0.xml", (view, local, _size, nameAt) => {
+      patchHeaders(zip, "mimetype", (view, local, _size, nameAt) => {
         if (local) view.setUint16(nameAt - 22, 99, true);
       });
 
@@ -65,6 +66,16 @@ describe("05-epub-unzip-limits", () => {
 
     it("More than 2,000 entries is rejected", async () => {
       await expectEpubError(processEpub(withEntryCount(2_001)), "zip_bomb");
+    });
+
+    it("rejects more than 2,000 entries while unzipping when the index under-counts", async () => {
+      const zip = withEntryCount(2_001);
+      const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
+      // The end-of-central-directory record is the zip's last 22 bytes (no comment).
+      // Lowering its entry counts to 7 hides the rest from the index check.
+      view.setUint16(zip.length - 22 + 8, 7, true);
+      view.setUint16(zip.length - 22 + 10, 7, true);
+      await expectEpubError(processEpub(zip), "zip_bomb");
     });
   });
 
@@ -120,6 +131,18 @@ describe("05-epub-unzip-limits", () => {
     it("rejects an entry over 20 MB whose headers say 1 KiB", async () => {
       const zip = padded([ENTRY + 1]);
       expect(understate(zip, "pad0.xml")).toBe(2);
+      await expectEpubError(processEpub(zip), "zip_bomb");
+    });
+
+    it("rejects an entry whose local header declares over 20 MB before inflating it", async () => {
+      // The data is one byte and the index agrees, so only the local header's
+      // declared size can trip the limit: the streaming count never would.
+      const zip = padded([1]);
+      expect(
+        patchHeaders(zip, "pad0.xml", (view, local, sizeAt) => {
+          if (local) view.setUint32(sizeAt, ENTRY + 1, true);
+        }),
+      ).toBe(2);
       await expectEpubError(processEpub(zip), "zip_bomb");
     });
   });
