@@ -164,7 +164,37 @@ describe("19-surge-controls-and-quotas: counting an upload once", () => {
     const userId = await freshUser();
     const up = await pendingFor(userId);
     await countUploadQuota(t.db, userId, up, 5);
-    expect(await rejectOverQuotaUpload(t.db, up)).toBe(false);
+    expect(await rejectOverQuotaUpload(t.db, up, userId)).toBe(false);
+  });
+
+  it("an upload that is no longer pending is gone, not counted", async () => {
+    const userId = await freshUser();
+    const up = await pendingFor(userId);
+    expect(await rejectOverQuotaUpload(t.db, up, userId)).toBe(true);
+    expect(await countUploadQuota(t.db, userId, up, 5)).toBe("gone");
+    expect((await usedOf(userId)).upload_quota_used).toBe(0);
+  });
+
+  it("another user's upload is neither counted, rejected nor refunded", async () => {
+    const owner = await freshUser();
+    const other = await freshUser();
+    const up = await pendingFor(owner);
+    expect(await countUploadQuota(t.db, other, up, 5)).toBe("gone");
+    expect(await rejectOverQuotaUpload(t.db, up, other)).toBe(false);
+    await countUploadQuota(t.db, owner, up, 5);
+    await setUsed(other, 2, TODAY);
+    await refundUploadQuota(t.db, other, up);
+    expect((await usedOf(other)).upload_quota_used).toBe(2);
+    expect((await usedOf(owner)).upload_quota_used).toBe(1);
+  });
+
+  it("a refund leaves the use with an upload that is no longer pending", async () => {
+    const userId = await freshUser();
+    const up = await pendingFor(userId);
+    await countUploadQuota(t.db, userId, up, 5);
+    await t.db.updateTable("uploads").set({ status: "processing" }).where("id", "=", up).execute();
+    await refundUploadQuota(t.db, userId, up);
+    expect((await usedOf(userId)).upload_quota_used).toBe(1);
   });
 
   it("a refund gives the use back once, and the upload can be counted again", async () => {
@@ -204,13 +234,13 @@ describe("19-surge-controls-and-quotas: an upload over the quota", () => {
       r2Key: `uploads/${crypto.randomUUID()}`,
       bytes: 10,
     });
-    expect(await rejectOverQuotaUpload(t.db, id)).toBe(true);
+    expect(await rejectOverQuotaUpload(t.db, id, userId)).toBe(true);
     const row = await t.db
       .selectFrom("uploads")
       .select("status")
       .where("id", "=", id)
       .executeTakeFirstOrThrow();
     expect(row.status).toBe("over_quota");
-    expect(await rejectOverQuotaUpload(t.db, id)).toBe(false);
+    expect(await rejectOverQuotaUpload(t.db, id, userId)).toBe(false);
   });
 });

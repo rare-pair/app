@@ -69,7 +69,7 @@ export async function completeUpload(c: CompleteContext) {
     // counted, so a loser never rejects or deletes what a parallel confirm of the same upload
     // won. A delete that fails leaves the object for the 7-day lifecycle rule.
     const discardOverQuota = async () => {
-      if (!(await rejectOverQuotaUpload(db, upload.id))) return null;
+      if (!(await rejectOverQuotaUpload(db, upload.id, user.id))) return null;
       try {
         await c.env.BUCKET.delete(upload.r2_key);
       } catch (error) {
@@ -144,6 +144,8 @@ export async function completeUpload(c: CompleteContext) {
     // An upload is counted once: a repeat confirm of one that is counted is `already`, and is
     // queued again (ingest's lease makes a second job a no-op) without taking another use.
     const counted = await countUploadQuota(db, user.id, upload.id, limit);
+    // Another request rejected it (an oversized or over-quota upload) since the lookup.
+    if (counted === "gone") return taken();
     if (counted === "spent") {
       // Lost a race for the last use.
       return (await discardOverQuota()) ?? taken();
