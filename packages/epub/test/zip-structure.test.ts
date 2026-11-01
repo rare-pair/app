@@ -11,7 +11,11 @@ import {
   withZip64Extra,
 } from "./zip-structure-fixtures";
 
-const twoEntries = () => zipEntries({ "a.xml": "<p>x</p>", "b.xml": "<p>y</p>" });
+const chapter = (n: number) => ({
+  name: `x_split_00${n}.xhtml`,
+  body: `<div id="chapters"><p>c${n}</p></div>`,
+});
+const twoChapters = () => ao3Epub({ files: [chapter(1), chapter(2)] });
 
 describe("05 epub unzip limits: zip structure", () => {
   describe("File that is not a zip is rejected", () => {
@@ -38,14 +42,16 @@ describe("05 epub unzip limits: zip structure", () => {
     it.each(["../../evil.xhtml", "../evil.xhtml", "a/../b.xhtml", "OEBPS/.."])(
       "%s",
       async (name) => {
-        await expectEpubError(processEpub(zipEntries({ [name]: "<p>x</p>" })), "not_epub");
+        await expect(processEpub(zipEntries({ [name]: "<p>x</p>" }))).rejects.toThrow(
+          /Unsafe entry name/,
+        );
       },
     );
 
     it("when only the central directory copy of the name is unsafe", async () => {
       const zip = ao3Epub();
       expect(renameEntry(zip, "toc.ncx", "../.ncx", "central")).toBe(1);
-      await expectEpubError(processEpub(zip), "not_epub");
+      await expect(processEpub(zip)).rejects.toThrow(/Unsafe entry name/);
     });
 
     it("but a name that merely contains two dots is accepted", async () => {
@@ -58,33 +64,37 @@ describe("05 epub unzip limits: zip structure", () => {
 
   describe("Entry name with a leading slash is rejected", () => {
     it.each(["/etc/evil.xhtml", "//evil.xhtml", "/"])("%s", async (name) => {
-      await expectEpubError(processEpub(zipEntries({ [name]: "<p>x</p>" })), "not_epub");
+      await expect(processEpub(zipEntries({ [name]: "<p>x</p>" }))).rejects.toThrow(
+        /Unsafe entry name/,
+      );
     });
   });
 
   describe("Entry name with a drive letter is rejected", () => {
     it.each(["C:\\evil.xhtml", "c:evil.xhtml", "z:/evil.xhtml"])("%s", async (name) => {
-      await expectEpubError(processEpub(zipEntries({ [name]: "<p>x</p>" })), "not_epub");
+      await expect(processEpub(zipEntries({ [name]: "<p>x</p>" }))).rejects.toThrow(
+        /Unsafe entry name/,
+      );
     });
   });
 
   describe("Duplicate entry name is rejected", () => {
     it("when both headers of the second entry carry the first name", async () => {
-      const zip = twoEntries();
-      expect(renameEntry(zip, "b.xml", "a.xml")).toBe(2);
-      await expectEpubError(processEpub(zip), "not_epub");
+      const zip = twoChapters();
+      expect(renameEntry(zip, "x_split_002.xhtml", "x_split_001.xhtml")).toBe(2);
+      await expect(processEpub(zip)).rejects.toThrow(/Duplicate entry/);
     });
 
     it("when only the central directory repeats a name", async () => {
-      const zip = twoEntries();
-      expect(renameEntry(zip, "b.xml", "a.xml", "central")).toBe(1);
-      await expectEpubError(processEpub(zip), "not_epub");
+      const zip = twoChapters();
+      expect(renameEntry(zip, "x_split_002.xhtml", "x_split_001.xhtml", "central")).toBe(1);
+      await expect(processEpub(zip)).rejects.toThrow(/Duplicate entry/);
     });
 
     it("when the repeated name is mimetype", async () => {
-      const zip = zipEntries({ mimetypf: "x" });
+      const zip = ao3Epub({ files: [chapter(1), { name: "mimetypf", body: "<p>x</p>" }] });
       expect(renameEntry(zip, "mimetypf", "mimetype")).toBe(2);
-      await expectEpubError(processEpub(zip), "not_epub");
+      await expect(processEpub(zip)).rejects.toThrow(/Duplicate entry/);
     });
   });
 

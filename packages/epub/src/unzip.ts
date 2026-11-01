@@ -101,6 +101,9 @@ function readCentralDirectory(bytes: Uint8Array): [string, string][] {
     declared += entryBytes;
     if (declared > LIMITS.maxTotalBytes)
       throw new EpubError("zip_bomb", `Archive declares more than ${LIMITS.maxTotalBytes} bytes`);
+    // A repeated index name could hide a local entry from tools that read the index.
+    if (names.some(([utf8]) => utf8 === decoded[0]))
+      throw new EpubError("not_epub", `Duplicate entry: ${JSON.stringify(decoded[0])}`);
     names.push(decoded);
     at = extraEnd + view.getUint16(at + 32, true);
   }
