@@ -91,8 +91,9 @@
     // Hyperdrive timing before launch.
     "WAITLIST_FLOOR_MS": "2000",
     // Where the removal form's <noscript> message sends a visitor without JavaScript. A
-    // placeholder on the reserved example.invalid domain: set the moderators' real address
-    // here at deploy, never in the repo's code or tests.
+    // placeholder on the reserved example.invalid domain. The operator deploys with the
+    // moderators' real address in its place (`wrangler deploy --var MODERATORS_EMAIL:...`);
+    // the repo's code, notes and tests never hold one.
     "MODERATORS_EMAIL": "moderators@example.invalid",
   },
   // Set with `wrangler secret put`. IP_HASH_KEY keys the HMAC of a requester's stored network

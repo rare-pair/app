@@ -47,6 +47,7 @@ app.use(contentSecurityPolicy);
 // Before the session, so a cross-site upload or report is refused without a lookup.
 app.post("/uploads", sameOriginUpload);
 app.post("/works/:id/report", sameOriginOnly);
+app.post("/remove", sameOriginOnly);
 // The session, once, for every page; routes read c.var.session and never mount it
 // again. Static files skip it, and the lookup's database connection with it. Then
 // an account that hasn't accepted the terms is sent to accept them.

@@ -1,7 +1,7 @@
 // The removal form's pages (ARCHITECTURE, Author requests & takedowns): the form and its
 // 400, 413 and 503 answers, and the confirmation. Draft copy, for the operator to proof.
 
-import { escapeHtml, layout, TURNSTILE_API } from "./pages";
+import { DRAFT, escapeHtml, layout, TURNSTILE_API } from "./pages";
 import { TURNSTILE_ACTIONS } from "./turnstile";
 
 /** The longest statement kept, in characters, as the form says. */
@@ -22,8 +22,6 @@ export interface RemoveForm {
   /** A fault with one field: it is marked and the message tied to it. */
   fieldErrors?: Partial<Record<RemoveField, string>>;
 }
-
-const DRAFT = `<p class="draft">Draft: this text has not been proofread yet.</p>`;
 
 /**
  * The removal request form. It starts `hidden` and a nonced script shows it, as the

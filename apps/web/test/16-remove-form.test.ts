@@ -44,6 +44,16 @@ beforeAll(async () => {
 });
 afterAll(() => db.destroy());
 
+/** Work W's status: a refused request hides nothing. */
+const statusOfW = async () =>
+  (
+    await db
+      .selectFrom("works")
+      .select("status")
+      .where("ao3_work_id", "=", W)
+      .executeTakeFirstOrThrow()
+  ).status;
+
 /** The requests stored for a contact email. */
 const requestsFrom = (email: string) =>
   db.selectFrom("requests").selectAll().where("contact_email", "=", email).execute();
@@ -128,7 +138,8 @@ describe("16-removal-and-opt-out", () => {
 
   it("Form says there is no proof of identity", async () => {
     const html = await (await fetchW("/remove")).text();
-    expect(html).toContain("proof of identity");
+    expect(html).toContain("No proof of identity is asked for");
+    expect(html).toContain("nothing to check it against while the original archive is offline");
   });
 
   describe("Missing Turnstile is refused", () => {
@@ -154,6 +165,7 @@ describe("16-removal-and-opt-out", () => {
       // What was typed comes back.
       expect(html).toContain(`value="${email}"`);
       expect(await requestsFrom(email)).toEqual([]);
+      expect(await statusOfW()).toBe("live");
     });
 
     it("answers 503 when the check can't be reached, and stores nothing", async () => {
@@ -205,6 +217,37 @@ describe("16-removal-and-opt-out", () => {
         .where("statement", "=", "x1 missing email")
         .execute();
       expect(stored).toEqual([]);
+    });
+
+    it.each([
+      "abc",
+      "12600",
+      "https://evil.example/works/12600",
+      "https://archiveofourown.org.evil.example/works/12600",
+      "https://rarepair.fans.evil.example/works/12600",
+      "https://rarepair.fans/works/0",
+      "https://rarepair.fans/works/99999999999",
+      `https://rarepair.fans/works/${"1".repeat(600)}`,
+    ])("refuses %s as a work address, marking the work field and storing nothing", async (work) => {
+      const email = "x1-bad-work@example.test";
+      const res = await post({ email, work, statement: "x1 bad work" });
+      expect(res.status).toBe(400);
+      const html = await res.text();
+      expect(control(html, "work")).toContain('aria-invalid="true"');
+      expect(await requestsFrom(email)).toEqual([]);
+      expect(await statusOfW()).toBe("live");
+    });
+
+    it.each([
+      `https://www.archiveofourown.org/works/${W}/chapters/9`,
+      `http://rarepair.fans/works/${W}?x=1`,
+      `RAREPAIR.FANS/works/${W}#top`,
+      `  ${WORK_URL}  `,
+    ])("accepts %s as a work address", async (work) => {
+      const email = `x1-good-work-${W}@example.test`;
+      const res = await post({ email, work, statement: "x1 good work" });
+      expect(res.status).toBe(200);
+      expect((await requestsFrom(email)).at(-1)?.kind).toBe("remove_work");
     });
 
     it("refuses neither a work nor a pseud, marking both", async () => {

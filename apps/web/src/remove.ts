@@ -12,7 +12,6 @@ import { isSendableAddress } from "../../mailer/src/message";
 import type { Bindings } from "./env";
 import { ipHash } from "./ip-hash";
 import { MAX_EMAIL, NO_STORE, readForm } from "./login";
-import { forbiddenPage } from "./pages";
 import { workId } from "./report";
 import {
   MAX_PSEUD,
@@ -24,7 +23,7 @@ import {
   type RemoveForm,
 } from "./remove-pages";
 import type { SecurityVariables } from "./security";
-import { isSameOrigin, SITE } from "./signin";
+import { SITE } from "./signin";
 import { TURNSTILE_ACTIONS, verifyTurnstile } from "./turnstile";
 
 type RemoveContext = Context<{ Bindings: Bindings; Variables: SecurityVariables }>;
@@ -33,7 +32,6 @@ type RemoveContext = Context<{ Bindings: Bindings; Variables: SecurityVariables 
 // and a browser that counts characters differently can send several times that, so the cap
 // leaves room: such a statement gets the 400 with what was typed, not a 413 that loses it.
 const MAX_REMOVE_BODY = 64 * 1024;
-
 /**
  * `GET /remove`: the form. It reads no session and no database, so it never shows whether
  * a work exists or is hidden. `?work=:id`, the AO3 work ID the work page links with,
@@ -63,18 +61,16 @@ const field = (form: URLSearchParams, name: RemoveField) =>
   (form.get(name) ?? "").replaceAll("\u0000", "").trim();
 
 /**
- * `POST /remove`: checks the origin, then Turnstile under the form's own action, then the
- * fields, and stores a pending request with the hashed address. Every refusal shows the
- * form again with what was typed and is sent `no-store`. A work and a pseud together is a
- * request for the work, since one request has one kind. The reply to a stored request
- * says nothing of what became of it.
+ * `POST /remove`, behind `sameOriginOnly` (index.ts): reads the body, checks Turnstile under
+ * the form's own action, then the fields, and stores a pending request with the hashed
+ * address. Every refusal shows the form again with what was typed and is sent `no-store`.
+ * A work and a pseud together is a request for the work, since one request has one kind.
+ * The reply to a stored request says nothing of what became of it.
  */
 export async function submitRemove(c: RemoveContext) {
   const nonce = c.get("nonce");
   const siteKey = c.env.TURNSTILE_SITE_KEY;
   const page = (form: RemoveForm) => removePage(nonce, siteKey, c.env.MODERATORS_EMAIL, form);
-  if (!isSameOrigin(c.req.raw.headers)) return c.html(forbiddenPage(), 403, NO_STORE);
-
   const form = await readForm(c.req.raw, MAX_REMOVE_BODY);
   if (form === null) {
     // Nothing of it is shown back: the form comes again empty.
