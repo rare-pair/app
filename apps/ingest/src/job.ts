@@ -4,7 +4,7 @@ import type { Kysely } from "kysely";
 import { MAX_RETRIES } from "./config";
 import { claimLease, endLease, type Lease, type Outcome, type Stage } from "./lease";
 import { onRejectList } from "./lists";
-import { LeaseLost, SaveRejected, type WorkImages } from "./save";
+import { LeaseLost, SaveRejected, WorkRemoved, type WorkImages } from "./save";
 
 /** What a job needs from outside: the request's Kysely, the bucket and the two steps. */
 export interface JobDeps {
@@ -17,8 +17,8 @@ export interface JobDeps {
   process: (bytes: Uint8Array, images?: WorkImages) => Promise<ParsedWork>;
   /**
    * Saves the parsed work from the upload's `bytes` (R2 fragments, `originals/`, the Postgres
-   * transaction). Throws `SaveRejected` for a file that can't be saved, and `LeaseLost` when
-   * another job has taken the upload over.
+   * transaction). Throws `SaveRejected` for a file that can't be saved, `WorkRemoved` for an
+   * upload of a removed work, and `LeaseLost` when another job has taken the upload over.
    */
   save: (upload: Lease, work: ParsedWork, bytes: Uint8Array, images?: WorkImages) => Promise<void>;
 }
@@ -104,6 +104,10 @@ async function run(
     // the save sets it in the work's transaction.
     await deps.save(lease, work, bytes, images);
   } catch (error) {
+    // A removed work stays so until a moderator restores it: no retry changes the verdict.
+    if (error instanceof WorkRemoved) {
+      return { status: "work_removed", failure: { stage: "save", error: "work removed" } };
+    }
     if (!(error instanceof SaveRejected)) throw error;
     return { status: "parse_failed", failure: { stage: "save", error: error.code } };
   }

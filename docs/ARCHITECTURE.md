@@ -206,7 +206,8 @@ request and to every byline at ingest.
    in the archive" badge with a link to the work. Any other match (an upload
    still `pending` or `processing`, one that was rejected, or one whose work
    was removed) gets no shortcut: the new upload is enqueued like any other,
-   and the versioning rules or the same rejection decide it. Otherwise it
+   and the versioning rules, the same rejection, or (for a removed work) the
+   opt-out and takedown checks, then `work_removed`, decide it. Otherwise it
    enqueues `{upload_id}`.
 4. **Process.** The ingest consumer runs with a batch size of about 5, retries,
    and a dead-letter queue. See the EPUB processor section below.
@@ -390,6 +391,11 @@ Chapter text isn't indexed.
    byline and tags from the new version and refreshes its search text; the
    upload is `live`. A job that loses the swap rolls back, reads the work
    again and decides again, so two uploads at once leave one current version.
+   Before any of this, and before the current version is read, the job checks
+   the work's status: an upload of a `removed` work is refused as
+   `work_removed`, with nothing written and no `work_id`. The transaction
+   checks the status again, so a work removed while the job ran is never
+   versioned (its R2 files are left for the cleanup rules).
    A `hold` adds the version and chapters and leaves the work, its byline and
    tags alone (the version keeps its own in `work_versions.tags` and
    `authors`); the upload is `held_for_review`. A `duplicate` adds no
@@ -398,8 +404,10 @@ Chapter text isn't indexed.
    stays so. Only a work's first upload sets it `live`.
 
 **Rejection codes:** `not_epub`, `zip_bomb`, `too_large`, `not_ao3`,
-`opted_out`, `parse_failed`. Each one shows a plain-language message to the
-uploader. Step 2 lists which problem gives which of the first three.
+`opted_out`, `parse_failed`, `work_removed`. Each one shows a plain-language
+message to the uploader. `work_removed` is the upload of a work a moderator or
+its author removed, checked after the opt-out and takedown lists and before
+the current version is read. Step 2 lists which problem gives which of the first three.
 `not_ao3` covers any file without an AO3 preface "Posted originally" line,
 including one whose AO3 work URL is only in the OPF (step 4). `opted_out`
 covers the opt-out list and the takedown list of moderator-removed works.

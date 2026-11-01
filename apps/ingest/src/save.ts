@@ -34,6 +34,12 @@ export class SaveRejected extends Error {
   }
 }
 
+/**
+ * The work the upload is of has been removed: nothing is saved, and the job ends the upload as
+ * `work_removed`, at once, since the work stays removed until a moderator restores it.
+ */
+export class WorkRemoved extends Error {}
+
 /** The job no longer holds its upload: another job has taken it over, and owns the row. */
 export class LeaseLost extends Error {}
 
@@ -115,6 +121,7 @@ export async function saveWork(
     } catch (error) {
       // The save's own refusals and a lost lease pass through as they are.
       if (error instanceof SaveRejected || error instanceof LeaseLost) throw error;
+      if (error instanceof WorkRemoved) throw error;
       if (error instanceof Stale) {
         // Read the work as the other job left it and decide again: a second upload of the same
         // newer version, say, is now a duplicate. Out of attempts, it is a failure worth a retry.
@@ -146,10 +153,12 @@ async function readCurrent(
 ): Promise<Current | null> {
   const work = await deps.db
     .selectFrom("works")
-    .select(["id", "current_version_id", "updated_at"])
+    .select(["id", "status", "current_version_id", "updated_at"])
     .where("ao3_work_id", "=", ao3WorkId)
     .executeTakeFirst();
   if (work === undefined) return null;
+  // Before the version's fragments are read (removal purges them) and before any write.
+  if (work.status === "removed") throw new WorkRemoved();
   // A committed work always has one: a failure worth a retry, not a verdict on the file.
   if (work.current_version_id === null) throw new Error("a saved work has no current version");
   const versionId = work.current_version_id;
@@ -270,6 +279,8 @@ async function writeRows(
     .set({ ...workColumns(work), current_version_id: versionId })
     .where("id", "=", workId)
     .where("current_version_id", "=", current.versionId)
+    // A work removed since the read isn't moved: `Stale` reads it again and refuses it.
+    .where("status", "<>", "removed")
     .returning("id")
     .executeTakeFirst();
   if (moved === undefined) throw new Stale();
@@ -316,19 +327,21 @@ async function writeFirst(
 }
 
 /**
- * Throws `Stale` unless the work's pointer is still the one the decision was made against.
+ * Throws `Stale` unless the work's pointer is still the one the decision was made against, and
+ * `WorkRemoved` when the work has been removed since the read.
  * The row stays locked shared to the end of the transaction, so a replace waits for it and
  * can't move the pointer from under the decision.
  */
 async function confirmPointer(trx: Transaction<Database>, current: Current): Promise<void> {
   const row = await trx
     .selectFrom("works")
-    .select("id")
+    .select("status")
     .where("id", "=", current.workId)
     .where("current_version_id", "=", current.versionId)
     .forShare()
     .executeTakeFirst();
   if (row === undefined) throw new Stale();
+  if (row.status === "removed") throw new WorkRemoved();
 }
 
 /** The version row and its chapters. Returns the version's id. */

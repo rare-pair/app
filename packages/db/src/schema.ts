@@ -101,7 +101,8 @@ export type UploadStatus =
   | "not_ao3"
   | "opted_out"
   | "parse_failed"
-  | "over_quota";
+  | "over_quota"
+  | "work_removed";
 
 export interface WorkTable {
   id: Generated<string>;
