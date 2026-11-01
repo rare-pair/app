@@ -52,7 +52,7 @@ export interface LiveWork {
   chapters: Pick<Selectable<ChapterTable>, "n" | "title" | "words" | "r2_key">[];
 }
 
-const SUMMARY = [
+export const SUMMARY = [
   "works.id",
   "works.ao3_work_id",
   "works.title",
@@ -187,7 +187,7 @@ export async function getLiveWork(
 export type ListedWork = Pick<LiveWork, "work" | "authors" | "tags">;
 
 /** A card's byline and tags, as sub-selects of the `works` row they hang from. */
-const bylineAndTags = (eb: ExpressionBuilder<Database, "works">) => [
+export const bylineAndTags = (eb: ExpressionBuilder<Database, "works">) => [
   jsonArrayFrom(
     eb
       .selectFrom("work_authors")
@@ -203,13 +203,13 @@ const bylineAndTags = (eb: ExpressionBuilder<Database, "works">) => [
   ).as("tags"),
 ];
 
-type CardRow = WorkSummary & {
+export type CardRow = WorkSummary & {
   authors: { pseud: string; ao3_user: string | null; position: number }[];
   tags: (Pick<Selectable<TagTable>, "id" | "type" | "name" | "name_norm"> & { position: number })[];
 };
 
 /** A row with its sub-selects as a listed work. As in getLiveWork, json_agg's order isn't promised, so the lists are sorted here. */
-const asListed = ({ authors, tags, ...work }: CardRow): ListedWork => ({
+export const asListed = ({ authors, tags, ...work }: CardRow): ListedWork => ({
   work,
   authors: authors
     .sort((a, b) => a.position - b.position)
@@ -286,9 +286,9 @@ export interface ListingOptions {
   pageSize?: number;
 }
 
-const PAGE_SIZE = 20;
+export const PAGE_SIZE = 20;
 
-const isCount = (n: number) => Number.isSafeInteger(n) && n >= 1;
+export const isCount = (n: number) => Number.isSafeInteger(n) && n >= 1;
 
 type WorksWhere = ExpressionBuilder<Database, "works">;
 

@@ -7,6 +7,7 @@
 // each file its own tag names and AO3 work IDs, or a listing sees the others'.
 import type { Kysely, Transaction } from "kysely";
 import type { Database, HiddenCause, TagType } from "./schema";
+import { refreshWorkSearch } from "./search-index";
 import { compareTagKeys, normalizeTagName } from "./tags";
 
 export interface SeedChapter {
@@ -132,6 +133,8 @@ export async function seedWork(
     await addTags(trx, work.id, tags);
     const seeded = { workId: work.id, ao3WorkId, userId };
     const version = await addVersion(trx, seeded, { ...options, current: true });
+    // As ingest does, once the byline and tags are in: so a seeded work is searchable.
+    await refreshWorkSearch(trx, work.id);
     // Last, as ingest does: the work leaves `processing` once its version is current.
     await trx
       .updateTable("works")

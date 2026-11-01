@@ -226,7 +226,7 @@ describe("@archive/db/seed in workerd", () => {
       }
     };
     await visit("seed");
-    expect([...seen].sort()).toEqual(["schema", "seed", "tags"]);
+    expect([...seen].sort()).toEqual(["schema", "search-index", "seed", "tags"]);
     expect([...packages]).toEqual(["kysely"]);
   });
 });
