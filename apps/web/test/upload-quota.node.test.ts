@@ -11,8 +11,7 @@ describe("19-surge-controls-and-quotas", () => {
   });
 
   it("Trusted users get the higher quota", () => {
-    expect(limitFor("moderator", vars)).toBe(40);
-    expect(limitFor("admin", vars)).toBe(40);
+    expect(["moderator", "admin"].map((role) => limitFor(role, vars))).toEqual([40, 40]);
     expect(limitFor("admin", vars)).toBeGreaterThan(limitFor(null, vars));
   });
 

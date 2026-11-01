@@ -47,9 +47,12 @@ describe("19-surge-controls-and-quotas: the counter", () => {
   it("counts a use against today and stops at the limit", async () => {
     const userId = await freshUser();
     expect(await getUploadQuota(t.db, userId)).toEqual({ role: null, usedToday: 0 });
-    expect(await useUploadQuota(t.db, userId, 2)).toBe(true);
-    expect(await useUploadQuota(t.db, userId, 2)).toBe(true);
-    expect(await useUploadQuota(t.db, userId, 2)).toBe(false);
+    const uses = [
+      await useUploadQuota(t.db, userId, 2),
+      await useUploadQuota(t.db, userId, 2),
+      await useUploadQuota(t.db, userId, 2),
+    ];
+    expect(uses).toEqual([true, true, false]);
     expect((await getUploadQuota(t.db, userId))?.usedToday).toBe(2);
     expect((await usedOf(userId)).upload_quota_used).toBe(2);
   });

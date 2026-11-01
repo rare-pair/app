@@ -357,7 +357,7 @@ describe("19-surge-controls-and-quotas", () => {
     const a = await uploaded(userId, randomBytes());
     const b = await uploaded(userId, randomBytes());
     const [ra, rb] = await Promise.all([complete(a.id, { cookie }), complete(b.id, { cookie })]);
-    expect([ra.status, rb.status].sort()).toEqual([200, 429]);
+    expect([ra.status, rb.status].sort((x, y) => x - y)).toEqual([200, 429]);
     expect(await usedOf(userId)).toBe(NEW_LIMIT);
     const rows = await Promise.all([rowOf(a.id), rowOf(b.id)]);
     expect(rows.map((r) => r.status).sort()).toEqual(["over_quota", "pending"]);
