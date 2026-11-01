@@ -145,10 +145,12 @@ export async function showFull(c: ReaderContext) {
   const [head, ...rest] = chapters;
   if (!head) return unavailable(c);
   // The same fragments every reader gets, from the Worker's cache after the first read.
+  // The stream keeps the execution context for its puts, not the whole request context.
+  const ctx = c.executionCtx;
   const bucket = cachedFragments(
     caches.default,
     c.env.BUCKET,
-    (promise) => c.executionCtx.waitUntil(promise),
+    (promise) => ctx.waitUntil(promise),
     id,
     version.id,
     chapters,

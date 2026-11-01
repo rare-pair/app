@@ -88,7 +88,7 @@ export async function showChapter(c: ReaderContext) {
 `,
     bottom: `
 ${nav("bottom")}`,
-    fragment: { id, n, versionId: live.version.id, r2Key: chapter.r2_key },
+    fragment: { versionId: live.version.id, r2Key: chapter.r2_key },
     prefix: live.version.r2_prefix,
     // Only ever kept for a signed-out reader, who can't turn the screen off.
     screen: needsWarnings(live),
@@ -107,7 +107,8 @@ async function serveChapter(
   page: ChapterPage,
   { screen, store }: { screen: boolean; store: boolean },
 ) {
-  const { id, n, fragment: ref } = page;
+  const { id, n } = page;
+  const ref = { id, n, ...page.fragment };
   const gate = screenRedirect(c, id, screen, chapterUrl(id, n));
   if (gate) return gate;
 

@@ -6,12 +6,13 @@
 
 import { SESSION_COOKIE } from "./auth";
 import { FLASH_COOKIE, SETTINGS_COOKIE } from "./reader-settings";
+import { SITE } from "./signin";
 
 /**
  * The origin of every key: the bare domain, never the request's URL, so `www`, a port,
  * a trailing dot or a query string can't make entries of their own.
  */
-export const CACHE_ORIGIN = "https://rarepair.fans";
+const CACHE_ORIGIN = SITE;
 
 /** A chapter page's key: its public URL, from the two validated numbers only. */
 export const chapterPageKey = (id: number, n: number) =>
@@ -129,7 +130,8 @@ const fragmentEntry = (body: BodyInit, id: number) =>
  * A version's fragments as streams, from the cache, else from R2 while a copy goes into
  * the cache in `waitUntil`, so the reader never waits on the put. `chapters` are the
  * version's own, every key already checked by the caller; any other key is read from
- * R2 alone and never cached.
+ * R2 alone and never cached. On a miss the put reads the object as fast as R2 sends it,
+ * so a slow reader can have up to that one fragment buffered, never more.
  */
 export function cachedFragments(
   cache: Cache,
@@ -139,9 +141,11 @@ export function cachedFragments(
   versionId: string,
   chapters: { n: number; r2_key: string }[],
 ) {
+  // Only the numbers by key, so the stream doesn't keep the chapter rows.
+  const numbers = new Map(chapters.map((ch) => [ch.r2_key, ch.n]));
   return {
     async get(r2Key: string) {
-      const n = chapters.find((ch) => ch.r2_key === r2Key)?.n;
+      const n = numbers.get(r2Key);
       if (n === undefined) return bucket.get(r2Key);
       const key = fragmentCacheKey(id, n, versionId);
       const hit = await matchEntry(cache, key);
@@ -174,7 +178,7 @@ export interface ChapterPage {
   top: string;
   bottom: string;
   /** The chapter's fragment, and its version's prefix, to check its key again. */
-  fragment: FragmentRef;
+  fragment: Pick<FragmentRef, "versionId" | "r2Key">;
   prefix: string;
   /** Whether the work gets the warnings screen. A signed-out reader can't turn it off. */
   screen: boolean;
@@ -201,8 +205,7 @@ export async function cachedChapterPage(cache: Cache, id: number, n: number) {
   if (!hit) return null;
   try {
     const { format, page } = await hit.json<StoredPage>();
-    const same = (ref: { id: number; n: number }) => ref.id === id && ref.n === n;
-    return format === PAGE_FORMAT && same(page) && same(page.fragment) ? page : null;
+    return format === PAGE_FORMAT && page.id === id && page.n === n ? page : null;
   } catch (error) {
     logFailure("entry", error);
     return null;
