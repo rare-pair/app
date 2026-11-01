@@ -113,7 +113,11 @@ async function run(
   const candidates = await collectImages(files, pkg.manifest);
   files.clear(); // everything still needed is now parsed or held by `candidates`
   const used = new Map<string, ImageCandidate>();
-  const imageBase = options.imageBase ?? "";
+  const imageBase =
+    // oxlint-disable-next-line deslop/no-runtime-typeof -- tells the string | function option union apart
+    typeof options.imageBase === "function"
+      ? options.imageBase(ao3WorkId)
+      : (options.imageBase ?? "");
   // Before anything is serialized, so links in the summary and notes resolve too.
   const split = splitChapters(docs, pkg.navPoints);
   // The reader takes only digits with no leading zero, within Postgres's int4:

@@ -15,6 +15,12 @@ export interface SaveBucket {
 }
 
 /**
+ * The images a work's files show, by their SHA-256 key: collected while the epub is processed
+ * and written by the save, so nothing reaches R2 before the opt-out check.
+ */
+export type WorkImages = Map<string, { mediaType: string; bytes: Uint8Array }>;
+
+/**
  * A save that fails the same way on every attempt, because of the file itself: recorded at
  * once as `parse_failed` at the save stage, with `code` (short and fixed, never text from the
  * file) as its error.
@@ -36,7 +42,9 @@ const ROWS_PER_INSERT = 1_000;
 
 /**
  * Saves the first upload of a work, in the order ingest promises (ARCHITECTURE, EPUB
- * processor, step 8): the chapter fragments under the upload's own prefix, then the raw file
+ * processor, step 8): the chapter fragments under the upload's own prefix, the images under
+ * the work's shared `img/` prefix (keyed by their bytes, left for the periodic sweep when no
+ * version references them), then the raw file
  * to `originals/`, then one Postgres transaction that creates the work and its version and
  * sets it `live` last. A failure before or inside the transaction leaves no rows, only R2
  * objects: under keys a retry overwrites when it is worth one, and left for the cleanup
@@ -47,6 +55,7 @@ export async function saveWork(
   lease: Lease,
   work: ParsedWork,
   bytes: Uint8Array,
+  images: WorkImages = new Map(),
 ): Promise<void> {
   const ao3WorkId = workIdOf(work);
   if (work.chapters.length === 0) throw new SaveRejected("no_chapters");
@@ -58,6 +67,13 @@ export async function saveWork(
   await inPool(chapters, async (c) => {
     await deps.bucket.put(c.key, c.html, {
       httpMetadata: { contentType: "text/html; charset=utf-8" },
+    });
+  });
+  // Outside the upload's prefix, shared by every version of the work: keyed by the bytes, so a
+  // retry writes the same keys.
+  await inPool([...images], async ([key, image]) => {
+    await deps.bucket.put(`works/${ao3WorkId}/img/${key}`, image.bytes, {
+      httpMetadata: { contentType: image.mediaType },
     });
   });
   await deps.bucket.put(`originals/${lease.id}.epub`, bytes, {

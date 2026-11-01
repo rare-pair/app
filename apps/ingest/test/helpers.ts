@@ -349,6 +349,62 @@ export async function bucketText(key: string): Promise<string | null> {
   return object === null ? null : object.text();
 }
 
+/** SHA-256 of `bytes` as lowercase hex, the key an image is stored under. */
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Synthetic image bytes: the file signature of `type`, then `fill` repeated, so each `fill`
+ * hashes differently. Enough for the processor's sniff, not a decodable image.
+ */
+export function imageBytes(type: "png" | "jpeg" | "gif" | "webp", fill: string): Uint8Array {
+  const head = {
+    png: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+    jpeg: [0xff, 0xd8, 0xff, 0xe0],
+    gif: [0x47, 0x49, 0x46, 0x38, 0x39, 0x61],
+    webp: [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50],
+  }[type];
+  return new Uint8Array([...head, ...new TextEncoder().encode(fill.repeat(16))]);
+}
+
+/**
+ * A synthetic epub of AO3 work `workId` whose one chapter shows each of `images`, by file
+ * name, as an `img`. Each is a manifest item of its own, so two names may hold the same bytes.
+ */
+export function epubWithImages(
+  workId: number,
+  images: Record<string, { mediaType: string; data: Uint8Array }>,
+  pseud?: string,
+): Uint8Array {
+  const body = Object.keys(images)
+    .map((name) => `<p>pic <img src="images/${name}" alt="${name}"/></p>`)
+    .join("");
+  return ao3Epub({
+    workId,
+    pseud,
+    files: [{ name: "pics_split_001.xhtml", body: `<div id="chapters">${body}</div>` }],
+    extraManifest: Object.entries(images).map(([name, i]) => ({
+      href: `images/${name}`,
+      mediaType: i.mediaType,
+      data: i.data,
+    })),
+  });
+}
+
+/** The bytes and content type of the object at `key`, or null. */
+export async function bucketObject(
+  key: string,
+): Promise<{ bytes: Uint8Array; contentType: string | undefined } | null> {
+  const object = await env.BUCKET.get(key);
+  if (object === null) return null;
+  return {
+    bytes: new Uint8Array(await object.arrayBuffer()),
+    contentType: object.httpMetadata?.contentType,
+  };
+}
+
 /** The AO3 work IDs a search finds, as the web Worker would read them. */
 export const searchedIds = (query: string) =>
   withDb(async (db) => (await searchLiveWorks(db, query)).works.map((w) => w.work.ao3_work_id));
