@@ -38,7 +38,7 @@ export async function logModerationAction(
   entry: ModerationEntry,
 ): Promise<void> {
   const { note } = entry;
-  if (note !== undefined && (!/\S/.test(note) || note.length > NOTE_MAX)) {
+  if (note !== undefined && (!/\S/.test(note) || Array.from(note).length > NOTE_MAX)) {
     throw new RangeError(`A moderation note is 1 to ${NOTE_MAX} characters, not blank.`);
   }
   await db

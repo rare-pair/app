@@ -739,12 +739,15 @@ export async function hideWork(
   cause: HiddenCause,
   options: { minReporters?: number; actor?: string } = {},
 ): Promise<boolean> {
-  return inTransaction(db, async (trx) => {
+  // The log row needs a transaction; the automatic hide is one UPDATE and needs none.
+  const hide = async (trx: Kysely<Database>): Promise<boolean> => {
     let update = trx
       .updateTable("works")
       .set({ status: "hidden", hidden_cause: cause })
       .where("id", "=", workId)
-      .where("status", "in", cause === "moderator" ? ["live", "hidden"] : ["live"]);
+      .where("status", "in", cause === "moderator" ? ["live", "hidden"] : ["live"])
+      // A work already hidden for this cause is left as it is: nothing changed, so no row.
+      .where(sql<boolean>`not (status = 'hidden' and hidden_cause = ${cause})`);
     if (options.minReporters !== undefined) {
       update = update.where(sql<boolean>`${countedReporters(workId)} >= ${options.minReporters}`);
     }
@@ -759,7 +762,8 @@ export async function hideWork(
       });
     }
     return true;
-  });
+  };
+  return options.actor === undefined ? hide(db) : inTransaction(db, hide);
 }
 
 /**

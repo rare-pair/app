@@ -190,7 +190,7 @@ adminItems.post("/works/:id/hide", async (c) => {
     resultPage(
       hid
         ? "The work is hidden by a moderator."
-        : "Nothing changed: the work is not live or hidden.",
+        : "Nothing changed: the work is already hidden by a moderator, or removed.",
       from,
     ),
   );
@@ -215,6 +215,23 @@ adminItems.post("/requests/:id{[A-Za-z0-9_-]+}/reject", async (c) => {
   // together. Inside it only `trx` is used: `c.var.db` has one connection, which the
   // transaction holds.
   const decided = await c.var.db.transaction().execute(async (trx) => {
+    // Lock the work first: two moderators deciding the last two requests at once
+    // must not each see the other's as pending (the check in `restoreWork` reads
+    // only committed rows) and leave the work hidden for good. The second waits
+    // here for the first to commit.
+    const asked = await trx
+      .selectFrom("requests")
+      .select("work_id")
+      .where("id", "=", id)
+      .executeTakeFirst();
+    if (asked?.work_id) {
+      await trx
+        .selectFrom("works")
+        .select("id")
+        .where("id", "=", asked.work_id)
+        .forUpdate()
+        .execute();
+    }
     const rejected = await trx
       .updateTable("requests")
       .set({ status: "rejected" })

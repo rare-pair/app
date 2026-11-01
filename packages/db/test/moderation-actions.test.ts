@@ -73,6 +73,22 @@ describe("moderation action log", () => {
     expect(await rowsFor(live.workId)).toEqual([]);
   });
 
+  it("Hiding a work a moderator already hid writes no second row", async () => {
+    const moderator = await addUser();
+    const { workId } = await seedWork(t.db);
+    const first = await hideWork(t.db, workId, "moderator", { actor: moderator });
+    const second = await hideWork(t.db, workId, "moderator", { actor: moderator });
+    expect([first, second]).toEqual([true, false]);
+    expect(await rowsFor(workId)).toHaveLength(1);
+  });
+
+  it("A moderator's hide of a work hidden for another cause is logged", async () => {
+    const moderator = await addUser();
+    const { workId } = await seedWork(t.db, { status: "hidden", hiddenCause: "reports" });
+    expect(await hideWork(t.db, workId, "moderator", { actor: moderator })).toBe(true);
+    expect(await rowsFor(workId)).toHaveLength(1);
+  });
+
   it("The automatic hide, with no moderator, writes no row", async () => {
     const { workId } = await seedWork(t.db);
     expect(await hideWork(t.db, workId, "reports")).toBe(true);
