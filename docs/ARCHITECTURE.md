@@ -229,14 +229,14 @@ Chapter text isn't indexed.
 2. **Unzip with limits.** Read the object from R2 (25 MB or less) and check
    the zip's file index before decompressing anything:
    - at most 2,000 entries
-   - at most 100 MB uncompressed in total
+   - at most 40 MB uncompressed in total
    - at most 20 MB per entry
 
    Count bytes during decompression as well, because a zip can lie about its
    sizes. Unzip with `fflate`. Each problem has one code, here and while the
    documents are parsed in the next steps:
    - **`zip_bomb`:** more than 2,000 entries, or more than 20 MB in one entry
-     or 100 MB in total, whether declared in the index or found while
+     or 40 MB in total, whether declared in the index or found while
      inflating.
    - **`not_epub`:** the file isn't a zip; the `mimetype` entry is missing or
      isn't `application/epub+zip`; an entry name is unsafe (`..`, a leading

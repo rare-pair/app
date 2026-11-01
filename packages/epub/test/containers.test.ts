@@ -87,10 +87,10 @@ describe("hostile containers", () => {
     await expectEpubError(processEpub(zip), "not_epub");
   });
 
-  it("rejects an archive that inflates past 100 MB in total", async () => {
+  it("rejects an archive that inflates past 40 MB in total", async () => {
     const chunk = new Uint8Array(19 * MiB);
     const entries: Record<string, Uint8Array> = {};
-    for (let i = 0; i < 6; i++) entries[`part${i}.bin`] = chunk;
+    for (let i = 0; i < 3; i++) entries[`part${i}.bin`] = chunk;
     await expectEpubError(processEpub(zipEntries(entries)), "zip_bomb");
   });
 
