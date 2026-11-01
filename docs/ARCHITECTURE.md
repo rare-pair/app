@@ -231,14 +231,14 @@ Chapter text isn't indexed.
 2. **Unzip with limits.** Read the object from R2 (25 MB or less) and check
    the zip's file index before decompressing anything:
    - at most 2,000 entries
-   - at most 100 MB uncompressed in total
+   - at most 40 MB uncompressed in total
    - at most 20 MB per entry
 
    Count bytes during decompression as well, because a zip can lie about its
    sizes. Unzip with `fflate`. Each problem has one code, here and while the
    documents are parsed in the next steps:
    - **`zip_bomb`:** more than 2,000 entries, or more than 20 MB in one entry
-     or 100 MB in total, whether declared in the index or found while
+     or 40 MB in total, whether declared in the index or found while
      inflating.
    - **`not_epub`:** the file isn't a zip; the `mimetype` entry is missing or
      isn't `application/epub+zip`; an entry name is unsafe (`..`, a leading
@@ -795,10 +795,10 @@ markup: its inline `style` attributes become stylesheet rules, because
   solved on one form is refused by every other. Cloudflare's published test
   secret keys, which don't promise an action, skip the action comparison only.
 - The Workers rate-limiting binding covers abuse throttling on login, the
-  wait list, upload requests and search, keyed per IP and per user (per
-  email for login and the wait list). It's approximate and counts
-  per Cloudflare location, over 10- or 60-second windows. That's fine for
-  slowing abuse, but not for hard limits.
+  wait list, removal requests, DMCA notices, upload requests and search, keyed
+  per IP and per user (per email for login, the wait list and removal
+  requests). It's approximate and counts per Cloudflare location, over 10- or
+  60-second windows. That's fine for slowing abuse, but not for hard limits.
 - **Status codes.** A rate limit or quota that is hit returns **429** with
   `Retry-After` and a plain page saying when to try again. A failed or missing
   Turnstile token returns **400** and shows the form again with an error (as does
