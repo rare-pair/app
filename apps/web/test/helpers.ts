@@ -126,7 +126,7 @@ export async function acceptTerms(cookie: string, next = "/") {
   return res;
 }
 
-export { LOGIN_EMAIL_LIMIT, LOGIN_IP_LIMIT } from "./limits";
+export { DMCA_IP_LIMIT, LOGIN_EMAIL_LIMIT, LOGIN_IP_LIMIT } from "./limits";
 
 /**
  * Waits, if need be, for a window of `periodSeconds` with at least 20 seconds left in it, time

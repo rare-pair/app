@@ -10,7 +10,16 @@ export const QUEUE_LIMIT = 200;
 export type Row = string[];
 
 export const REPORT_COLUMNS = ["Created", "Work", "Kind", "Details"];
-export const TAKEDOWN_COLUMNS = ["Created", "Work", "Requester", "Basis"];
+export const TAKEDOWN_COLUMNS = [
+  "Created",
+  "Work",
+  "Requester",
+  "Basis",
+  "Material",
+  "Signature",
+  "Statements",
+  "Incomplete",
+];
 export const REQUEST_COLUMNS = ["Created", "Kind", "Work or pseud", "Contact email", "Statement"];
 export const WORK_COLUMNS = ["Created", "Work", "Reason"];
 

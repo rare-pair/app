@@ -340,6 +340,30 @@ article.chapter table {
   font: inherit;
 }
 
+.dmca-form > label {
+  display: block;
+  margin-top: calc(var(--space) * 3);
+}
+
+.dmca-form input[type="text"],
+.dmca-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  margin: var(--space) 0;
+  font: inherit;
+}
+
+.dmca-form label.check {
+  display: flex;
+  gap: calc(var(--space) * 2);
+  align-items: flex-start;
+  min-height: 24px;
+}
+
+.dmca-form button {
+  margin-top: calc(var(--space) * 4);
+}
+
 /* any page */
 
 /* A word longer than the line, such as a tag or a URL, breaks rather than scrolling sideways. */

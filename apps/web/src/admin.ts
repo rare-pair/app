@@ -110,7 +110,13 @@ export async function showReports(c: AdminContext) {
   return c.html(queuePage("Reports", REPORT_COLUMNS, cells));
 }
 
-/** `GET /admin/takedowns`: pending DMCA notices. */
+/** Which of the notice's two statements were made, for the queue. */
+const statements = (r: { good_faith: boolean; accuracy_authority: boolean }) =>
+  [r.good_faith ? "good faith" : "", r.accuracy_authority ? "accuracy" : ""]
+    .filter((s) => s !== "")
+    .join(", ");
+
+/** `GET /admin/takedowns`: pending DMCA notices, an incomplete one marked. */
 export async function showTakedowns(c: AdminContext) {
   const rows = await c.var.db
     .selectFrom("takedowns")
@@ -119,6 +125,11 @@ export async function showTakedowns(c: AdminContext) {
       "takedowns.created_at",
       "takedowns.requester",
       "takedowns.basis",
+      "takedowns.infringing_material",
+      "takedowns.signature",
+      "takedowns.good_faith",
+      "takedowns.accuracy_authority",
+      "takedowns.incomplete",
       "works.title",
       "works.ao3_work_id",
     ])
@@ -132,6 +143,10 @@ export async function showTakedowns(c: AdminContext) {
     workCell(r.title, r.ao3_work_id),
     r.requester,
     r.basis,
+    r.infringing_material,
+    r.signature,
+    statements(r),
+    r.incomplete ? "Incomplete" : "",
   ]);
   return c.html(queuePage("Takedowns", TAKEDOWN_COLUMNS, cells));
 }

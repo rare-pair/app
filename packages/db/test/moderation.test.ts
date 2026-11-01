@@ -33,6 +33,11 @@ const expected = {
     status: { type: "text", nullable: false },
     resolved_by: { type: "text", nullable: true },
     created_at: { type: "timestamptz", nullable: false },
+    signature: { type: "text", nullable: false },
+    infringing_material: { type: "text", nullable: false },
+    good_faith: { type: "bool", nullable: false },
+    accuracy_authority: { type: "bool", nullable: false },
+    incomplete: { type: "bool", nullable: false },
   },
   requests: {
     id: { type: "text", nullable: false },

@@ -4,6 +4,7 @@ import { admin } from "./admin";
 import { assetRoute } from "./assets";
 import { confirmSignIn, showConfirm } from "./confirm";
 import type { Bindings } from "./env";
+import { showDmcaForm, submitDmca } from "./dmca";
 import { showFull } from "./full";
 import { homePage } from "./home";
 import { deadLetteredLaunchEmails } from "./launch-dead-letter";
@@ -49,6 +50,7 @@ app.use(contentSecurityPolicy);
 app.post("/uploads", sameOriginUpload);
 app.post("/works/:id/report", sameOriginOnly);
 app.post("/remove", sameOriginOnly);
+app.post("/dmca", sameOriginOnly);
 // The session, once, for every page; routes read c.var.session and never mount it
 // again. Static files skip it, and the lookup's database connection with it. Then
 // an account that hasn't accepted the terms is sent to accept them.
@@ -88,6 +90,8 @@ app.get("/upload", showUpload);
 app.post("/uploads", requestUpload);
 app.get("/remove", showRemoveForm);
 app.post("/remove", submitRemove);
+app.get("/dmca", showDmcaForm);
+app.post("/dmca", submitDmca);
 
 // The reader. Closed before launch, like every /works/ page.
 app.get("/works/:id/chapters/:n", showChapter);
