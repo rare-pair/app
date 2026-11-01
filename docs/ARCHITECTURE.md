@@ -732,13 +732,17 @@ epub, under the normal versioning rules.
   an uploader. A *Works to check* item's page has approve (clears the notice,
   or publishes the held version), make a version current, hide and remove;
   each work's admin page lists every version with "Make current". Every
-  moderation action writes one `moderation_actions` row with the acting
-  moderator's user id, in the same transaction as the action: no row for an
-  action that changed nothing or failed, and no row without its action. A
-  reject that also lifts a hide logs only the reject. The automatic hide from
-  reports has no moderator and writes none. (Hide, restore and the request and
-  takedown rejects write one today; each later action calls the same helper,
-  `logModerationAction`, when it is built.) Anyone
+  moderation action a moderator or admin takes writes one `moderation_actions`
+  row with their user id. For the database changes an action makes, the row
+  is written in the same transaction: no row for an action that changed
+  nothing or failed, and no row without its action. (An action's effects
+  outside the database, such as removing a work's files, can't join that
+  transaction.) A reject that also lifts a hide logs only the reject. A hide
+  no moderator chose (the reports' automatic hide, a removal request's hide)
+  writes none. Hide, restore and the request and takedown rejects write a row
+  today; each later action calls the same helper, `logModerationAction`, when
+  it is built. The row's `moderator_id` keeps its foreign key to `user`, so
+  an account with logged actions can't be deleted. Anyone
   without the moderator or admin role, signed out included, gets 404 for every
   `/admin` URL, so the admin area isn't advertised.
 

@@ -190,7 +190,7 @@ adminItems.post("/works/:id/hide", async (c) => {
     resultPage(
       hid
         ? "The work is hidden by a moderator."
-        : "Nothing changed: the work is already hidden by a moderator, or removed.",
+        : "Nothing changed: the work is not live, or a moderator already hid it.",
       from,
     ),
   );
@@ -223,6 +223,7 @@ adminItems.post("/requests/:id{[A-Za-z0-9_-]+}/reject", async (c) => {
       .selectFrom("requests")
       .select("work_id")
       .where("id", "=", id)
+      .where("status", "=", "pending")
       .executeTakeFirst();
     if (asked?.work_id) {
       await trx

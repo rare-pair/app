@@ -35,7 +35,6 @@ export {
 } from "./queries";
 export {
   logModerationAction,
-  inTransaction,
   type ModerationAction,
   type ModerationTargetKind,
   type ModerationEntry,

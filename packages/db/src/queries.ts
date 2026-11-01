@@ -745,9 +745,13 @@ export async function hideWork(
       .updateTable("works")
       .set({ status: "hidden", hidden_cause: cause })
       .where("id", "=", workId)
-      .where("status", "in", cause === "moderator" ? ["live", "hidden"] : ["live"])
-      // A work already hidden for this cause is left as it is: nothing changed, so no row.
-      .where(sql<boolean>`not (status = 'hidden' and hidden_cause = ${cause})`);
+      .where("status", "in", cause === "moderator" ? ["live", "hidden"] : ["live"]);
+    if (cause === "moderator") {
+      // A work a moderator already hid is left as it is: nothing changed, so no row.
+      update = update.where((eb) =>
+        eb.not(eb.and([eb("status", "=", "hidden"), eb("hidden_cause", "=", "moderator")])),
+      );
+    }
     if (options.minReporters !== undefined) {
       update = update.where(sql<boolean>`${countedReporters(workId)} >= ${options.minReporters}`);
     }
