@@ -6,6 +6,7 @@ export { normalizePseud } from "./pseud";
 export {
   getLiveWork,
   getWorkAvailability,
+  hideWork,
   listLiveWorksByTag,
   liveTagSpellings,
   NOT_RATED,
