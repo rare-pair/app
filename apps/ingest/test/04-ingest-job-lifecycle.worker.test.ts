@@ -222,10 +222,13 @@ describe("04-ingest-job-lifecycle", () => {
     const existing = await seededWork({ ao3WorkId: freshAo3WorkId(), chapters: 2 });
     await putFragments(env.BUCKET, existing.fragments);
     const before = await savedRows(existing.ao3WorkId, existing.uploadId);
+    const liveBefore = await liveWork(existing.ao3WorkId);
     const id = await pendingUpload(ao3Epub({ workId: existing.ao3WorkId }));
 
     const result = await deliver([{ upload_id: id }]);
 
+    // The work, its byline and its tags are as they were.
+    expect(await liveWork(existing.ao3WorkId)).toEqual(liveBefore);
     // One chapter and an earlier date than the saved two: a duplicate. It changes nothing.
     expect(await savedRows(existing.ao3WorkId, existing.uploadId)).toEqual(before);
     expect(before.works[0]?.current_version_id).toBe(existing.versionId);
@@ -240,6 +243,55 @@ describe("04-ingest-job-lifecycle", () => {
     const row = await uploadRow(id);
     expect(row.status).toBe("duplicate");
     expect(row.work_id).toBe(existing.workId);
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+  });
+
+  it("a replace by a job that lost its upload moves nothing", async () => {
+    // The saved work matches the parsed one but for its second chapter, so the upload is a replace.
+    const parsed = parsedWork({
+      stats: {
+        published: "2020-01-02",
+        updated: "2020-03-01",
+        completed: null,
+        words: 6,
+        chapters: { posted: 2, total: 2 },
+      },
+      chapters: [
+        { n: 1, title: "One", html: "<p>marker-only-chapter text.</p>", words: 3 },
+        { n: 2, title: "Two", html: "<p>a second synthetic chapter.</p>", words: 4 },
+      ],
+    });
+    const workId = Number(parsed.ao3WorkId);
+    const existing = await seededWork({
+      ao3WorkId: workId,
+      rating: "General Audiences",
+      tags: [
+        { type: "rating", name: "General Audiences" },
+        { type: "warning", name: "No Archive Warnings Apply" },
+        { type: "fandom", name: "Test Fandom" },
+      ],
+      authors: [{ pseud: "someone", ao3_user: "someone" }],
+      chapters: [{ html: "<p>marker-only-chapter text.</p>" }],
+    });
+    await putFragments(env.BUCKET, existing.fragments);
+    const before = await liveWork(workId);
+    const id = await pendingUpload(ao3Epub({ workId }));
+    // SAFETY: the bucket's put below assigns it; null until then.
+    let takenOver = null as Date | null;
+    const { handler } = watchedWorker({
+      process: async () => parsed,
+      bucket: beforePut(async (key) => {
+        if (key.startsWith("originals/")) takenOver = await setLease(id, "1 hour");
+      }),
+    });
+
+    const result = await deliver([{ upload_id: id }], { handler });
+
+    expect((await savedRows(workId, id)).versions).toEqual([]);
+    expect(await liveWork(workId)).toEqual(before);
+    const row = await uploadRow(id);
+    expect(row.status).toBe("processing");
+    expect(row.lease_until).toEqual(takenOver);
     expect(result.explicitAcks).toEqual(["msg-0"]);
   });
 

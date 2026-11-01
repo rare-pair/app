@@ -195,10 +195,20 @@ describe("08-versioning-and-dedupe", () => {
   it("Newer upload with changed shared chapters is held", async () => {
     const { workId, v1 } = await workAtV1();
     const v1Live = await liveWork(workId);
+    const word = `Held${token()}`;
 
-    const v2 = await ingestParsed(fixture(workId, { count: 4, rewritten: [2] }));
+    const v2 = await ingestParsed(
+      fixture(workId, {
+        count: 4,
+        rewritten: [2],
+        title: `The ${word} Rewrite`,
+        freeforms: [word],
+      }),
+    );
 
     expect(v2.row.status).toBe("held_for_review");
+    // Nothing of the held version is searchable: not its title, not its tag.
+    expect(await searchedIds(word)).toEqual([]);
     const rows = await versionsOf(workId);
     expect(rows.versions).toHaveLength(2);
     expect(rows.current).toBe(rows.versions.find((v) => v.upload_id === v1.id)?.id);
@@ -208,6 +218,18 @@ describe("08-versioning-and-dedupe", () => {
     expect(await bucketKeys(`works/${workId}/${v2.id}/`)).toHaveLength(4);
     expect(await bucketKeys(`originals/${v2.id}`)).toHaveLength(1);
     expect(await liveWork(workId)).toEqual(v1Live);
+  });
+
+  it("Nobody gets special treatment", async () => {
+    // Two uploaders (each pending upload has its own user) send the same tampered version.
+    const { workId } = await workAtV1();
+    const tampered = fixture(workId, { count: 4, rewritten: [2] });
+
+    const first = await ingestParsed(tampered);
+    const second = await ingestParsed(tampered);
+
+    expect([first.row.status, second.row.status]).toEqual(["held_for_review", "held_for_review"]);
+    expect((await versionsOf(workId)).versions).toHaveLength(3);
   });
 
   it("Newer upload with changed tags is held", async () => {
@@ -286,6 +308,8 @@ describe("08-versioning-and-dedupe", () => {
     // Both are read against v1 before either writes. Whichever commits second is decided again
     // against the first: more chapters beats a later date, and a later date beats the first's
     // date, so both replace, in either order.
+    // The test database runs one transaction at a time (PGlite), so no test here sees a row lock
+    // wait: they show the outcome, which the compare-and-swap guarantees.
     const meet = rendezvous(2);
     const bucket = meetBeforeOriginal(meet);
     const [newer, later] = await Promise.all([
