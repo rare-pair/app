@@ -121,7 +121,7 @@ export function workActions(ao3WorkId: number, from: string | null) {
 
 /** A form that rejects a takedown or a request, by the row's own id. */
 export const rejectForm = (queue: "takedowns" | "requests", id: string) =>
-  `<form method="post" action="/admin/${queue}/${encodeURIComponent(id)}/reject"><button type="submit">Reject</button></form>`;
+  `<form method="post" action="${escapeHtml(`/admin/${queue}/${encodeURIComponent(id)}/reject`)}"><button type="submit">Reject</button></form>`;
 
 /**
  * What an action did, said from what its write returned: a re-read could come from

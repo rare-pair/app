@@ -57,6 +57,8 @@ adminItems.get("/reports/:id{[A-Za-z0-9_-]+}", async (c) => {
       "works.hidden_cause",
     ])
     .where("reports.id", "=", c.req.param("id"))
+    // Not an item of the Reports queue (it only queues the work in Works to check).
+    .where("reports.kind", "<>", "wrong_version")
     .executeTakeFirst();
   if (!row) return c.notFound();
   const self = `/admin/reports/${encodeURIComponent(c.req.param("id"))}`;
@@ -81,8 +83,16 @@ adminItems.get("/takedowns/:id{[A-Za-z0-9_-]+}", async (c) => {
   const row = await c.var.db
     .selectFrom("takedowns")
     .innerJoin("works", "works.id", "takedowns.work_id")
-    .selectAll("takedowns")
     .select([
+      "takedowns.created_at",
+      "takedowns.status",
+      "takedowns.requester",
+      "takedowns.basis",
+      "takedowns.infringing_material",
+      "takedowns.signature",
+      "takedowns.good_faith",
+      "takedowns.accuracy_authority",
+      "takedowns.incomplete",
       "works.title",
       "works.ao3_work_id",
       "works.status as work_status",
