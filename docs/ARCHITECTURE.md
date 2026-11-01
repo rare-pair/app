@@ -100,7 +100,9 @@ an unofficial stopgap.
 
 ```sql
 user         (id, email, name, email_verified, image, created_at, updated_at,  -- Better Auth's table
-              role, upload_quota_used, banned_at,                             -- plus our fields
+              role, upload_quota_used, upload_quota_day NULL, banned_at,      -- plus our fields
+              -- upload_quota_used counts the uploads confirmed on upload_quota_day (a UTC day);
+              -- a count dated any other day is zero. Trusted tier: role moderator or admin.
               terms_accepted_at NULL,  -- NULL until a new account accepts the terms
               warnings_off)            -- signed-in reader turned the warnings screen off
 session, account, verification  -- Better Auth's tables; verification holds hashed magic-link tokens
@@ -126,7 +128,8 @@ tags         (id, type, name, name_norm) -- type: fandom|relationship|character|
 work_tags    (work_id, tag_id,
               position)  -- the tag's place in the work's tags, in the author's order
 uploads      (id, user_id, r2_key, sha256, bytes, status, lease_until,
-              error_stage, error, work_id NULL, created_at)
+              error_stage, error, work_id NULL, created_at,
+              quota_counted_at NULL)  -- set when confirm counted it against the daily quota, once
 reports      (id, work_id, reporter_id, kind, body, status, created_at)  -- reporting needs an account;
                                                   -- kind includes wrong_version ("This version is wrong")
 takedowns    (id, work_id, requester, basis, status, resolved_by, created_at,
@@ -399,7 +402,9 @@ uploader. Step 2 lists which problem gives which of the first three.
 including one whose AO3 work URL is only in the OPF (step 4). `opted_out`
 covers the opt-out list and the takedown list of moderator-removed works.
 `parse_failed` also covers a job that fails for good (step 8). (`held_for_review`
-and `duplicate` are statuses, not rejections, and review reasons are neither.)
+and `duplicate` are statuses, not rejections, and review reasons are neither. Nor is
+`over_quota`: the status of an upload whose confirm was refused 429 because the
+account's daily quota was spent, whose object is deleted.)
 
 **Testing.** `HTMLRewriter` exists only in the Workers runtime, so the
 `packages/epub` tests run in it (`packages/epub/vitest.config.ts`). Fixtures are

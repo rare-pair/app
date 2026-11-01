@@ -1,9 +1,10 @@
-import { createDb, insertUpload } from "@archive/db";
+import { createDb, getUploadQuota, insertUpload } from "@archive/db";
 import type { Context, MiddlewareHandler } from "hono";
 import type { Bindings } from "./env";
 import { readForm } from "./login";
 import { uploadPage } from "./pages";
 import { presignPut } from "./presign";
+import { limitFor, quotaSpent } from "./quota";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
 import { ipKey, isLimited, UPLOAD_WINDOW_SECONDS, userKey } from "./rate-limit";
@@ -109,28 +110,32 @@ export async function requestUpload(c: UploadContext) {
       "The anti-spam check is not answering just now. Please try again in a minute.",
     );
   }
-  // U4: the daily upload quota goes here, after the size and Turnstile.
-
-  // The key is ours alone: nothing in it comes from the request.
-  const id = crypto.randomUUID();
-  const key = `uploads/${id}`;
-  // Signed before the row is written, so a signing fault leaves no row behind.
-  const url = await presignPut({
-    accountId: c.env.R2_ACCOUNT_ID,
-    bucket: c.env.R2_BUCKET,
-    accessKeyId: c.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: c.env.R2_SECRET_ACCESS_KEY,
-    key,
-    contentType: EPUB_TYPE,
-    expiresSeconds: UPLOAD_URL_SECONDS,
-    now: new Date(),
-  });
-  // One query, so one connection.
+  // One connection serves the quota read and the row.
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
   try {
+    // The quota is counted when an upload is confirmed (upload-complete.ts), which is where
+    // the hard cap holds. Asking is refused early once today's is spent, so nobody is sent to
+    // upload a file that confirm would refuse. Nothing is counted here.
+    const quota = await getUploadQuota(db, user.id);
+    if (quota !== null && quota.usedToday >= limitFor(quota.role, c.env)) return quotaSpent(c);
+
+    // The key is ours alone: nothing in it comes from the request.
+    const id = crypto.randomUUID();
+    const key = `uploads/${id}`;
+    // Signed before the row is written, so a signing fault leaves no row behind.
+    const url = await presignPut({
+      accountId: c.env.R2_ACCOUNT_ID,
+      bucket: c.env.R2_BUCKET,
+      accessKeyId: c.env.R2_ACCESS_KEY_ID,
+      secretAccessKey: c.env.R2_SECRET_ACCESS_KEY,
+      key,
+      contentType: EPUB_TYPE,
+      expiresSeconds: UPLOAD_URL_SECONDS,
+      now: new Date(),
+    });
     await insertUpload(db, { id, userId: user.id, r2Key: key, bytes });
+    return c.json({ id, url }, 200, NO_STORE);
   } finally {
     c.executionCtx.waitUntil(db.destroy());
   }
-  return c.json({ id, url }, 200, NO_STORE);
 }

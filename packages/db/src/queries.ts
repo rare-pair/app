@@ -466,6 +466,164 @@ export async function rejectOversizedUpload(db: Kysely<Database>, id: string): P
   return row !== undefined;
 }
 
+/**
+ * Marks a `pending` upload `over_quota`. False when it wasn't `pending`, or when a confirm has
+ * counted it against the quota: a parallel confirm of the same upload that won its use must
+ * not have its upload rejected, nor its object deleted, by one that lost.
+ */
+export async function rejectOverQuotaUpload(
+  db: Kysely<Database>,
+  id: string,
+  userId: string,
+): Promise<boolean> {
+  const row = await db
+    .updateTable("uploads")
+    .set({ status: "over_quota" })
+    .where("id", "=", id)
+    .where("user_id", "=", userId)
+    .where("status", "=", "pending")
+    .where("quota_counted_at", "is", null)
+    .returning("id")
+    .executeTakeFirst();
+  return row !== undefined;
+}
+
+// The UTC calendar day, as Postgres counts it: the quota's day, whatever the session's zone.
+const TODAY_UTC = sql<string>`(now() at time zone 'utc')::date`;
+
+/**
+ * A user's role and how many uploads they have confirmed today (the UTC day), or null for no
+ * such user. A count left from an earlier day, or never dated, reads as zero.
+ */
+export async function getUploadQuota(
+  db: Kysely<Database>,
+  userId: string,
+): Promise<{ role: string | null; usedToday: number } | null> {
+  const row = await db
+    .selectFrom("user")
+    .select([
+      "role",
+      "upload_quota_used",
+      sql<boolean>`upload_quota_day = ${TODAY_UTC}`.as("today"),
+    ])
+    .where("id", "=", userId)
+    .executeTakeFirst();
+  if (row === undefined) return null;
+  return { role: row.role, usedToday: row.today ? row.upload_quota_used : 0 };
+}
+
+/**
+ * Counts one confirmed upload against today's quota of `limit`, and says whether it fit. One
+ * conditional UPDATE, so under concurrency the row lock makes the rest re-check the count the
+ * winner left: no more than `limit` ever succeed. The first use of a new UTC day starts the
+ * count at one. False for a spent quota, a limit under one, or an unknown user.
+ */
+export async function useUploadQuota(
+  db: Kysely<Database>,
+  userId: string,
+  limit: number,
+): Promise<boolean> {
+  const row = await db
+    .updateTable("user")
+    .set({
+      upload_quota_used: sql`case when upload_quota_day = ${TODAY_UTC} then upload_quota_used + 1 else 1 end`,
+      upload_quota_day: TODAY_UTC,
+    })
+    .where("id", "=", userId)
+    // A new day fits a limit of one or more; today's fits while the count is under it.
+    .where(
+      sql<boolean>`((${limit}::int >= 1 and upload_quota_day is distinct from ${TODAY_UTC})
+        or (upload_quota_day = ${TODAY_UTC} and upload_quota_used < ${limit}::int))`,
+    )
+    .returning("id")
+    .executeTakeFirst();
+  return row !== undefined;
+}
+
+/**
+ * Counts a pending upload against its owner's daily quota of `limit`, once. `counted` took a
+ * use; `already` means an earlier or parallel confirm of the same upload took it, so nothing
+ * more is counted (the upload's row is locked by the claim, so two confirms of one upload
+ * can't both count it); `spent` means the quota had no use left, and nothing was changed;
+ * `gone` means the upload isn't this user's pending one (another request rejected it).
+ */
+export async function countUploadQuota(
+  db: Kysely<Database>,
+  userId: string,
+  uploadId: string,
+  limit: number,
+): Promise<"counted" | "already" | "spent" | "gone"> {
+  return db.transaction().execute(async (trx) => {
+    const claimed = await trx
+      .updateTable("uploads")
+      .set({ quota_counted_at: sql<Date>`now()` })
+      .where("id", "=", uploadId)
+      .where("user_id", "=", userId)
+      // An upload another request has rejected is never counted, nor queued after it.
+      .where("status", "=", "pending")
+      .where("quota_counted_at", "is", null)
+      .returning("id")
+      .executeTakeFirst();
+    if (claimed === undefined) {
+      const row = await trx
+        .selectFrom("uploads")
+        .select("status")
+        .where("id", "=", uploadId)
+        .where("user_id", "=", userId)
+        .executeTakeFirst();
+      return row?.status === "pending" ? "already" : "gone";
+    }
+    if (await useUploadQuota(trx, userId, limit)) return "counted";
+    // Not counted: the claim is undone, in the same transaction.
+    await trx
+      .updateTable("uploads")
+      .set({ quota_counted_at: null })
+      .where("id", "=", uploadId)
+      .where("user_id", "=", userId)
+      .execute();
+    return "spent";
+  });
+}
+
+/**
+ * Gives back the use `countUploadQuota` took for this upload, for a confirm that counted and
+ * then failed to queue it. The use is returned to the day it was taken on: when that day has
+ * passed, the new day's count is left alone. Does nothing for an upload that wasn't counted.
+ */
+export async function refundUploadQuota(
+  db: Kysely<Database>,
+  userId: string,
+  uploadId: string,
+): Promise<void> {
+  await db.transaction().execute(async (trx) => {
+    // The upload row is locked first, the order countUploadQuota takes its locks in. Only a
+    // still-pending upload is refunded: one ingest has taken keeps its use.
+    const counted = await trx
+      .selectFrom("uploads")
+      // As text: the driver would read a date into a local-time Date, shifting the day.
+      .select(sql<string>`((quota_counted_at at time zone 'utc')::date)::text`.as("day"))
+      .where("id", "=", uploadId)
+      .where("user_id", "=", userId)
+      .where("status", "=", "pending")
+      .where("quota_counted_at", "is not", null)
+      .forUpdate()
+      .executeTakeFirst();
+    if (counted === undefined) return;
+    await trx
+      .updateTable("user")
+      .set({ upload_quota_used: sql`upload_quota_used - 1` })
+      .where("id", "=", userId)
+      .where("upload_quota_used", ">", 0)
+      .where(sql<boolean>`upload_quota_day = ${counted.day}::date`)
+      .execute();
+    await trx
+      .updateTable("uploads")
+      .set({ quota_counted_at: null })
+      .where("id", "=", uploadId)
+      .execute();
+  });
+}
+
 export interface PopularFandom {
   /** How the live works spell it, the first by code unit when they differ. */
   name: string;

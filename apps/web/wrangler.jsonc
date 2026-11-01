@@ -130,6 +130,12 @@
     // moderators' real address in its place (`wrangler deploy --var MODERATORS_EMAIL:...`);
     // the repo's code, notes and tests never hold one.
     "MODERATORS_EMAIL": "moderators@example.invalid",
+    // The most uploads an account may confirm in a UTC day (src/quota.ts): the new-account
+    // tier, which every account but a moderator or admin gets, and the trusted tier of
+    // moderators and admins. ARCHITECTURE (Surge controls) sets them before launch from load
+    // testing; these are first values, to be revisited then.
+    "UPLOAD_QUOTA_NEW": "20",
+    "UPLOAD_QUOTA_TRUSTED": "100",
   },
   // Set with `wrangler secret put`. IP_HASH_KEY keys the HMAC of a requester's stored network
   // address (src/ip-hash.ts): a long random value, kept for as long as stored hashes are
