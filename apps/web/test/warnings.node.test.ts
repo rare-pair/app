@@ -27,6 +27,12 @@ describe("12-warnings-interstitial: which works need the screen", () => {
       needsWarnings(work("Teen And Up Audiences", ["Creator Chose Not To Use Archive Warnings"])),
     ).toBe(true);
   });
+  it.each(["mature", "EXPLICIT", "Explicit Audiences", "Mature Audiences"])(
+    "an odd spelling (%s) of a strong or unknown rating needs it",
+    (rating) => {
+      expect(needsWarnings(work(rating))).toBe(true);
+    },
+  );
   it("General or Teen with no warnings, or only No Archive Warnings Apply, skips it", () => {
     expect(needsWarnings(work("General Audiences"))).toBe(false);
     expect(needsWarnings(work("Teen And Up Audiences", ["No Archive Warnings Apply"]))).toBe(false);

@@ -21,6 +21,8 @@ const WARNED_ATTRIBUTES = "; Path=/; SameSite=Lax; Secure; HttpOnly";
 // The most work IDs kept; the oldest are dropped past it.
 const MAX_WARNED = 50;
 
+const MILD_RATINGS = ["general audiences", "teen and up audiences"];
+
 /**
  * Whether a work gets the screen: rated Mature or Explicit, not rated, or carrying any
  * archive warning other than "No Archive Warnings Apply".
@@ -32,8 +34,10 @@ export function needsWarnings({
   work: { rating: string | null };
   tags: { type: string; name_norm: string }[];
 }) {
-  const rating = work.rating?.trim() ?? "";
-  if (rating === "" || ["Mature", "Explicit", "Not Rated"].includes(rating)) return true;
+  // Only the two mild ratings skip the screen; anything else, an unknown or oddly
+  // spelled rating included, shows it.
+  const rating = work.rating?.trim().toLowerCase() ?? "";
+  if (!MILD_RATINGS.includes(rating)) return true;
   return tags.some(
     (tag) => tag.type === "warning" && tag.name_norm !== "no archive warnings apply",
   );
@@ -95,7 +99,10 @@ export async function showWarnings(c: ReaderContext) {
   if (!live) return withheld ? withheldResponse(c, withheld) : c.notFound();
   const next = safeWarningsNext(id, c.req.query("next"));
   // Nothing to warn about: on to the page asked for.
-  if (!needsWarnings(live)) return c.redirect(next, 302);
+  if (!needsWarnings(live)) {
+    c.header("Cache-Control", "private, no-store");
+    return c.redirect(next, 302);
+  }
 
   const rating = escapeHtml(live.work.rating?.trim() || "Not Rated");
   const warnings = live.tags.filter((tag) => tag.type === "warning");

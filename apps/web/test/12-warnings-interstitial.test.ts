@@ -223,6 +223,7 @@ describe("12-warnings-interstitial: continuing", () => {
     const response = await fetchW(`/works/${G}/warnings`);
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe(chapter(G, 1));
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 });
 
