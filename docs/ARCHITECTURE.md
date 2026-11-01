@@ -140,6 +140,10 @@ requests     (id, kind, work_id NULL, pseud_norm NULL, contact_email, statement,
               status, ip_hash, created_at)        -- kind: remove_work | opt_out
 optouts      (id, pseud_norm, ao3_user NULL, request_id, active, created_at)  -- checked at ingest
 requester_blocks (id, contact_email NULL, ip_hash NULL, created_by, created_at)
+moderation_actions (id, moderator_id, action, target_kind, target_id, note NULL,
+              created_at)  -- no FK on target_id (it points at different tables); action and
+                           -- target_kind are free text; note is short, never reader data
+                           -- or a requester's email
 waitlist     (email PRIMARY KEY,               -- trimmed and lowercased; deleted after launch
               confirm_token_hash NULL, confirm_sent_at,
               confirm_count,                    -- confirmation emails sent, 3 at most
@@ -727,7 +731,18 @@ epub, under the normal versioning rules.
   Actions are hide, remove, restore, approve, reject, block a requester and ban
   an uploader. A *Works to check* item's page has approve (clears the notice,
   or publishes the held version), make a version current, hide and remove;
-  each work's admin page lists every version with "Make current". Anyone
+  each work's admin page lists every version with "Make current". Every
+  moderation action a moderator or admin takes writes one `moderation_actions`
+  row with their user id. For the database changes an action makes, the row
+  is written in the same transaction: no row for an action that changed
+  nothing or failed, and no row without its action. (An action's effects
+  outside the database, such as removing a work's files, can't join that
+  transaction.) A reject that also lifts a hide logs only the reject. A hide
+  no moderator chose (the reports' automatic hide, a removal request's hide)
+  writes none. Hide, restore and the request and takedown rejects write a row
+  today; each later action calls the same helper, `logModerationAction`, when
+  it is built. The row's `moderator_id` keeps its foreign key to `user`, so
+  an account with logged actions can't be deleted. Anyone
   without the moderator or admin role, signed out included, gets 404 for every
   `/admin` URL, so the admin area isn't advertised.
 
