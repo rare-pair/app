@@ -114,6 +114,7 @@ async function run(
   files.clear(); // everything still needed is now parsed or held by `candidates`
   const used = new Map<string, ImageCandidate>();
   const imageBase =
+    // oxlint-disable-next-line deslop/no-runtime-typeof -- tells the string | function option union apart
     typeof options.imageBase === "function"
       ? options.imageBase(ao3WorkId)
       : (options.imageBase ?? "");

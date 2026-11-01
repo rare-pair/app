@@ -4,20 +4,23 @@ import type { Kysely } from "kysely";
 import { MAX_RETRIES } from "./config";
 import { claimLease, endLease, type Lease, type Outcome, type Stage } from "./lease";
 import { onRejectList } from "./lists";
-import { LeaseLost, SaveRejected } from "./save";
+import { LeaseLost, SaveRejected, type WorkImages } from "./save";
 
 /** What a job needs from outside: the request's Kysely, the bucket and the two steps. */
 export interface JobDeps {
   db: Kysely<Database>;
   bucket: Pick<R2Bucket, "get">;
-  /** The epub processor: bytes in, a parsed work out, or an `EpubError`. */
-  process: (bytes: Uint8Array) => Promise<ParsedWork>;
+  /**
+   * The epub processor: bytes in, a parsed work out, or an `EpubError`. It adds each image the
+   * work shows to `images`, if given.
+   */
+  process: (bytes: Uint8Array, images?: WorkImages) => Promise<ParsedWork>;
   /**
    * Saves the parsed work from the upload's `bytes` (R2 fragments, `originals/`, the Postgres
    * transaction). Throws `SaveRejected` for a file that can't be saved, and `LeaseLost` when
    * another job has taken the upload over.
    */
-  save: (upload: Lease, work: ParsedWork, bytes: Uint8Array) => Promise<void>;
+  save: (upload: Lease, work: ParsedWork, bytes: Uint8Array, images?: WorkImages) => Promise<void>;
 }
 
 /** What the queue does with the message: `ack` it, or `retry` it. */
@@ -83,8 +86,9 @@ async function run(
   const bytes = new Uint8Array(await object.arrayBuffer());
   enter("process");
   let work: ParsedWork;
+  const images: WorkImages = new Map();
   try {
-    work = await deps.process(bytes);
+    work = await deps.process(bytes, images);
   } catch (error) {
     if (!(error instanceof EpubError)) throw error;
     // The same bytes are rejected the same way every time, `parse_failed` included.
@@ -97,7 +101,7 @@ async function run(
   enter("save");
   try {
     // A saved work's upload is `live` already: it goes live in the work's transaction.
-    await deps.save(lease, work, bytes);
+    await deps.save(lease, work, bytes, images);
   } catch (error) {
     if (!(error instanceof SaveRejected)) throw error;
     return { status: "parse_failed", failure: { stage: "save", error: error.code } };
