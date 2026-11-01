@@ -85,10 +85,12 @@ export async function submitRemove(c: RemoveContext) {
   const clientIp = c.req.header("cf-connecting-ip") ?? null;
   // What was typed comes back, except an email too long to be an address.
   const email = field(form, "email");
+  const typedWork = field(form, "work");
+  const typedPseud = field(form, "pseud");
   const values = {
     email: email.length > MAX_EMAIL ? "" : email,
-    work: field(form, "work").slice(0, MAX_WORK),
-    pseud: field(form, "pseud").slice(0, MAX_PSEUD),
+    work: typedWork.slice(0, MAX_WORK),
+    pseud: typedPseud.slice(0, MAX_PSEUD),
     statement: (form.get("statement") ?? "").replaceAll("\r\n", "\n").replaceAll("\u0000", ""),
   };
   const turnstile = await verifyTurnstile(form.get("cf-turnstile-response"), {
@@ -111,13 +113,12 @@ export async function submitRemove(c: RemoveContext) {
   if (!isSendableAddress(email.toLowerCase()) || email.length > MAX_EMAIL) {
     fieldErrors.email = "Enter a valid email address, so a moderator can reply.";
   }
-  const typedWork = field(form, "work");
-  const typedPseud = field(form, "pseud");
   const pseudNorm = typedPseud.length > MAX_PSEUD ? "" : normalizePseud(typedPseud);
+  const id = typedWork.length > MAX_WORK ? null : workIdOf(typedWork);
   if (typedWork === "" && pseudNorm === "") {
     fieldErrors.work = "Enter the web address of a work, or a pseud below.";
     fieldErrors.pseud = "Enter a pseud, or the web address of a work above.";
-  } else if (typedWork !== "" && (typedWork.length > MAX_WORK || workIdOf(typedWork) === null)) {
+  } else if (typedWork !== "" && id === null) {
     fieldErrors.work = "That is not the web address of a work, here or at the original archive.";
   }
   if (values.statement.length > MAX_STATEMENT) {
@@ -136,7 +137,6 @@ export async function submitRemove(c: RemoveContext) {
       // X2 (#62) widens this: it hides the work at once and answers a work the archive
       // doesn't hold with its own page. Until then a work that isn't live is not stored,
       // and the reply is the same.
-      const id = workIdOf(typedWork);
       const work =
         id === null
           ? undefined
