@@ -39,7 +39,11 @@
   // one day at most, set outside this file:
   // wrangler queues update email-bulk-dlq --message-retention-period-secs 86400
   "queues": {
-    "producers": [{ "binding": "EMAIL", "queue": "email" }],
+    // `ingest` is the upload queue apps/ingest consumes: POST /uploads/:id/complete sends to it.
+    "producers": [
+      { "binding": "EMAIL", "queue": "email" },
+      { "binding": "INGEST", "queue": "ingest" },
+    ],
     "consumers": [
       {
         "queue": "email-bulk-dlq",
