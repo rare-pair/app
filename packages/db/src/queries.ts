@@ -513,17 +513,24 @@ export async function hideWork(
  * schema's check allows a cause only while hidden), then closes the work's open
  * reports in the same transaction, so they stop counting toward `hideWork`'s
  * reporter count and the next report doesn't hide it again. True when it
- * restored it. A live or removed work is left as it is (a hidden work always has
+ * restored it. With `cause`, only a work hidden for that cause comes back (a
+ * rejected removal request lifts its own hide, not a moderator's). A live or
+ * removed work is left as it is (a hidden work always has
  * a current version: the schema's check, so it can't come back without one).
  */
-export async function restoreWork(db: Kysely<Database>, workId: string): Promise<boolean> {
+export async function restoreWork(
+  db: Kysely<Database>,
+  workId: string,
+  options: { cause?: HiddenCause } = {},
+): Promise<boolean> {
   return db.transaction().execute(async (trx) => {
-    const result = await trx
+    let update = trx
       .updateTable("works")
       .set({ status: "live", hidden_cause: null })
       .where("id", "=", workId)
-      .where("status", "=", "hidden")
-      .executeTakeFirst();
+      .where("status", "=", "hidden");
+    if (options.cause !== undefined) update = update.where("hidden_cause", "=", options.cause);
+    const result = await update.executeTakeFirst();
     if (result.numUpdatedRows === 0n) return false;
     await trx
       .updateTable("reports")

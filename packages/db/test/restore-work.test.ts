@@ -36,6 +36,15 @@ describe("restoreWork", () => {
     expect(await state(workId)).toEqual({ status: "live", hidden_cause: null });
   });
 
+  it("With a cause, restores only a work hidden for that cause", async () => {
+    const other = await seedWork(t.db, { status: "hidden", hiddenCause: "moderator" });
+    const same = await seedWork(t.db, { status: "hidden", hiddenCause: "removal_request" });
+    expect(await restoreWork(t.db, other.workId, { cause: "removal_request" })).toBe(false);
+    expect(await state(other.workId)).toEqual({ status: "hidden", hidden_cause: "moderator" });
+    expect(await restoreWork(t.db, same.workId, { cause: "removal_request" })).toBe(true);
+    expect(await state(same.workId)).toEqual({ status: "live", hidden_cause: null });
+  });
+
   it("Leaves a live or removed work as it is", async () => {
     const live = await seedWork(t.db);
     const removed = await seedWork(t.db, { status: "removed" });
