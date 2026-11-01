@@ -29,7 +29,7 @@ const hex = (digest: ArrayBuffer) =>
  * success (`queued`, or `duplicate` with the work's id), `{ error }` otherwise.
  */
 export async function completeUpload(c: CompleteContext) {
-  const refuse = (status: 400 | 401 | 404 | 409 | 413 | 503, error: string) =>
+  const refuse = (status: 400 | 401 | 404 | 409 | 413 | 500 | 503, error: string) =>
     c.json({ error }, status, NO_STORE);
 
   // A script can't follow a sign-in redirect, so it gets a 401 to act on.
@@ -43,33 +43,39 @@ export async function completeUpload(c: CompleteContext) {
     // Another user's upload is answered as an unknown one, so ids can't be probed.
     const upload = await getUploadOf(db, c.req.param("id"), user.id);
     if (upload === null) return refuse(404, "There is no such upload.");
-    // Ingest, or an earlier confirm's duplicate mark, has taken it.
-    if (upload.status !== "pending") return refuse(409, "That upload was already confirmed.");
+    // Ingest, or an earlier confirm, has taken it: its outcome is at GET /uploads/:id.
+    const taken = () =>
+      refuse(409, "That upload was already handled. Check its status on the upload page.");
+    if (upload.status !== "pending") return taken();
+
+    const missing = () => refuse(400, "That file didn't finish uploading. Please upload it again.");
+    // The declared size was checked at POST /uploads, but the PUT can store more. The row is
+    // marked first, and only the request that marks it deletes the object. A delete that fails
+    // leaves the object for the bucket's 7-day lifecycle rule.
+    const discardOversized = async () => {
+      if (!(await rejectOversizedUpload(db, upload.id))) return taken();
+      try {
+        await c.env.BUCKET.delete(upload.r2_key);
+      } catch (error) {
+        console.error("deleting an oversized object failed", error);
+      }
+      return refuse(
+        413,
+        `That file is over the ${MAX_UPLOAD_MB} MB limit, so it can't be uploaded.`,
+      );
+    };
 
     const head = await c.env.BUCKET.head(upload.r2_key);
-    if (head === null) {
-      return refuse(400, "That file didn't finish uploading. Please upload it again.");
-    }
-    const tooLarge = () =>
-      refuse(413, `That file is over the ${MAX_UPLOAD_MB} MB limit, so it can't be uploaded.`);
-    // The declared size was checked at POST /uploads, but the PUT can store more.
-    if (head.size > MAX_UPLOAD_BYTES) {
-      await rejectOversizedUpload(db, upload.id);
-      await c.env.BUCKET.delete(upload.r2_key);
-      return tooLarge();
-    }
+    if (head === null) return missing();
+    if (head.size > MAX_UPLOAD_BYTES) return discardOversized();
 
     // The presigned URL still works for ten minutes, so the object can have been replaced since
     // the HEAD: the size is checked again on the object that is hashed.
     const object = await c.env.BUCKET.get(upload.r2_key);
-    if (object === null) {
-      return refuse(400, "That file didn't finish uploading. Please upload it again.");
-    }
+    if (object === null) return missing();
     if (object.size > MAX_UPLOAD_BYTES) {
       await object.body.cancel();
-      await rejectOversizedUpload(db, upload.id);
-      await c.env.BUCKET.delete(upload.r2_key);
-      return tooLarge();
+      return discardOversized();
     }
     // Streamed through the digest, never buffered: the body can be 25 MiB.
     const digest = new crypto.DigestStream("SHA-256");
@@ -78,9 +84,9 @@ export async function completeUpload(c: CompleteContext) {
 
     const recorded = await recordUploadHash(db, upload.id, sha256);
     // Taken by another request between the lookup and now.
-    if (recorded === null) return refuse(409, "That upload was already confirmed.");
+    if (recorded === null) return taken();
     if (recorded.duplicateOf !== null) {
-      // No second copy is kept. A failed delete leaves it for the bucket's 7-day lifecycle rule.
+      // No second copy is kept. A failed delete leaves it for the 7-day lifecycle rule.
       try {
         await c.env.BUCKET.delete(upload.r2_key);
       } catch (error) {
@@ -98,6 +104,10 @@ export async function completeUpload(c: CompleteContext) {
       return refuse(503, "We couldn't queue that file just now. Please try again in a minute.");
     }
     return c.json({ status: "queued" }, 200, NO_STORE);
+  } catch (error) {
+    // The page's script reads JSON: a fault in the database or R2 gets one too.
+    console.error("confirming an upload failed", error);
+    return refuse(500, "Something went wrong confirming that file. Please try again.");
   } finally {
     c.executionCtx.waitUntil(db.destroy());
   }

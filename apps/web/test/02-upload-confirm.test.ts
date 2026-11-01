@@ -206,6 +206,21 @@ describe("02-upload-handshake", () => {
 });
 
 describe("02-upload-confirm refusals", () => {
+  it("A fault while confirming answers JSON, not a bare 500", async () => {
+    const { cookie } = await signIn("u2-fault@example.test");
+    // A NUL in the id: Postgres refuses it, so the lookup throws.
+    await expectRefused(await complete("%00", { cookie }), 500);
+  });
+
+  it("An oversized object of an upload that is no longer pending is left alone", async () => {
+    const { userId, cookie } = await signIn("u2-oversized-race@example.test");
+    const up = await uploaded(userId, new Uint8Array(MAX + 1));
+    // Another confirm has already taken the row.
+    await db.updateTable("uploads").set({ status: "processing" }).where("id", "=", up.id).execute();
+    await expectRefused(await complete(up.id, { cookie }), 409);
+    expect(await env.BUCKET.head(up.key)).not.toBeNull();
+  });
+
   it("Confirming needs an account", async () => {
     const res = await complete(crypto.randomUUID());
     await expectRefused(res, 401);

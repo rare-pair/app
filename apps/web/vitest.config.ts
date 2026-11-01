@@ -32,9 +32,9 @@ async function outbound(request: Request): Promise<Response> {
   return Response.json({ success: false, "error-codes": ["invalid-input-response"] });
 }
 
-// Stands in for apps/mailer as the `email` queue's consumer, and answers a fetch
+// Stands in for a queue's consumer (apps/mailer for `email`, apps/ingest for `ingest`), and answers a fetch
 // with every message body it has been delivered. One message a batch, delivered at once.
-const EMAIL_SINK = /* js */ `
+const QUEUE_SINK = /* js */ `
 const delivered = [];
 export default {
   async queue(batch) {
@@ -53,7 +53,7 @@ export default {
 const sink = (name: string, queue: string) => ({
   name,
   modules: true,
-  script: EMAIL_SINK,
+  script: QUEUE_SINK,
   compatibilityDate: "2026-08-01",
   queueConsumers: { [queue]: { maxBatchSize: 1, maxBatchTimeout: 0 } },
 });
