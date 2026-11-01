@@ -42,8 +42,10 @@ export function decideVersion(
   upload: VersionFacts,
   options: VersionOptions = {},
 ): VersionDecision {
-  if (!isNewer(current, upload)) return { outcome: "duplicate", reason: "not_newer" };
   const threshold = options.threshold ?? SIMILARITY_THRESHOLD;
+  // NaN or a value outside 0..1 would pass every rewrite or hold every identical chapter.
+  if (!(threshold >= 0 && threshold <= 1)) throw new RangeError("threshold must be from 0 to 1");
+  if (!isNewer(current, upload)) return { outcome: "duplicate", reason: "not_newer" };
   if (!sharedChaptersAlike(current, upload, threshold)) {
     return { outcome: "hold", reason: "chapters_changed" };
   }
@@ -65,28 +67,22 @@ function isNewer(current: VersionFacts, upload: VersionFacts): boolean {
 }
 
 function validDate(date: string | null): string | null {
-  return date !== null && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+  if (date === null || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const parsed = new Date(`${date}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(date) ? date : null;
 }
 
-/** The first chapters both versions have, by chapter number, each near-identical. */
+/** The chapter numbers both versions have, each near-identical. */
 function sharedChaptersAlike(
   current: VersionFacts,
   upload: VersionFacts,
   threshold: number,
 ): boolean {
-  const before = byNumber(current);
-  const after = byNumber(upload);
-  const shared = Math.min(before.length, after.length);
-  for (let i = 0; i < shared; i++) {
-    if (similarity(normalize(before[i]!.text), normalize(after[i]!.text)) < threshold) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function byNumber(facts: VersionFacts): VersionFacts["chapters"] {
-  return [...facts.chapters].sort((a, b) => a.n - b.n);
+  const before = new Map(current.chapters.map((c) => [c.n, c.text]));
+  return upload.chapters.every((c) => {
+    const text = before.get(c.n);
+    return text === undefined || similarity(normalize(text), normalize(c.text)) >= threshold;
+  });
 }
 
 /** Markup removed and runs of whitespace collapsed to one space. Case and punctuation count. */
@@ -134,7 +130,9 @@ function tagKeys(facts: VersionFacts): Set<string> {
 
 /** By normalized pseud, and the AO3 user where there is one. Byline order doesn't matter. */
 function authorKeys(facts: VersionFacts): Set<string> {
-  return new Set(facts.authors.map((a) => `${normalizePseud(a.pseud)}\u0000${a.user ?? ""}`));
+  return new Set(
+    facts.authors.map((a) => `${normalizePseud(a.pseud)}\u0000${normalizePseud(a.user ?? "")}`),
+  );
 }
 
 function sameSet(a: Set<string>, b: Set<string>): boolean {

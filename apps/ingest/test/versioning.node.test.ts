@@ -247,6 +247,56 @@ describe("decideVersion edges", () => {
     });
   });
 
+  it("pairs chapters by number when the numbers are not contiguous", () => {
+    const current = facts();
+    const skipped = facts({ chapters: 0 });
+    skipped.chapters = [1, 3, 4].map((n) => ({
+      n,
+      text: current.chapters[n - 1]?.text ?? `<p>${body("new")}</p>`,
+    }));
+    expect(decideVersion(current, { ...skipped, date: "2026-02-01" })).toEqual(REPLACE);
+    skipped.chapters[1] = { n: 3, text: `<p>${body("rewritten")}</p>` };
+    expect(decideVersion(current, { ...skipped, date: "2026-02-01" })).toEqual({
+      outcome: "hold",
+      reason: "chapters_changed",
+    });
+  });
+
+  it("treats an impossible calendar date as missing", () => {
+    for (const date of ["2026-13-01", "2026-02-30", "9999-99-99", "2026-00-10"]) {
+      expect(decideVersion(facts(), facts({ date }))).toEqual(DUPLICATE);
+    }
+  });
+
+  it("refuses a similarity threshold outside 0 to 1", () => {
+    for (const threshold of [Number.NaN, -0.1, 1.1]) {
+      expect(() => decideVersion(facts(), facts({ chapters: 4 }), { threshold })).toThrow(
+        RangeError,
+      );
+    }
+    expect(decideVersion(facts(), facts({ chapters: 4 }), { threshold: 1 })).toEqual(REPLACE);
+    expect(decideVersion(facts(), facts({ chapters: 4 }), { threshold: 0 })).toEqual(REPLACE);
+  });
+
+  it("holds just under the default 90% and allows exactly 90%", () => {
+    const words = (n: number) => Array.from({ length: n }, (_, i) => `w${i}`);
+    const edited = (n: number) => words(n).map((w, i) => (i === Math.floor(n / 2) ? "X" : w));
+    // 21 words give 20 pairs; one changed word breaks 2: 18 of 20 in common, 36/40 = 0.9.
+    const exact = withChapter(facts({ chapters: 4 }), 1, edited(21).join(" "));
+    expect(decideVersion(withChapter(facts(), 1, words(21).join(" ")), exact)).toEqual(REPLACE);
+    // 19 words give 18 pairs: 16 of 18 in common, 32/36 is under 0.9.
+    const under = withChapter(facts({ chapters: 4 }), 1, edited(19).join(" "));
+    expect(decideVersion(withChapter(facts(), 1, words(19).join(" ")), under)).toEqual({
+      outcome: "hold",
+      reason: "chapters_changed",
+    });
+  });
+
+  it("compares an author's AO3 user without regard to case", () => {
+    const authors = [{ pseud: "Moon Writer", user: "MoonWriter" }];
+    expect(decideVersion(facts(), facts({ chapters: 4, authors }))).toEqual(REPLACE);
+  });
+
   it("puts not newer before every hold", () => {
     const upload = facts({
       tags: [],

@@ -338,12 +338,13 @@ Chapter text isn't indexed.
    named parameter:
    - **Newer** means more posted chapters (the count of chapters in the file,
      not the planned total), or a later date: Updated, else Completed, else
-     Published, at day granularity. Equal chapter counts and equal dates are
+     Published, at day granularity (anything that is not a real `YYYY-MM-DD`
+     date counts as missing). Equal chapter counts and equal dates are
      not newer, and a missing date never makes an upload newer. An upload with
      fewer chapters but a later date, or more chapters but an earlier date, is
      newer.
-   - **Near-identical** means every shared chapter, paired by chapter number
-     over the first as many chapters as the shorter version has, is at least
+   - **Near-identical** means every chapter number both versions have, paired
+     by chapter number, is at least
      90% similar (`SIMILARITY_THRESHOLD`, 0.9). The chapter's sanitized text
      is normalized by removing markup and collapsing whitespace; case and
      punctuation count. Equal normalized text is identical, and only a
