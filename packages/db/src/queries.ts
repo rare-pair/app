@@ -466,6 +466,84 @@ export async function rejectOversizedUpload(db: Kysely<Database>, id: string): P
   return row !== undefined;
 }
 
+/** Marks a `pending` upload `over_quota`. False when it wasn't `pending`. */
+export async function rejectOverQuotaUpload(db: Kysely<Database>, id: string): Promise<boolean> {
+  const row = await db
+    .updateTable("uploads")
+    .set({ status: "over_quota" })
+    .where("id", "=", id)
+    .where("status", "=", "pending")
+    .returning("id")
+    .executeTakeFirst();
+  return row !== undefined;
+}
+
+// The UTC calendar day, as Postgres counts it: the quota's day, whatever the session's zone.
+const TODAY_UTC = sql<string>`(now() at time zone 'utc')::date`;
+
+/**
+ * A user's role and how many uploads they have confirmed today (the UTC day), or null for no
+ * such user. A count left from an earlier day, or never dated, reads as zero.
+ */
+export async function getUploadQuota(
+  db: Kysely<Database>,
+  userId: string,
+): Promise<{ role: string | null; usedToday: number } | null> {
+  const row = await db
+    .selectFrom("user")
+    .select([
+      "role",
+      "upload_quota_used",
+      sql<boolean>`upload_quota_day = ${TODAY_UTC}`.as("today"),
+    ])
+    .where("id", "=", userId)
+    .executeTakeFirst();
+  if (row === undefined) return null;
+  return { role: row.role, usedToday: row.today ? row.upload_quota_used : 0 };
+}
+
+/**
+ * Counts one confirmed upload against today's quota of `limit`, and says whether it fit. One
+ * conditional UPDATE, so under concurrency the row lock makes the rest re-check the count the
+ * winner left: no more than `limit` ever succeed. The first use of a new UTC day starts the
+ * count at one. False for a spent quota, a limit under one, or an unknown user.
+ */
+export async function useUploadQuota(
+  db: Kysely<Database>,
+  userId: string,
+  limit: number,
+): Promise<boolean> {
+  const row = await db
+    .updateTable("user")
+    .set({
+      upload_quota_used: sql`case when upload_quota_day = ${TODAY_UTC} then upload_quota_used + 1 else 1 end`,
+      upload_quota_day: TODAY_UTC,
+    })
+    .where("id", "=", userId)
+    // A new day fits a limit of one or more; today's fits while the count is under it.
+    .where(
+      sql<boolean>`((${limit}::int >= 1 and upload_quota_day is distinct from ${TODAY_UTC})
+        or (upload_quota_day = ${TODAY_UTC} and upload_quota_used < ${limit}::int))`,
+    )
+    .returning("id")
+    .executeTakeFirst();
+  return row !== undefined;
+}
+
+/**
+ * Gives back one use of today's quota, for a confirm that counted and then failed to queue
+ * its upload. Does nothing when the count is dated an earlier day or already zero.
+ */
+export async function refundUploadQuota(db: Kysely<Database>, userId: string): Promise<void> {
+  await db
+    .updateTable("user")
+    .set({ upload_quota_used: sql`upload_quota_used - 1` })
+    .where("id", "=", userId)
+    .where("upload_quota_day", "=", TODAY_UTC)
+    .where("upload_quota_used", ">", 0)
+    .execute();
+}
+
 export interface PopularFandom {
   /** How the live works spell it, the first by code unit when they differ. */
   name: string;

@@ -33,6 +33,10 @@ export type Bindings = {
   REMOVE_EMAIL_LIMIT: RateLimit;
   /** The least milliseconds `POST /waitlist` takes to answer (src/floor.ts), as a number. */
   WAITLIST_FLOOR_MS: string;
+  /** Uploads a new account (and any non-moderator) may confirm per UTC day (src/quota.ts). */
+  UPLOAD_QUOTA_NEW: string;
+  /** Uploads a moderator or admin may confirm per UTC day (src/quota.ts). */
+  UPLOAD_QUOTA_TRUSTED: string;
   TURNSTILE_SECRET_KEY: string;
   /** Keys the HMAC of a requester's network address (src/ip-hash.ts). */
   IP_HASH_KEY: string;

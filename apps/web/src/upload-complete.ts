@@ -1,7 +1,17 @@
-import { createDb, getUploadOf, recordUploadHash, rejectOversizedUpload } from "@archive/db";
+import {
+  createDb,
+  getUploadOf,
+  getUploadQuota,
+  recordUploadHash,
+  refundUploadQuota,
+  rejectOverQuotaUpload,
+  rejectOversizedUpload,
+  useUploadQuota,
+} from "@archive/db";
 import type { Context } from "hono";
 import type { Bindings } from "./env";
 import { NO_STORE } from "./login";
+import { limitFor, quotaSpent } from "./quota";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./upload-limit";
@@ -29,7 +39,8 @@ const hex = (digest: ArrayBuffer) =>
 /**
  * `POST /uploads/:id/complete`: checks the object, hashes it, and either marks the upload a
  * duplicate or puts `{ upload_id }` on the `ingest` queue. Answers JSON: `{ status }` on
- * success (`queued` or `duplicate`), `{ error }` otherwise.
+ * success (`queued` or `duplicate`), `{ error }` otherwise, and a 429 with `Retry-After` when
+ * the account's daily quota is spent.
  */
 export async function completeUpload(c: CompleteContext) {
   const refuse = (status: 400 | 401 | 404 | 409 | 413 | 500 | 503, error: string) =>
@@ -38,7 +49,6 @@ export async function completeUpload(c: CompleteContext) {
   // A script can't follow a sign-in redirect, so it gets a 401 to act on.
   const user = c.var.session?.user;
   if (user === undefined) return refuse(401, "Sign in to upload.");
-  // U4: the daily upload quota count goes here, after the session.
 
   const id = c.req.param("id");
   if (id.length > MAX_ID || id.includes("\0")) return refuse(404, "There is no such upload.");
@@ -103,12 +113,31 @@ export async function completeUpload(c: CompleteContext) {
       return c.json({ status: "duplicate" }, 200, NO_STORE);
     }
 
+    // The daily quota counts the uploads that reach the queue, and this is where its hard cap
+    // holds: one conditional UPDATE, so parallel confirms can't pass it together. A duplicate
+    // costs no ingest, so it was answered above without counting.
+    const quota = await getUploadQuota(db, user.id);
+    if (quota === null) return refuse(404, "There is no such upload.");
+    if (!(await useUploadQuota(db, user.id, limitFor(quota.role, c.env)))) {
+      // The row is marked first, and only the request that marks it deletes the object, as
+      // for an oversized one. A delete that fails leaves it for the 7-day lifecycle rule.
+      if (!(await rejectOverQuotaUpload(db, upload.id))) return taken();
+      try {
+        await c.env.BUCKET.delete(upload.r2_key);
+      } catch (error) {
+        console.error("deleting an over-quota object failed", error);
+      }
+      return quotaSpent(c);
+    }
+
     // The hash is stored by now, so a failed send leaves a `pending` row that a retried
-    // confirm takes through again.
+    // confirm takes through again. Its use of the quota is given back, or the retry would
+    // count it twice.
     try {
       await c.env.INGEST.send({ upload_id: upload.id });
     } catch (error) {
       console.error("ingest queue send failed", error);
+      await refundUploadQuota(db, user.id);
       return refuse(503, "We couldn't queue that file just now. Please try again in a minute.");
     }
     return c.json({ status: "queued" }, 200, NO_STORE);

@@ -228,3 +228,101 @@ describe("19-surge-controls-and-quotas", () => {
     expect(await uploadsOf(userId)).toEqual([]);
   });
 });
+
+// U4: today's confirmed uploads are counted at `/complete` (02-upload-confirm.test.ts), so
+// `POST /uploads` only refuses early, when the quota is already spent.
+const NEW_LIMIT = Number(env.UPLOAD_QUOTA_NEW);
+const TRUSTED_LIMIT = Number(env.UPLOAD_QUOTA_TRUSTED);
+const today = () => new Date().toISOString().slice(0, 10);
+const setUsedToday = (userId: string, used: number) =>
+  db
+    .updateTable("user")
+    .set({ upload_quota_used: used, upload_quota_day: today() })
+    .where("id", "=", userId)
+    .execute();
+
+describe("02-upload-handshake: the daily quota", () => {
+  it("Upload request over the daily quota is refused", async () => {
+    const { userId, cookie } = await signIn("u4-over-quota@example.test");
+    await setUsedToday(userId, NEW_LIMIT);
+    const res = await requestUpload(
+      { size: "1000", "cf-turnstile-response": UPLOAD_TOKEN },
+      { cookie },
+    );
+    const error = await expectRefused(res.clone(), 429);
+    expect(error).toMatch(/midnight UTC/);
+    const seconds = Number(res.headers.get("retry-after"));
+    expect(Number.isInteger(seconds)).toBe(true);
+    expect(seconds).toBeGreaterThanOrEqual(1);
+    expect(seconds).toBeLessThanOrEqual(86400);
+    // SAFETY: POST /uploads answers JSON.
+    expect(((await res.json()) as { retryAfter?: number }).retryAfter).toBe(seconds);
+    expect(await uploadsOf(userId)).toEqual([]);
+  });
+});
+
+describe("19-surge-controls-and-quotas: asking while quota is left", () => {
+  it("Daily quota allows uploads up to the limit", async () => {
+    const { userId, cookie } = await signIn("u4-ask-last@example.test");
+    await setUsedToday(userId, NEW_LIMIT - 1);
+    const res = await requestUpload(
+      { size: "1000", "cf-turnstile-response": UPLOAD_TOKEN },
+      { cookie },
+    );
+    expect(res.status).toBe(200);
+    expect(await uploadsOf(userId)).toHaveLength(1);
+  });
+
+  it("Daily quota refuses uploads past the limit", async () => {
+    const { userId, cookie } = await signIn("u4-ask-past@example.test");
+    await setUsedToday(userId, NEW_LIMIT + 5);
+    const res = await requestUpload(
+      { size: "1000", "cf-turnstile-response": UPLOAD_TOKEN },
+      { cookie },
+    );
+    await expectRefused(res, 429);
+    expect(res.headers.get("retry-after")).toMatch(/^[1-9][0-9]*$/);
+  });
+
+  it("a trusted user is asked past the new-account limit", async () => {
+    const { userId, cookie } = await signIn("u4-ask-trusted@example.test");
+    await db.updateTable("user").set({ role: "admin" }).where("id", "=", userId).execute();
+    await setUsedToday(userId, NEW_LIMIT);
+    const open = await requestUpload(
+      { size: "1000", "cf-turnstile-response": UPLOAD_TOKEN },
+      { cookie },
+    );
+    expect(open.status).toBe(200);
+    await setUsedToday(userId, TRUSTED_LIMIT);
+    await expectRefused(
+      await requestUpload({ size: "1000", "cf-turnstile-response": UPLOAD_TOKEN }, { cookie }),
+      429,
+    );
+  });
+
+  it("an earlier day's use is no use today", async () => {
+    const { userId, cookie } = await signIn("u4-ask-new-day@example.test");
+    await db
+      .updateTable("user")
+      .set({ upload_quota_used: NEW_LIMIT, upload_quota_day: "2000-01-01" })
+      .where("id", "=", userId)
+      .execute();
+    const res = await requestUpload(
+      { size: "1000", "cf-turnstile-response": UPLOAD_TOKEN },
+      { cookie },
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("a request that fails an earlier check is answered by that check, not the quota", async () => {
+    const { userId, cookie } = await signIn("u4-ask-order@example.test");
+    await setUsedToday(userId, NEW_LIMIT);
+    const big = await requestUpload(
+      { size: "26214401", "cf-turnstile-response": UPLOAD_TOKEN },
+      { cookie },
+    );
+    await expectRefused(big, 413);
+    const bad = await requestUpload({ size: "1000", "cf-turnstile-response": "bad" }, { cookie });
+    await expectRefused(bad, 400);
+  });
+});

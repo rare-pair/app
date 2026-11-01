@@ -19,6 +19,8 @@ export interface UserTable {
   // Our fields (ARCHITECTURE, Data model).
   role: string | null;
   upload_quota_used: Generated<number>;
+  /** The UTC day `upload_quota_used` counts, as `YYYY-MM-DD`. NULL until the first confirmed upload. */
+  upload_quota_day: ColumnType<string | null, string | null | undefined, string | null>;
   banned_at: Timestamp | null;
   /** NULL until a new account accepts the terms. */
   terms_accepted_at: Timestamp | null;
@@ -98,7 +100,8 @@ export type UploadStatus =
   | "too_large"
   | "not_ao3"
   | "opted_out"
-  | "parse_failed";
+  | "parse_failed"
+  | "over_quota";
 
 export interface WorkTable {
   id: Generated<string>;
