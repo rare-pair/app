@@ -136,6 +136,7 @@ describe("03-upload-status: My uploads", () => {
     const listed = [...html.matchAll(/data-upload-id="([^"]+)"/g)].map((m) => m[1]);
 
     expect(listed).toEqual(ids.slice(2).reverse());
+    expect(html).toContain("Showing your 50 most recent uploads.");
   });
 
   it("My uploads shows only the signed-in user's uploads", async () => {

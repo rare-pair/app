@@ -4,7 +4,7 @@ import type { Bindings } from "./env";
 import { escapeHtml, layout } from "./pages";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
-import { uploadStatusBody } from "./upload-status";
+import { joinedWork, uploadStatusBody } from "./upload-status";
 
 // FRONTEND-DISCOVERY, Page inventory (My uploads). The page lists the signed-in user's
 // uploads and, with no JavaScript, refreshes itself while one is in progress.
@@ -14,7 +14,8 @@ type MyUploadsContext = Context<{
   Variables: SecurityVariables & SessionVariables;
 }>;
 
-// The newest uploads shown: no paging, and the daily quota keeps the rest short.
+// The newest uploads shown, with no paging. Rows made before a confirm, and rejections,
+// aren't counted by the quota, so a long list is possible: the page says when it is cut.
 const LIST_LIMIT = 50;
 
 // Seconds between refreshes while an upload is in progress.
@@ -37,8 +38,8 @@ const inProgress = (status: UploadStatus, confirmed: boolean) =>
   status === "processing" || (status === "pending" && confirmed);
 
 /** The badge text for an upload. */
-export const badgeLabel = (status: UploadStatus, confirmed: boolean): string =>
-  status === "pending" && confirmed ? LABELS.processing! : (LABELS[status] ?? REJECTED);
+const badgeLabel = (status: UploadStatus, confirmed: boolean): string =>
+  status === "pending" && confirmed ? "Processing" : (LABELS[status] ?? REJECTED);
 
 /** "2026-03-04 05:06 UTC" */
 const utcMinute = (at: Date) => `${at.toISOString().slice(0, 16).replace("T", " ")} UTC`;
@@ -54,17 +55,13 @@ interface Row {
 }
 
 function item(row: Row): string {
-  const work =
-    row.ao3_work_id === null || row.work_status === null
-      ? null
-      : { ao3_work_id: row.ao3_work_id, status: row.work_status };
-  const link = uploadStatusBody(row, work).work;
+  const link = uploadStatusBody(row, joinedWork(row)).work;
   const name =
     link !== null && row.title !== null
       ? `<a href="${escapeHtml(link.url)}">${escapeHtml(row.title)}</a>`
       : escapeHtml(`Upload of ${utcMinute(row.created_at)}`);
   const label = badgeLabel(row.status, row.quota_counted_at !== null);
-  return `<li data-upload-id="${escapeHtml(row.id)}" data-status="${row.status}">${name} <span class="badge">${label}</span><p class="upload-message"></p></li>`;
+  return `<li data-upload-id="${escapeHtml(row.id)}" data-status="${escapeHtml(row.status)}">${name} <span class="badge">${label}</span><p class="upload-message"></p></li>`;
 }
 
 /**
@@ -78,7 +75,11 @@ export function myUploadsPage(rows: Row[]) {
   const body =
     rows.length === 0
       ? `<p>You haven't uploaded anything yet. <a href="/upload">Upload a work</a>.</p>`
-      : `<ul class="upload-list">\n${rows.map(item).join("\n")}\n</ul>`;
+      : `<ul class="upload-list">\n${rows.map(item).join("\n")}\n</ul>${
+          rows.length === LIST_LIMIT
+            ? `\n<p>Showing your ${LIST_LIMIT} most recent uploads.</p>`
+            : ""
+        }`;
   return layout("My uploads", body, refresh);
 }
 
