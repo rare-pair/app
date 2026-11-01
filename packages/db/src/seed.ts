@@ -97,7 +97,7 @@ export async function seedWork(
 ): Promise<SeededWork> {
   const ao3WorkId = options.ao3WorkId ?? randomAo3WorkId();
   const status = options.status ?? "live";
-  const rating = options.rating === undefined ? "Not Rated" : options.rating;
+  const rating = options.rating === undefined ? "General Audiences" : options.rating;
   const tags = options.tags ?? [
     ...(rating === null ? [] : [{ type: "rating" as const, name: rating }]),
     ...DEFAULT_TAGS,
