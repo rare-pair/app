@@ -502,3 +502,20 @@ export const hideWork = (ao3WorkId: number) =>
       .where("ao3_work_id", "=", ao3WorkId)
       .execute(),
   );
+
+/** Sets the work's status, as a moderator's removal or a restore does. */
+export const setWorkStatus = (ao3WorkId: number, status: "live" | "removed") =>
+  withDb((db) =>
+    db.updateTable("works").set({ status }).where("ao3_work_id", "=", ao3WorkId).execute(),
+  );
+
+/**
+ * Uploads `epub` and runs its job with the real processor and the real save. `steps` replace
+ * or watch the other steps. Returns the upload's id and row, and the queue's result.
+ */
+export async function ingestReal(epub: Uint8Array, steps: Partial<Steps> = {}) {
+  const id = await pendingUpload(epub);
+  const { handler } = watchedWorker(steps);
+  const result = await deliver([{ upload_id: id }], { handler });
+  return { id, row: await uploadRow(id), result };
+}

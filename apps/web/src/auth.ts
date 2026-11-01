@@ -32,6 +32,13 @@ export function makeAuth(env: Bindings, db: Kysely<Database>) {
           input: false,
           fieldName: "terms_accepted_at",
         },
+        // True once the account turns the warnings screen off (warnings.ts, settings.ts).
+        warningsOff: {
+          type: "boolean",
+          required: false,
+          input: false,
+          fieldName: "warnings_off",
+        },
       },
     },
     // Fixed, never the request's host: sign-in links always go to rarepair.fans.
