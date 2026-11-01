@@ -35,6 +35,7 @@ export async function completeUpload(c: CompleteContext) {
   // A script can't follow a sign-in redirect, so it gets a 401 to act on.
   const user = c.var.session?.user;
   if (user === undefined) return refuse(401, "Sign in to upload.");
+  // U4: the daily upload quota count goes here, after the session.
 
   // One connection serves every query here.
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
@@ -80,7 +81,11 @@ export async function completeUpload(c: CompleteContext) {
     if (recorded === null) return refuse(409, "That upload was already confirmed.");
     if (recorded.duplicateOf !== null) {
       // No second copy is kept. A failed delete leaves it for the bucket's 7-day lifecycle rule.
-      await c.env.BUCKET.delete(upload.r2_key);
+      try {
+        await c.env.BUCKET.delete(upload.r2_key);
+      } catch (error) {
+        console.error("deleting a duplicate's object failed", error);
+      }
       return c.json({ status: "duplicate", work_id: recorded.duplicateOf }, 200, NO_STORE);
     }
 
