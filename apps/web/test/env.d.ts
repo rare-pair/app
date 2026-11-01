@@ -6,6 +6,8 @@ declare global {
     interface Env extends Bindings {
       /** Test only: what the `email` queue delivered, from vitest.config.ts's email-sink. */
       EMAIL_SINK: Fetcher;
+      /** Test only: what the `ingest` queue delivered, from vitest.config.ts's ingest-sink. */
+      INGEST_SINK: Fetcher;
     }
   }
 }
