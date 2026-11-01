@@ -86,7 +86,7 @@ export function safeWarningsNext(id: number, next: string | undefined) {
 // Whether the work gets the screen for this reader: it needs one, and a signed-in
 // reader hasn't turned it off on their account.
 const screenApplies = (c: ReaderContext, live: LiveWork) =>
-  needsWarnings(live) && !c.var.session?.user.warningsOff;
+  needsWarnings(live) && c.var.session?.user.warningsOff !== true;
 
 /**
  * The redirect to the screen for a reader who hasn't seen it, or null to read on.
@@ -147,15 +147,7 @@ export async function continueWarnings(c: ReaderContext) {
   if (form === null) return c.body(null, 413);
   // Only a signed-in reader's tick counts; signed out, the field is ignored.
   const user = c.var.session?.user;
-  if (user && form.has(TURN_OFF_FIELD)) {
-    // Reading doesn't wait on a preference: if the write fails, Continue still goes on
-    // and the screen shows again next time.
-    try {
-      await setWarningsOff(c, user.id, true);
-    } catch {
-      // Nothing to log: the reader's account stays as it was.
-    }
-  }
+  if (user && form.has(TURN_OFF_FIELD)) await setWarningsOff(c, user.id, true);
   const ids = warnedIds(c).filter((seen) => seen !== id);
   c.header("Set-Cookie", warnedCookie([...ids, id]), { append: true });
   c.header("Cache-Control", "private, no-store");

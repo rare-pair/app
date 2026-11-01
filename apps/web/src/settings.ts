@@ -112,13 +112,13 @@ const settingsPage = (
   settings: Settings,
   next: string,
   nonce: string,
-  warnings: { off: boolean } | null,
+  warningsOff: boolean | null,
 ) =>
   layout(
     "Reader settings",
     `<form class="reader-settings" method="post" action="${SETTINGS_PATH}">
 ${settingsControls("settings-", settings)}
-${warnings ? warningsControl(warnings.off) : ""}<input type="hidden" name="next" value="${escapeHtml(next)}">
+${warningsOff === null ? "" : warningsControl(warningsOff)}<input type="hidden" name="next" value="${escapeHtml(next)}">
 <button type="submit">Save settings</button>
 </form>
 ${next === SETTINGS_PATH ? "" : `<p><a href="${escapeHtml(next)}">Back</a></p>`}`,
@@ -165,7 +165,7 @@ export const showSettings = (c: SettingsContext) =>
       parseSettings(getCookie(c, SETTINGS_COOKIE)),
       returnTarget(c.req.query("next")),
       c.get("nonce"),
-      c.var.session ? { off: c.var.session.user.warningsOff === true } : null,
+      c.var.session ? c.var.session.user.warningsOff === true : null,
     ),
   );
 
