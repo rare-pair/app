@@ -2,7 +2,7 @@ import { createDb, insertUpload } from "@archive/db";
 import { seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
-import { deliveredIngest, postLogin, signIn as signInAs } from "./helpers";
+import { deliveredIngest, fetchW, postLogin, signIn as signInAs } from "./helpers";
 
 // U2's cases: `POST /uploads/:id/complete`, which checks the object a presigned PUT stored,
 // hashes it, and either marks it a duplicate or enqueues it. The test puts the object in
@@ -25,10 +25,14 @@ async function signIn(email: string): Promise<{ userId: string; cookie: string }
 }
 
 /** An upload row as `POST /uploads` leaves it, and the object the browser's PUT stored. */
-async function uploaded(userId: string, bytes: Uint8Array | null) {
+async function uploaded(
+  userId: string,
+  bytes: Uint8Array | null,
+  declared = bytes?.byteLength ?? 1,
+) {
   const id = crypto.randomUUID();
   const key = `uploads/${id}`;
-  await insertUpload(db, { id, userId, r2Key: key, bytes: bytes?.byteLength ?? 1 });
+  await insertUpload(db, { id, userId, r2Key: key, bytes: declared });
   if (bytes !== null) await env.BUCKET.put(key, bytes);
   return { id, key };
 }
@@ -52,14 +56,19 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** The messages the queue has delivered so far for `uploadId`. */
+async function ingestSent(uploadId: string): Promise<unknown[]> {
+  // SAFETY: the sink delivers the bodies the Worker sent, each an object with `upload_id`.
+  return (await deliveredIngest()).filter(
+    (m) => (m as { upload_id?: string }).upload_id === uploadId,
+  );
+}
+
 /** Waits for the queue to deliver a message for `uploadId`, and returns every one for it. */
 async function ingestFor(uploadId: string): Promise<unknown[]> {
   const deadline = Date.now() + 10_000;
   for (;;) {
-    // SAFETY: the sink delivers the bodies the Worker sent, each an object with `upload_id`.
-    const mine = (await deliveredIngest()).filter(
-      (m) => (m as { upload_id?: string }).upload_id === uploadId,
-    );
+    const mine = await ingestSent(uploadId);
     if (mine.length > 0 || Date.now() > deadline) return mine;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
@@ -129,7 +138,16 @@ describe("02-upload-handshake", () => {
     });
     // No second copy is kept: not in originals/, and the uploads/ object is gone.
     expect(await env.BUCKET.head(up.key)).toBeNull();
-    expect((await env.BUCKET.list({ prefix: "originals/" })).objects).toHaveLength(0);
+    // Other test files write to the shared bucket, so only keys naming this upload count.
+    const originals = (await env.BUCKET.list({ prefix: "originals/" })).objects;
+    expect(originals.filter((o) => o.key.includes(up.id))).toEqual([]);
+    // The uploader's poll shows "Already in the archive" with a link to the work.
+    const poll = await fetchW(`/uploads/${up.id}`, { headers: { cookie } });
+    expect(await poll.json()).toEqual({
+      id: up.id,
+      status: "duplicate",
+      work: { id: w.ao3WorkId, url: `/works/${w.ao3WorkId}` },
+    });
     // And the work still points at its own version.
     const work = await db
       .selectFrom("works")
@@ -138,7 +156,7 @@ describe("02-upload-handshake", () => {
       .executeTakeFirstOrThrow();
     expect(work.current_version_id).toBe(w.versionId);
     await queueDrained(userId, cookie);
-    expect(await ingestFor(up.id)).toEqual([]);
+    expect(await ingestSent(up.id)).toEqual([]);
   });
 
   it("Byte-identical re-upload is marked duplicate at confirm", async () => {
@@ -187,13 +205,13 @@ describe("02-upload-handshake", () => {
     it(title, async () => {
       const { userId, cookie } = await signIn(`u2-oversized-${n}@example.test`);
       // The declared size was small; the PUT stored 25 MiB and a byte.
-      const up = await uploaded(userId, new Uint8Array(MAX + 1));
+      const up = await uploaded(userId, new Uint8Array(MAX + 1), 1);
       const res = await complete(up.id, { cookie });
       await expectRefused(res, 413);
       expect(await env.BUCKET.head(up.key)).toBeNull();
       expect(await rowOf(up.id)).toEqual({ status: "too_large", sha256: null, work_id: null });
       await queueDrained(userId, cookie);
-      expect(await ingestFor(up.id)).toEqual([]);
+      expect(await ingestSent(up.id)).toEqual([]);
     });
   });
 
@@ -217,7 +235,7 @@ describe("02-upload-confirm refusals", () => {
 
   it("An oversized object of an upload that is no longer pending is left alone", async () => {
     const { userId, cookie } = await signIn("u2-oversized-race@example.test");
-    const up = await uploaded(userId, new Uint8Array(MAX + 1));
+    const up = await uploaded(userId, new Uint8Array(MAX + 1), 1);
     // Another confirm has already taken the row.
     await db.updateTable("uploads").set({ status: "processing" }).where("id", "=", up.id).execute();
     await expectRefused(await complete(up.id, { cookie }), 409);

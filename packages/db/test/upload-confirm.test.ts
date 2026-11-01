@@ -84,19 +84,18 @@ describe("02-upload-handshake: confirming an upload", () => {
   });
 
   it("Hash matches that get no shortcut: pending, processing, rejected, removed work", async () => {
-    const removed = await seedWork(t.db, { status: "removed" });
-    const earlierPending = await pendingUpload();
-    const earlierProcessing = await pendingUpload();
-    const earlierRejected = await pendingUpload();
-    const cases: [string, string, UploadStatus][] = [
-      ["removed work", removed.uploadId, "live"],
-      ["pending", earlierPending.id, "pending"],
-      ["processing", earlierProcessing.id, "processing"],
-      ["rejected", earlierRejected.id, "not_ao3"],
+    // Each earlier upload belongs to a live work, so only its status keeps it from matching:
+    // a match on the join alone would be a bug these cases catch.
+    const cases: [string, "live" | "removed", UploadStatus][] = [
+      ["removed work", "removed", "live"],
+      ["pending", "live", "pending"],
+      ["processing", "live", "processing"],
+      ["rejected", "live", "not_ao3"],
     ];
-    for (const [i, [name, earlierId, status]] of cases.entries()) {
+    for (const [i, [name, workStatus, status]] of cases.entries()) {
+      const earlier = await seedWork(t.db, { status: workStatus });
       const hash = String(i + 1).repeat(64);
-      await setEarlier(earlierId, hash, status);
+      await setEarlier(earlier.uploadId, hash, status);
       const up = await pendingUpload();
       expect(await recordUploadHash(t.db, up.id, hash), name).toEqual({ duplicateOf: null });
       expect(await rowOf(up.id), name).toEqual({ status: "pending", work_id: null, sha256: hash });
