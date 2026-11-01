@@ -1,6 +1,7 @@
 // /settings/reader: the reader settings form, which works with JavaScript off. It
 // sets the settings cookie and a flash, then sends the reader back where they came
-// from. No account is needed, and nothing is stored but the cookie.
+// from. No account is needed: the display settings are only a cookie. A signed-in
+// reader also gets the warnings screen choice, which is stored on the account.
 
 import type { Context } from "hono";
 import { getCookie } from "hono/cookie";
@@ -20,9 +21,23 @@ import {
   type Settings,
 } from "./reader-settings";
 import type { SecurityVariables } from "./security";
+import type { SessionVariables } from "./session";
 import { isSameOrigin, safeNext } from "./signin";
+import { setWarningsOff } from "./warnings-off";
 
-type SettingsContext = Context<{ Bindings: Bindings; Variables: SecurityVariables }>;
+type SettingsContext = Context<{
+  Bindings: Bindings;
+  Variables: SecurityVariables & SessionVariables;
+}>;
+
+// The warnings screen choice, for signed-in readers only: a select, so a post always
+// says which, and one that lacks it (the reader bar's) leaves the account alone. Draft
+// copy for the operator to proof.
+const WARNINGS_FIELD = "warnings_screen";
+const warningsControl = (off: boolean) =>
+  `<label for="settings-warnings">Rating and warnings screen</label>
+<select id="settings-warnings" name="${WARNINGS_FIELD}"><option value="show"${off ? "" : " selected"}>Show before a work's text</option><option value="skip"${off ? " selected" : ""}>Skip it</option></select>
+`;
 
 /** The settings form's path, the form's action and the reader bar's link. */
 export const SETTINGS_PATH = "/settings/reader";
@@ -93,12 +108,17 @@ export const settingsControls = (idPrefix: string, settings: Settings) =>
   }).join("\n");
 
 /** The settings page: the form, posting back here, with `next` to return to. */
-const settingsPage = (settings: Settings, next: string, nonce: string) =>
+const settingsPage = (
+  settings: Settings,
+  next: string,
+  nonce: string,
+  warnings: { off: boolean } | null,
+) =>
   layout(
     "Reader settings",
     `<form class="reader-settings" method="post" action="${SETTINGS_PATH}">
 ${settingsControls("settings-", settings)}
-<input type="hidden" name="next" value="${escapeHtml(next)}">
+${warnings ? warningsControl(warnings.off) : ""}<input type="hidden" name="next" value="${escapeHtml(next)}">
 <button type="submit">Save settings</button>
 </form>
 ${next === SETTINGS_PATH ? "" : `<p><a href="${escapeHtml(next)}">Back</a></p>`}`,
@@ -145,6 +165,7 @@ export const showSettings = (c: SettingsContext) =>
       parseSettings(getCookie(c, SETTINGS_COOKIE)),
       returnTarget(c.req.query("next")),
       c.get("nonce"),
+      c.var.session ? { off: c.var.session.user.warningsOff === true } : null,
     ),
   );
 
@@ -165,6 +186,14 @@ export async function saveSettings(c: SettingsContext) {
     if (isSettingValue(name, value)) setSetting(settings, name, value);
     // "Match my device": no theme.
     else if (name === "theme" && value === "") delete settings.theme;
+  }
+
+  // The warnings choice goes to the account, never the cookie, and only a signed-in
+  // reader's post that carries it counts.
+  const user = c.var.session?.user;
+  const warnings = form.get(WARNINGS_FIELD);
+  if (user && (warnings === "skip" || warnings === "show")) {
+    await setWarningsOff(c, user.id, warnings === "skip");
   }
 
   c.header("Set-Cookie", settingsCookie(settings), { append: true });

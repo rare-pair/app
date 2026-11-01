@@ -510,8 +510,10 @@ can be snapshotted.
   check runs before any edge-cached page is served. A work with no rating (the
   `missing_rating` review reason) is shown as "Not Rated" on its card, work
   page and warnings screen, and always gets the screen, as if it had warnings.
-  A signed-in reader can turn warnings off; the choice is stored on their
-  account (`user.warnings_off`), not in the settings cookie. Signed-out readers can't turn them off.
+  A signed-in reader can turn warnings off, from a checkbox on the screen or from
+  `/settings/reader`; the choice is stored on their account (`user.warnings_off`), not
+  in the settings cookie, and skips the screen for every work that would show it, a
+  work with no rating included. Signed-out readers can't turn them off.
 - **"May be imperfect" notice.** When the current version has review reasons
   that no moderator has cleared (EPUB processor, step 5), the work page and
   every reader page show one line: "Chapters may be imperfect; a moderator will

@@ -15,7 +15,12 @@ import { getCookie } from "hono/cookie";
 import { readForm } from "./login";
 import { escapeHtml, layout } from "./pages";
 import { positiveInt, type ReaderContext } from "./reader";
+import { setWarningsOff } from "./warnings-off";
 import { withheldResponse } from "./withheld";
+
+// The turn-off checkbox's name; shown to signed-in readers only. Draft copy for the
+// operator to proof.
+const TURN_OFF_FIELD = "warnings_off";
 
 /**
  * The cookie's name. `__Host-`: Secure, Path=/ and no Domain, so it never reaches the
@@ -84,7 +89,9 @@ export function safeWarningsNext(id: number, next: string | undefined) {
  */
 export function warningsRedirect(c: ReaderContext, live: LiveWork, next: string) {
   const id = live.work.ao3_work_id;
-  if (!needsWarnings(live) || warnedIds(c).includes(id)) return null;
+  if (!needsWarnings(live) || warnedIds(c).includes(id) || c.var.session?.user.warningsOff) {
+    return null;
+  }
   c.header("Cache-Control", "private, no-store");
   return c.redirect(`/works/${id}/warnings?next=${encodeURIComponent(next)}`, 302);
 }
@@ -104,8 +111,9 @@ export async function showWarnings(c: ReaderContext) {
   }
   if (!live) return withheld ? withheldResponse(c, withheld) : c.notFound();
   const next = safeWarningsNext(id, c.req.query("next"));
-  // Nothing to warn about: on to the page asked for.
-  if (!needsWarnings(live)) {
+  // Nothing to warn about, or the reader turned the screen off: on to the page asked for.
+  const user = c.var.session?.user;
+  if (!needsWarnings(live) || user?.warningsOff) {
     c.header("Cache-Control", "private, no-store");
     return c.redirect(next, 302);
   }
@@ -120,7 +128,7 @@ export async function showWarnings(c: ReaderContext) {
 <p class="rating">Rating: ${rating}</p>
 ${warnings.length === 0 ? "" : `<ul class="warnings">${warnings.map((tag) => `<li>${escapeHtml(tag.name)}</li>`).join("")}</ul>\n`}<form method="post" action="/works/${id}/warnings">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
-<button type="submit">Continue</button>
+${user ? `<p><label><input type="checkbox" name="${TURN_OFF_FIELD}"> Don't show this screen again</label></p>\n` : ""}<button type="submit">Continue</button>
 <p class="note">Continue remembers this choice for the work in a session cookie, so cookies need to be on.</p>
 </form>
 <p><a href="/works/${id}">Back to the work</a></p>`,
@@ -134,6 +142,9 @@ export async function continueWarnings(c: ReaderContext) {
   if (id === null) return c.notFound();
   const form = await readForm(c.req.raw);
   if (form === null) return c.body(null, 413);
+  // Only a signed-in reader's tick counts; signed out, the field is ignored.
+  const user = c.var.session?.user;
+  if (user && form.has(TURN_OFF_FIELD)) await setWarningsOff(c, user.id, true);
   const ids = warnedIds(c).filter((seen) => seen !== id);
   c.header("Set-Cookie", warnedCookie([...ids, id]), { append: true });
   c.header("Cache-Control", "private, no-store");
