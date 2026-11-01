@@ -5,11 +5,10 @@ import { afterAll, describe, expect, it } from "vitest";
 import { fragmentCacheKey } from "../src/edge-cache";
 import { STRICT, fetchW, nonceOf, withoutNonce } from "./helpers";
 
-// Every work here has an AO3 work ID in 25000-25099 and tags named r7-..., so no other
-// test file sharing the database sees them. The Cache API keeps its entries from one
-// test to the next (R2 writes are undone when a test ends; the cache is not), so each
-// test seeds a work of its own and does every step inside itself.
-const GENERAL = [{ type: "rating" as const, name: "General Audiences" }];
+// Every work here has an AO3 work ID in 25000-25099, which no other test file reads. The
+// Cache API keeps its entries from one test to the next (R2 writes are undone when a test
+// ends; the cache is not), so each test seeds a work of its own and does every step
+// inside itself.
 
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 
@@ -38,11 +37,11 @@ const articlesOf = (html: string) =>
   [...html.matchAll(/<article class="chapter">([\s\S]*?)<\/article>/g)].map(([, inner]) => inner);
 
 /** Seeds a work with two chapters and puts its fragments in R2. */
-async function seedTwoChapters(ao3WorkId: number, tags = GENERAL) {
+async function seedTwoChapters(ao3WorkId: number, rating = "General Audiences") {
   const w = await seedWork(db, {
     ao3WorkId,
     title: `R7 work ${ao3WorkId}`,
-    tags,
+    rating,
     chapters: [{ html: `<p>R7-${ao3WorkId}-ONE</p>` }, { html: `<p>R7-${ao3WorkId}-TWO</p>` }],
   });
   await putFragments(env.BUCKET, w.fragments);
@@ -87,12 +86,91 @@ describe("11 reader and CSP", () => {
     expect(first.headers.get("cache-control")).toBe("private, no-store");
     expect(second.headers.get("cache-control")).toBe("private, no-store");
     expect(withoutNonce(second.headers.get("content-security-policy"))).toBe(STRICT);
+
+    // A second hit gets a nonce of its own too, and neither earlier one.
+    const third = await fetchW(url);
+    const thirdHtml = await third.text();
+    const n3 = nonceOf(third.headers.get("content-security-policy"));
+    expect(n3).toMatch(/^[A-Za-z0-9+/]{22}==$/);
+    expect([n1, n2]).not.toContain(n3);
+    expect(new Set(bodyNonces(thirdHtml))).toEqual(new Set([n3]));
+    expect(thirdHtml).not.toContain(n1!);
+    expect(thirdHtml).not.toContain(n2!);
+    expect(thirdHtml.replaceAll(n3!, "{n}")).toBe(firstHtml.replaceAll(n1!, "{n}"));
+  });
+
+  it("The warnings screen comes before an edge-cached page", async () => {
+    await seedTwoChapters(25020, "Mature");
+    const url = chapterUrl(25020, 1);
+    const screen = `/works/25020/warnings?next=${encodeURIComponent(url)}`;
+    const warned = { headers: { cookie: "__Host-warned=25020" } };
+
+    // Not yet past the screen: sent to it, and nothing is kept.
+    const before = await fetchW(url);
+    expect(before.status).toBe(302);
+    expect(before.headers.get("location")).toBe(screen);
+    // Past it: the page, which the edge cache now keeps.
+    expect((await fetchW(url, warned)).status).toBe(200);
+    await rename(25020, "R7 renamed 25020");
+    const kept = await fetchW(url, warned);
+    expect(kept.status).toBe(200);
+    expect(await kept.text()).toContain("R7 work 25020");
+
+    // A reader who hasn't continued is still sent to the screen, cached page or not.
+    for (const method of ["GET", "HEAD"]) {
+      const res = await fetchW(url, { method });
+      expect(res.status, method).toBe(302);
+      expect(res.headers.get("location"), method).toBe(screen);
+      expect(res.headers.get("cache-control"), method).toBe("private, no-store");
+      expect(await res.text(), method).not.toContain("R7-25020-ONE");
+    }
+    // Continuing past another work's screen doesn't count for this one.
+    const other = await fetchW(url, { headers: { cookie: "__Host-warned=25021" } });
+    expect(other.status).toBe(302);
+  });
+
+  it("A settings, session or flash cookie skips the edge-cached page", async () => {
+    await seedTwoChapters(25030);
+    const url = chapterUrl(25030, 2);
+    expect((await fetchW(url)).status).toBe(200);
+    await rename(25030, "R7 renamed 25030");
+    // Cookie-free, the page kept a minute ago.
+    expect(await (await fetchW(url)).text()).toContain("R7 work 25030");
+
+    // Each of these is built from the database, as it is now. A session cookie that no
+    // longer resolves to a session counts too.
+    for (const cookie of [
+      "__Host-reader=theme=dark",
+      "__Secure-better-auth.session_token=no-such-session",
+      "__Host-flash=no-such-flash",
+    ]) {
+      const res = await fetchW(url, { headers: { cookie } });
+      expect(res.status, cookie).toBe(200);
+      expect(await res.text(), cookie).toContain("R7 renamed 25030");
+    }
+  });
+
+  it("A query string or a HEAD request uses the same edge-cached page", async () => {
+    await seedTwoChapters(25040);
+    const url = chapterUrl(25040, 1);
+    // Filled from a URL with a query string: the entry is the chapter's, not the URL's.
+    expect((await fetchW(`${url}?utm_source=r7`)).status).toBe(200);
+    await rename(25040, "R7 renamed 25040");
+    expect(await (await fetchW(url)).text()).toContain("R7 work 25040");
+    expect(await (await fetchW(`${url}?other=1`)).text()).toContain("R7 work 25040");
+
+    // HEAD from the cache: the GET's status and headers, its own nonce, no body.
+    const head = await fetchW(url, { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(head.headers.get("content-type")).toMatch(/^text\/html/);
+    expect(head.headers.get("cache-control")).toBe("private, no-store");
+    expect(withoutNonce(head.headers.get("content-security-policy"))).toBe(STRICT);
+    expect(await head.text()).toBe("");
   });
 
   it("Same fragment serves every reader", async () => {
     const w = await seedWork(db, {
       ao3WorkId: 25001,
-      tags: GENERAL,
       chapters: [{ html: "<p>R7-SAME-ONE</p>" }, { html: "<p>R7-SAME-TWO</p>" }],
     });
     await putFragments(env.BUCKET, w.fragments);
@@ -120,7 +198,6 @@ describe("11 reader and CSP", () => {
   it("The entire work reads its fragments through the same cache", async () => {
     const w = await seedWork(db, {
       ao3WorkId: 25002,
-      tags: GENERAL,
       chapters: [{ html: "<p>R7-FULL-ONE</p>" }, { html: "<p>R7-FULL-TWO</p>" }],
     });
     await putFragments(env.BUCKET, w.fragments);
