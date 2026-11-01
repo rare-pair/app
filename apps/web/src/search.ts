@@ -13,6 +13,9 @@ import { DRAFT, escapeHtml, layout } from "./pages";
 /** Works per page. */
 const PAGE_SIZE = 20;
 
+/** The query is in the URL: a cross-site link on a result must not carry it in the Referer. */
+const PRIVATE = { "Referrer-Policy": "strict-origin" };
+
 /** The search box with the query in it. The shared SEARCH_FORM has no value to prefill. */
 const searchForm = (q: string) => `<form role="search" method="get" action="/search">
 <label for="q">Search the archive</label>
@@ -23,7 +26,7 @@ const searchForm = (q: string) => `<form role="search" method="get" action="/sea
 export async function showSearch(c: Context<{ Bindings: Bindings }>) {
   const q = c.req.query("q") ?? "";
   // A missing or blank query shows the empty form and no results.
-  if (q.trim() === "") return c.html(layout("Search", searchForm(q)));
+  if (q.trim() === "") return c.html(layout("Search", searchForm(q)), 200, PRIVATE);
   const page = 1;
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
   try {
@@ -34,7 +37,7 @@ export async function showSearch(c: Context<{ Bindings: Bindings }>) {
     // Draft copy, for the operator to proof.
     const list =
       works.length === 0 ? `<p>No works match your search.</p>\n${DRAFT}` : workList(works);
-    return c.html(layout("Search", `${searchForm(q)}\n${list}`));
+    return c.html(layout("Search", `${searchForm(q)}\n${list}`), 200, PRIVATE);
   } finally {
     c.executionCtx.waitUntil(db.destroy());
   }

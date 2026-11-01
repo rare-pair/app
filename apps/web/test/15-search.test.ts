@@ -11,8 +11,8 @@ afterAll(async () => {
   await db.destroy();
 });
 
-const searchPage = async (q: string, init: RequestInit = {}) => {
-  const res = await fetchW(`/search?q=${encodeURIComponent(q)}`, init);
+const searchPage = async (q: string) => {
+  const res = await fetchW(`/search?q=${encodeURIComponent(q)}`);
   expect(res.status, q).toBe(200);
   return res.text();
 };
@@ -102,6 +102,23 @@ describe("15-search", () => {
 
       expect(html).not.toContain("<script>alert(1)</script>");
       expect(html).toContain('value="&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;"');
+    });
+
+    it("Odd text is echoed intact and does not break the page", async () => {
+      for (const q of ["!!!", "-x", `a&b 'c' "d" 50% _ \\`]) {
+        const html = await searchPage(q);
+
+        expect(html, q).toContain('<form role="search"');
+        expect(html, q).toContain(
+          `value="${q.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("'", "&#39;")}"`,
+        );
+      }
+    });
+
+    it("The page keeps the query out of a cross-site Referer", async () => {
+      const res = await fetchW("/search?q=quorblat");
+
+      expect(res.headers.get("referrer-policy")).toBe("strict-origin");
     });
 
     it("A missing or empty query shows the empty form and no results", async () => {
