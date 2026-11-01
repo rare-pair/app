@@ -32,6 +32,8 @@ function isSafeName(name: string): boolean {
 // name-checked but never inflated or kept in memory.
 export const READABLE = /^mimetype$|\.(?:x?html?|xht|xml|opf|ncx|png|jpe?g|jpe|jfif|gif|webp)$/i;
 
+const zip64 = () => new EpubError("not_epub", "ZIP64 archives are not supported");
+
 const corrupt = (why: string) => new EpubError("not_epub", `Corrupt zip: ${why}`);
 
 /**
@@ -51,11 +53,12 @@ function readCentralDirectory(bytes: Uint8Array): [string, string][] {
     }
   }
   if (eocd < 0) throw corrupt("no central directory");
+  // A ZIP64 locator sits right before the EOCD, even when the EOCD fields hold real values.
+  if (eocd >= 20 && view.getUint32(eocd - 20, true) === 0x07064b50) throw zip64();
   const count = view.getUint16(eocd + 10, true);
   const size = view.getUint32(eocd + 12, true);
   const offset = view.getUint32(eocd + 16, true);
-  if (count === 0xffff || offset === 0xffffffff)
-    throw new EpubError("not_epub", "ZIP64 archives are not supported");
+  if (count === 0xffff || offset === 0xffffffff) throw zip64();
   if (count > LIMITS.maxEntries)
     throw new EpubError("zip_bomb", `More than ${LIMITS.maxEntries} entries`);
   if (offset + size > eocd) throw corrupt("central directory out of range");
@@ -68,7 +71,17 @@ function readCentralDirectory(bytes: Uint8Array): [string, string][] {
       throw corrupt("bad central directory entry");
     const entryBytes = view.getUint32(at + 24, true);
     const nameEnd = at + 46 + view.getUint16(at + 28, true);
-    if (nameEnd > eocd) throw corrupt("bad central directory entry");
+    const extraEnd = nameEnd + view.getUint16(at + 30, true);
+    if (extraEnd > eocd) throw corrupt("bad central directory entry");
+    // A size or offset at its maximum, or a Zip64 extra field (id 1), marks a ZIP64 entry.
+    if (
+      entryBytes === 0xffffffff ||
+      view.getUint32(at + 20, true) === 0xffffffff ||
+      view.getUint32(at + 42, true) === 0xffffffff
+    )
+      throw zip64();
+    for (let x = nameEnd; x + 4 <= extraEnd; x += 4 + view.getUint16(x + 2, true))
+      if (view.getUint16(x, true) === 0x0001) throw zip64();
     const raw = bytes.subarray(at + 46, nameEnd);
     const decoded: [string, string] = [strFromU8(raw), strFromU8(raw, true)];
     for (const name of decoded) {
@@ -85,7 +98,7 @@ function readCentralDirectory(bytes: Uint8Array): [string, string][] {
     if (declared > LIMITS.maxTotalBytes)
       throw new EpubError("zip_bomb", `Archive declares more than ${LIMITS.maxTotalBytes} bytes`);
     names.push(decoded);
-    at = nameEnd + view.getUint16(at + 30, true) + view.getUint16(at + 32, true);
+    at = extraEnd + view.getUint16(at + 32, true);
   }
   return names;
 }
