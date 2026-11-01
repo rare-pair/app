@@ -2,12 +2,13 @@
 // metadata in the set order (FRONTEND-DISCOVERY, Typographic system: title,
 // author, rating and warnings, fandom, summary, tags, stats), then its chapters.
 
-import { createDb, getLiveWork, type LiveWork } from "@archive/db";
+import { createDb, getLiveWork, getWorkAvailability, type LiveWork } from "@archive/db";
 import type { Context } from "hono";
 import type { Bindings } from "./env";
 import { escapeHtml, layout } from "./pages";
 import type { SecurityVariables } from "./security";
 import { TAG_LABELS, tagHref, type LinkedType } from "./tag-links";
+import { withheldResponse } from "./withheld";
 
 type WorkContext = Context<{ Bindings: Bindings; Variables: SecurityVariables }>;
 
@@ -86,8 +87,10 @@ export async function showWork(c: WorkContext) {
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString });
   try {
     const live = await getLiveWork(db, id);
-    if (!live) return c.notFound();
-    return c.html(workPage(live));
+    if (live) return c.html(workPage(live));
+    // Hidden and removed works have their own answer; anything else is no page.
+    const withheld = await getWorkAvailability(db, id);
+    return withheld ? withheldResponse(c, withheld) : c.notFound();
   } finally {
     c.executionCtx.waitUntil(db.destroy());
   }

@@ -5,9 +5,13 @@ export { normalizeTagName, compareTagKeys, compareCodeUnits, isTagType } from ".
 export { normalizePseud } from "./pseud";
 export {
   getLiveWork,
+  getWorkAvailability,
   listLiveWorksByTag,
   liveTagSpellings,
   NOT_RATED,
+  listPopularFandoms,
+  listRecentLiveWorks,
+  type PopularFandom,
   tagNameKeys,
   insertUpload,
   type ListedWork,
@@ -15,6 +19,7 @@ export {
   type ListingSort,
   type TagListing,
   type LiveWork,
+  type WorkAvailability,
   type WorkSummary,
 } from "./queries";
 export type {

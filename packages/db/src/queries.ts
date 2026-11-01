@@ -5,6 +5,7 @@ import { jsonArrayFrom } from "kysely/helpers/postgres";
 import type {
   ChapterTable,
   Database,
+  HiddenCause,
   TagTable,
   TagType,
   WorkTable,
@@ -67,6 +68,33 @@ const SUMMARY = [
 ] as const;
 
 const MAX_INT4 = 2_147_483_647;
+
+/** Why a work is withheld from readers: hidden for a cause, or removed. */
+export type WorkAvailability = { status: "hidden"; cause: HiddenCause } | { status: "removed" };
+
+/**
+ * Whether a work is withheld, by its AO3 work ID: its status and hide cause and
+ * nothing else, so a removed work answers even once its version rows are purged.
+ * Null for a `live` or `processing` work, an unknown one or an ID that is no int4.
+ * This is the one place a page learns "hidden" or "removed".
+ */
+export async function getWorkAvailability(
+  db: Kysely<Database>,
+  ao3WorkId: number,
+): Promise<WorkAvailability | null> {
+  if (!Number.isInteger(ao3WorkId) || ao3WorkId < 1 || ao3WorkId > MAX_INT4) return null;
+  const row = await db
+    .selectFrom("works")
+    .select(["works.status", "works.hidden_cause"])
+    .where("works.ao3_work_id", "=", ao3WorkId)
+    .executeTakeFirst();
+  if (row?.status === "removed") return { status: "removed" };
+  // The schema's check makes hidden_cause non-null exactly while hidden.
+  if (row?.status === "hidden" && row.hidden_cause !== null) {
+    return { status: "hidden", cause: row.hidden_cause };
+  }
+  return null;
+}
 
 /**
  * A `live` work by its AO3 work ID, with its authors, tags and current
@@ -156,6 +184,39 @@ export async function getLiveWork(
 
 /** A work as a listing's card shows it. */
 export type ListedWork = Pick<LiveWork, "work" | "authors" | "tags">;
+
+/** A card's byline and tags, as sub-selects of the `works` row they hang from. */
+const bylineAndTags = (eb: ExpressionBuilder<Database, "works">) => [
+  jsonArrayFrom(
+    eb
+      .selectFrom("work_authors")
+      .select(["work_authors.pseud", "work_authors.ao3_user", "work_authors.position"])
+      .whereRef("work_authors.work_id", "=", "works.id"),
+  ).as("authors"),
+  jsonArrayFrom(
+    eb
+      .selectFrom("work_tags")
+      .innerJoin("tags", "tags.id", "work_tags.tag_id")
+      .select(["tags.id", "tags.type", "tags.name", "tags.name_norm", "work_tags.position"])
+      .whereRef("work_tags.work_id", "=", "works.id"),
+  ).as("tags"),
+];
+
+type CardRow = WorkSummary & {
+  authors: { pseud: string; ao3_user: string | null; position: number }[];
+  tags: (Pick<Selectable<TagTable>, "id" | "type" | "name" | "name_norm"> & { position: number })[];
+};
+
+/** A row with its sub-selects as a listed work. As in getLiveWork, json_agg's order isn't promised, so the lists are sorted here. */
+const asListed = ({ authors, tags, ...work }: CardRow): ListedWork => ({
+  work,
+  authors: authors
+    .sort((a, b) => a.position - b.position)
+    .map(({ pseud, ao3_user }) => ({ pseud, ao3_user })),
+  tags: tags
+    .sort((a, b) => a.position - b.position)
+    .map(({ id, type, name, name_norm }) => ({ id, type, name, name_norm })),
+});
 
 /**
  * The names a listing of `name` matches: `name` under the tag rule, and `name`
@@ -302,36 +363,12 @@ export async function listLiveWorksByTag(
   const rows = await db
     .selectFrom(pageRows.as("works"))
     .selectAll("works")
-    .select((eb) => [
-      jsonArrayFrom(
-        eb
-          .selectFrom("work_authors")
-          .select(["work_authors.pseud", "work_authors.ao3_user", "work_authors.position"])
-          .whereRef("work_authors.work_id", "=", "works.id"),
-      ).as("authors"),
-      jsonArrayFrom(
-        eb
-          .selectFrom("work_tags")
-          .innerJoin("tags", "tags.id", "work_tags.tag_id")
-          .select(["tags.id", "tags.type", "tags.name", "tags.name_norm", "work_tags.position"])
-          .whereRef("work_tags.work_id", "=", "works.id"),
-      ).as("tags"),
-    ])
+    .select(bylineAndTags)
     // A subquery's order isn't kept, so the page is put in order again.
     .orderBy(byKey, (ob) => ob.desc().nullsLast())
     .orderBy("works.ao3_work_id")
     .execute();
-  // As in getLiveWork, json_agg's order isn't promised, so the lists are sorted here.
-  const works = rows.map(({ authors, tags, ...work }) => ({
-    work,
-    authors: authors
-      .sort((a, b) => a.position - b.position)
-      .map(({ pseud, ao3_user }) => ({ pseud, ao3_user })),
-    tags: tags
-      .sort((a, b) => a.position - b.position)
-      .map(({ id, type, name, name_norm }) => ({ id, type, name, name_norm })),
-  }));
-  return { works, total };
+  return { works: rows.map(asListed), total };
 }
 
 /**
@@ -348,4 +385,84 @@ export async function insertUpload(
     .returning("id")
     .executeTakeFirstOrThrow();
   return { id: row.id, status: "pending" };
+}
+
+export interface PopularFandom {
+  /** How the live works spell it, the first by code unit when they differ. */
+  name: string;
+  name_norm: string;
+  /** How many live works carry it. */
+  count: number;
+}
+
+const POPULAR_FANDOMS = 10;
+const RECENT_WORKS = 12;
+
+/**
+ * The fandoms the most live works carry, most first, each fandom being one
+ * `name_norm`; ties by `name_norm`, by byte order. Only live works count, so a
+ * fandom only hidden or removed works use, and its spelling, never shows.
+ */
+export async function listPopularFandoms(
+  db: Kysely<Database>,
+  limit = POPULAR_FANDOMS,
+): Promise<PopularFandom[]> {
+  const rows = await db
+    .selectFrom("tags")
+    .innerJoin("work_tags", "work_tags.tag_id", "tags.id")
+    .innerJoin("works", "works.id", "work_tags.work_id")
+    .select((eb) => [
+      "tags.name_norm",
+      eb.fn.count<string>("works.id").distinct().as("count"),
+      sql<string[]>`array_agg(distinct tags.name)`.as("names"),
+    ])
+    .where("works.status", "=", "live")
+    .where("tags.type", "=", "fandom")
+    // A fandom that folds to nothing has no listing to link to.
+    .where("tags.name_norm", "<>", "")
+    .groupBy("tags.name_norm")
+    .orderBy("count", "desc")
+    .orderBy(sql`tags.name_norm collate "C"`)
+    .limit(isCount(limit) ? limit : POPULAR_FANDOMS)
+    .execute();
+  return rows.map(({ name_norm, count, names }) => ({
+    // By code unit, not by the database's collation.
+    name: names.sort(compareCodeUnits)[0] ?? name_norm,
+    name_norm,
+    count: Number(count),
+  }));
+}
+
+/**
+ * The `live` works by when their first version was added here, newest first
+ * (a later version doesn't make a work newer), with their bylines and tags.
+ */
+export async function listRecentLiveWorks(
+  db: Kysely<Database>,
+  limit = RECENT_WORKS,
+): Promise<ListedWork[]> {
+  const rows = await db
+    .selectFrom("works")
+    .innerJoin(
+      (eb) =>
+        eb
+          .selectFrom("work_versions")
+          .select([
+            "work_versions.work_id",
+            (e) => e.fn.min("work_versions.created_at").as("added_at"),
+          ])
+          .groupBy("work_versions.work_id")
+          .as("first"),
+      (join) => join.onRef("first.work_id", "=", "works.id"),
+    )
+    .select(SUMMARY)
+    .select(bylineAndTags)
+    .where("works.status", "=", "live")
+    .orderBy("first.added_at", "desc")
+    // AO3 work ID last, highest first: a total order, so a tie (one transaction
+    // adds many works at one instant) reads the same each time.
+    .orderBy("works.ao3_work_id", "desc")
+    .limit(isCount(limit) ? limit : RECENT_WORKS)
+    .execute();
+  return rows.map(asListed);
 }

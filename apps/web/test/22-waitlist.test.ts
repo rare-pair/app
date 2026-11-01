@@ -5,8 +5,7 @@ import { fetchW, STRICT, withoutNonce } from "./helpers";
 
 describe("22-waitlist", () => {
   it("After launch the archive takes over", async () => {
-    // B3 (#58) builds the home page; until then this asserts what holds without it: no wait
-    // list form, no Turnstile widget, and no redirect to a wait list.
+    // The home page has no wait list form, no Turnstile widget, and no redirect to a wait list.
     const home = await fetchW("/");
     expect(home.headers.get("location")).toBeNull();
     const html = await home.text();
@@ -15,9 +14,9 @@ describe("22-waitlist", () => {
   });
 
   it("With PRELAUNCH off, / gets no frame-src allowance and no page redirects", async () => {
-    // No home page exists yet, so / is the not-found page, with the strict policy only.
+    // / is the home page, with the strict policy only.
     const home = await fetchW("/");
-    expect(home.status).toBe(404);
+    expect(home.status).toBe(200);
     expect(withoutNonce(home.headers.get("content-security-policy"))).toBe(STRICT);
     expect(await home.text()).not.toMatch(/cf-turnstile|wait list|woff2/i);
 

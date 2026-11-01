@@ -516,6 +516,15 @@ html[data-face="sans"] {
 .remove-form button {
   margin-top: calc(var(--space) * 4);
 }
+
+.fandom-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--space) * 2) calc(var(--space) * 4);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
 `;
 
 // FNV-1a, enough to give each version of the stylesheet its own URL.

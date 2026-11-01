@@ -103,6 +103,11 @@ export default defineConfig({
   // plugin's conditions here too. The node project doesn't inherit them.
   ssr: { resolve: { conditions: ["workerd", "worker", "module", "browser"] } },
   test: {
+    // Each file's first request loads the Worker's module graph again (about 2 s a file), and
+    // those loads queue behind one another, so N files started at once wait about N x 2 s.
+    // The whole run takes no longer for fewer at once, but the wait stays well under the
+    // timeout when two runs share the machine (#359).
+    maxWorkers: 4,
     projects: [
       {
         test: {

@@ -66,15 +66,18 @@ ${heading}
 </html>`,
 });
 
+/** The search box, shared by the home page and the not-found page. */
+export const SEARCH_FORM = `<form role="search" method="get" action="/search">
+<label for="q">Search the archive</label>
+<input type="search" id="q" name="q">
+<button type="submit">Search</button>
+</form>`;
+
 export const notFoundPage = () =>
   layout(
     "Page not found",
     `<p>That page does not exist. Try a search, or go back to <a href="/">the home page</a>.</p>
-<form role="search" method="get" action="/search">
-<label for="q">Search the archive</label>
-<input type="search" id="q" name="q">
-<button type="submit">Search</button>
-</form>`,
+${SEARCH_FORM}`,
   );
 
 export const DRAFT = `<p class="draft">Draft: this text has not been proofread yet.</p>`;
