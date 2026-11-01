@@ -1,8 +1,10 @@
 import {
-  compareTagKeys,
-  normalizeTagName,
+  copyVersionToWork,
   refreshWorkSearch,
+  writeWorkAuthors,
+  writeWorkTags,
   type Database,
+  type HoldReason,
   type TagType,
   type UploadStatus,
 } from "@archive/db";
@@ -255,8 +257,9 @@ async function writeRows(
   }
   if (decision.outcome === "hold") {
     await confirmPointer(trx, current);
-    // Its tags and authors stay on the version: the work's own are the current version's.
-    await insertVersion(trx, lease, work, workId, prefix, chapters);
+    // Its columns, tags and authors stay on the version, with the reason it was held: the
+    // work's own are the current version's.
+    await insertVersion(trx, lease, work, workId, prefix, chapters, decision.reason);
     return endUpload(trx, lease, "held_for_review", workId);
   }
   // A replace. The version first (the pointer's foreign key needs it), then one statement that
@@ -267,17 +270,15 @@ async function writeRows(
   const versionId = await insertVersion(trx, lease, work, workId, prefix, chapters);
   const moved = await trx
     .updateTable("works")
-    .set({ ...workColumns(work), current_version_id: versionId })
+    .set({ current_version_id: versionId })
     .where("id", "=", workId)
     .where("current_version_id", "=", current.versionId)
     .returning("id")
     .executeTakeFirst();
   if (moved === undefined) throw new Stale();
-  await trx.deleteFrom("work_authors").where("work_id", "=", workId).execute();
-  await trx.deleteFrom("work_tags").where("work_id", "=", workId).execute();
-  await writeAuthors(trx, workId, work);
-  await writeTags(trx, workId, work);
-  await refreshWorkSearch(trx, workId);
+  // The work describes the new version: its columns (a field the file lacks keeps the work's
+  // value), its byline and tags, and the search text.
+  await copyVersionToWork(trx, workId, versionId);
   await endUpload(trx, lease, "live", workId);
 }
 
@@ -301,8 +302,8 @@ async function writeFirst(
   // That job's work is committed now: read it and decide as for any later upload.
   if (row === undefined) throw new Stale();
   const workId = row.id;
-  await writeAuthors(trx, workId, work);
-  await writeTags(trx, workId, work);
+  await writeWorkAuthors(trx, workId, distinctAuthors(work));
+  await writeWorkTags(trx, workId, distinctTags(work));
   const versionId = await insertVersion(trx, lease, work, workId, prefix, chapters);
   // The index follows the title, byline and tags just written, in this transaction.
   await refreshWorkSearch(trx, workId);
@@ -331,7 +332,10 @@ async function confirmPointer(trx: Transaction<Database>, current: Current): Pro
   if (row === undefined) throw new Stale();
 }
 
-/** The version row and its chapters. Returns the version's id. */
+/**
+ * The version row and its chapters, with `holdReason` for a held version. Returns the
+ * version's id.
+ */
 async function insertVersion(
   trx: Transaction<Database>,
   lease: Lease,
@@ -339,20 +343,24 @@ async function insertVersion(
   workId: string,
   prefix: string,
   chapters: Chapters,
+  holdReason: HoldReason | null = null,
 ): Promise<string> {
+  const { chapters_count: _count, chapters_total: total, ...own } = workColumns(work);
   const version = await trx
     .insertInto("work_versions")
     .values({
       work_id: workId,
       upload_id: lease.id,
       chapter_count: work.chapters.length,
-      chapter_total: int4OrNull(work.stats.chapters.total, 1),
+      chapter_total: total,
       r2_prefix: prefix,
       review_reasons: work.reviewReasons,
-      // Kept with the version, as `works` holds only the current one's: a held version's are
-      // what a moderator's approval applies.
+      // Kept with the version, as `works` holds only the current one's: exactly what the file
+      // had, which a make-current or a moderator's approval copies onto the work.
+      ...own,
       tags: JSON.stringify(distinctTags(work)),
       authors: JSON.stringify(distinctAuthors(work)),
+      hold_reason: holdReason,
     })
     .returning("id")
     .executeTakeFirstOrThrow();
@@ -387,62 +395,6 @@ async function endUpload(
     .returning("id")
     .executeTakeFirst();
   if (upload === undefined) throw new LeaseLost();
-}
-
-/** The byline's unique keys: a repeated entry keeps its first place. */
-async function writeAuthors(
-  trx: Transaction<Database>,
-  workId: string,
-  work: ParsedWork,
-): Promise<void> {
-  const bylines = distinctAuthors(work).map((a, position) => ({
-    work_id: workId,
-    pseud: a.pseud,
-    ao3_user: a.user,
-    position,
-  }));
-  for (const part of chunks(bylines)) await trx.insertInto("work_authors").values(part).execute();
-}
-
-/** A tag given twice keeps its first place. */
-async function writeTags(
-  trx: Transaction<Database>,
-  workId: string,
-  work: ParsedWork,
-): Promise<void> {
-  const tags = distinctTags(work).map((tag, position) => ({ ...tag, position }));
-  // Upserted in the shared lock order, a statement of rows at a time (Postgres takes a
-  // statement's rows in VALUES order), so concurrent ingests sharing tags can't deadlock. The
-  // update makes RETURNING give an existing tag's id, and brings its `name_norm` up to the rule.
-  const ids = new Map<string, string>();
-  const sorted = tags.slice().sort(compareTagKeys);
-  for (const part of chunks(sorted)) {
-    const rows = await trx
-      .insertInto("tags")
-      .values(
-        part.map((t) => ({
-          type: t.type,
-          name: t.name,
-          name_norm: normalizeTagName(t.type, t.name),
-        })),
-      )
-      .onConflict((oc) =>
-        oc
-          .columns(["type", "name"])
-          .doUpdateSet((eb) => ({ name_norm: eb.ref("excluded.name_norm") })),
-      )
-      .returning(["id", "type", "name"])
-      .execute();
-    for (const r of rows) ids.set(tagKey(r), r.id);
-  }
-  const idOf = (t: { type: TagType; name: string }) => {
-    const id = ids.get(tagKey(t));
-    // Every row inserted or updated is returned: a miss is a bug here, not a bad file.
-    if (id === undefined) throw new Error("an upserted tag was not returned");
-    return id;
-  };
-  const workTags = tags.map((t) => ({ work_id: workId, tag_id: idOf(t), position: t.position }));
-  for (const part of chunks(workTags)) await trx.insertInto("work_tags").values(part).execute();
 }
 
 /** The work's tags, a repeated one keeping its first place. */
