@@ -119,6 +119,8 @@ describe("02-upload-handshake", () => {
 
     const res = await complete(up.id, { cookie });
     expect(res.status).toBe(200);
+    // The work's internal id isn't told: GET /uploads/:id links it, only while it is live.
+    expect(await res.json()).toEqual({ status: "duplicate" });
 
     expect(await rowOf(up.id)).toEqual({
       status: "duplicate",
@@ -206,10 +208,11 @@ describe("02-upload-handshake", () => {
 });
 
 describe("02-upload-confirm refusals", () => {
-  it("A fault while confirming answers JSON, not a bare 500", async () => {
-    const { cookie } = await signIn("u2-fault@example.test");
-    // A NUL in the id: Postgres refuses it, so the lookup throws.
-    await expectRefused(await complete("%00", { cookie }), 500);
+  it("An id no upload can have is an unknown upload, not a fault", async () => {
+    const { cookie } = await signIn("u2-badid@example.test");
+    // A NUL, which Postgres refuses, and an id over 64 characters.
+    await expectRefused(await complete("%00", { cookie }), 404);
+    await expectRefused(await complete("x".repeat(65), { cookie }), 404);
   });
 
   it("An oversized object of an upload that is no longer pending is left alone", async () => {

@@ -1,6 +1,7 @@
 import { createDb, getUploadOf, recordUploadHash, rejectOversizedUpload } from "@archive/db";
 import type { Context } from "hono";
 import type { Bindings } from "./env";
+import { NO_STORE } from "./login";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./upload-limit";
@@ -17,7 +18,9 @@ type CompleteContext = Context<
   "/uploads/:id/complete"
 >;
 
-const NO_STORE = { "Cache-Control": "no-store" };
+// Upload ids are random text bounded at 64 characters (apps/ingest/src/message.ts). Nothing
+// longer, or holding a NUL, which Postgres refuses, can name an upload.
+const MAX_ID = 64;
 
 /** The lowercase hex of a SHA-256 digest. */
 const hex = (digest: ArrayBuffer) =>
@@ -26,7 +29,7 @@ const hex = (digest: ArrayBuffer) =>
 /**
  * `POST /uploads/:id/complete`: checks the object, hashes it, and either marks the upload a
  * duplicate or puts `{ upload_id }` on the `ingest` queue. Answers JSON: `{ status }` on
- * success (`queued`, or `duplicate` with the work's id), `{ error }` otherwise.
+ * success (`queued` or `duplicate`), `{ error }` otherwise.
  */
 export async function completeUpload(c: CompleteContext) {
   const refuse = (status: 400 | 401 | 404 | 409 | 413 | 500 | 503, error: string) =>
@@ -37,11 +40,14 @@ export async function completeUpload(c: CompleteContext) {
   if (user === undefined) return refuse(401, "Sign in to upload.");
   // U4: the daily upload quota count goes here, after the session.
 
+  const id = c.req.param("id");
+  if (id.length > MAX_ID || id.includes("\0")) return refuse(404, "There is no such upload.");
+
   // One connection serves every query here.
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
   try {
     // Another user's upload is answered as an unknown one, so ids can't be probed.
-    const upload = await getUploadOf(db, c.req.param("id"), user.id);
+    const upload = await getUploadOf(db, id, user.id);
     if (upload === null) return refuse(404, "There is no such upload.");
     // Ingest, or an earlier confirm, has taken it: its outcome is at GET /uploads/:id.
     const taken = () =>
@@ -92,7 +98,9 @@ export async function completeUpload(c: CompleteContext) {
       } catch (error) {
         console.error("deleting a duplicate's object failed", error);
       }
-      return c.json({ status: "duplicate", work_id: recorded.duplicateOf }, 200, NO_STORE);
+      // No work id in the reply: the uploader's link is GET /uploads/:id's, which shows a work
+      // only while it is live, and by its public id.
+      return c.json({ status: "duplicate" }, 200, NO_STORE);
     }
 
     // The hash is stored by now, so a failed send leaves a `pending` row that a retried
@@ -106,7 +114,8 @@ export async function completeUpload(c: CompleteContext) {
     return c.json({ status: "queued" }, 200, NO_STORE);
   } catch (error) {
     // The page's script reads JSON: a fault in the database or R2 gets one too.
-    console.error("confirming an upload failed", error);
+    // Only the error's name: a driver's message can carry the query's values, the file's hash.
+    console.error("confirming an upload failed", error instanceof Error ? error.name : "unknown");
     return refuse(500, "Something went wrong confirming that file. Please try again.");
   } finally {
     c.executionCtx.waitUntil(db.destroy());
