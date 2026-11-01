@@ -2,18 +2,20 @@
 // them: hide and restore a work (keyed by its AO3 work ID) and reject an item (keyed by
 // its own id). Mounted in admin.ts, behind `adminGate`.
 
-import { hideWork, logModerationAction, restoreWork } from "@archive/db";
+import { hideWork, logModerationAction, removeWork, restoreWork } from "@archive/db";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import type { AdminEnv } from "./admin";
 import {
   itemPage,
   rejectForm,
+  removeConfirmPage,
   resultPage,
   safeFrom,
   workActions,
   workStatusText,
 } from "./admin-pages";
 import { readForm } from "./login";
+import { deleteWorkObjects } from "./remove-objects";
 import { isSameOrigin } from "./signin";
 
 /** An AO3 work ID is an int4. */
@@ -204,6 +206,40 @@ adminItems.post("/works/:id/restore", async (c) => {
   return c.html(
     resultPage(
       restored ? "The work is live again." : "Nothing changed: the work is not hidden.",
+      from,
+    ),
+  );
+});
+
+adminItems.post("/works/:id/remove", async (c) => {
+  const work = await workByAo3Id(c, c.req.param("id"));
+  if (!work) return c.notFound();
+  const form = await readForm(c.req.raw, MAX_FORM);
+  const from = safeFrom(form?.get("from"));
+  if (form?.get("confirm") !== "yes") {
+    const { title, ao3_work_id } = await c.var.db
+      .selectFrom("works")
+      .select(["title", "ao3_work_id"])
+      .where("id", "=", work.id)
+      .executeTakeFirstOrThrow();
+    return c.html(removeConfirmPage(title, ao3_work_id, from));
+  }
+  // The status and the log row commit first, then R2: a delete that fails partway
+  // leaves a removed work with leftover bytes, never a live one with missing bytes.
+  const removed = await removeWork(c.var.db, work.id, c.var.userId);
+  if (!removed) return c.notFound();
+  if (removed.outcome === "processing") {
+    return c.html(
+      resultPage("Nothing changed: the work is still processing. Try again shortly.", from),
+    );
+  }
+  // A repeat remove deletes again, so a remove whose deletes failed can be retried.
+  await deleteWorkObjects(c.env.BUCKET, Number(c.req.param("id")), removed.uploads);
+  return c.html(
+    resultPage(
+      removed.outcome === "removed"
+        ? "The work is removed and its files are deleted."
+        : "The work was already removed. Its files were deleted again.",
       from,
     ),
   );

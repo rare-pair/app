@@ -68,7 +68,11 @@ describe("removeWork", () => {
   it("Leaves a processing work as it is and writes no row", async () => {
     const moderator = await addUser();
     const { workId } = await seedWork(t.db);
-    await t.db.updateTable("works").set({ status: "processing" }).where("id", "=", workId).execute();
+    await t.db
+      .updateTable("works")
+      .set({ status: "processing" })
+      .where("id", "=", workId)
+      .execute();
     expect((await removeWork(t.db, workId, moderator))?.outcome).toBe("processing");
     expect((await state(workId)).status).toBe("processing");
     expect(await rowsFor(workId)).toHaveLength(0);

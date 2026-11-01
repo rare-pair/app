@@ -5,7 +5,11 @@
 
 /** The part of R2's binding this needs, so the loop can be tested in Node. */
 export interface ObjectBucket {
-  list(options: { prefix: string; cursor?: string; limit?: number }): Promise<
+  list(options: {
+    prefix: string;
+    cursor?: string;
+    limit?: number;
+  }): Promise<
     { objects: { key: string }[] } & ({ truncated: true; cursor: string } | { truncated: false })
   >;
   delete(keys: string[]): Promise<void>;
