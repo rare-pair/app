@@ -21,7 +21,7 @@ import { TAG_LABELS, tagHref } from "./tag-links";
 const WORDS = new Intl.NumberFormat("en-US");
 
 /** Works per page. */
-const PAGE_SIZE = 20;
+export const PAGE_SIZE = 20;
 
 /**
  * A listing's short cache (14 and 19, "Listings are briefly cached"), on a 200 only.
@@ -38,7 +38,7 @@ const PAGES_AROUND = 2;
  * The page asked for. Anything but digits is the first page, as is 0. Digits
  * too many for a safe integer stay a number past every last page.
  */
-const pageOf = (raw: string | undefined) =>
+export const pageOf = (raw: string | undefined) =>
   raw !== undefined && /^\d+$/.test(raw) ? Math.max(1, Number(raw)) : 1;
 
 /** The sort and filters a listing is shown with: what its URL asks for, less anything unknown. */
@@ -53,7 +53,7 @@ interface ListingQuery {
 }
 
 /** A query parameter, or a select's option: a value and its text. */
-type Pair = [string, string];
+export type Pair = [string, string];
 
 /** The types a listing can be narrowed by, the first the form's default. */
 const NARROWING_TYPES = ["freeform", "fandom", "relationship", "character"] as const;
@@ -62,7 +62,13 @@ type NarrowingType = (typeof NARROWING_TYPES)[number];
 const SORTS: Record<ListingSort, string> = { updated: "Updated date", words: "Word count" };
 
 /** The ratings a work card shows; a work with none shows as "Not Rated". */
-const RATINGS = ["General Audiences", "Teen And Up Audiences", "Mature", "Explicit", NOT_RATED];
+export const RATINGS = [
+  "General Audiences",
+  "Teen And Up Audiences",
+  "Mature",
+  "Explicit",
+  NOT_RATED,
+];
 
 const isSort = (raw: string | undefined): raw is ListingSort =>
   raw !== undefined && Object.hasOwn(SORTS, raw);
@@ -150,7 +156,7 @@ export async function showTagListing(c: Context<{ Bindings: Bindings }>) {
 }
 
 /** A labelled select, with the option whose value is `chosen` selected. */
-const select = (id: string, name: string, label: string, options: Pair[], chosen: string) =>
+export const select = (id: string, name: string, label: string, options: Pair[], chosen: string) =>
   `<p><label for="${id}">${label}</label> <select id="${id}" name="${name}">${options
     .map(
       ([value, text]) =>
@@ -195,7 +201,7 @@ function listingHref(type: TagType, name: string, params: Pair[]): string {
  * marked and not a link. Page numbers are the first, the last and those within
  * PAGES_AROUND of the current one, with a gap shown between runs.
  */
-function pager(href: (n: number) => string, page: number, last: number): string {
+export function pager(href: (n: number) => string, page: number, last: number): string {
   if (last === 1) return "";
   const numbers = [
     ...new Set([
