@@ -35,6 +35,16 @@ describe("work availability", () => {
     expect(await getWorkAvailability(t.db, live.ao3WorkId)).toBeNull();
   });
 
+  it("is null for a work still processing", async () => {
+    const w = await seedWork(t.db, {});
+    await t.db
+      .updateTable("works")
+      .set({ status: "processing" })
+      .where("id", "=", w.workId)
+      .execute();
+    expect(await getWorkAvailability(t.db, w.ao3WorkId)).toBeNull();
+  });
+
   it("is null for an unknown work and for an ID that is not an int4", async () => {
     for (const id of [987_654_321, 0, -1, 1.5, 2_147_483_648, Number.NaN]) {
       expect(await getWorkAvailability(t.db, id)).toBeNull();

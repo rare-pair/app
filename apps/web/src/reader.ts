@@ -42,9 +42,10 @@ export async function showChapter(c: ReaderContext) {
   // A hidden or removed work answers 451 or 410 for any chapter number, in range or
   // not, so a 404 on one and a 451 on another can't give away its chapter count.
   if (withheld) return withheldResponse(c, withheld);
-  const at = n === null ? -1 : (live?.chapters.findIndex((ch) => ch.n === n) ?? -1);
-  const chapter = live?.chapters[at];
-  if (!live || n === null || !chapter) return c.notFound();
+  if (!live || n === null) return c.notFound();
+  const at = live.chapters.findIndex((ch) => ch.n === n);
+  const chapter = live.chapters[at];
+  if (!chapter) return c.notFound();
 
   // Chapter HTML comes only from a fragment the sanitizer wrote, under works/ and this
   // version's own prefix: never an upload, an original or an image, whatever the row says.
