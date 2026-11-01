@@ -9,7 +9,7 @@ const MAX_TOKEN = 2048;
 /**
  * What each form's widget names with `data-action`, and its check expects back from
  * siteverify, so a token solved on one form is refused by every other. Cloudflare allows
- * up to 32 letters, digits, `_` and `-`. `remove` is for the removal form, once it has one.
+ * up to 32 letters, digits, `_` and `-`. `remove` is for the removal form.
  */
 export const TURNSTILE_ACTIONS = {
   login: "login",

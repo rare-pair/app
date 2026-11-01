@@ -596,6 +596,13 @@ epub, under the normal versioning rules.
   not a 404 (see below). Moderators can see every request from the same email
   or IP together, restore in bulk, and block a requester. We accept this risk:
   an unfair hide is temporary, while ignoring a genuine author is not.
+- **The IP hash.** `ip_hash` is the hex HMAC-SHA-256, keyed with the `IP_HASH_KEY`
+  secret, of the requester's network address: an IPv4 address whole, an IPv6 one by
+  its /64, an IPv4 address written as IPv6 as that IPv4 address. A request with no
+  address stores the hash of a fixed `unknown` marker. The raw address is never
+  stored or logged. Every form that stores or matches one uses `src/ip-hash.ts`, so
+  blocks match what was stored; changing the key or the grouping orphans stored
+  hashes.
 - **Block and ban stop only the action.** Blocking a requester (by contact
   email and IP hash) means their later `/remove` requests, and reports from an
   account with that email or IP hash, are still recorded and queued but no
@@ -771,8 +778,8 @@ markup: its inline `style` attributes become stylesheet rules, because
 
 - Turnstile on signup, login, upload, the wait list and `/remove` requests. Turnstile needs
   JavaScript, so those forms do too; reading, browsing and search work without
-  it. Each form's widget names its own action (`login`, `waitlist`, `upload`,
-  and `remove` once that form exists) with `data-action`, and the Worker passes
+  it. Each form's widget names its own action (`login`, `waitlist`, `upload`
+  and `remove`) with `data-action`, and the Worker passes
   a token only when siteverify reports that action and this host, so a token
   solved on one form is refused by every other. Cloudflare's published test
   secret keys, which don't promise an action, skip the action comparison only.

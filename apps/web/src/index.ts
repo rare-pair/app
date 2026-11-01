@@ -10,7 +10,8 @@ import { showTagListing } from "./listing";
 import { requestSignIn, showSignIn } from "./login";
 import { jumpToChapter, showChapter } from "./reader";
 import { sameOriginOnly, showReportForm, submitReport } from "./report";
-import { aboutPage, notFoundPage, privacyPage, termsPage, turnstilePage } from "./pages";
+import { aboutPage, notFoundPage, privacyPage, termsPage } from "./pages";
+import { showRemoveForm, submitRemove } from "./remove";
 import { pageState } from "./page-state";
 import { SETTINGS_SCRIPT, SETTINGS_SCRIPT_PATH } from "./reader-settings";
 import { closedBeforeLaunch, disableClosedLinks, isPrelaunch } from "./prelaunch";
@@ -83,7 +84,8 @@ app.post("/waitlist/unsubscribe", unsubscribeWaitlist);
 app.get("/waitlist", (c) => (isPrelaunch(c.env) ? c.notFound() : c.redirect("/", 302)));
 app.get("/upload", showUpload);
 app.post("/uploads", requestUpload);
-app.get("/remove", (c) => c.html(turnstilePage("Request removal", c.get("nonce"))));
+app.get("/remove", showRemoveForm);
+app.post("/remove", submitRemove);
 
 // The reader. Closed before launch, like every /works/ page.
 app.get("/works/:id/chapters/:n", showChapter);

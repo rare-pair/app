@@ -57,7 +57,7 @@ function ipv6Groups(address: string): string[] | null {
  * address. Anything that isn't an address stands for itself, so it never shares a real
  * address's count.
  */
-function clientOf(address: string): string {
+export function clientOf(address: string): string {
   if (IPV4.test(address)) return address;
   const groups = ipv6Groups(address);
   if (groups === null) return `not an address: ${address}`;

@@ -6,6 +6,7 @@ import {
   fetchW,
   LOGIN_TOKEN,
   postLogin,
+  REMOVE_TOKEN,
   signIn,
   UPLOAD_TOKEN,
   WAITLIST_TOKEN,
@@ -32,6 +33,31 @@ describe("23-turnstile-action", () => {
     const cookie = await signIn("action-markup@example.test", { acceptTerms: true });
     const upload = await fetchW("/upload", { headers: { cookie } });
     expect(actionsIn(await upload.text())).toEqual(["upload"]);
+
+    expect(actionsIn(await (await fetchW("/remove")).text())).toEqual(["remove"]);
+  });
+
+  it("A token solved on another form is refused by removal requests", async () => {
+    const email = "action-remove@example.test";
+    for (const token of [LOGIN_TOKEN, WAITLIST_TOKEN, UPLOAD_TOKEN, "XXXX.DUMMY.TOKEN.XXXX"]) {
+      const res = await postLogin(
+        { email, pseud: "action-remove pseud", "cf-turnstile-response": token },
+        { url: "/remove" },
+      );
+      expect(res.status).toBe(400);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(await res.text()).toContain("The anti-spam check did not pass.");
+    }
+    const stored = () =>
+      db.selectFrom("requests").select("id").where("contact_email", "=", email).execute();
+    expect(await stored()).toEqual([]);
+    // Its own token passes.
+    const own = await postLogin(
+      { email, pseud: "action-remove pseud", "cf-turnstile-response": REMOVE_TOKEN },
+      { url: "/remove" },
+    );
+    expect(own.status).toBe(200);
+    expect(await stored()).toHaveLength(1);
   });
 
   it("A token solved on another form is refused by sign-in", async () => {
