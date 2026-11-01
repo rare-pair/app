@@ -140,6 +140,12 @@ export async function bucketKeys(prefix: string): Promise<string[]> {
   return keys.sort();
 }
 
+/** Deletes every object in the bucket, which the tests share. */
+export async function emptyBucket(): Promise<void> {
+  const keys = await bucketKeys("");
+  for (let i = 0; i < keys.length; i += 1000) await env.BUCKET.delete(keys.slice(i, i + 1000));
+}
+
 /** Starts the sweep from the first folder, as on a fresh database. */
 export const resetSweepState = () =>
   withDb((db) => db.updateTable("sweep_state").set({ after: null }).execute());

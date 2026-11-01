@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   bucketKeys,
+  emptyBucket,
   freshAo3WorkId,
   imageKey,
   putImages,
@@ -13,10 +14,15 @@ import {
   upload,
   withImages,
 } from "./helpers";
+import { sweepWorker } from "../src/worker";
 
 // Every sweep test is in this file, so they run one after another: the sweep's state row is
-// shared by the whole database, and each test starts it from the first folder.
-beforeEach(resetSweepState);
+// shared by the whole database, and the local bucket by every test. Each test starts the
+// sweep from the first folder, on an empty bucket.
+beforeEach(async () => {
+  await resetSweepState();
+  await emptyBucket();
+});
 
 describe("07-sanitizing-and-images", () => {
   it("Unreferenced images are removed by the periodic sweep", async () => {
@@ -101,6 +107,47 @@ describe("07-sanitizing-and-images", () => {
 
     expect(await bucketKeys(`works/${ao3WorkId}/`)).toEqual([]);
     expect(await bucketKeys(`works/${onlyImages}/`)).toEqual([]);
+  });
+});
+
+describe("sweep bounds", () => {
+  /** Two works, each with an unreferenced image; returns their img prefixes in R2's order. */
+  async function twoWorks() {
+    const ids = [freshAo3WorkId(), freshAo3WorkId()].sort((a, b) =>
+      `works/${a}/` < `works/${b}/` ? -1 : 1,
+    );
+    for (const ao3WorkId of ids) {
+      await seededWork({ ao3WorkId });
+      await putImages(ao3WorkId, imageKey());
+    }
+    return ids.map((id) => `works/${id}/img/`);
+  }
+
+  it("A run sweeps a bounded number of works, and the next run goes on from there", async () => {
+    const [first, second] = (await twoWorks()) as [string, string];
+    const handler = sweepWorker({ works: 1, subrequests: 1000 });
+
+    await runSweep(25, { handler });
+    expect(await bucketKeys(first)).toEqual([]);
+    expect(await bucketKeys(second)).toHaveLength(1);
+
+    await runSweep(25, { handler });
+    expect(await bucketKeys(second)).toEqual([]);
+  });
+
+  it("A work the run's budget can't finish keeps its images", async () => {
+    const [first, second] = (await twoWorks()) as [string, string];
+    // Enough to list the folders and the first work's prefixes, not to read its fragment.
+    const handler = sweepWorker({ works: 10, subrequests: 2 });
+
+    await runSweep(25, { handler });
+    expect(await bucketKeys(first)).toHaveLength(1);
+    expect(await bucketKeys(second)).toHaveLength(1);
+
+    // The next runs go on past it rather than stopping on it every day.
+    await runSweep(25, { handler: sweepWorker({ works: 10, subrequests: 1000 }) });
+    expect(await bucketKeys(first)).toHaveLength(1);
+    expect(await bucketKeys(second)).toEqual([]);
   });
 });
 
