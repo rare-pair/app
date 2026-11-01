@@ -8,6 +8,7 @@ import type {
   HiddenCause,
   TagTable,
   TagType,
+  UploadStatus,
   WorkTable,
   WorkVersionTable,
 } from "./schema";
@@ -51,7 +52,7 @@ export interface LiveWork {
   chapters: Pick<Selectable<ChapterTable>, "n" | "title" | "words" | "r2_key">[];
 }
 
-const SUMMARY = [
+export const SUMMARY = [
   "works.id",
   "works.ao3_work_id",
   "works.title",
@@ -186,7 +187,7 @@ export async function getLiveWork(
 export type ListedWork = Pick<LiveWork, "work" | "authors" | "tags">;
 
 /** A card's byline and tags, as sub-selects of the `works` row they hang from. */
-const bylineAndTags = (eb: ExpressionBuilder<Database, "works">) => [
+export const bylineAndTags = (eb: ExpressionBuilder<Database, "works">) => [
   jsonArrayFrom(
     eb
       .selectFrom("work_authors")
@@ -202,13 +203,13 @@ const bylineAndTags = (eb: ExpressionBuilder<Database, "works">) => [
   ).as("tags"),
 ];
 
-type CardRow = WorkSummary & {
+export type CardRow = WorkSummary & {
   authors: { pseud: string; ao3_user: string | null; position: number }[];
   tags: (Pick<Selectable<TagTable>, "id" | "type" | "name" | "name_norm"> & { position: number })[];
 };
 
 /** A row with its sub-selects as a listed work. As in getLiveWork, json_agg's order isn't promised, so the lists are sorted here. */
-const asListed = ({ authors, tags, ...work }: CardRow): ListedWork => ({
+export const asListed = ({ authors, tags, ...work }: CardRow): ListedWork => ({
   work,
   authors: authors
     .sort((a, b) => a.position - b.position)
@@ -285,9 +286,9 @@ export interface ListingOptions {
   pageSize?: number;
 }
 
-const PAGE_SIZE = 20;
+export const PAGE_SIZE = 20;
 
-const isCount = (n: number) => Number.isSafeInteger(n) && n >= 1;
+export const isCount = (n: number) => Number.isSafeInteger(n) && n >= 1;
 
 type WorksWhere = ExpressionBuilder<Database, "works">;
 
@@ -387,6 +388,84 @@ export async function insertUpload(
   return { id: row.id, status: "pending" };
 }
 
+/** The upload `/complete` needs to act on: its R2 key and where it stands. */
+export interface OwnUpload {
+  id: string;
+  r2_key: string;
+  status: UploadStatus;
+}
+
+/** The upload with this id if `userId` made it, else null: another user's is no different from none. */
+export async function getUploadOf(
+  db: Kysely<Database>,
+  id: string,
+  userId: string,
+): Promise<OwnUpload | null> {
+  const row = await db
+    .selectFrom("uploads")
+    .select(["id", "r2_key", "status"])
+    .where("id", "=", id)
+    .where("user_id", "=", userId)
+    .executeTakeFirst();
+  return row ?? null;
+}
+
+/**
+ * Stores a `pending` upload's SHA-256 (lowercase hex), and marks it `duplicate` of work W when
+ * an earlier upload with that hash was ingested into W while W is `live` or `hidden`
+ * (ARCHITECTURE, Ingestion pipeline, step 3). An earlier upload still `pending` or `processing`,
+ * rejected, or whose work was removed gives no match. Returns W's id as `duplicateOf`, or null
+ * for no match; returns null itself, writing nothing, when the upload isn't `pending`.
+ */
+export async function recordUploadHash(
+  db: Kysely<Database>,
+  id: string,
+  sha256: string,
+): Promise<{ duplicateOf: string | null } | null> {
+  return db.transaction().execute(async (trx) => {
+    const stored = await trx
+      .updateTable("uploads")
+      .set({ sha256 })
+      .where("id", "=", id)
+      .where("status", "=", "pending")
+      .returning("id")
+      .executeTakeFirst();
+    if (stored === undefined) return null;
+    const match = await trx
+      .selectFrom("uploads")
+      .innerJoin("works", "works.id", "uploads.work_id")
+      .select("works.id as work_id")
+      .where("uploads.sha256", "=", sha256)
+      .where("uploads.id", "!=", id)
+      .where("uploads.status", "in", ["live", "held_for_review", "duplicate"])
+      .where("works.status", "in", ["live", "hidden"])
+      // The same upload every time two works match.
+      .orderBy("uploads.created_at")
+      .orderBy("uploads.id")
+      .limit(1)
+      .executeTakeFirst();
+    if (match === undefined) return { duplicateOf: null };
+    await trx
+      .updateTable("uploads")
+      .set({ status: "duplicate", work_id: match.work_id })
+      .where("id", "=", id)
+      .execute();
+    return { duplicateOf: match.work_id };
+  });
+}
+
+/** Marks a `pending` upload `too_large`. False when it wasn't `pending`. */
+export async function rejectOversizedUpload(db: Kysely<Database>, id: string): Promise<boolean> {
+  const row = await db
+    .updateTable("uploads")
+    .set({ status: "too_large" })
+    .where("id", "=", id)
+    .where("status", "=", "pending")
+    .returning("id")
+    .executeTakeFirst();
+  return row !== undefined;
+}
+
 export interface PopularFandom {
   /** How the live works spell it, the first by code unit when they differ. */
   name: string;
@@ -465,4 +544,43 @@ export async function listRecentLiveWorks(
     .limit(isCount(limit) ? limit : RECENT_WORKS)
     .execute();
   return rows.map(asListed);
+}
+
+/**
+ * How many distinct accounts have an open report that counts toward hiding the
+ * work, as a SQL expression. A `wrong_version` report never counts, and an
+ * account counts once however often it reports. The one place this rule
+ * lives: a later rule (a blocked requester's accounts) changes it here.
+ */
+const countedReporters = (workId: string) => sql<number>`(
+  select count(distinct reports.reporter_id) from reports
+  where reports.work_id = ${workId} and reports.status = 'open' and reports.kind <> 'wrong_version'
+)`;
+
+/**
+ * Hides a `live` work with its cause, in one UPDATE that sets the status and
+ * the cause together, as the schema's check requires. True when it hid it. A
+ * hidden or removed work is left as it is, so no cause is overwritten.
+ *
+ * With `minReporters`, the work is hidden only when that many accounts have
+ * counted reports (see `countedReporters`). The count sits inside the UPDATE,
+ * not in a read before it: reads may come from Hyperdrive's cache and miss the
+ * report just stored, but writes never do.
+ */
+export async function hideWork(
+  db: Kysely<Database>,
+  workId: string,
+  cause: HiddenCause,
+  options: { minReporters?: number } = {},
+): Promise<boolean> {
+  let update = db
+    .updateTable("works")
+    .set({ status: "hidden", hidden_cause: cause })
+    .where("id", "=", workId)
+    .where("status", "=", "live");
+  if (options.minReporters !== undefined) {
+    update = update.where(sql<boolean>`${countedReporters(workId)} >= ${options.minReporters}`);
+  }
+  const result = await update.executeTakeFirst();
+  return result.numUpdatedRows > 0n;
 }

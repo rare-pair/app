@@ -14,7 +14,9 @@ import {
   parsedWork,
   pendingUpload,
   savedRows,
+  searchedIds,
   setLease,
+  token,
   uploadRow,
   watchedPuts,
   watchedWorker,
@@ -120,6 +122,37 @@ describe("04-ingest-job-lifecycle", () => {
     expect(row.status).toBe("parse_failed");
     expect(row.error_stage).toBe("save");
     expect(row.error).toBe("Error");
+  });
+
+  it("A saved work is searchable by its title and tags", async () => {
+    const word = `Marigold${token()}`;
+    const tag = `Tag${token()}`;
+    const work = parsedWork({ title: `The ${word} Lantern`, freeforms: [tag] });
+    const workId = Number(work.ao3WorkId);
+    const id = await pendingUpload(ao3Epub({ workId }));
+    const { handler } = watchedWorker({ process: async () => work });
+
+    await deliver([{ upload_id: id }], { handler });
+
+    expect(await searchedIds(word)).toEqual([workId]);
+    expect(await searchedIds(tag)).toEqual([workId]);
+  });
+
+  it("A save that rolls back leaves nothing to search", async () => {
+    const word = `Quince${token()}`;
+    const work = parsedWork({
+      title: `The ${word} Lantern`,
+      chapters: [
+        { n: 1, title: "One", html: "<p>one</p>", words: 1 },
+        { n: 1, title: "Again", html: "<p>again</p>", words: 1 },
+      ],
+    });
+    const id = await pendingUpload(ao3Epub({ workId: Number(work.ao3WorkId) }));
+    const { handler } = watchedWorker({ process: async () => work });
+
+    await deliver([{ upload_id: id }], { handler });
+
+    expect(await searchedIds(word)).toEqual([]);
   });
 
   it("Failure inside the transaction rolls back", async () => {

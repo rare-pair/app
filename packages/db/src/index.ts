@@ -6,6 +6,7 @@ export { normalizePseud } from "./pseud";
 export {
   getLiveWork,
   getWorkAvailability,
+  hideWork,
   listLiveWorksByTag,
   liveTagSpellings,
   NOT_RATED,
@@ -14,6 +15,10 @@ export {
   type PopularFandom,
   tagNameKeys,
   insertUpload,
+  getUploadOf,
+  recordUploadHash,
+  rejectOversizedUpload,
+  type OwnUpload,
   type ListedWork,
   type ListingOptions,
   type ListingSort,
@@ -22,6 +27,8 @@ export {
   type WorkAvailability,
   type WorkSummary,
 } from "./queries";
+export { refreshWorkSearch } from "./search-index";
+export { searchLiveWorks, type SearchOptions, type SearchResults } from "./search";
 export type {
   Database,
   UserTable,
