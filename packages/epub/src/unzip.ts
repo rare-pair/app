@@ -6,7 +6,7 @@ const MiB = 1024 * 1024;
 export const LIMITS = {
   maxInputBytes: 25 * MiB,
   maxEntries: 2_000,
-  maxTotalBytes: 100 * MiB,
+  maxTotalBytes: 40 * MiB,
   maxEntryBytes: 20 * MiB,
   maxImageBytes: 5 * MiB,
   /**
