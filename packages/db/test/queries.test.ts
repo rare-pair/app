@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   getLiveWork,
+  getWorkAvailability,
   insertUpload,
   listLiveWorksByTag,
   liveTagSpellings,
@@ -16,6 +17,29 @@ beforeAll(async () => {
 afterAll(async () => {
   // oxlint-disable-next-line typescript/no-unnecessary-condition -- unset if beforeAll failed
   await t?.close();
+});
+
+describe("work availability", () => {
+  it("names each hidden cause and a removed work, and nothing for a work that is live", async () => {
+    const causes = ["removal_request", "reports", "moderator"] as const;
+    for (const hiddenCause of causes) {
+      const w = await seedWork(t.db, { status: "hidden", hiddenCause });
+      expect(await getWorkAvailability(t.db, w.ao3WorkId)).toEqual({
+        status: "hidden",
+        cause: hiddenCause,
+      });
+    }
+    const removed = await seedWork(t.db, { status: "removed" });
+    expect(await getWorkAvailability(t.db, removed.ao3WorkId)).toEqual({ status: "removed" });
+    const live = await seedWork(t.db, {});
+    expect(await getWorkAvailability(t.db, live.ao3WorkId)).toBeNull();
+  });
+
+  it("is null for an unknown work and for an ID that is not an int4", async () => {
+    for (const id of [987_654_321, 0, -1, 1.5, 2_147_483_648, Number.NaN]) {
+      expect(await getWorkAvailability(t.db, id)).toBeNull();
+    }
+  });
 });
 
 describe("14 browse and home", () => {

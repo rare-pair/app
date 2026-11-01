@@ -5,6 +5,7 @@ import { jsonArrayFrom } from "kysely/helpers/postgres";
 import type {
   ChapterTable,
   Database,
+  HiddenCause,
   TagTable,
   TagType,
   WorkTable,
@@ -67,6 +68,33 @@ const SUMMARY = [
 ] as const;
 
 const MAX_INT4 = 2_147_483_647;
+
+/** Why a work is withheld from readers: hidden for a cause, or removed. */
+export type WorkAvailability = { status: "hidden"; cause: HiddenCause } | { status: "removed" };
+
+/**
+ * Whether a work is withheld, by its AO3 work ID: its status and hide cause and
+ * nothing else, so a removed work answers even once its version rows are purged.
+ * Null for a `live` or `processing` work, an unknown one or an ID that is no int4.
+ * This is the one place a page learns "hidden" or "removed".
+ */
+export async function getWorkAvailability(
+  db: Kysely<Database>,
+  ao3WorkId: number,
+): Promise<WorkAvailability | null> {
+  if (!Number.isInteger(ao3WorkId) || ao3WorkId < 1 || ao3WorkId > MAX_INT4) return null;
+  const row = await db
+    .selectFrom("works")
+    .select(["works.status", "works.hidden_cause"])
+    .where("works.ao3_work_id", "=", ao3WorkId)
+    .executeTakeFirst();
+  if (row?.status === "removed") return { status: "removed" };
+  // The schema's check makes hidden_cause non-null exactly while hidden.
+  if (row?.status === "hidden" && row.hidden_cause !== null) {
+    return { status: "hidden", cause: row.hidden_cause };
+  }
+  return null;
+}
 
 /**
  * A `live` work by its AO3 work ID, with its authors, tags and current
