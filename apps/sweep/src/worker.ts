@@ -21,10 +21,17 @@ export function sweepWorker(limits: Limits = LIMITS) {
         const report = await sweep({ db, bucket: env.BUCKET, cutoff, limits });
         console.log({ event: "sweep.run", ...report });
       } catch (error) {
-        console.error({ event: "sweep.run", error: errorCode(error) });
-        throw error;
+        const code = errorCode(error);
+        console.error({ event: "sweep.run", error: code });
+        // The run still fails, but with the class name only: the runtime logs an uncaught
+        // error's message, which may quote a query or stored text.
+        throw new Error(code);
       } finally {
-        await db.destroy();
+        try {
+          await db.destroy();
+        } catch (error) {
+          console.error({ event: "sweep.close", error: errorCode(error) });
+        }
       }
     },
   } satisfies ExportedHandler<Env>;

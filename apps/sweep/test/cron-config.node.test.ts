@@ -8,6 +8,7 @@ interface Config {
   triggers: { crons: string[] };
   r2_buckets: { binding: string }[];
   hyperdrive: { binding: string }[];
+  limits: { cpu_ms: number };
 }
 
 /** wrangler.jsonc, read with its line comments and trailing commas removed. */
@@ -34,5 +35,9 @@ describe("sweep schedule", () => {
     const c = config();
     expect(c.r2_buckets.map((b) => b.binding)).toEqual(["BUCKET"]);
     expect(c.hyperdrive.map((h) => h.binding)).toEqual(["HYPERDRIVE"]);
+  });
+
+  it("A run has more CPU than a Worker's default 30 seconds", () => {
+    expect(config().limits.cpu_ms).toBe(300_000);
   });
 });

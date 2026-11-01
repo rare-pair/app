@@ -151,6 +151,7 @@ waitlist     (email PRIMARY KEY,               -- trimmed and lowercased; delete
               unsubscribe_token_hash NULL, created_at)  -- no IP, user agent or referrer
 sweep_state  (id,                -- one row: id 1
               after NULL,        -- the R2 key the periodic sweep's next run lists after; NULL starts over
+              current NULL,      -- the folder a run is in; still set at the next start, it was killed there
               updated_at)
 ```
 

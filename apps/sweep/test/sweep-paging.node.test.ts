@@ -72,7 +72,7 @@ afterAll(async () => {
   await t?.close();
 });
 beforeEach(async () => {
-  await t.db.updateTable("sweep_state").set({ after: null }).execute();
+  await t.db.updateTable("sweep_state").set({ after: null, current: null }).execute();
 });
 
 const LIMITS = { works: 100, subrequests: 10_000 };
@@ -208,6 +208,21 @@ describe("sweep safety", () => {
     expect(keys()).toContain(`works/5000003/img/${IMG(1)}`);
     const row = await t.db.selectFrom("sweep_state").select("after").executeTakeFirstOrThrow();
     expect(row.after).toBe("works/6/~");
+  });
+
+  it("A folder the last run was killed in is passed over", async () => {
+    await t.db.updateTable("sweep_state").set({ current: "works/8000001/" }).execute();
+    const { bucket, keys } = pagingBucket({
+      [`works/8000001/img/${IMG(1)}`]: "",
+      [`works/8000002/img/${IMG(1)}`]: "",
+    });
+
+    const report = await sweep({ db: t.db, bucket, cutoff: new Date(), limits: LIMITS });
+
+    expect(report.skipped).toEqual([{ ao3WorkId: 8_000_001, reason: "killed" }]);
+    expect(keys()).toEqual([`works/8000001/img/${IMG(1)}`]);
+    const row = await t.db.selectFrom("sweep_state").select("current").executeTakeFirstOrThrow();
+    expect(row.current).toBeNull();
   });
 
   it("The reference scan stops once every old image is referenced", async () => {

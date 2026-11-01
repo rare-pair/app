@@ -333,6 +333,8 @@ export interface SweepStateTable {
   id: ColumnType<number, never, never>;
   /** The R2 key the next run lists after, past the last folder swept. NULL for the first folder. */
   after: string | null;
+  /** The folder a run is sweeping, cleared when it ends. Set at a run's start: the last one was killed there. */
+  current: string | null;
   updated_at: CreatedTimestamp;
 }
 

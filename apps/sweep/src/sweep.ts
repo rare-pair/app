@@ -46,8 +46,8 @@ export interface Limits {
 }
 
 /**
- * Under the platform's limits (10,000 subrequests on Workers Paid; 15 minutes of CPU for a daily
- * cron). The subrequests bound the R2 work; the works bound the Postgres queries, at most seven a
+ * Under the platform's limits (10,000 subrequests on Workers Paid; 5 minutes of CPU, set in
+ * wrangler.jsonc, within a cron's 15 minutes of wall time). The subrequests bound the R2 work; the works bound the Postgres queries, at most seven a
  * work (two to look at the folder, two to read references, two to look again, one to save).
  */
 export const LIMITS: Limits = { works: 1_000, subrequests: 8_000 };
@@ -61,7 +61,13 @@ export interface SweepDeps {
 }
 
 /** Why a work's images, or all of it, were left alone this run. */
-export type SkipReason = "in_flight" | "unreadable_fragment" | "changed" | "budget" | "error";
+export type SkipReason =
+  | "in_flight"
+  | "unreadable_fragment"
+  | "changed"
+  | "budget"
+  | "error"
+  | "killed";
 
 /** What a run did: counts, AO3 work IDs and error class names only. */
 export interface RunReport {
@@ -123,25 +129,35 @@ export async function sweep(deps: SweepDeps): Promise<RunReport> {
   };
   const state = await db
     .selectFrom("sweep_state")
-    .select(["after", FRESH])
+    .select(["after", "current", FRESH])
     .where("id", "=", 1)
     .executeTakeFirstOrThrow();
   let after = state.after;
-  // Saved after every work, so a run the platform ends keeps what it did; and only over the
-  // value this run last saw, so a run that overlaps another stops instead of moving it back.
-  let saved = state.after;
+  let current: string | null = null;
+  // The last run ended inside this folder without clearing it: the platform killed it there
+  // (memory, CPU or time). Passed over, or every run would die on it.
+  if (state.current !== null) {
+    const ao3WorkId = ao3WorkIdOf(state.current);
+    if (ao3WorkId !== null) report.skipped.push({ ao3WorkId, reason: "killed" });
+    after = past(state.current);
+  }
+  // Saved around every work, so a run the platform ends keeps what it did; and only over the
+  // place this run last saw, so a run that overlaps another stops instead of moving it back.
+  let saved = { after: state.after, current: state.current };
   const save = async (): Promise<boolean> => {
-    if (after === saved) return true;
+    if (after === saved.after && current === saved.current) return true;
     const result = await db
       .updateTable("sweep_state")
-      .set({ after, updated_at: new Date() })
+      .set({ after, current, updated_at: new Date() })
       .where("id", "=", 1)
-      .where(sql<boolean>`"after" is not distinct from ${saved}`)
+      .where(sql<boolean>`"after" is not distinct from ${saved.after}`)
       .executeTakeFirst();
     if (result.numUpdatedRows === 0n) return false;
-    saved = after;
+    saved = { after, current };
     return true;
   };
+  let attempted = 0;
+  let failure: { error: unknown } | null = null;
   try {
     let cursor: string | undefined;
     walk: for (;;) {
@@ -153,16 +169,22 @@ export async function sweep(deps: SweepDeps): Promise<RunReport> {
         ...(cursor === undefined ? { startAfter: after ?? undefined } : { cursor }),
       });
       for (const folder of page.delimitedPrefixes) {
-        if (report.works >= limits.works) break walk;
+        if (attempted >= limits.works) break walk;
         const ao3WorkId = ao3WorkIdOf(folder);
         if (ao3WorkId !== null) {
+          attempted++;
+          current = folder;
+          if (!(await save())) {
+            report.overlapped = true;
+            break walk;
+          }
           try {
             await sweepWork({ ...deps, bucket }, ao3WorkId, report);
             report.works++;
           } catch (error) {
             if (error instanceof BudgetSpent) {
               // A work too big for a whole run would stop every run on it: the first is passed.
-              if (report.works === 0) {
+              if (attempted === 1) {
                 report.skipped.push({ ao3WorkId, reason: "budget" });
                 after = past(folder);
               }
@@ -178,6 +200,7 @@ export async function sweep(deps: SweepDeps): Promise<RunReport> {
           }
         }
         after = past(folder);
+        current = null;
         if (!(await save())) {
           report.overlapped = true;
           break walk;
@@ -191,11 +214,18 @@ export async function sweep(deps: SweepDeps): Promise<RunReport> {
       cursor = page.cursor;
     }
   } catch (error) {
-    if (!(error instanceof BudgetSpent)) throw error;
-  } finally {
-    report.subrequestsLeft = budget.left;
-    if (!report.overlapped && !(await save())) report.overlapped = true;
+    if (!(error instanceof BudgetSpent)) failure = { error };
   }
+  report.subrequestsLeft = budget.left;
+  // The run ended on its own: no folder is left marked as the one it died in.
+  current = null;
+  try {
+    if (!report.overlapped && !(await save())) report.overlapped = true;
+  } catch (error) {
+    // The run's own failure, if it had one, is the one worth reporting.
+    failure ??= { error };
+  }
+  if (failure !== null) throw failure.error;
   return report;
 }
 
@@ -273,9 +303,10 @@ async function folderState(
   const uploads = new Set(
     prefixes.map((p) => p.slice(folder.length, -1)).filter((s) => UPLOAD_ID.test(s)),
   );
-  // A job writes its fragments before its images, so its prefix ties it to the work; one
-  // already tied to the work by `work_id` counts too. A `pending` upload with neither can't be
-  // tied to any work.
+  // A job writes its fragments before its images, so its prefix ties it to the work once it
+  // writes anything. Ingest sets `work_id` only as a job ends, so the `work_id` arm matches no
+  // job today; it is there for an upload re-run once tied to its work. A job that hasn't written
+  // yet can't be tied to any work: the recheck before deleting narrows that window.
   const inFlight = await db
     .selectFrom("uploads")
     .select(["id", FRESH])

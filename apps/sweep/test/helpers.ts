@@ -148,4 +148,4 @@ export async function emptyBucket(): Promise<void> {
 
 /** Starts the sweep from the first folder, as on a fresh database. */
 export const resetSweepState = () =>
-  withDb((db) => db.updateTable("sweep_state").set({ after: null }).execute());
+  withDb((db) => db.updateTable("sweep_state").set({ after: null, current: null }).execute());

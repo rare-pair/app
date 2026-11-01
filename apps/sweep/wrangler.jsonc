@@ -14,6 +14,9 @@
   // Daily, at 03:17 UTC: off-peak, and off the hour. A run spends a bounded number of
   // subrequests (src/sweep.ts), so it needs Workers Paid.
   "triggers": { "crons": ["17 3 * * *"] },
+  // A Worker gets 30 seconds of CPU unless this says more; a run reads and scans many fragments.
+  // Five minutes, under the 15-minute wall time a cron invocation has.
+  "limits": { "cpu_ms": 300000 },
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "rarepair" }],
   // Neon Postgres. The id is a placeholder until the Hyperdrive config is created, with
   // `--caching-disabled`: the sweep decides what to delete from what it reads, so every read
