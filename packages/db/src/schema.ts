@@ -220,6 +220,18 @@ export interface TakedownTable {
   /** The moderator who acted. */
   resolved_by: string | null;
   created_at: CreatedTimestamp;
+  // The notice's statutory elements (17 U.S.C. 512(c)(3)(A)). `basis` names the copyrighted
+  // work and `requester` is the contact information. Empty or false when the notice left it out.
+  /** The typed full name that signs the notice. */
+  signature: Generated<string>;
+  /** What the allegedly infringing material is, beyond the work named by `work_id`. */
+  infringing_material: Generated<string>;
+  /** The good-faith statement, made. */
+  good_faith: Generated<boolean>;
+  /** The accuracy and authority statement, under penalty of perjury, made. */
+  accuracy_authority: Generated<boolean>;
+  /** A statutory element is missing. Set by the writer. */
+  incomplete: Generated<boolean>;
 }
 
 /** A remove-my-work or opt-out request from `/remove`. */

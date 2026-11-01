@@ -126,7 +126,10 @@ uploads      (id, user_id, r2_key, sha256, bytes, status, lease_until,
               error_stage, error, work_id NULL, created_at)
 reports      (id, work_id, reporter_id, kind, body, status, created_at)  -- reporting needs an account;
                                                   -- kind includes wrong_version ("This version is wrong")
-takedowns    (id, work_id, requester, basis, status, resolved_by, created_at)
+takedowns    (id, work_id, requester, basis, status, resolved_by, created_at,
+              signature, infringing_material, good_faith, accuracy_authority,
+              incomplete)  -- a DMCA notice: basis is the copyrighted work, requester the contact
+                           -- information; incomplete when a 512(c)(3)(A) element is missing
 requests     (id, kind, work_id NULL, pseud_norm NULL, contact_email, statement,
               status, ip_hash, created_at)        -- kind: remove_work | opt_out
 optouts      (id, pseud_norm, ao3_user NULL, request_id, active, created_at)  -- checked at ingest
