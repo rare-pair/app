@@ -112,6 +112,8 @@ Write each agent's id, model, branch and start time into `wave.md`, and its row 
 
 An engineer writes under `<scratch>` from outside its worktree, so it may raise a permission prompt, which goes to the operator, not to you. Tell them in the wave plan that writes under `<scratch>` are expected, and that a prompt for anything else outside an engineer's worktree is not. Its report also comes back as text, so a declined write loses nothing.
 
+**Your own diagnosis is a hypothesis.** When a brief or an issue you write carries your guess at a cause, such as why tests fail or where a bug lives, say it's unconfirmed. Ask for the experiment that would prove it wrong, not the one that would confirm it. Make "the cause is confirmed and named, with the measurement that shows it" a *Definition of done* bullet, and don't prescribe the fix your guess implies. In wave 4 the web test timeouts looked like one shared warm-up from a single run. The engineer varied how many files ran at once and found per-file module loads queuing instead (#359), so the fix the guess implied would not have worked.
+
 ## 5. Handle what comes back
 
 Each engineer ends with one status:
