@@ -408,3 +408,79 @@ export async function bucketObject(
 /** The AO3 work IDs a search finds, as the web Worker would read them. */
 export const searchedIds = (query: string) =>
   withDb(async (db) => (await searchLiveWorks(db, query)).works.map((w) => w.work.ao3_work_id));
+
+/**
+ * Uploads a stub epub of `work`'s AO3 ID and runs its job with `work` as the processor's
+ * answer, through the real save. `steps` replace or watch the other steps. Returns the
+ * upload's id and row, and the queue's result.
+ */
+export async function ingestParsed(work: ParsedWork, steps: Partial<Steps> = {}) {
+  const id = await pendingUpload(ao3Epub({ workId: Number(work.ao3WorkId) }));
+  const { handler } = watchedWorker({ process: async () => work, ...steps });
+  const result = await deliver([{ upload_id: id }], { handler });
+  return { id, row: await uploadRow(id), result };
+}
+
+/**
+ * A rendezvous for `parties` jobs: each `await meet()` returns once all of them are there. Hung
+ * on the bucket step, it holds every job after its reads and before its transaction.
+ */
+export function rendezvous(parties: number) {
+  let arrived = 0;
+  let open = () => {};
+  const everyone = new Promise<void>((resolve) => (open = resolve));
+  return async () => {
+    if (++arrived >= parties) open();
+    await everyone;
+  };
+}
+
+/** The bucket step: the real bucket, holding each job at its `originals/` write on `meet`. */
+export const meetBeforeOriginal = (meet: () => Promise<void>): NonNullable<Steps["bucket"]> =>
+  beforePut(async (key) => {
+    if (key.startsWith("originals/")) await meet();
+  });
+
+/**
+ * The work's pointer and every version row, each with its chapters' numbers and keys, as the
+ * database holds them.
+ */
+export const versionsOf = (ao3WorkId: number) =>
+  withDb(async (db) => {
+    const work = await db
+      .selectFrom("works")
+      .select(["id", "current_version_id", "status"])
+      .where("ao3_work_id", "=", ao3WorkId)
+      .executeTakeFirstOrThrow();
+    const versions = await db
+      .selectFrom("work_versions")
+      .select(["id", "upload_id", "r2_prefix", "chapter_count", "tags", "authors"])
+      .where("work_id", "=", work.id)
+      .execute();
+    const chapters = await db
+      .selectFrom("chapters")
+      .select(["version_id", "n", "r2_key"])
+      .where("work_id", "=", work.id)
+      .orderBy("n")
+      .execute();
+    return {
+      workId: work.id,
+      status: work.status,
+      current: work.current_version_id,
+      versions: versions.map((v) => ({
+        ...v,
+        chapterNumbers: chapters.filter((c) => c.version_id === v.id).map((c) => c.n),
+        chapterKeys: chapters.filter((c) => c.version_id === v.id).map((c) => c.r2_key),
+      })),
+    };
+  });
+
+/** Makes the work hidden, as a moderator does. */
+export const hideWork = (ao3WorkId: number) =>
+  withDb((db) =>
+    db
+      .updateTable("works")
+      .set({ status: "hidden", hidden_cause: "moderator" })
+      .where("ao3_work_id", "=", ao3WorkId)
+      .execute(),
+  );

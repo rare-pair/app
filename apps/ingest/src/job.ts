@@ -100,7 +100,8 @@ async function run(
   }
   enter("save");
   try {
-    // A saved work's upload is `live` already: it goes live in the work's transaction.
+    // A saved upload has its final status already (`live`, `held_for_review` or `duplicate`):
+    // the save sets it in the work's transaction.
     await deps.save(lease, work, bytes, images);
   } catch (error) {
     if (!(error instanceof SaveRejected)) throw error;
