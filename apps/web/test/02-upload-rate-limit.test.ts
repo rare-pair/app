@@ -128,6 +128,9 @@ describe("19-surge-controls", () => {
       );
       expect(res.status).toBe(401);
     }
+    // None of them was counted: a signed-in user at the same address still gets through.
+    const { cookie } = await signIn("signed-out-ip");
+    expect((await requestUpload(cookie, UPLOAD_TOKEN, ip)).status).toBe(200);
   });
 
   it("A failing rate limiter lets a request through and logs no user, IP or key", async () => {

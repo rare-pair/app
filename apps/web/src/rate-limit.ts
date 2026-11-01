@@ -2,6 +2,7 @@
 // controls), shared by every limited route: sign-in now, then uploads, search, removal
 // requests and the wait list. Each route passes its own binding and key.
 
+import type { Context } from "hono";
 import { tooManyRequestsPage } from "./pages";
 
 /** The sign-in limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
@@ -15,6 +16,17 @@ export const DMCA_WINDOW_SECONDS = 60;
 
 /** The removal form's limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
 export const REMOVE_WINDOW_SECONDS = 60;
+
+/**
+ * A 429 for a script endpoint: `{ error, retryAfter }` as JSON, `Retry-After` the same whole
+ * seconds, and `no-store`.
+ */
+export function tooManyRequestsJson(c: Context, error: string, retryAfter: number): Response {
+  return c.json({ error, retryAfter }, 429, {
+    "Cache-Control": "no-store",
+    "Retry-After": String(retryAfter),
+  });
+}
 
 /** The upload limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
 export const UPLOAD_WINDOW_SECONDS = 60;
