@@ -85,16 +85,22 @@ export function safeWarningsNext(id: number, next: string | undefined) {
 
 // Whether the work gets the screen for this reader: it needs one, and a signed-in
 // reader hasn't turned it off on their account.
-const screenApplies = (c: ReaderContext, live: LiveWork) =>
+export const screenApplies = (c: ReaderContext, live: LiveWork) =>
   needsWarnings(live) && c.var.session?.user.warningsOff !== true;
 
 /**
  * The redirect to the screen for a reader who hasn't seen it, or null to read on.
  * `next` is the page asked for, built by the caller from numbers.
  */
-export function warningsRedirect(c: ReaderContext, live: LiveWork, next: string) {
-  const id = live.work.ao3_work_id;
-  if (!screenApplies(c, live) || warnedIds(c).includes(id)) return null;
+export const warningsRedirect = (c: ReaderContext, live: LiveWork, next: string) =>
+  screenRedirect(c, live.work.ao3_work_id, screenApplies(c, live), next);
+
+/**
+ * The same redirect, or null, for work `id` when whether the screen `applies` is already
+ * known: the edge-cached chapter page keeps it, since a hit reads no work.
+ */
+export function screenRedirect(c: ReaderContext, id: number, applies: boolean, next: string) {
+  if (!applies || warnedIds(c).includes(id)) return null;
   c.header("Cache-Control", "private, no-store");
   return c.redirect(`/works/${id}/warnings?next=${encodeURIComponent(next)}`, 302);
 }

@@ -154,3 +154,67 @@ export function cachedFragments(
     },
   };
 }
+
+/** How long a chapter page is kept at the edge (operator ruling on #54). */
+const PAGE_CACHE_CONTROL = "public, max-age=60";
+
+/**
+ * A chapter page as the edge cache keeps it: everything the handler built from the
+ * database, and nothing from the request. No nonce and no fragment: each response is
+ * built around its own nonce, with the fragment read through the fragment cache.
+ */
+export interface ChapterPage {
+  /** The work's AO3 ID and the chapter's number, as in the key. */
+  id: number;
+  n: number;
+  /** The document's title, and the reader bar that is its one h1. */
+  title: string;
+  bar: string;
+  /** The page's main content before the chapter's article and after it. */
+  top: string;
+  bottom: string;
+  /** The chapter's fragment, and its version's prefix, to check its key again. */
+  fragment: FragmentRef;
+  prefix: string;
+  /** Whether the work gets the warnings screen. A signed-out reader can't turn it off. */
+  screen: boolean;
+}
+
+/**
+ * The page entry's shape, raised whenever `ChapterPage` changes, so an entry an earlier
+ * deploy left is a miss rather than a page built from the wrong fields.
+ */
+const PAGE_FORMAT = 1;
+
+/** What a page entry holds. Only this Worker writes it. */
+interface StoredPage {
+  format: number;
+  page: ChapterPage;
+}
+
+/**
+ * The edge-cached page for chapter `n` of work `id`, or null. An entry of another
+ * format, for another chapter, or that doesn't parse is a miss.
+ */
+export async function cachedChapterPage(cache: Cache, id: number, n: number) {
+  const hit = await matchEntry(cache, chapterPageKey(id, n));
+  if (!hit) return null;
+  try {
+    const { format, page } = await hit.json<StoredPage>();
+    const same = (ref: { id: number; n: number }) => ref.id === id && ref.n === n;
+    return format === PAGE_FORMAT && same(page) && same(page.fragment) ? page : null;
+  } catch (error) {
+    logFailure("entry", error);
+    return null;
+  }
+}
+
+/** Keeps `page` at the edge for 60 s, tagged with its work. */
+export function storeChapterPage(cache: Cache, page: ChapterPage) {
+  const stored: StoredPage = { format: PAGE_FORMAT, page };
+  return putEntry(
+    cache,
+    chapterPageKey(page.id, page.n),
+    entry(JSON.stringify(stored), page.id, PAGE_CACHE_CONTROL, "application/json"),
+  );
+}

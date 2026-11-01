@@ -3,7 +3,7 @@ import { putFragments, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
 import { fragmentCacheKey } from "../src/edge-cache";
-import { fetchW } from "./helpers";
+import { STRICT, fetchW, nonceOf, withoutNonce } from "./helpers";
 
 // Every work here has an AO3 work ID in 25000-25099 and tags named r7-..., so no other
 // test file sharing the database sees them. The Cache API keeps its entries from one
@@ -37,7 +37,58 @@ async function kept(key: string) {
 const articlesOf = (html: string) =>
   [...html.matchAll(/<article class="chapter">([\s\S]*?)<\/article>/g)].map(([, inner]) => inner);
 
+/** Seeds a work with two chapters and puts its fragments in R2. */
+async function seedTwoChapters(ao3WorkId: number, tags = GENERAL) {
+  const w = await seedWork(db, {
+    ao3WorkId,
+    title: `R7 work ${ao3WorkId}`,
+    tags,
+    chapters: [{ html: `<p>R7-${ao3WorkId}-ONE</p>` }, { html: `<p>R7-${ao3WorkId}-TWO</p>` }],
+  });
+  await putFragments(env.BUCKET, w.fragments);
+  return w;
+}
+
+/** Renames a work in the database, so a page built after it shows the new title. */
+const rename = (ao3WorkId: number, title: string) =>
+  db.updateTable("works").set({ title }).where("ao3_work_id", "=", ao3WorkId).execute();
+
+/** Every `nonce="..."` value in a page's markup. */
+const bodyNonces = (html: string) => [...html.matchAll(/nonce="([^"]*)"/g)].map(([, n]) => n);
+
 describe("11 reader and CSP", () => {
+  it("Fresh nonce on edge-cached pages for signed-out readers", async () => {
+    await seedTwoChapters(25010);
+    const url = chapterUrl(25010, 1);
+
+    const first = await fetchW(url);
+    expect(first.status).toBe(200);
+    const firstHtml = await first.text();
+    // Changed after the first read: a page from the edge cache still has the old title.
+    await rename(25010, "R7 renamed 25010");
+    const second = await fetchW(url);
+    expect(second.status).toBe(200);
+    const secondHtml = await second.text();
+    expect(secondHtml).toContain("R7 work 25010");
+    expect(secondHtml).not.toContain("R7 renamed 25010");
+
+    // Each response carries its own nonce, in its CSP and on every script it has.
+    const n1 = nonceOf(first.headers.get("content-security-policy"));
+    const n2 = nonceOf(second.headers.get("content-security-policy"));
+    expect(n1).toMatch(/^[A-Za-z0-9+/]{22}==$/);
+    expect(n2).toMatch(/^[A-Za-z0-9+/]{22}==$/);
+    expect(n2).not.toBe(n1);
+    expect(bodyNonces(firstHtml).length).toBeGreaterThan(0);
+    expect(new Set(bodyNonces(firstHtml))).toEqual(new Set([n1]));
+    expect(new Set(bodyNonces(secondHtml))).toEqual(new Set([n2]));
+    expect(secondHtml).not.toContain(n1!);
+    // Otherwise the same page, and the browser keeps neither.
+    expect(secondHtml.replaceAll(n2!, "{n}")).toBe(firstHtml.replaceAll(n1!, "{n}"));
+    expect(first.headers.get("cache-control")).toBe("private, no-store");
+    expect(second.headers.get("cache-control")).toBe("private, no-store");
+    expect(withoutNonce(second.headers.get("content-security-policy"))).toBe(STRICT);
+  });
+
   it("Same fragment serves every reader", async () => {
     const w = await seedWork(db, {
       ao3WorkId: 25001,
