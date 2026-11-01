@@ -454,7 +454,25 @@ export const versionsOf = (ao3WorkId: number) =>
       .executeTakeFirstOrThrow();
     const versions = await db
       .selectFrom("work_versions")
-      .select(["id", "upload_id", "r2_prefix", "chapter_count", "tags", "authors"])
+      .select([
+        "id",
+        "upload_id",
+        "r2_prefix",
+        "chapter_count",
+        "chapter_total",
+        "tags",
+        "authors",
+        "title",
+        "summary_html",
+        "rating",
+        "language",
+        "words",
+        "complete",
+        "published_at",
+        "updated_at",
+        "raw_meta",
+        "hold_reason",
+      ])
       .where("work_id", "=", work.id)
       .execute();
     const chapters = await db

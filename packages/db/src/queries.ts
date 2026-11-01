@@ -14,6 +14,7 @@ import type {
 } from "./schema";
 import { inTransaction, logModerationAction } from "./moderation-actions";
 import { compareCodeUnits, normalizeTagName } from "./tags";
+import { copyVersionToWork } from "./version-copy";
 
 /** A work's own fields, as a page shows them. */
 export type WorkSummary = Pick<
@@ -827,6 +828,57 @@ export async function restoreWork(
         action: "restore",
         targetKind: "work",
         targetId: workId,
+      });
+    }
+    return true;
+  });
+}
+
+/**
+ * Makes one of a work's versions current: moves `current_version_id` to it and makes the
+ * work describe it (`copyVersionToWork`: its non-NULL columns, its byline and tags, the
+ * search text), in one transaction. True when the version is current afterwards. A removed
+ * work, or one ingest is still finishing (it sets the version itself), is left as it is:
+ * false. A version already current is left as it is: true, with nothing written. Otherwise the
+ * work's row is locked (for no key update, the lock ingest's compare-and-swap takes) before
+ * any tag row, and every change to the work comes with the pointer's move, so a replace, hold
+ * or duplicate that read the old pointer fails its pointer check and decides again. It doesn't check
+ * the version's upload: the caller decides whether a held version may become current (only
+ * an approval makes one current).
+ *
+ * With `actor`, the acting moderator's user id, it also logs `make_current` on the version
+ * when the pointer moved. It runs in the caller's transaction when `db` is one.
+ */
+export async function makeVersionCurrent(
+  db: Kysely<Database>,
+  workId: string,
+  versionId: string,
+  options: { actor?: string } = {},
+): Promise<boolean> {
+  return inTransaction(db, async (trx) => {
+    const work = await trx
+      .selectFrom("works")
+      .select("current_version_id")
+      .where("id", "=", workId)
+      .where("status", "in", ["live", "hidden"])
+      .forNoKeyUpdate()
+      .executeTakeFirst();
+    if (work === undefined) return false;
+    // Nothing changes, so nothing is written or logged: a copy without a pointer move would
+    // change the facts an ingest decided on without failing its pointer check.
+    if (work.current_version_id === versionId) return true;
+    await trx
+      .updateTable("works")
+      .set({ current_version_id: versionId })
+      .where("id", "=", workId)
+      .execute();
+    await copyVersionToWork(trx, workId, versionId);
+    if (options.actor !== undefined) {
+      await logModerationAction(trx, {
+        moderatorId: options.actor,
+        action: "make_current",
+        targetKind: "version",
+        targetId: versionId,
       });
     }
     return true;

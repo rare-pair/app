@@ -1,4 +1,4 @@
-import { createDb } from "@archive/db";
+import { createDb, searchLiveWorks } from "@archive/db";
 import { putFragments, seedVersion, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -129,6 +129,69 @@ describe("08 versioning and dedupe", () => {
     const chapter = await (await get(`/works/${W}/chapters/3`)).text();
     expect(chapter).toContain("mod4-v1-three");
     expect(await (await get(`/works/${W}/chapters/1`)).text()).not.toContain("mod4-v2-one");
+  });
+
+  it("A rollback makes the work page, byline, tags and search describe the version made current", async () => {
+    // W + 2: v1, replaced by a v2 with its own title, summary, byline and tags.
+    const first = await seedWork(db, {
+      ao3WorkId: W + 2,
+      title: "mod4-rollback-first Marigoldwick",
+      summary: "<p>mod4-summary-first</p>",
+      authors: [{ pseud: "mod4-first-pseud", ao3_user: "mod4_first" }],
+      tags: [
+        { type: "fandom", name: "mod4-Fandom" },
+        { type: "freeform", name: "mod4-first-tag" },
+      ],
+    });
+    const second = await seedVersion(db, first, {
+      title: "mod4-rollback-second Tungstenvale",
+      summary: "<p>mod4-summary-second</p>",
+      authors: [{ pseud: "mod4-second-pseud", ao3_user: "mod4_second" }],
+      tags: [
+        { type: "fandom", name: "mod4-Fandom" },
+        { type: "freeform", name: "mod4-second-tag" },
+      ],
+      chapters: 2,
+    });
+    await putFragments(env.BUCKET, [...first.fragments, ...second.fragments]);
+    expect(await (await get(`/works/${W + 2}`)).text()).toContain("mod4-rollback-second");
+
+    const res = await post(`/admin/works/${W + 2}/current`, moderator, {
+      version: first.versionId,
+    });
+    expect(await res.text()).toContain("That version is now current.");
+
+    const html = await (await get(`/works/${W + 2}`)).text();
+    for (const shown of [
+      "mod4-rollback-first",
+      "mod4-summary-first",
+      "mod4-first-pseud",
+      "mod4-first-tag",
+    ]) {
+      expect(html, shown).toContain(shown);
+    }
+    for (const gone of [
+      "mod4-rollback-second",
+      "mod4-summary-second",
+      "mod4-second-pseud",
+      "mod4-second-tag",
+    ]) {
+      expect(html, gone).not.toContain(gone);
+    }
+    const found = async (q: string) =>
+      (await searchLiveWorks(db, q)).works.map((x) => x.work.ao3_work_id);
+    expect(await found("Marigoldwick")).toContain(W + 2);
+    expect(await found("Tungstenvale")).not.toContain(W + 2);
+    // The moderator's action is logged on the version.
+    const logged = await db
+      .selectFrom("moderation_actions")
+      .innerJoin("user", "user.id", "moderation_actions.moderator_id")
+      .select(["user.email", "moderation_actions.action", "moderation_actions.target_kind"])
+      .where("moderation_actions.target_id", "=", first.versionId)
+      .execute();
+    expect(logged).toEqual([
+      { email: "mod4-moderator@example.test", action: "make_current", target_kind: "version" },
+    ]);
   });
 
   it("Make current refuses a held version and another work's version", async () => {
