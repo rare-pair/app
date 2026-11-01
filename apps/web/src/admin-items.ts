@@ -211,18 +211,12 @@ adminItems.post("/requests/:id{[A-Za-z0-9_-]+}/reject", async (c) => {
   if (!rejected) return decidedOrMissing(c, "requests", id);
   // The hide a request caused comes off, never a moderator's or the reports', and
   // not while another removal request for the work is still waiting.
-  let restored = false;
-  if (rejected.work_id !== null) {
-    const other = await c.var.db
-      .selectFrom("requests")
-      .select("id")
-      .where("work_id", "=", rejected.work_id)
-      .where("status", "=", "pending")
-      .executeTakeFirst();
-    if (!other) {
-      restored = await restoreWork(c.var.db, rejected.work_id, { cause: "removal_request" });
-    }
-  }
+  const restored =
+    rejected.work_id !== null &&
+    (await restoreWork(c.var.db, rejected.work_id, {
+      cause: "removal_request",
+      noPendingRequests: true,
+    }));
   return c.html(
     resultPage(
       restored ? "Rejected. The work is live again." : "Rejected.",

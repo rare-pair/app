@@ -45,6 +45,27 @@ describe("restoreWork", () => {
     expect(await state(same.workId)).toEqual({ status: "live", hidden_cause: null });
   });
 
+  it("With noPendingRequests, stays hidden while a request for it is pending", async () => {
+    const { workId } = await seedWork(t.db, { status: "hidden", hiddenCause: "removal_request" });
+    await t.db
+      .insertInto("requests")
+      .values({
+        kind: "remove_work",
+        work_id: workId,
+        contact_email: "restore-pending@example.test",
+        statement: "restore-pending",
+        ip_hash: "restore-ip-hash",
+      })
+      .execute();
+    expect(await restoreWork(t.db, workId, { noPendingRequests: true })).toBe(false);
+    await t.db
+      .updateTable("requests")
+      .set({ status: "rejected" })
+      .where("work_id", "=", workId)
+      .execute();
+    expect(await restoreWork(t.db, workId, { noPendingRequests: true })).toBe(true);
+  });
+
   it("Leaves a live or removed work as it is", async () => {
     const live = await seedWork(t.db);
     const removed = await seedWork(t.db, { status: "removed" });

@@ -514,14 +514,15 @@ export async function hideWork(
  * reports in the same transaction, so they stop counting toward `hideWork`'s
  * reporter count and the next report doesn't hide it again. True when it
  * restored it. With `cause`, only a work hidden for that cause comes back (a
- * rejected removal request lifts its own hide, not a moderator's). A live or
+ * rejected removal request lifts its own hide, not a moderator's). With
+ * `noPendingRequests`, it stays hidden while any request for it is pending. A live or
  * removed work is left as it is (a hidden work always has
  * a current version: the schema's check, so it can't come back without one).
  */
 export async function restoreWork(
   db: Kysely<Database>,
   workId: string,
-  options: { cause?: HiddenCause } = {},
+  options: { cause?: HiddenCause; noPendingRequests?: boolean } = {},
 ): Promise<boolean> {
   return db.transaction().execute(async (trx) => {
     let update = trx
@@ -530,6 +531,21 @@ export async function restoreWork(
       .where("id", "=", workId)
       .where("status", "=", "hidden");
     if (options.cause !== undefined) update = update.where("hidden_cause", "=", options.cause);
+    // In the UPDATE itself, so two moderators deciding the last two requests at once
+    // can't each see the other's as pending and leave the work hidden.
+    if (options.noPendingRequests === true) {
+      update = update.where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom("requests")
+              .select("requests.id")
+              .where("requests.work_id", "=", workId)
+              .where("requests.status", "=", "pending"),
+          ),
+        ),
+      );
+    }
     const result = await update.executeTakeFirst();
     if (result.numUpdatedRows === 0n) return false;
     await trx
