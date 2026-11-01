@@ -481,7 +481,9 @@ const countedReporters = (workId: string) => sql<number>`(
 /**
  * Hides a `live` work with its cause, in one UPDATE that sets the status and
  * the cause together, as the schema's check requires. True when it hid it. A
- * hidden or removed work is left as it is, so no cause is overwritten.
+ * hidden or removed work is left as it is, so no cause is overwritten, with one
+ * exception: a moderator's hide takes over a hidden work's cause (a moderator has
+ * looked at it, so an auto-hide no longer decides when it comes back).
  *
  * With `minReporters`, the work is hidden only when that many accounts have
  * counted reports (see `countedReporters`). The count sits inside the UPDATE,
@@ -498,10 +500,37 @@ export async function hideWork(
     .updateTable("works")
     .set({ status: "hidden", hidden_cause: cause })
     .where("id", "=", workId)
-    .where("status", "=", "live");
+    .where("status", "in", cause === "moderator" ? ["live", "hidden"] : ["live"]);
   if (options.minReporters !== undefined) {
     update = update.where(sql<boolean>`${countedReporters(workId)} >= ${options.minReporters}`);
   }
   const result = await update.executeTakeFirst();
   return result.numUpdatedRows > 0n;
+}
+
+/**
+ * Makes a `hidden` work `live` again and clears its cause, in one UPDATE (the
+ * schema's check allows a cause only while hidden), then closes the work's open
+ * reports in the same transaction, so they stop counting toward `hideWork`'s
+ * reporter count and the next report doesn't hide it again. True when it
+ * restored it. A live or removed work is left as it is (a hidden work always has
+ * a current version: the schema's check, so it can't come back without one).
+ */
+export async function restoreWork(db: Kysely<Database>, workId: string): Promise<boolean> {
+  return db.transaction().execute(async (trx) => {
+    const result = await trx
+      .updateTable("works")
+      .set({ status: "live", hidden_cause: null })
+      .where("id", "=", workId)
+      .where("status", "=", "hidden")
+      .executeTakeFirst();
+    if (result.numUpdatedRows === 0n) return false;
+    await trx
+      .updateTable("reports")
+      .set({ status: "closed" })
+      .where("work_id", "=", workId)
+      .where("status", "=", "open")
+      .execute();
+    return true;
+  });
 }

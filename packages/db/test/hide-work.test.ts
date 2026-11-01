@@ -82,3 +82,17 @@ describe("hideWork", () => {
     expect((await state(workId)).status).toBe("live");
   });
 });
+
+describe("hideWork by a moderator", () => {
+  it("Switches the cause of a hidden work to moderator", async () => {
+    const { workId } = await seedWork(t.db, { status: "hidden", hiddenCause: "reports" });
+    expect(await hideWork(t.db, workId, "moderator")).toBe(true);
+    expect(await state(workId)).toEqual({ status: "hidden", hidden_cause: "moderator" });
+  });
+
+  it("Leaves a removed work removed", async () => {
+    const { workId } = await seedWork(t.db, { status: "removed" });
+    expect(await hideWork(t.db, workId, "moderator")).toBe(false);
+    expect((await state(workId)).status).toBe("removed");
+  });
+});
