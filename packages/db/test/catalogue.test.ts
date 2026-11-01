@@ -80,6 +80,7 @@ const expected = {
     bytes: { type: "int4", nullable: false },
     status: { type: "text", nullable: false },
     lease_until: { type: "timestamptz", nullable: true },
+    quota_counted_at: { type: "timestamptz", nullable: true },
     error_stage: { type: "text", nullable: true },
     error: { type: "text", nullable: true },
     work_id: { type: "text", nullable: true },

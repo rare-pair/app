@@ -1,6 +1,7 @@
 import { createDb, insertUpload } from "@archive/db";
 import { seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
+import { sql } from "kysely";
 import { afterAll, describe, expect, it } from "vitest";
 import { deliveredIngest, fetchW, postLogin, signIn as signInAs } from "./helpers";
 
@@ -289,5 +290,144 @@ describe("02-upload-confirm refusals", () => {
     await expectRefused(await complete(up.id, { cookie }), 409);
     await queueDrained(userId, cookie);
     expect(await ingestFor(up.id)).toHaveLength(1);
+  });
+});
+
+// U4: the daily quota counts the uploads that reach confirm, and the hard cap is enforced here.
+// The tiers' numbers are wrangler.jsonc's vars, so the tests follow them.
+const NEW_LIMIT = Number(env.UPLOAD_QUOTA_NEW);
+const TRUSTED_LIMIT = Number(env.UPLOAD_QUOTA_TRUSTED);
+// The database's UTC day, the clock the quota itself uses: never the JS clock, which can
+// disagree with it for a moment around 00:00 UTC.
+const today = sql<string>`(now() at time zone 'utc')::date`;
+
+const setUsedToday = (userId: string, used: number) =>
+  db
+    .updateTable("user")
+    .set({ upload_quota_used: used, upload_quota_day: today })
+    .where("id", "=", userId)
+    .execute();
+
+const usedOf = async (userId: string) =>
+  (
+    await db
+      .selectFrom("user")
+      .select("upload_quota_used")
+      .where("id", "=", userId)
+      .executeTakeFirstOrThrow()
+  ).upload_quota_used;
+
+/** A 429 that says when to come back: the header and the JSON agree, and it is under a day. */
+async function expectSpent(res: Response) {
+  await expectRefused(res.clone(), 429);
+  const seconds = Number(res.headers.get("retry-after"));
+  expect(Number.isInteger(seconds)).toBe(true);
+  expect(seconds).toBeGreaterThanOrEqual(1);
+  expect(seconds).toBeLessThanOrEqual(86400);
+  // SAFETY: the 429 answers JSON.
+  const body = (await res.json()) as { error?: string; retryAfter?: number };
+  expect(body.retryAfter).toBe(seconds);
+  expect(body.error).toMatch(/midnight UTC/);
+}
+
+describe("19-surge-controls-and-quotas", () => {
+  it("Daily quota allows uploads up to the limit", async () => {
+    const { userId, cookie } = await signIn("u4-up-to-limit@example.test");
+    await setUsedToday(userId, NEW_LIMIT - 1);
+    const last = await uploaded(userId, randomBytes());
+    expect((await complete(last.id, { cookie })).status).toBe(200);
+    expect(await ingestFor(last.id)).toEqual([{ upload_id: last.id }]);
+    expect(await usedOf(userId)).toBe(NEW_LIMIT);
+  });
+
+  it("Daily quota refuses uploads past the limit", async () => {
+    const { userId, cookie } = await signIn("u4-past-limit@example.test");
+    await setUsedToday(userId, NEW_LIMIT);
+    const over = await uploaded(userId, randomBytes());
+    await expectSpent(await complete(over.id, { cookie }));
+    // Refused before the object is read: not counted, not queued, the object is deleted and
+    // the upload marked, so a spent quota can't pile up stored files.
+    expect(await usedOf(userId)).toBe(NEW_LIMIT);
+    expect(await env.BUCKET.head(over.key)).toBeNull();
+    expect((await rowOf(over.id)).status).toBe("over_quota");
+    const control = await signIn("u4-past-limit-control@example.test");
+    await queueDrained(control.userId, control.cookie);
+    expect(await ingestSent(over.id)).toEqual([]);
+  });
+
+  it("Confirming the same upload twice at once with one use left counts it once and queues it", async () => {
+    const { userId, cookie } = await signIn("u4-same-upload@example.test");
+    await setUsedToday(userId, NEW_LIMIT - 1);
+    const up = await uploaded(userId, randomBytes());
+    const replies = await Promise.all([complete(up.id, { cookie }), complete(up.id, { cookie })]);
+    expect(replies.map((r) => r.status)).toEqual([200, 200]);
+    expect(await usedOf(userId)).toBe(NEW_LIMIT);
+    // Neither request rejected the other's upload or deleted its object.
+    expect((await rowOf(up.id)).status).toBe("pending");
+    expect(await env.BUCKET.head(up.key)).not.toBeNull();
+    expect(await ingestFor(up.id)).not.toEqual([]);
+  });
+
+  it("Quota is a hard limit under concurrency", async () => {
+    const { userId, cookie } = await signIn("u4-concurrent@example.test");
+    await setUsedToday(userId, NEW_LIMIT - 1);
+    const a = await uploaded(userId, randomBytes());
+    const b = await uploaded(userId, randomBytes());
+    const [ra, rb] = await Promise.all([complete(a.id, { cookie }), complete(b.id, { cookie })]);
+    expect([ra.status, rb.status].sort((x, y) => x - y)).toEqual([200, 429]);
+    expect(await usedOf(userId)).toBe(NEW_LIMIT);
+    // Only the winner is queued. The loser is refused at the early check or at the count,
+    // and either way is marked over quota and not queued.
+    const [winner, loser] = ra.status === 200 ? [a, b] : [b, a];
+    expect(await ingestFor(winner.id)).toEqual([{ upload_id: winner.id }]);
+    expect(await ingestSent(loser.id)).toEqual([]);
+    expect((await rowOf(loser.id)).status).toBe("over_quota");
+  });
+
+  it("Brand-new accounts get the lower quota", async () => {
+    const { userId, cookie } = await signIn("u4-new-tier@example.test");
+    // A brand-new account has used nothing, and is stopped at the new-account limit.
+    expect(await usedOf(userId)).toBe(0);
+    await setUsedToday(userId, NEW_LIMIT);
+    await expectSpent(await complete((await uploaded(userId, randomBytes())).id, { cookie }));
+  });
+
+  it("Trusted users get the higher quota", async () => {
+    const { userId, cookie } = await signIn("u4-trusted-tier@example.test");
+    await db.updateTable("user").set({ role: "moderator" }).where("id", "=", userId).execute();
+    expect(TRUSTED_LIMIT).toBeGreaterThan(NEW_LIMIT);
+    // Past the new-account limit, within the trusted one.
+    await setUsedToday(userId, NEW_LIMIT);
+    const up = await uploaded(userId, randomBytes());
+    expect((await complete(up.id, { cookie })).status).toBe(200);
+    await setUsedToday(userId, TRUSTED_LIMIT);
+    await expectSpent(await complete((await uploaded(userId, randomBytes())).id, { cookie }));
+  });
+
+  it("A new UTC day starts the count again", async () => {
+    const { userId, cookie } = await signIn("u4-new-day@example.test");
+    await db
+      .updateTable("user")
+      .set({ upload_quota_used: NEW_LIMIT, upload_quota_day: "2000-01-01" })
+      .where("id", "=", userId)
+      .execute();
+    expect((await complete((await uploaded(userId, randomBytes())).id, { cookie })).status).toBe(
+      200,
+    );
+    expect(await usedOf(userId)).toBe(1);
+  });
+
+  it("A duplicate is not counted: it costs no ingest", async () => {
+    const { userId, cookie } = await signIn("u4-duplicate@example.test");
+    const bytes = randomBytes(3000);
+    const w = await seedWork(db, {});
+    await db
+      .updateTable("uploads")
+      .set({ sha256: await sha256Hex(bytes) })
+      .where("id", "=", w.uploadId)
+      .execute();
+    const up = await uploaded(userId, bytes);
+    expect(await (await complete(up.id, { cookie })).json()).toEqual({ status: "duplicate" });
+    expect(await usedOf(userId)).toBe(0);
   });
 });

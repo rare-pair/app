@@ -8,6 +8,7 @@ import m0005 from "./0005_chapter_total_and_author_order";
 import m0006 from "./0006_waitlist";
 import m0007 from "./0007_dmca_notice_elements";
 import m0008 from "./0008_search";
+import m0009 from "./0009_upload_quota_day";
 import m0010 from "./0010_version_tags_and_authors";
 
 export const migrations: ReadonlyArray<{ name: string; sql: string }> = [
@@ -19,5 +20,6 @@ export const migrations: ReadonlyArray<{ name: string; sql: string }> = [
   { name: "0006_waitlist", sql: m0006 },
   { name: "0007_dmca_notice_elements", sql: m0007 },
   { name: "0008_search", sql: m0008 },
+  { name: "0009_upload_quota_day", sql: m0009 },
   { name: "0010_version_tags_and_authors", sql: m0010 },
 ];

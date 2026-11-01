@@ -43,7 +43,7 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 - AND the upload page shows the error
 
 ### Upload request over the daily quota is refused
-- GIVEN user U who has used all of today's upload quota
+- GIVEN user U who has used all of today's upload quota (the uploads U has confirmed; see scenario 19)
 - WHEN U calls `POST /uploads`
 - THEN the response is 429 with a `Retry-After` header, with no `uploads` row inserted and no presigned URL returned
 - AND the upload page says when U can upload again
