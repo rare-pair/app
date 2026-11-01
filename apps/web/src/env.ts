@@ -29,6 +29,10 @@ export type Bindings = {
   WAITLIST_EMAIL_LIMIT: RateLimit;
   /** `POST /dmca` requests per client IP (src/rate-limit.ts). */
   DMCA_IP_LIMIT: RateLimit;
+  /** `POST /uploads` requests per signed-in user (src/rate-limit.ts). */
+  UPLOAD_USER_LIMIT: RateLimit;
+  /** `POST /uploads` requests per client IP (src/rate-limit.ts). */
+  UPLOAD_IP_LIMIT: RateLimit;
   /** `POST /remove` requests per client IP (src/rate-limit.ts). */
   REMOVE_IP_LIMIT: RateLimit;
   /** `POST /remove` requests per contact email address (src/rate-limit.ts). */

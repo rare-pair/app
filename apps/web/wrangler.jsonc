@@ -95,6 +95,17 @@
       "namespace_id": "1031",
       "simple": { "limit": 3, "period": 60 },
     },
+    // POST /uploads, per signed-in user and per client IP, both counted before the form is read,
+    // so a flood costs neither a body nor a Turnstile check, and a refused request counts. First
+    // values (user 20, so a new account's whole daily quota fits one window; IP 40), to be revisited before launch: a shared office or school IP may
+    // want a higher IP limit. The Postgres count is the daily quota (ARCHITECTURE, Surge
+    // controls); this binding is only approximate and per location.
+    {
+      "name": "UPLOAD_USER_LIMIT",
+      "namespace_id": "1010",
+      "simple": { "limit": 20, "period": 60 },
+    },
+    { "name": "UPLOAD_IP_LIMIT", "namespace_id": "1011", "simple": { "limit": 40, "period": 60 } },
   ],
   "vars": {
     // "on" until the archive opens (ARCHITECTURE, Wait list): / is the coming-soon

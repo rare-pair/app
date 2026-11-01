@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { isModerator } from "./admin";
+import { tooManyRequestsJson } from "./rate-limit";
 
 // The daily upload quota's pure parts (ARCHITECTURE, Surge controls). The count is kept in
 // Postgres (`useUploadQuota` in @archive/db); the day is the UTC calendar day.
@@ -51,8 +52,5 @@ export function quotaSpentMessage(seconds: number): string {
  */
 export function quotaSpent(c: Context): Response {
   const retryAfter = secondsToReset(new Date());
-  return c.json({ error: quotaSpentMessage(retryAfter), retryAfter }, 429, {
-    "Cache-Control": "no-store",
-    "Retry-After": String(retryAfter),
-  });
+  return tooManyRequestsJson(c, quotaSpentMessage(retryAfter), retryAfter);
 }

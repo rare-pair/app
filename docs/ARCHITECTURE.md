@@ -185,8 +185,10 @@ request and to every byline at ingest.
    the declared size (25 MB or less). The upload page's script calls it, so a
    signed-out request gets 401 rather than a redirect it can't follow (the
    page itself redirects to sign in), a failed or missing Turnstile token gets 400, a declared size over
-   25 MB gets 413 and a spent quota gets 429 with `Retry-After` (Surge
-   controls); the upload page shows the message. Otherwise it inserts an
+   25 MB gets 413, and a spent quota gets 429 with `Retry-After` (Surge
+   controls). A request over the per-user or per-IP rate limit gets the same 429,
+   counted right after the session check, before the form is read. The reply is
+   JSON `{ error, retryAfter }`, and the upload page shows the message. Otherwise it inserts an
    `uploads` row and returns a presigned R2 `PUT` URL, valid for 10 minutes
    and locked to `Content-Type: application/epub+zip`. R2 presigned URLs support PUT but not
    form POST, and the bucket needs a CORS rule for `rarepair.fans`.
@@ -854,7 +856,8 @@ markup: its inline `style` attributes become stylesheet rules, because
   requests). It's approximate and counts per Cloudflare location, over 10- or
   60-second windows. That's fine for slowing abuse, but not for hard limits.
 - **Status codes.** A rate limit or quota that is hit returns **429** with
-  `Retry-After` and a plain page saying when to try again. A failed or missing
+  `Retry-After` and a plain page saying when to try again (`POST /uploads`, which a
+  script calls, answers JSON `{ error, retryAfter }` instead). A failed or missing
   Turnstile token returns **400** and shows the form again with an error (as does
   a 503 when Turnstile can't be reached and a 413 for a body too large; the form
   may hold what was typed, so each is sent `Cache-Control: no-store`), and

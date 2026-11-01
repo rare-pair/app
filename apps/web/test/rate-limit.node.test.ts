@@ -8,6 +8,8 @@ import {
   LOGIN_WINDOW_SECONDS,
   REMOVE_WINDOW_SECONDS,
   tooManyRequests,
+  UPLOAD_WINDOW_SECONDS,
+  userKey,
   WAITLIST_WINDOW_SECONDS,
 } from "../src/rate-limit";
 import {
@@ -16,6 +18,8 @@ import {
   LOGIN_IP_LIMIT,
   REMOVE_EMAIL_LIMIT,
   REMOVE_IP_LIMIT,
+  UPLOAD_IP_LIMIT,
+  UPLOAD_USER_LIMIT,
   WAITLIST_EMAIL_LIMIT,
   WAITLIST_FLOOR_MIN_MS,
   WAITLIST_IP_LIMIT,
@@ -118,6 +122,20 @@ describe("emailKey", () => {
   });
 });
 
+describe("userKey", () => {
+  it("keys a user on the id as given, apart from other users and other limits", async () => {
+    const key = await userKey("upload", "user-1");
+    expect(await userKey("upload", "user-1")).toBe(key);
+    expect(await userKey("upload", "User-1")).not.toBe(key);
+    expect(await userKey("upload", "user-2")).not.toBe(key);
+    expect(await userKey("other", "user-1")).not.toBe(key);
+    expect(key).toMatch(/^[0-9a-f]{64}$/);
+    expect(key).not.toContain("user-1");
+    // The same text as an IP can't share a counter.
+    expect(await userKey("upload", "192.0.2.1")).not.toBe(await ipKey("upload", "192.0.2.1"));
+  });
+});
+
 describe("isLimited", () => {
   it("is limited only when the binding says the request is over", async () => {
     expect(await isLimited({ limit: async () => ({ success: true }) }, "k")).toBe(false);
@@ -164,7 +182,14 @@ describe("the rate limits in wrangler.jsonc", () => {
       DMCA_IP_LIMIT: { limit: DMCA_IP_LIMIT, period: DMCA_WINDOW_SECONDS },
       REMOVE_IP_LIMIT: { limit: REMOVE_IP_LIMIT, period: REMOVE_WINDOW_SECONDS },
       REMOVE_EMAIL_LIMIT: { limit: REMOVE_EMAIL_LIMIT, period: REMOVE_WINDOW_SECONDS },
+      UPLOAD_USER_LIMIT: { limit: UPLOAD_USER_LIMIT, period: UPLOAD_WINDOW_SECONDS },
+      UPLOAD_IP_LIMIT: { limit: UPLOAD_IP_LIMIT, period: UPLOAD_WINDOW_SECONDS },
     });
+  });
+
+  it("let two users each spend half the upload IP limit, which the upload test relies on", () => {
+    expect(UPLOAD_IP_LIMIT % 2).toBe(0);
+    expect(UPLOAD_IP_LIMIT / 2).toBeLessThanOrEqual(UPLOAD_USER_LIMIT);
   });
 
   it("set the wait list's response-time floor no lower than the least the design allows", () => {

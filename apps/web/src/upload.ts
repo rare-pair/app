@@ -7,6 +7,13 @@ import { presignPut } from "./presign";
 import { limitFor, quotaSpent } from "./quota";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
+import {
+  ipKey,
+  isLimited,
+  tooManyRequestsJson,
+  UPLOAD_WINDOW_SECONDS,
+  userKey,
+} from "./rate-limit";
 import { isSameOrigin } from "./signin";
 import { TURNSTILE_ACTIONS, verifyTurnstile } from "./turnstile";
 import { EPUB_TYPE, MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./upload-limit";
@@ -65,7 +72,19 @@ export async function requestUpload(c: UploadContext) {
   // A script can't follow a sign-in redirect, so it gets a 401 to act on.
   const user = c.var.session?.user;
   if (user === undefined) return refuse(401, "Sign in to upload.");
-  // U5: the per-user upload rate limit goes here, before the body is read.
+  // The user first, so one user over their limit can't spend the budget of an address others share.
+  // Counted before the body is read, so a flood costs no body, no Turnstile check and no row.
+  const clientIp = c.req.header("cf-connecting-ip") ?? null;
+  if (
+    (await isLimited(c.env.UPLOAD_USER_LIMIT, await userKey("upload", user.id))) ||
+    (await isLimited(c.env.UPLOAD_IP_LIMIT, await ipKey("upload", clientIp)))
+  ) {
+    return tooManyRequestsJson(
+      c,
+      "You're uploading too fast. Please wait a moment and try again.",
+      UPLOAD_WINDOW_SECONDS,
+    );
+  }
 
   const form = await readForm(c.req.raw);
   if (form === null) return refuse(413, "That request was too large. Please try again.");
@@ -84,7 +103,7 @@ export async function requestUpload(c: UploadContext) {
     secret: c.env.TURNSTILE_SECRET_KEY,
     hostname: new URL(c.req.url).hostname,
     action: TURNSTILE_ACTIONS.upload,
-    remoteIp: c.req.header("cf-connecting-ip") ?? null,
+    remoteIp: clientIp,
   });
   if (turnstile === "failed") {
     return refuse(400, "The anti-spam check did not pass. Please try again.");
