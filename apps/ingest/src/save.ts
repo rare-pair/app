@@ -36,7 +36,9 @@ const ROWS_PER_INSERT = 1_000;
 
 /**
  * Saves the first upload of a work, in the order ingest promises (ARCHITECTURE, EPUB
- * processor, step 8): the chapter fragments under the upload's own prefix, then the raw file
+ * processor, step 8): the chapter fragments under the upload's own prefix, the images under
+ * the work's shared `img/` prefix (keyed by their bytes, left for the periodic sweep when no
+ * version references them), then the raw file
  * to `originals/`, then one Postgres transaction that creates the work and its version and
  * sets it `live` last. A failure before or inside the transaction leaves no rows, only R2
  * objects: under keys a retry overwrites when it is worth one, and left for the cleanup
