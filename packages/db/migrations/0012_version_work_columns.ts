@@ -4,7 +4,8 @@
 // non-NULL fields onto it. The counts were already per version (`chapter_count`,
 // `chapter_total`). The current version of each work is backfilled from the work, and its tags
 // and byline from `work_tags` and `work_authors` where migration 0010 left them NULL; every
-// other version written before this stays NULL, as nothing records what its file had.
+// other version written before this stays NULL, as nothing records what its file had, and
+// a version held before this has no hold reason (the decision's inputs aren't kept).
 // Add-only: never edit this file once merged.
 export default /* sql */ `
 alter table "work_versions" add column "title" text;

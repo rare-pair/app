@@ -226,6 +226,19 @@ function uniqueTags(tags: { type: TagType; name: string }[]): VersionColumns["ta
   });
 }
 
+/**
+ * The tags with their rating tag replaced by `rating`'s, as ingest derives it from the file:
+ * unchanged when `rating` is undefined.
+ */
+function withRating(
+  tags: VersionColumns["tags"],
+  rating: string | null | undefined,
+): VersionColumns["tags"] {
+  if (rating === undefined) return tags;
+  const rest = tags.filter((t) => t.type !== "rating");
+  return rating === null ? rest : [{ type: "rating", name: rating }, ...rest];
+}
+
 /** The work's current columns, byline and tags, with any the options give in their place. */
 async function currentColumns(
   trx: Transaction<Database>,
@@ -270,7 +283,7 @@ async function currentColumns(
         ? (work.updated_at?.toISOString() ?? null)
         : options.updatedAt,
     authors: bylineOf(options) ?? authors,
-    tags: uniqueTags(options.tags ?? tags),
+    tags: uniqueTags(options.tags ?? withRating(tags, options.rating)),
   };
 }
 

@@ -270,6 +270,18 @@ describe("@archive/db/seed seedVersion", () => {
     expect(work?.tags.map((x) => [x.type, x.name])).toEqual([["freeform", "Seed After Tag"]]);
   });
 
+  it("A replacing version given only a rating carries it as its rating tag too", async () => {
+    const first = await seedWork(t.db, { tags: [{ type: "fandom", name: "Seed Rated Fandom" }] });
+    await seedVersion(t.db, first, { rating: "Mature" });
+
+    const work = await getLiveWork(t.db, first.ao3WorkId);
+    expect(work?.work.rating).toBe("Mature");
+    expect(work?.tags.map((x) => [x.type, x.name])).toEqual([
+      ["rating", "Mature"],
+      ["fandom", "Seed Rated Fandom"],
+    ]);
+  });
+
   it("A held version is kept but does not become current", async () => {
     const first = await seedWork(t.db);
     const held = await seedVersion(t.db, first, { current: false });

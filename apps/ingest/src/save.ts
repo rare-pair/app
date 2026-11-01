@@ -309,7 +309,8 @@ async function writeFirst(
   // written: the insert waits on the unique index for the other transaction, then conflicts.
   const row = await trx
     .insertInto("works")
-    .values({ ao3_work_id: ao3WorkId, ...workColumns(work) })
+    // The NOT NULL columns only: the copy below fills the work from its version.
+    .values({ ao3_work_id: ao3WorkId, title: work.title, chapters_count: 0, complete: false })
     .onConflict((oc) => oc.column("ao3_work_id").doNothing())
     .returning("id")
     .executeTakeFirst();

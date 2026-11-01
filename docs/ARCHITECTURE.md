@@ -127,7 +127,7 @@ work_versions(id, work_id, upload_id, chapter_count,
               published_at, updated_at, raw_meta jsonb,                -- columns, exactly as its file had them
                                       -- (NULL for a field it lacked); all NULL on a version saved
                                       -- before migration 0012 that wasn't current then
-              hold_reason NULL)       -- chapters_changed | tags_changed | authors_changed, on a held version
+              hold_reason NULL)       -- chapters_changed | tags_changed | authors_changed, on a version held since 0012
 chapters     (work_id, version_id, n, title, words, r2_key)
 tags         (id, type, name, name_norm) -- type: fandom|relationship|character|freeform|warning|category|rating
 work_tags    (work_id, tag_id,

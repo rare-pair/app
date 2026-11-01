@@ -173,7 +173,7 @@ export interface WorkVersionTable {
   updated_at: Timestamp | null;
   /** Write it with `JSON.stringify`. */
   raw_meta: ColumnType<Record<string, string> | null, string | null | undefined, string | null>;
-  /** Why ingest held this version for review. NULL for a version it didn't hold. */
+  /** Why ingest held this version for review. NULL for a version it didn't hold, and for one held before migration 0012. */
   hold_reason: HoldReason | null;
 }
 
