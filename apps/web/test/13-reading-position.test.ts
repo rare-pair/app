@@ -81,6 +81,16 @@ describe("13-reader-settings-and-position: Reading position saved for signed-in 
     expect(mine.map(([, value]) => JSON.parse(value ?? "null"))).toContainEqual({ n: 2, pct: 40 });
     expect(mine.every(([key]) => /^pos:[^:]+:24001$/.test(key))).toBe(true);
   });
+
+  it("A stored position expires after a year", async () => {
+    const cookie = await signIn("r6-ttl@example.invalid", { acceptTerms: true });
+    expect((await save(cookie, "n=1&pct=5")).status).toBe(204);
+    const { keys } = await env.POSITIONS.list({ prefix: "pos:" });
+    const year = Date.now() / 1000 + 365 * 24 * 60 * 60;
+    const expires = keys.filter((k) => k.name.endsWith(`:${W}`)).map((k) => k.expiration ?? 0);
+    expect(expires.length).toBeGreaterThan(0);
+    for (const at of expires) expect(Math.abs(at - year)).toBeLessThan(600);
+  });
 });
 
 describe("13-reader-settings-and-position: Entire work view saves position", () => {
@@ -114,6 +124,15 @@ describe("13-reader-settings-and-position: No position saved for signed-out read
   it("A signed-out save is refused with 401 and writes nothing", async () => {
     const before = await stored();
     const res = await save(null, "n=1&pct=10");
+    expect(res.status).toBe(401);
+    expect(res.headers.get("location")).toBeNull();
+    expect(await stored()).toEqual(before);
+  });
+
+  it("A save from an account that has not accepted the terms gets 401, not a redirect, and writes nothing", async () => {
+    const cookie = await signIn("r6-terms@example.invalid");
+    const before = await stored();
+    const res = await save(cookie, "n=1&pct=10");
     expect(res.status).toBe(401);
     expect(res.headers.get("location")).toBeNull();
     expect(await stored()).toEqual(before);

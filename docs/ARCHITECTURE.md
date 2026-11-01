@@ -496,8 +496,14 @@ can be snapshotted.
 - The reader has font size, line spacing, light/dark/sepia themes, and a
   one-page "entire work" view. These settings are stored in a cookie. (The
   warnings choice above is the exception: it lives on the account.)
-- Signed-in users get their reading position saved to KV, keyed by
-  `user:work`, with a short debounce.
+- Signed-in users get their reading position saved to KV (the `POSITIONS`
+  binding), keyed `pos:<user id>:<AO3 work id>`, with a value of the chapter
+  number (none on the entire-work page) and a scroll percentage. A script on
+  the reading pages saves it five seconds after the reader stops scrolling, and
+  when the page is hidden. It expires after a year. The work page's "Continue
+  where you left off" link names the chapter in its path and the percentage in a
+  `#pos=` fragment, which the script reads once to scroll back; the work page
+  itself never moves the reader.
 - "Download original epub" serves the file from `originals/` with
   `Content-Disposition: attachment` from `content.rarepair.fans`. It's never
   displayed inline.

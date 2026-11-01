@@ -26,6 +26,11 @@ const POSITION_TTL_SECONDS = 365 * 24 * 60 * 60;
 const MAX_BODY = 256;
 const NO_STORE = { "Cache-Control": "no-store" };
 
+/** Logs the kind of error only: never its message, which could name the key. */
+// oxlint-disable-next-line deslop/no-unknown-parameters -- it takes whatever a catch caught, and reads only its name
+const logFailure = (error: unknown) =>
+  console.error(`Reading position: ${error instanceof Error ? error.name : "unknown"}`);
+
 /** KV's key for one reader's place in one work: the user ID and the AO3 work ID. */
 export const positionKey = (userId: string, workId: number) => `pos:${userId}:${workId}`;
 
@@ -98,9 +103,13 @@ export const POSITION_SCRIPT = `"use strict";
     { passive: true },
   );
   // A reader who leaves within the pause (next chapter, closing the tab) still saves, once.
+  const flush = () => {
+    if (timer !== 0) send();
+  };
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden" && timer !== 0) send();
+    if (document.visibilityState === "hidden") flush();
   });
+  window.addEventListener("pagehide", flush);
 })();
 `;
 
@@ -159,7 +168,8 @@ export async function savePosition(c: PositionContext) {
       serializePosition({ n, pct: Number(pct) }),
       { expirationTtl: POSITION_TTL_SECONDS },
     );
-  } catch {
+  } catch (error) {
+    logFailure(error);
     // KV rate-limits and fails now and then; the script sends the next one a pause later.
     return c.body(null, 503, NO_STORE);
   }
@@ -179,7 +189,8 @@ export async function loadPosition(
   if (session === null) return null;
   try {
     return parsePosition(await positions.get(positionKey(session.user.id, workId)));
-  } catch {
+  } catch (error) {
+    logFailure(error);
     return null;
   }
 }

@@ -41,6 +41,9 @@ export const TERMS_EXEMPT = [
  */
 const SCRIPT_ENDPOINTS = ["/uploads/*"] as const;
 
+// The reading position script's save, which has an id in its path, so no glob above names it.
+const POSITION_SAVE = /^\/works\/[^/]+\/position$/;
+
 /** Whether `path` is one of `paths`, written as `TERMS_EXEMPT` is. */
 const isIn = (paths: readonly string[], path: string) =>
   paths.some((entry) =>
@@ -65,7 +68,7 @@ export const termsGate: MiddlewareHandler<{ Variables: SessionVariables }> = asy
   }
   // Signed in: never cached shared (#108).
   c.header("Cache-Control", "no-store");
-  if (isIn(SCRIPT_ENDPOINTS, c.req.path)) {
+  if (isIn(SCRIPT_ENDPOINTS, c.req.path) || POSITION_SAVE.test(c.req.path)) {
     return c.json({ error: "Accept the terms first, at /welcome/terms." }, 401);
   }
   // A form post isn't a page to come back to after accepting.
