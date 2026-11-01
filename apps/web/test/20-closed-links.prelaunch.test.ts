@@ -16,12 +16,16 @@ describe("20-closed-links before launch", () => {
       const res = await fetchW(path);
       expect(res.status, path).toBe(200);
       const links = footerLinks(await res.text());
-      const remove = links.filter(([, text]) => text === "Remove my work");
-      expect(remove, path).toHaveLength(1);
-      expect(remove[0]![0], path).toContain('aria-disabled="true"');
-      expect(remove[0]![0], path).not.toContain("href");
+      // The footer's links to the two closed forms, /remove and /dmca.
+      const closed = ["Remove my work", "Copyright notice"];
+      const disabled = links.filter(([, text]) => closed.includes(text));
+      expect(disabled, path).toHaveLength(2);
+      for (const [attrs] of disabled) {
+        expect(attrs, path).toContain('aria-disabled="true"');
+        expect(attrs, path).not.toContain("href");
+      }
       for (const [attrs, text] of links) {
-        if (text !== "Remove my work") expect(attrs, `${path} ${text}`).toContain("href=");
+        if (!closed.includes(text)) expect(attrs, `${path} ${text}`).toContain("href=");
       }
     }
   });

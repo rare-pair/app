@@ -71,6 +71,10 @@
       "namespace_id": "1041",
       "simple": { "limit": 3, "period": 60 },
     },
+    // POST /dmca, per client IP only: the form has no Turnstile (it must work without
+    // JavaScript) and no address to key on. A first value, to be revisited with the others.
+    // 1035, from the removal-requests block, clear of the ids /remove will take from 1030.
+    { "name": "DMCA_IP_LIMIT", "namespace_id": "1035", "simple": { "limit": 5, "period": 60 } },
   ],
   "vars": {
     // "on" until the archive opens (ARCHITECTURE, Wait list): / is the coming-soon

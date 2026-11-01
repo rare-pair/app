@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { experimental_readRawConfig } from "wrangler";
 import {
+  DMCA_WINDOW_SECONDS,
   emailKey,
   ipKey,
   isLimited,
@@ -9,6 +10,7 @@ import {
   WAITLIST_WINDOW_SECONDS,
 } from "../src/rate-limit";
 import {
+  DMCA_IP_LIMIT,
   LOGIN_EMAIL_LIMIT,
   LOGIN_IP_LIMIT,
   WAITLIST_EMAIL_LIMIT,
@@ -156,6 +158,7 @@ describe("the rate limits in wrangler.jsonc", () => {
       LOGIN_EMAIL_LIMIT: { limit: LOGIN_EMAIL_LIMIT, period: LOGIN_WINDOW_SECONDS },
       WAITLIST_IP_LIMIT: { limit: WAITLIST_IP_LIMIT, period: WAITLIST_WINDOW_SECONDS },
       WAITLIST_EMAIL_LIMIT: { limit: WAITLIST_EMAIL_LIMIT, period: WAITLIST_WINDOW_SECONDS },
+      DMCA_IP_LIMIT: { limit: DMCA_IP_LIMIT, period: DMCA_WINDOW_SECONDS },
     });
   });
 
