@@ -4,7 +4,7 @@
 import { removeWork, type Database } from "@archive/db";
 import type { Kysely } from "kysely";
 import type { Bindings } from "./env";
-import { purgeWorkCaches, type PurgeTarget } from "./purge";
+import { PurgeError, purgeWorkCaches, type PurgeTarget } from "./purge";
 import { deleteWorkObjects, type ObjectBucket } from "./remove-objects";
 
 export interface RemoveDeps {
@@ -51,11 +51,17 @@ export async function removeWorkEverywhere(
       uploadIds: removed.uploads.map((u) => u.id),
     });
   } catch (error) {
-    // The step and the error's name only: never the work, its keys or Cloudflare's reply.
-    console.error(
-      "remove work: cache purge failed:",
-      error instanceof Error ? error.name : "unknown",
-    );
+    // The failed steps and the error's name only: never the work, its keys or Cloudflare's
+    // reply. A PurgeError's message is built to hold no more than that (src/purge.ts); any
+    // other error's message could hold anything, so it isn't logged.
+    if (error instanceof PurgeError) {
+      console.error("remove work:", error.name, error.message);
+    } else {
+      console.error(
+        "remove work: cache purge failed:",
+        error instanceof Error ? error.name : "unknown",
+      );
+    }
     return { outcome: removed.outcome, caches: "failed" };
   }
   return { outcome: removed.outcome, caches: "purged" };

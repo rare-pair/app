@@ -189,17 +189,22 @@ describe("purgeWorkCaches", () => {
     }
   });
 
-  it("Never names the token or the zone in its error", async () => {
+  it("Never names the token, the zone, the work or the reply's text in its error", async () => {
     const { fetch } = stubFetch(() =>
       Response.json({
         success: false,
-        errors: [{ code: 1134, message: `zone ${ZONE} token ${TOKEN}` }],
+        errors: [{ code: 1134, message: `xr1b-reply zone ${ZONE} token ${TOKEN}` }],
       }),
     );
-    const failed = purgeWorkCaches(credentials, { ao3WorkId: 12, uploadIds: ["up-1"] }, { fetch });
+    const target = { ao3WorkId: 14321, uploadIds: ["up-xr1b-1"] };
+    const failed = purgeWorkCaches(credentials, target, { fetch });
     await expect(failed).rejects.toThrow(PurgeError);
     await expect(failed).rejects.toThrow(/1134/);
-    await expect(failed).rejects.toMatchObject({ message: expect.not.stringContaining(TOKEN) });
-    await expect(failed).rejects.toMatchObject({ message: expect.not.stringContaining(ZONE) });
+    // Logged as it is (src/remove-work.ts), so nothing in it may be secret or name the work.
+    for (const kept of [TOKEN, ZONE, "14321", "up-xr1b-1", "xr1b-reply"]) {
+      await expect(failed, kept).rejects.toMatchObject({
+        message: expect.not.stringContaining(kept),
+      });
+    }
   });
 });

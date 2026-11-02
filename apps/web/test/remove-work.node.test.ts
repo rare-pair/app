@@ -87,8 +87,11 @@ describe("removeWorkEverywhere", () => {
         .where("id", "=", work.workId)
         .executeTakeFirstOrThrow();
       expect(status.status).toBe("removed");
-      // The step and the error's name only: no work, no keys, no reply.
-      expect(logged).toEqual([["remove work: cache purge failed:", "PurgeError"]]);
+      // PurgeError's message, which names the failed requests and nothing else (purge.node.test.ts
+      // shows it never holds the token, the zone or the reply): no work, no keys.
+      expect(logged).toEqual([
+        ["remove work:", "PurgeError", "cache purge failed: tags (HTTP 503)"],
+      ]);
     },
   );
 
