@@ -14,24 +14,16 @@ export interface BackfillDeps {
 }
 
 /**
- * What became of one backfill message, for the log: `backfilled`, or why the work's current
- * version was left as it is (`no_work`, `removed`, `not_current`, `original_missing`,
- * `too_large`, `opted_out`, `work_mismatch`, or an `EpubError`'s or `SaveRejected`'s code: the
- * processor's verdict on the original as it now stands). Each is final, so the message is
- * acked. A short fixed code, never text from the file.
- */
-export type BackfillOutcome = string;
-
-/**
  * Re-makes the work's current version from its stored original with the processor as it is
  * now (ARCHITECTURE, EPUB processor, step 8), while that version is still the one the message
- * names. Returns the outcome, every one of them final. Throws on a failure worth retrying,
- * such as R2 or Postgres being down.
+ * names. Returns what became of it, for the log: `backfilled`, or why the current version was
+ * left as it is (`no_work`, `removed`, `not_current`, `original_missing`, `too_large`,
+ * `work_mismatch`, `opted_out`, or an `EpubError`'s or `SaveRejected`'s code: the processor's
+ * verdict on the original as it now stands). Each is final, so the message is acked: a short
+ * fixed code, never text from the file. Throws on a failure worth retrying, such as R2 or
+ * Postgres being down.
  */
-export async function runBackfill(
-  deps: BackfillDeps,
-  message: BackfillMessage,
-): Promise<BackfillOutcome> {
+export async function runBackfill(deps: BackfillDeps, message: BackfillMessage): Promise<string> {
   const row = await deps.db
     .selectFrom("works")
     .innerJoin("work_versions", "work_versions.id", "works.current_version_id")
@@ -73,9 +65,9 @@ export async function runBackfill(
     // The file the current processor refuses stays as it was: its current version is kept.
     return error.code;
   }
+  if (work.ao3WorkId !== String(row.ao3_work_id)) return "work_mismatch";
   // Before anything is written: what an opt-out now blocks is not published again.
   if (await onRejectList(deps.db, work)) return "opted_out";
-  if (work.ao3WorkId !== String(row.ao3_work_id)) return "work_mismatch";
   try {
     const saved = await saveBackfill(
       deps,

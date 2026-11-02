@@ -8,7 +8,7 @@ import {
 import type { ParsedWork } from "@archive/epub";
 import type { Kysely, Transaction } from "kysely";
 import type { Lease } from "./lease";
-import { decideVersion, type VersionDecision, type VersionFacts } from "./versioning";
+import { decideVersion, sameSet, type VersionDecision, type VersionFacts } from "./versioning";
 
 /** What saving needs from the bucket: writes, and reads of the current version's fragments. */
 export interface SaveBucket {
@@ -123,15 +123,7 @@ export async function saveWork(
         if (attempt >= MAX_ATTEMPTS) throw new Error("the work kept changing under the save");
         continue;
       }
-      const state = sqlState(error);
-      // Class 21 (cardinality, such as two of the file's tags landing on one row), 22 (data
-      // exception), 23 (integrity constraint) and 54 (program limit, such as an index row too
-      // large): the file's own data broke a rule, and will again. Anything else, such as a lost
-      // connection, is worth a retry.
-      if (state !== null && /^(21|22|23|54)/.test(state)) {
-        throw new SaveRejected(`save_rejected_${state}`);
-      }
-      throw error;
+      throwSaveError(error);
     }
   }
 }
@@ -196,9 +188,7 @@ export async function saveBackfill(
   const prefix = `works/${source.ao3WorkId}/${versionId}/`;
   const chapters = await putFiles(deps.bucket, source.ao3WorkId, prefix, work, images);
   // The moderator's check stands only for the parser's doubts it answered.
-  const sameReasons =
-    JSON.stringify([...work.reviewReasons].sort()) ===
-    JSON.stringify([...source.reviewReasons].sort());
+  const sameReasons = sameSet(new Set(work.reviewReasons), new Set(source.reviewReasons));
   const origin: VersionOrigin = {
     id: versionId,
     upload_id: null,
@@ -209,27 +199,56 @@ export async function saveBackfill(
   try {
     await deps.db.transaction().execute(async (trx) => {
       await insertVersion(trx, origin, work, source.workId, prefix, chapters);
-      const moved = await trx
-        .updateTable("works")
-        .set({ current_version_id: versionId })
-        .where("id", "=", source.workId)
-        .where("current_version_id", "=", source.versionId)
-        .where("status", "<>", "removed")
-        .returning("id")
-        .executeTakeFirst();
-      if (moved === undefined) throw new Stale();
-      await copyVersionToWork(trx, source.workId, versionId);
+      await replaceCurrent(trx, source.workId, source.versionId, versionId);
     });
     return true;
   } catch (error) {
     if (error instanceof Stale) return false;
-    const state = sqlState(error);
-    // As for an upload: the file's own data broke a rule, and will again.
-    if (state !== null && /^(21|22|23|54)/.test(state)) {
-      throw new SaveRejected(`save_rejected_${state}`);
-    }
-    throw error;
+    throwSaveError(error);
   }
+}
+
+/**
+ * Makes `versionId` the work's current version, as a replace and a backfill do: one statement
+ * moves the pointer only if it is still `from`, where it was read (a compare-and-swap), then
+ * the work describes the version (its columns, a field the file lacks keeping the work's
+ * value, its byline and tags, and the search text). A job that lost the race matches no row
+ * and throws `Stale`, so the transaction rolls back. A winner holds the row lock from here to
+ * its commit, so everything after it is one job's at a time. Status is left as it is: this
+ * never unhides a hidden work, and a work removed since the read isn't moved.
+ */
+async function replaceCurrent(
+  trx: Transaction<Database>,
+  workId: string,
+  from: string,
+  versionId: string,
+): Promise<void> {
+  const moved = await trx
+    .updateTable("works")
+    .set({ current_version_id: versionId })
+    .where("id", "=", workId)
+    .where("current_version_id", "=", from)
+    .where("status", "<>", "removed")
+    .returning("id")
+    .executeTakeFirst();
+  if (moved === undefined) throw new Stale();
+  await copyVersionToWork(trx, workId, versionId);
+}
+
+/**
+ * Throws a save's failure. Class 21 (cardinality, such as two of the file's
+ * tags landing on one row), 22 (data exception), 23 (integrity constraint) and 54 (program
+ * limit, such as an index row too large): the file's own data broke a rule, and will again, so
+ * it is thrown as a `SaveRejected`. Anything else, such as a lost connection, is worth a retry
+ * and is thrown as it is.
+ */
+// oxlint-disable-next-line deslop/no-unknown-parameters -- a caught value is unknown by contract
+function throwSaveError(error: unknown): never {
+  const state = sqlState(error);
+  if (state !== null && /^(21|22|23|54)/.test(state)) {
+    throw new SaveRejected(`save_rejected_${state}`);
+  }
+  throw error;
 }
 
 /**
@@ -371,11 +390,8 @@ async function writeRows(
     );
     return endUpload(trx, lease, "held_for_review", workId);
   }
-  // A replace. The version first (the pointer's foreign key needs it), then one statement that
-  // moves the pointer only if it is still where it was read: a compare-and-swap. A job that lost
-  // the race matches no row, and the transaction rolls back. A winner holds the row lock from
-  // here to its commit, so everything after it is one job's at a time. Status is left as it is:
-  // a replace never unhides a hidden or removed work.
+  // A replace. The version first (the pointer's foreign key needs it), then the pointer's
+  // compare-and-swap. A `Stale` reads the work again, and refuses a work removed since.
   const versionId = await insertVersion(
     trx,
     { upload_id: lease.id },
@@ -384,19 +400,7 @@ async function writeRows(
     prefix,
     chapters,
   );
-  const moved = await trx
-    .updateTable("works")
-    .set({ current_version_id: versionId })
-    .where("id", "=", workId)
-    .where("current_version_id", "=", current.versionId)
-    // A work removed since the read isn't moved: `Stale` reads it again and refuses it.
-    .where("status", "<>", "removed")
-    .returning("id")
-    .executeTakeFirst();
-  if (moved === undefined) throw new Stale();
-  // The work describes the new version: its columns (a field the file lacks keeps the work's
-  // value), its byline and tags, and the search text.
-  await copyVersionToWork(trx, workId, versionId);
+  await replaceCurrent(trx, workId, current.versionId, versionId);
   await endUpload(trx, lease, "live", workId);
 }
 
