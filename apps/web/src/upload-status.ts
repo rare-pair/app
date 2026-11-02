@@ -22,6 +22,16 @@ export interface UploadStatusBody {
   work: { id: number; url: string } | null;
 }
 
+/** The `works` columns a left join leaves null when an upload has no work. */
+export function joinedWork(row: {
+  ao3_work_id: number | null;
+  work_status: string | null;
+}): { ao3_work_id: number; status: string } | null {
+  return row.ao3_work_id === null || row.work_status === null
+    ? null
+    : { ao3_work_id: row.ao3_work_id, status: row.work_status };
+}
+
 /**
  * The poll's JSON for an `uploads` row and the work it points at. Only a live or
  * duplicate upload links its work, and only while that work is itself live: a hidden
@@ -62,11 +72,7 @@ export async function showUploadStatus(c: StatusContext) {
       .where("uploads.user_id", "=", user.id)
       .executeTakeFirst();
     if (row === undefined) return c.json({ error: "That upload wasn't found." }, 404, NO_STORE);
-    const work =
-      row.ao3_work_id === null || row.work_status === null
-        ? null
-        : { ao3_work_id: row.ao3_work_id, status: row.work_status };
-    return c.json(uploadStatusBody(row, work), 200, NO_STORE);
+    return c.json(uploadStatusBody(row, joinedWork(row)), 200, NO_STORE);
   } finally {
     c.executionCtx.waitUntil(db.destroy());
   }

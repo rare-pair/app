@@ -75,9 +75,10 @@ type Chapters = (ParsedWork["chapters"][number] & { key: string })[];
  * work creates it and sets it `live` last. A later one is decided by `decideVersion` against
  * the current version: a replace stores the version and moves `current_version_id` (the upload
  * is `live`); a hold stores the version without moving it (`held_for_review`); a duplicate
- * stores no version (`duplicate`). Every outcome keeps the files. A failure before or inside
- * the transaction leaves no rows, only R2 objects: under keys a retry overwrites when it is
- * worth one, and left for the cleanup rules (#177) when the file is refused.
+ * stores no version (`duplicate`). Every outcome writes the files; a duplicate's fragments,
+ * which no version points at, are left for the periodic sweep (apps/sweep). A failure before or
+ * inside the transaction leaves no rows, only R2 objects: under keys a retry overwrites when it
+ * is worth one, and left for the cleanup rules (#177) when the file is refused.
  */
 export async function saveWork(
   deps: { db: Kysely<Database>; bucket: SaveBucket },
