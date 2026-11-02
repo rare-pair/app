@@ -145,11 +145,16 @@ export interface WorkAuthorTable {
 export interface WorkVersionTable {
   id: Generated<string>;
   work_id: string;
-  upload_id: string;
+  /** The upload that made this version. NULL for a backfill version, which has none of its own. */
+  upload_id: string | null;
+  /** `upload`, or `backfill` for a version the re-sanitize backfill re-made from a stored original. */
+  source: ColumnType<VersionSource, VersionSource | undefined, VersionSource>;
+  /** A backfill version's original: the upload whose `originals/<id>.epub` it was re-made from. NULL for an upload's version. */
+  source_upload_id: string | null;
   chapter_count: number;
   /** The planned total as this version's preface gave it. NULL when unknown. */
   chapter_total: number | null;
-  /** `works/<ao3_work_id>/<upload_id>/`, with the trailing slash. */
+  /** `works/<ao3_work_id>/<upload_id>/`, or `works/<ao3_work_id>/<id>/` for a backfill version, with the trailing slash. */
   r2_prefix: string;
   created_at: CreatedTimestamp;
   /** From the parser. Non-empty, with `checked_at` still NULL, shows the "may be imperfect" notice. */
@@ -177,6 +182,9 @@ export interface WorkVersionTable {
   /** Why ingest held this version for review. NULL for a version it didn't hold, and for one held before migration 0012. */
   hold_reason: HoldReason | null;
 }
+
+/** What made a version: an upload, or the re-sanitize backfill (migration 0016). */
+export type VersionSource = "upload" | "backfill";
 
 /** `decideVersion`'s reasons for holding a newer version (ARCHITECTURE, EPUB processor step 7). */
 export type HoldReason = "chapters_changed" | "tags_changed" | "authors_changed";
