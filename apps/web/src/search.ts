@@ -14,8 +14,15 @@ import { DRAFT, escapeHtml, layout } from "./pages";
 /** The query is in the URL: a cross-site link on a result must not carry it in the Referer. */
 const PRIVATE = { "Referrer-Policy": "strict-origin" };
 
-/** The most of a fandom name that is read. */
+/** The most of a fandom name, and of a query, that is read. The db cuts a query at the same length. */
 const MAX_FANDOM = 200;
+const MAX_QUERY = 200;
+
+/** Cut by code point, so an astral character isn't split. What is cut is echoed into every link, so it is cut here too. */
+const cut = (text: string, max: number) =>
+  Array.from(text.slice(0, max * 2))
+    .slice(0, max)
+    .join("");
 
 /** What the URL asks the results to be narrowed by, less anything the form can't send. */
 interface Filters {
@@ -27,8 +34,7 @@ interface Filters {
 
 function filtersOf(rawFandom: string | undefined, rawRating: string | undefined): Filters {
   const filters: Filters = {};
-  // Cut, as the query is: no fandom name is longer, and it is echoed into every link.
-  const fandom = rawFandom?.slice(0, MAX_FANDOM);
+  const fandom = rawFandom === undefined ? undefined : cut(rawFandom, MAX_FANDOM);
   if (fandom !== undefined && tagNameKeys("fandom", fandom).length > 0) filters.fandom = fandom;
   if (rawRating !== undefined && RATINGS.includes(rawRating)) filters.rating = rawRating;
   return filters;
@@ -41,7 +47,7 @@ const searchForm = (
 ) => `<form role="search" method="get" action="/search">
 <label for="q">Search the archive</label>
 <input type="search" id="q" name="q" value="${escapeHtml(q)}">
-<p><label for="search-fandom">Fandom</label> <input id="search-fandom" name="fandom" type="text" value="${escapeHtml(fandom ?? "")}"></p>
+<p><label for="search-fandom">Fandom</label> <input id="search-fandom" name="fandom" type="text" maxlength="${MAX_FANDOM}" value="${escapeHtml(fandom ?? "")}"></p>
 ${select("search-rating", "rating", "Rating", [["", "Any"], ...RATINGS.map((r): Pair => [r, r])], rating ?? "")}
 <button type="submit">Search</button>
 </form>`;
@@ -56,7 +62,9 @@ function searchHref(q: string, { fandom, rating }: Filters, page: number): strin
 }
 
 export async function showSearch(c: Context<{ Bindings: Bindings }>) {
-  const q = c.req.query("q") ?? "";
+  // On every response, an error and a 404 too: the URL holds the reader's query.
+  c.header("Referrer-Policy", PRIVATE["Referrer-Policy"]);
+  const q = cut(c.req.query("q") ?? "", MAX_QUERY);
   const filters = filtersOf(c.req.query("fandom"), c.req.query("rating"));
   // A missing or blank query shows the form and no results, whatever the filters.
   if (q.trim() === "") return c.html(layout("Search", searchForm(q, filters)), 200, PRIVATE);
@@ -69,10 +77,7 @@ export async function showSearch(c: Context<{ Bindings: Bindings }>) {
       ...filters,
     });
     const last = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    if (page > last) {
-      c.header("Referrer-Policy", PRIVATE["Referrer-Policy"]);
-      return c.notFound();
-    }
+    if (page > last) return c.notFound();
     // Draft copy, for the operator to proof.
     const list =
       works.length === 0 ? `<p>No works match your search.</p>\n${DRAFT}` : workList(works);

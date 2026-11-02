@@ -134,7 +134,9 @@ describe("15-search paging and filters", () => {
       expect(html).toMatch(/<form role="search" method="get" action="\/search">/);
       expect(html).toContain(`id="q" name="q" value="${FILTERED_WORD}"`);
       // Reader input is escaped in the attribute.
-      expect(html).toContain(`name="fandom" type="text" value="${FANDOM}&quot;&gt;&lt;b&gt;"`);
+      expect(html).toContain(
+        `name="fandom" type="text" maxlength="200" value="${FANDOM}&quot;&gt;&lt;b&gt;"`,
+      );
       expect(html).not.toContain("<b>");
       expect(html).toMatch(/<option value="Mature" selected>/);
       // The form has no page field, so applying a filter returns to the first page.
@@ -144,6 +146,26 @@ describe("15-search paging and filters", () => {
     it("A very long fandom is cut, not echoed whole", async () => {
       const html = await search(`q=${FILTERED_WORD}&fandom=${"x".repeat(5000)}`);
       expect(html).not.toContain("x".repeat(201));
+    });
+
+    it("A very long query is cut, not echoed whole", async () => {
+      const html = await search(`q=${"y".repeat(5000)}`);
+      expect(html).toContain(`value="${"y".repeat(200)}"`);
+      expect(html).not.toContain("y".repeat(201));
+    });
+
+    it("A fandom is cut by character, not in the middle of one", async () => {
+      const html = await search(
+        `q=${FILTERED_WORD}&fandom=${encodeURIComponent(`${"z".repeat(199)}\u{1F600}`)}`,
+      );
+      expect(html).toContain(`${"z".repeat(199)}\u{1F600}"`);
+      expect(html).not.toContain("�");
+    });
+
+    it("The fandom box says how long a name may be", async () => {
+      expect(await search(`q=${FILTERED_WORD}`)).toContain(
+        'name="fandom" type="text" maxlength="200"',
+      );
     });
 
     it("An unknown rating is dropped", async () => {
