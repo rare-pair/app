@@ -51,6 +51,7 @@ export {
   type BanResult,
   type ModeratorRole,
 } from "./ban";
+export { approveVersion, closeWrongVersionReports, type ApproveOutcome } from "./approvals";
 export { refreshWorkSearch } from "./search-index";
 export { copyVersionToWork } from "./version-copy";
 export { searchLiveWorks, type SearchOptions, type SearchResults } from "./search";

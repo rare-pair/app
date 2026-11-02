@@ -425,7 +425,7 @@ Chapter text isn't indexed.
    work page, listings, search, and the next upload's decision, which reads
    `works.updated_at`) sees the current version. They are copied from the
    version whenever it becomes current: on a first upload, on a `replace`, on
-   "Make current", and, once it is built, when a moderator approves a held
+   "Make current", and when a moderator approves a held
    version. The copy is
    `copyVersionToWork` in `packages/db`, in the transaction that moves the
    pointer: each non-NULL field of the version is copied, a NULL one keeps
@@ -877,7 +877,11 @@ epub, under the normal versioning rules.
   Actions are hide, remove, restore, approve, reject, block a requester and ban
   an uploader. A *Works to check* item's page has approve (clears the notice,
   or publishes the held version), make a version current, hide and remove;
-  each work's admin page lists every version with "Make current". Every
+  each work's admin page lists every version with "Make current" and "Approve". Approving a held version
+  makes it current and checked; each approve is logged once, on the version. Make current and
+  approving a held version close the work's open "This version is wrong" reports, and a
+  "Close wrong-version reports" form closes them without moving the pointer (logged as a `reject` on
+  the work). Every
   moderation action a moderator or admin takes writes one `moderation_actions`
   row with their user id. For the database changes an action makes, the row
   is written in the same transaction: no row for an action that changed
@@ -885,8 +889,8 @@ epub, under the normal versioning rules.
   outside the database, such as removing a work's files, can't join that
   transaction.) A reject that also lifts a hide logs only the reject. A hide
   no moderator chose (the reports' automatic hide, a removal request's hide)
-  writes none. Hide, restore, remove, make current (logged on the version, and only when
-  the pointer moved), ban and the request and takedown rejects write a row
+  writes none. Hide, restore, remove, approve and make current (logged on the version, and only when
+  something changed, and for make current only when the pointer moved), ban, the wrong-version close and the request and takedown rejects write a row
   today; each later action calls the same helper, `logModerationAction`, when
   it is built. The row's `moderator_id` has no foreign key to `user`, so
   deleting an account keeps its log rows, with the id as it was. Anyone

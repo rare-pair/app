@@ -163,6 +163,33 @@ describe("makeVersionCurrent", () => {
     ]);
   });
 
+  it("Making a version current closes the work's open wrong-version reports", async () => {
+    const w = await replacedWork("mcreports");
+    const report = (kind: string) =>
+      t.db
+        .insertInto("reports")
+        .values({ work_id: w.workId, reporter_id: w.userId, kind, status: "open" })
+        .execute();
+    const open = async () =>
+      (
+        await t.db
+          .selectFrom("reports")
+          .select("kind")
+          .where("work_id", "=", w.workId)
+          .where("status", "=", "open")
+          .execute()
+      ).map((r) => r.kind);
+    await report("wrong_version");
+    await report("other_kind");
+    // Already current: the pointer doesn't move, so the report stands.
+    expect(await makeVersionCurrent(t.db, w.workId, w.v2)).toBe(true);
+    expect(await open()).toEqual(["wrong_version", "other_kind"]);
+
+    expect(await makeVersionCurrent(t.db, w.workId, w.v1)).toBe(true);
+
+    expect(await open()).toEqual(["other_kind"]);
+  });
+
   it("A refused make-current logs nothing", async () => {
     const moderator = await addModerator();
     const w = await replacedWork("mcnolog");
