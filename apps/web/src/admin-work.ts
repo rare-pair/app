@@ -94,7 +94,8 @@ adminWork.get("/works/:id", async (c) => {
         checked: v.checked_at !== null,
       })),
       workActions(work.ao3_work_id, `/admin/works/${work.ao3_work_id}`),
-      Number(work.open_wrong_version),
+      // A removed work's reports can't be closed here, so the form isn't offered.
+      work.status === "removed" ? 0 : Number(work.open_wrong_version),
     ),
   );
 });

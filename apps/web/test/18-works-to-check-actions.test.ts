@@ -314,6 +314,11 @@ describe("18 moderation: approving", () => {
       version: other.versionId,
     });
     expect(await removed.text()).toContain("removed");
+    // Its reports can't be closed, so the page doesn't offer to.
+    await reportOn(other, "wrong_version");
+    expect(await (await get("/admin/works/19531", moderator)).text()).not.toContain(
+      "/reports/close",
+    );
     const row = await db
       .selectFrom("work_versions")
       .select("checked_at")
