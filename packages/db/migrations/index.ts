@@ -15,6 +15,7 @@ import m0012 from "./0012_version_work_columns";
 import m0013 from "./0013_upload_work_removed";
 import m0014 from "./0014_moderation_actions_drop_moderator_fk";
 import m0015 from "./0015_sweep_state";
+import m0017 from "./0017_upload_account_banned";
 import m0016 from "./0016_backfill_versions";
 
 export const migrations: ReadonlyArray<{ name: string; sql: string }> = [
@@ -33,5 +34,6 @@ export const migrations: ReadonlyArray<{ name: string; sql: string }> = [
   { name: "0013_upload_work_removed", sql: m0013 },
   { name: "0014_moderation_actions_drop_moderator_fk", sql: m0014 },
   { name: "0015_sweep_state", sql: m0015 },
+  { name: "0017_upload_account_banned", sql: m0017 },
   { name: "0016_backfill_versions", sql: m0016 },
 ];

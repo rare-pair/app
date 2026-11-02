@@ -2,7 +2,7 @@
 // needs an account (ARCHITECTURE, Author requests & takedowns, Reports). No
 // script and no Turnstile, so it works with JavaScript off.
 
-import { createDb, hideWork } from "@archive/db";
+import { createDb, hideWork, isBanned } from "@archive/db";
 import type { Context, MiddlewareHandler } from "hono";
 import type { Bindings } from "./env";
 import { readForm } from "./login";
@@ -51,20 +51,6 @@ const liveWork = (db: Db, ao3WorkId: number) =>
     .where("status", "=", "live")
     .where("current_version_id", "is not", null)
     .executeTakeFirst();
-
-/**
- * Whether the account is banned. Read from the database, not the session: the
- * session's user has no `banned_at`, and a ban must hold at once. An account with
- * no row can't report either.
- */
-const isBanned = async (db: Db, userId: string) => {
-  const user = await db
-    .selectFrom("user")
-    .select("banned_at")
-    .where("id", "=", userId)
-    .executeTakeFirst();
-  return user === undefined || user.banned_at !== null;
-};
 
 /** Report pages that hold what the reader typed, or depend on who they are, stay out of caches. */
 const NO_STORE = { "Cache-Control": "no-store" };

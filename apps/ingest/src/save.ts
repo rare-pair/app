@@ -1,5 +1,6 @@
 import {
   copyVersionToWork,
+  isUploaderBanned,
   type Database,
   type HoldReason,
   type TagType,
@@ -65,6 +66,12 @@ export class SaveRejected extends Error {
  * `work_removed`, at once, since the work stays removed until a moderator restores it.
  */
 export class WorkRemoved extends Error {}
+
+/**
+ * The upload's account was banned while the job ran: nothing is saved, and the job ends the
+ * upload as `account_banned`, at once, since a ban is never lifted.
+ */
+export class AccountBanned extends Error {}
 
 /** The job no longer holds its upload: another job has taken it over, and owns the row. */
 export class LeaseLost extends Error {}
@@ -138,7 +145,8 @@ export async function saveWork(
       if (
         error instanceof SaveRejected ||
         error instanceof LeaseLost ||
-        error instanceof WorkRemoved
+        error instanceof WorkRemoved ||
+        error instanceof AccountBanned
       ) {
         throw error;
       }
@@ -423,6 +431,10 @@ async function writeRows(
   current: Current | null,
   decision: VersionDecision | null,
 ): Promise<void> {
+  // First, with a key-share lock on the account to the commit. A ban that locked the account
+  // first is waited for and seen here; one that comes after this lock waits for the save,
+  // whose upload then counts as finished.
+  if (await isUploaderBanned(trx, lease.id, { lock: true })) throw new AccountBanned();
   if (current === null || decision === null) {
     return writeFirst(trx, lease, work, ao3WorkId, prefix, chapters);
   }

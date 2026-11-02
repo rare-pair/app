@@ -119,7 +119,8 @@ describe("08 versioning and dedupe", () => {
     expect(second).toContain(`name="version" value="${v2}"`);
     // Held for review: listed, but only an approval makes it current.
     expect(held).toContain("<td>4</td>");
-    expect(held).not.toContain("<form");
+    // No "Make current" form (its row still has the uploader's "Ban uploader" one).
+    expect(held).not.toContain(`action="/admin/works/${W}/current"`);
     expect(rows.indexOf(first)).toBeLessThan(rows.indexOf(second));
   });
 

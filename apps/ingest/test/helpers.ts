@@ -47,6 +47,16 @@ export async function pendingUpload(bytes: Uint8Array | null): Promise<string> {
   return id;
 }
 
+/** Bans the account that made `pendingUpload`'s upload `id`, as a moderator's ban sets it. */
+export const banUploader = (id: string) =>
+  withDb((db) =>
+    db
+      .updateTable("user")
+      .set({ banned_at: sql<Date>`now()` })
+      .where("id", "=", `ingest-${id}`)
+      .execute(),
+  );
+
 /** The upload's row, as the job leaves it. */
 export const uploadRow = (id: string) =>
   withDb((db) =>

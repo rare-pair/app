@@ -58,7 +58,7 @@ function badgeOf(html: string, id: string): string | undefined {
   return item?.match(/<span class="badge"[^>]*>([^<]*)<\/span>/)?.[1];
 }
 
-const REFRESH = '<meta http-equiv="refresh" content="5">';
+const REFRESH = '<noscript><meta http-equiv="refresh" content="5"></noscript>';
 
 describe("03-upload-status: My uploads", () => {
   it("My uploads lists every upload with a text status badge", async () => {
@@ -121,7 +121,9 @@ describe("03-upload-status: My uploads", () => {
     expect(html).toContain("&lt;b&gt;");
     expect(html).not.toContain("<b>");
     expect(html).not.toContain(`<a href="/works/16110"></a>`);
-    expect(html).toMatch(new RegExp(`data-upload-id="${blankId}"[^>]*>Upload of `));
+    expect(html).toMatch(
+      new RegExp(`data-upload-id="${blankId}"[^>]*><span class="upload-name">Upload of `),
+    );
   });
 
   it("A live upload row is named by its work's title, the others by date", async () => {
@@ -218,7 +220,7 @@ describe("03-upload-status: My uploads", () => {
     expect(html).not.toContain("u6b1-removed");
   });
 
-  it("My uploads refreshes itself while something is processing (no JS)", async () => {
+  it("My uploads refreshes itself while something is processing (no JS: the meta refresh is in noscript)", async () => {
     const { userId, cookie } = await signIn();
     await upload(userId, "live", {
       workId: (await seedWork(db, { ao3WorkId: 16105, title: "u6b1-r" })).workId,
@@ -285,7 +287,7 @@ describe("03-upload-status: My uploads", () => {
     );
   });
 
-  it("The page is no-store, nonced, script-free and shows no internal field", async () => {
+  it("The page is no-store, has no script when nothing is in progress, and shows no internal field", async () => {
     const { userId, cookie } = await signIn();
     const work = await seedWork(db, { ao3WorkId: 16107, title: "u6b1-internal" });
     await upload(userId, "live", { workId: work.workId });
@@ -301,5 +303,71 @@ describe("03-upload-status: My uploads", () => {
     for (const leak of ["uploads/", "aaaaaaaa", "marker", "@example.test"]) {
       expect(html).not.toContain(leak);
     }
+  });
+
+  const SCRIPT_TAG =
+    /<script src="(\/assets\/my-uploads\.[0-9a-f]+\.js)" nonce="([^"]+)" defer><\/script>/;
+
+  it("My uploads updates in place with JS: a processing upload brings the nonced script", async () => {
+    const { userId, cookie } = await signIn();
+    await upload(userId, "processing");
+
+    const res = await page(cookie);
+    const html = await res.text();
+
+    const [, src, nonce] = SCRIPT_TAG.exec(html) ?? [];
+    expect(src).toBeDefined();
+    expect(nonce).toBe(nonceOf(res.headers.get("content-security-policy")));
+    expect(html.indexOf(src!)).toBeLessThan(html.indexOf("</head>"));
+    expect(html.match(/<script/g)).toHaveLength(1);
+    expect(res.headers.get("content-security-policy")).not.toContain("frame-src");
+    expect(html).toContain('<ul class="upload-list" aria-live="polite">');
+  });
+
+  it("The script file is immutable, nosniff, cookie-free, and carries no internal field", async () => {
+    const { userId, cookie } = await signIn();
+    await upload(userId, "processing");
+    const src = SCRIPT_TAG.exec(await (await page(cookie)).text())?.[1];
+
+    const res = await fetchW(src ?? "/missing.js");
+    const text = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.getSetCookie()).toEqual([]);
+    for (const leak of ["innerHTML", "error_stage", "sha256", "r2_key", "@"]) {
+      expect(text).not.toContain(leak);
+    }
+  });
+
+  it("Only in-progress rows are marked for polling", async () => {
+    const { userId, cookie } = await signIn();
+    const work = await seedWork(db, { ao3WorkId: 16120, title: "u6b2-live" });
+    const waiting = await upload(userId, "pending");
+    const processing = await upload(userId, "processing");
+    const unconfirmed = await upload(userId, "pending", { confirmed: false });
+    const live = await upload(userId, "live", { workId: work.workId });
+
+    const html = await (await page(cookie)).text();
+    const polling = (id: string) =>
+      new RegExp(`<li data-upload-id="${id}"[^>]* data-polling[ >]`).test(html);
+
+    expect(polling(waiting)).toBe(true);
+    expect(polling(processing)).toBe(true);
+    expect(polling(unconfirmed)).toBe(false);
+    expect(polling(live)).toBe(false);
+    expect(html).toContain('<span class="upload-name">');
+  });
+
+  it("An unconfirmed pending upload brings neither the script nor the refresh", async () => {
+    const { userId, cookie } = await signIn();
+    await upload(userId, "pending", { confirmed: false });
+
+    const html = await (await page(cookie)).text();
+
+    expect(html).not.toContain("<script");
+    expect(html).not.toMatch(/http-equiv="refresh"/i);
   });
 });

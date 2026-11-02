@@ -303,13 +303,6 @@ describe("18 moderation", () => {
     ]);
   });
 
-  it("Works to check is an empty table for now", async () => {
-    const html = await (await get("/admin/works", moderator)).text();
-    expect(html).toMatch(/<th scope="col">/);
-    expect(html).toContain("This queue is not built yet.");
-    expect(html).not.toContain("Nothing waiting.");
-  });
-
   it("Stored text is escaped", async () => {
     await db
       .insertInto("requests")
