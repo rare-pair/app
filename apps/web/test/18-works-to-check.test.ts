@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BASE, emailsTo, fetchW, LOGIN_TOKEN, postLogin, signIn as signInAs } from "./helpers";
 
 // One database serves every test file in the run, and the queue lists every work
-// that needs a check. So this file keeps to AO3 work IDs 14300 to 14399, names every
+// that needs a check. So this file keeps to AO3 work IDs 18400 to 18499, names every
 // title with a "mod3a-" prefix, dates its triggers in 2001 so they sort ahead of
 // anyone else's, and asserts only the relative order of its own works. Text is synthetic.
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
@@ -72,95 +72,95 @@ const reportOn = (
 describe("18 moderation: Works to check", () => {
   it("Works to check lists held, flagged and wrong-version works", async () => {
     // Inserted newest first, so neither insertion order nor id order is the answer.
-    const bv = await seed(14301);
+    const bv = await seed(18401);
     await reportOn(bv, "wrong_version", "2001-03-01T00:00:00Z");
-    await seed(14302, { reviewReasons: ["mod3a-reason"], addedAt: "2001-02-01T00:00:00Z" });
-    const hv = await seed(14303, { addedAt: "2000-12-01T00:00:00Z" });
+    await seed(18402, { reviewReasons: ["mod3a-reason"], addedAt: "2001-02-01T00:00:00Z" });
+    const hv = await seed(18403, { addedAt: "2000-12-01T00:00:00Z" });
     await seedVersion(db, hv, { current: false, addedAt: "2001-01-01T00:00:00Z" });
     const html = await queue();
-    const cells = [14303, 14302, 14301].map((id) => rowWith(html, `mod3a-${id} (`));
+    const cells = [18403, 18402, 18401].map((id) => rowWith(html, `mod3a-${id} (`));
     expect(cells.map((c) => c[0])).toEqual([
       "2001-01-01T00:00:00.000Z",
       "2001-02-01T00:00:00.000Z",
       "2001-03-01T00:00:00.000Z",
     ]);
     expect(cells.map((c) => c[1])).toEqual([
-      "mod3a-14303 (14303)",
-      "mod3a-14302 (14302)",
-      "mod3a-14301 (14301)",
+      "mod3a-18403 (18403)",
+      "mod3a-18402 (18402)",
+      "mod3a-18401 (18401)",
     ]);
-    for (const id of [14301, 14302, 14303]) {
+    for (const id of [18401, 18402, 18403]) {
       expect(html, String(id)).toContain(`<a href="/admin/works/${id}">`);
     }
     const at = (id: number) => html.indexOf(`mod3a-${id} (`);
-    expect(at(14303)).toBeLessThan(at(14302));
-    expect(at(14302)).toBeLessThan(at(14301));
+    expect(at(18403)).toBeLessThan(at(18402));
+    expect(at(18402)).toBeLessThan(at(18401));
   });
 
   it("Works that need no check are not listed", async () => {
-    const checked = await seed(14310, { reviewReasons: ["mod3a-reason"] });
+    const checked = await seed(18410, { reviewReasons: ["mod3a-reason"] });
     await db
       .updateTable("work_versions")
       .set({ checked_at: new Date() })
       .where("id", "=", checked.versionId)
       .execute();
-    const other = await seed(14311);
+    const other = await seed(18411);
     await reportOn(other, "mod3a-other-kind", "2001-01-01T00:00:00Z");
-    const closed = await seed(14312);
+    const closed = await seed(18412);
     await reportOn(closed, "wrong_version", "2001-01-01T00:00:00Z", "dismissed");
     // An earlier version's reasons don't flag the work: only its current version counts.
-    const older = await seed(14313, { reviewReasons: ["mod3a-reason"] });
+    const older = await seed(18413, { reviewReasons: ["mod3a-reason"] });
     await seedVersion(db, older, { current: true });
-    await seed(14314);
+    await seed(18414);
     const html = await queue();
-    for (const id of [14310, 14311, 14312, 14313, 14314]) {
+    for (const id of [18410, 18411, 18412, 18413, 18414]) {
       expect(html, String(id)).not.toContain(`mod3a-${id}`);
     }
   });
 
   it("A hidden work is listed and a removed work is not", async () => {
-    const hidden = await seed(14320, { status: "hidden", hiddenCause: "moderator" });
+    const hidden = await seed(18420, { status: "hidden", hiddenCause: "moderator" });
     await reportOn(hidden, "wrong_version", "2001-01-01T00:00:00Z");
-    const removed = await seed(14321, { status: "removed" });
+    const removed = await seed(18421, { status: "removed" });
     await reportOn(removed, "wrong_version", "2001-01-01T00:00:00Z");
     const html = await queue();
-    expect(html).toContain("mod3a-14320 (14320)");
-    expect(html).not.toContain("mod3a-14321");
+    expect(html).toContain("mod3a-18420 (18420)");
+    expect(html).not.toContain("mod3a-18421");
     // Flagged by review reasons alone, a hidden work is listed too.
-    await seed(14322, { status: "hidden", hiddenCause: "moderator", reviewReasons: ["mod3a-r"] });
-    expect(await queue()).toContain("mod3a-14322 (14322)");
+    await seed(18422, { status: "hidden", hiddenCause: "moderator", reviewReasons: ["mod3a-r"] });
+    expect(await queue()).toContain("mod3a-18422 (18422)");
   });
 
   it("A work with several held versions is listed once, from the oldest", async () => {
-    const w = await seed(14360);
+    const w = await seed(18460);
     await seedVersion(db, w, { current: false, addedAt: "2001-08-01T00:00:00Z" });
     await seedVersion(db, w, { current: false, addedAt: "2001-07-01T00:00:00Z" });
-    const cells = rowWith(await queue(), "mod3a-14360 (");
+    const cells = rowWith(await queue(), "mod3a-18460 (");
     expect(cells[0]).toBe("2001-07-01T00:00:00.000Z");
   });
 
   it("A work with two triggers is listed once, from the earliest, with both reasons", async () => {
-    const w = await seed(14330, { reviewReasons: ["mod3a-why"], addedAt: "2001-05-01T00:00:00Z" });
+    const w = await seed(18430, { reviewReasons: ["mod3a-why"], addedAt: "2001-05-01T00:00:00Z" });
     await reportOn(w, "wrong_version", "2001-04-01T00:00:00Z");
     await reportOn(w, "wrong_version", "2001-06-01T00:00:00Z");
-    const cells = rowWith(await queue(), "mod3a-14330 (");
+    const cells = rowWith(await queue(), "mod3a-18430 (");
     expect(cells[0]).toBe("2001-04-01T00:00:00.000Z");
     expect(cells[2]).toContain("mod3a-why");
     expect(cells[2]).toMatch(/wrong/i);
   });
 
   it("A title is escaped", async () => {
-    const w = await seedWork(db, { ao3WorkId: 14340, title: "mod3a-<b>bold</b>" });
+    const w = await seedWork(db, { ao3WorkId: 18440, title: "mod3a-<b>bold</b>" });
     await reportOn(w, "wrong_version", "2001-01-01T00:00:00Z");
     const html = await queue();
-    expect(html).toContain("mod3a-&lt;b&gt;bold&lt;/b&gt; (14340)");
+    expect(html).toContain("mod3a-&lt;b&gt;bold&lt;/b&gt; (18440)");
     expect(html).not.toContain("mod3a-<b>");
   });
 
   it("This version is wrong queues the work in Works to check", async () => {
-    const w = await seed(14350);
+    const w = await seed(18450);
     const reader = await signInAs("mod3a-reader@example.test", { acceptTerms: true });
-    const res = await fetchW("/works/14350/report", {
+    const res = await fetchW("/works/18450/report", {
       method: "POST",
       headers: {
         cookie: reader,
@@ -177,6 +177,6 @@ describe("18 moderation: Works to check", () => {
       .where("work_id", "=", w.workId)
       .execute();
     expect(stored).toEqual([{ kind: "wrong_version" }]);
-    expect(await queue()).toContain("mod3a-14350 (14350)");
+    expect(await queue()).toContain("mod3a-18450 (18450)");
   });
 });
