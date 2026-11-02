@@ -47,7 +47,6 @@ class FakeXhr {
   headers: Record<string, string> = {};
   sent: Fake | null = null;
   status = 0;
-  timeout = 0;
   upload = new FakeUpload();
   onload?: () => void;
   onerror?: () => void;
@@ -66,6 +65,21 @@ class FakeXhr {
   send(body: Fake) {
     this.sent = body;
   }
+  abort() {
+    this.onabort?.();
+  }
+}
+
+/** A timer the test fires itself. */
+class FakeTimer {
+  cleared = false;
+  constructor(
+    readonly ms: number,
+    private readonly run: () => void,
+  ) {}
+  fire() {
+    if (!this.cleared) this.run();
+  }
 }
 
 type Call = { url: string; method: string; body: URLSearchParams | undefined };
@@ -79,6 +93,7 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
   elements["file"]!.files = files;
   const calls: Call[] = [];
   const clock = { now: 1_000_000 };
+  const timers: FakeTimer[] = [];
   const turnstile = {
     token: "token-1",
     resets: 0,
@@ -97,6 +112,10 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
       return { ok: reply.status < 300, status: reply.status, json: async () => reply.body };
     },
     Date: { now: () => clock.now },
+    setTimeout: (run: () => void, ms: number) => timers.push(new FakeTimer(ms, run)) - 1,
+    clearTimeout: (id: number) => {
+      timers[id]!.cleared = true;
+    },
     XMLHttpRequest: FakeXhr,
     URLSearchParams,
     turnstile,
@@ -108,6 +127,7 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
   return {
     calls,
     clock,
+    timers,
     turnstile,
     button: elements["send"]!,
     message: elements["message"]!,
@@ -325,18 +345,50 @@ describe("02-upload-handshake", () => {
     expect(note(p.rows()[0]!)).toMatch(/try again/);
   });
 
-  it("A stalled transfer ends when its URL expires", async () => {
+  it("A transfer that stops moving is ended, and one that moves is not", async () => {
     const p = page(
       [epub(1)],
       [() => ({ status: 200, body: { id: "up-1", url: "https://r2.example/put-1" } })],
     );
     const clicked = p.click();
     await p.flush();
-    expect(FakeXhr.all[0]!.timeout).toBe(600000);
-    FakeXhr.all[0]!.ontimeout!();
+    const [first] = p.timers;
+    expect(first!.ms).toBe(120000);
+    // Progress restarts the wait.
+    FakeXhr.all[0]!.upload.onprogress!({ lengthComputable: true, loaded: 1, total: 1001 });
+    expect(first!.cleared).toBe(true);
+    expect(p.timers).toHaveLength(2);
+    // Past the stall, the transfer is aborted.
+    p.timers[1]!.fire();
     await clicked;
     expect(note(p.rows()[0]!)).toMatch(/try again/);
     expect(p.button.disabled).toBe(false);
+  });
+
+  it("Files the script refuses don't count towards the ten", async () => {
+    const files = [...Array.from({ length: 9 }, (_, i) => epub(i)), epub(10), epub(11)];
+    files[9] = { name: "notes.txt", size: 5 };
+    files[10] = { name: "more.txt", size: 5 };
+    const p = page(files, [
+      () => ({
+        status: 200,
+        body: {
+          uploads: files
+            .slice(0, 9)
+            .map((_, i) => ({ id: `i${i}`, url: `https://r2.example/${i}` })),
+        },
+      }),
+    ]);
+    const clicked = p.click();
+    await p.flush();
+    expect(sizesOf(p.calls[0]!.body)).toHaveLength(9);
+    // Nine go out, three at a time; fail each as it starts so the click finishes.
+    for (let i = 0; i < 9; i++) {
+      await p.flush();
+      FakeXhr.all[i]!.onerror!();
+    }
+    await clicked;
+    expect(FakeXhr.all).toHaveLength(9);
   });
 
   it("A file that would start after its URL has expired is not sent", async () => {

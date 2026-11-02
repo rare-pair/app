@@ -192,11 +192,13 @@ request and to every byline at ingest.
 
 1. **Ask.** `POST /uploads` checks the session, Turnstile, the daily quota and
    the declared size (25 MB or less). One call asks for one file or for several
-   (at most 10): one `size` field per file, under one Turnstile token. Each file
-   counts once against the per-user and per-IP rate limits and against the quota
-   left today. A batch larger than the quota left is refused whole, with a 429 saying how
-   many uploads remain, and one bad or oversized size refuses the whole batch, so
-   a refused call writes no `uploads` row. The upload page's script calls it, so a
+   (at most 10): one `size` field per file, under one Turnstile token. A call
+   with good sizes spends one unit per file of both the per-user and the per-IP
+   rate limit (a call refused for a bad count or size spends only the first of
+   each), and is checked against the quota left today, which it does not count:
+   that happens at confirm. A batch larger than the quota left is refused whole, with a
+   429 saying how many uploads remain, and one bad or oversized size refuses the whole
+   batch, so a refused call writes no `uploads` row. The upload page's script calls it, so a
    signed-out request gets 401 rather than a redirect it can't follow (the
    page itself redirects to sign in), a failed or missing Turnstile token gets 400, a declared size over
    25 MB gets 413, and a spent quota gets 429 with `Retry-After` (Surge
@@ -916,7 +918,7 @@ markup: its inline `style` attributes become stylesheet rules, because
   so does a form missing required fields (such as `/remove` without a contact
   email, or without a work or pseud). A sign-in POST from any other origin (a
   bad `Origin` / `Sec-Fetch-Site`, as in Auth) gets **403**. An upload request
-  declaring more than 25 MB gets **413**. A used, expired or unknown magic link is
+  declaring more than 25 MB for any file, or asking for more than 10 files, gets **413**. A used, expired or unknown magic link is
   **redirected to `/login`** with a plain message. A signed-out request to a
   signed-in page, or a signed-out report POST, is **redirected to sign in**,
   carrying `next` (Auth); a signed-out request a script makes, such as

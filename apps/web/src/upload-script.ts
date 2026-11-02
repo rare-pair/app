@@ -20,6 +20,7 @@ export const UPLOAD_SCRIPT = `"use strict";
   const MAX_FILES = ${MAX_BATCH_FILES};
   const AT_ONCE = 3;
   const URL_LIFETIME_MS = 600000;
+  const STALL_MS = 120000;
   // Files already uploaded and confirmed, so a second click, to retry the rest, skips them.
   const finished = new Set();
   const input = document.getElementById("file");
@@ -58,25 +59,32 @@ export const UPLOAD_SCRIPT = `"use strict";
   // The browser PUTs the file itself: its bytes never go through this site's Worker.
   const put = (file, url, row, deadline) =>
     new Promise((resolve) => {
-      // The URL stops working ten minutes after it was signed. A file that would start
-      // after that is not sent, and a transfer still going then is lost anyway: end it
-      // rather than hold the button and the other files for ever.
-      const left = deadline - Date.now();
-      if (left <= 0) return resolve(false);
+      // The URL stops working ten minutes after it was signed, and R2 checks that as the
+      // request starts: a file that would start after that is not sent, but one under way
+      // is left to finish.
+      if (deadline - Date.now() <= 0) return resolve(false);
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", url);
       xhr.setRequestHeader("Content-Type", TYPE);
-      xhr.timeout = left;
+      // A transfer that stops moving is ended, rather than holding the button and the
+      // other files for ever.
+      let watchdog = setTimeout(() => xhr.abort(), STALL_MS);
       xhr.upload.onprogress = (event) => {
+        clearTimeout(watchdog);
+        watchdog = setTimeout(() => xhr.abort(), STALL_MS);
         if (event.lengthComputable) {
           row.bar.max = event.total;
           row.bar.value = event.loaded;
         }
       };
-      xhr.onload = () => resolve(xhr.status >= 200 && xhr.status < 300);
-      xhr.onerror = () => resolve(false);
-      xhr.onabort = () => resolve(false);
-      xhr.ontimeout = () => resolve(false);
+      const end = (ok) => {
+        clearTimeout(watchdog);
+        resolve(ok);
+      };
+      xhr.onload = () => end(xhr.status >= 200 && xhr.status < 300);
+      xhr.onerror = () => end(false);
+      xhr.onabort = () => end(false);
+      xhr.ontimeout = () => end(false);
       xhr.send(file);
     });
 
@@ -110,7 +118,6 @@ export const UPLOAD_SCRIPT = `"use strict";
     say("");
     const picked = Array.from(input.files || []);
     if (picked.length === 0) return say("Pick one or more epub files first.");
-    if (picked.length > MAX_FILES) return say("You can upload " + MAX_FILES + " files at a time. Please pick fewer.");
     const token = window.turnstile ? window.turnstile.getResponse() : "";
     if (!token) return say("Please wait for the anti-spam check to finish, then try again.");
 
@@ -126,6 +133,12 @@ export const UPLOAD_SCRIPT = `"use strict";
       else toSend.push({ file, row });
     }
     if (toSend.length === 0) return;
+    // Only the files that would be sent count towards the cap, as the server counts them.
+    if (toSend.length > MAX_FILES) {
+      say("You can upload " + MAX_FILES + " files at a time. Please pick fewer.");
+      for (const { row } of toSend) row.note.textContent = "Not uploaded.";
+      return;
+    }
 
     const body = new URLSearchParams();
     for (const { file } of toSend) body.append("size", String(file.size));

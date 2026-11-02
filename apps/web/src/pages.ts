@@ -175,8 +175,9 @@ export const signInPage = (nonce: string, form: SignInForm) =>
 
 /**
  * The upload page, signed in. Like the sign-in form it starts `hidden` and a nonced
- * script shows it. It is no form: the page's script asks `POST /uploads` for a URL and
- * PUTs the file to R2 itself, so without JavaScript nothing on it can send a file.
+ * script shows it. It is no form: the page's script asks `POST /uploads` once for a URL
+ * for each file picked and PUTs each to R2 itself, so without JavaScript nothing on it can
+ * send a file.
  */
 export const uploadPage = (nonce: string, siteKey: string) =>
   layout(
