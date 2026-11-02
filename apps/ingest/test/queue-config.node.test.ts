@@ -14,17 +14,20 @@ interface Consumer {
   dead_letter_queue: string;
 }
 
-/** The ingest queue's consumer in wrangler.jsonc, read with its line comments and trailing commas removed. */
-function consumer(): Consumer {
+/** The consumer of `queue` in wrangler.jsonc, read with its line comments and trailing commas removed. */
+function consumerOf(queue: string): Consumer {
   const text = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8")
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/,(\s*[}\]])/g, "$1");
   // SAFETY: the fields read from it are each checked by the assertions that read them.
   const config = JSON.parse(text) as { queues: { consumers: Consumer[] } };
-  const first = config.queues.consumers.at(0);
-  if (first === undefined) throw new Error("wrangler.jsonc has no queue consumer");
-  return first;
+  const found = config.queues.consumers.find((c) => c.queue === queue);
+  if (found === undefined) throw new Error(`wrangler.jsonc has no consumer of ${queue}`);
+  return found;
 }
+
+/** The ingest queue's consumer. */
+const consumer = () => consumerOf("ingest");
 
 describe("04-ingest-job-lifecycle", () => {
   it("Consumer concurrency stays bounded under a flood", () => {
@@ -43,5 +46,18 @@ describe("ingest lease", () => {
     // So a retry of a job that died holding its lease finds the lease expired.
     expect(consumer().retry_delay).toBe(120);
     expect(LEASE_SECONDS).toBeLessThan(120);
+  });
+});
+
+describe("07-sanitizing-and-images", () => {
+  it("The backfill queue has its own consumer, one work at a time, dead-lettered", () => {
+    // One work a batch and one invocation at once: a backfill run holds one Postgres
+    // connection and one epub, and leaves the rest to the ingest queue's uploads.
+    expect(consumerOf("ingest-backfill")).toMatchObject({
+      max_batch_size: 1,
+      max_concurrency: 1,
+      max_retries: 3,
+      dead_letter_queue: "ingest-backfill-dlq",
+    });
   });
 });
