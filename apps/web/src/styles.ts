@@ -371,6 +371,11 @@ main {
   overflow-wrap: anywhere;
 }
 
+/* The upload page's bars: never wider than a narrow screen. */
+progress {
+  max-width: 100%;
+}
+
 /* Text for screen readers only, such as a tag's type. */
 
 .visually-hidden {

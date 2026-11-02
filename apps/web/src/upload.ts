@@ -16,7 +16,7 @@ import {
 } from "./rate-limit";
 import { isSameOrigin } from "./signin";
 import { TURNSTILE_ACTIONS, verifyTurnstile } from "./turnstile";
-import { EPUB_TYPE, MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./upload-limit";
+import { EPUB_TYPE, MAX_BATCH_FILES, MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./upload-limit";
 
 // ARCHITECTURE, Ingestion pipeline, step 1. The upload page's script calls
 // `POST /uploads` once for all the files picked, with one Turnstile token and a
@@ -30,9 +30,6 @@ type UploadContext = Context<{
 
 // How long a presigned URL works: 10 minutes.
 const UPLOAD_URL_SECONDS = 600;
-
-// The most files one call may ask for.
-const MAX_BATCH = 10;
 
 const TOO_FAST = "You're uploading too fast. Please wait a moment and try again.";
 
@@ -94,8 +91,8 @@ export async function requestUpload(c: UploadContext) {
 
   // One `size` per file. A batch over the cap is refused before it spends more of a limit.
   const sizes = form.getAll("size");
-  if (sizes.length > MAX_BATCH) {
-    return refuse(413, `You can upload ${MAX_BATCH} files at a time. Please pick fewer.`);
+  if (sizes.length > MAX_BATCH_FILES) {
+    return refuse(413, `You can upload ${MAX_BATCH_FILES} files at a time. Please pick fewer.`);
   }
   // Each file counts once against both limits. The first of each was spent above, so a
   // flood still costs no body; the rest are spent here, before Turnstile, the user first.
