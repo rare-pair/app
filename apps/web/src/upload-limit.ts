@@ -4,6 +4,9 @@
 /** The one type a presigned URL accepts (ARCHITECTURE, Ingestion pipeline). */
 export const EPUB_TYPE = "application/epub+zip";
 
+/** The most files one `POST /uploads` may ask for; the page's script holds to it too. */
+export const MAX_BATCH_FILES = 10;
+
 /** The limit in MiB, as the pages say it: "25 MB". */
 export const MAX_UPLOAD_MB = 25;
 

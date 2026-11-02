@@ -196,19 +196,34 @@ request and to every byline at ingest.
 ## Ingestion pipeline
 
 1. **Ask.** `POST /uploads` checks the session, Turnstile, the daily quota and
-   the declared size (25 MB or less). The upload page's script calls it, so a
+   the declared size (25 MB or less). One call asks for one file or for several
+   (at most 10): one `size` field per file, under one Turnstile token. A call
+   with good sizes spends one unit per file of both the per-user and the per-IP
+   rate limit (a call refused for a bad count or size spends only the first of
+   each), and is checked against the quota left today, which it does not count:
+   that happens at confirm. A batch larger than the quota left is refused whole, with a
+   429 saying how many uploads remain, and one bad or oversized size refuses the whole
+   batch, so a refused call writes no `uploads` row. The upload page's script calls it, so a
    signed-out request gets 401 rather than a redirect it can't follow (the
    page itself redirects to sign in), a failed or missing Turnstile token gets 400, a declared size over
    25 MB gets 413, and a spent quota gets 429 with `Retry-After` (Surge
    controls). A request over the per-user or per-IP rate limit gets the same 429,
-   counted right after the session check, before the form is read. The reply is
+   counted right after the session check, before the form is read (the rest of a
+   batch's files are counted once the form is read, before Turnstile). The reply is
    JSON `{ error, retryAfter }`, and the upload page shows the message. A banned
-   account gets 403, checked with the quota (Moderation, *Block and ban*), and
-   `GET /upload` shows it a page saying it can't upload. Otherwise it inserts an
-   `uploads` row and returns a presigned R2 `PUT` URL, valid for 10 minutes
-   and locked to `Content-Type: application/epub+zip`. R2 presigned URLs support PUT but not
+   account gets 403 for the whole batch, checked with the quota (Moderation,
+   *Block and ban*), and `GET /upload` shows it a page saying it can't upload.
+   Otherwise it inserts an
+   `uploads` row and returns a presigned R2 `PUT` URL for each file, valid for 10 minutes
+   and locked to `Content-Type: application/epub+zip`: JSON `{ id, url }` for one file,
+   `{ uploads: [{ id, url }, ...] }` for several. R2 presigned URLs support PUT but not
    form POST, and the bucket needs a CORS rule for `rarepair.fans`.
-2. **Upload.** The browser PUTs the file straight to R2 and shows progress.
+2. **Upload.** The browser PUTs each file straight to R2 and shows each file's
+   progress, three at a time so fewer files wait on a URL that lasts 10 minutes (a
+   file that still starts too late fails, and another click sends the files not yet
+   uploaded). The page's
+   script sends with `XMLHttpRequest`, since `fetch` reports no upload progress.
+   Each finished PUT is confirmed with `POST /uploads/:id/complete`.
    Uploading needs JavaScript, as every form with a Turnstile check does
    (Turnstile can't produce a token without it); without JS the upload page
    says so (FRONTEND-DISCOVERY, *Where the frontend changes the architecture*).
@@ -536,6 +551,11 @@ can be snapshotted.
   allowance, `frame-src https://challenges.cloudflare.com`, for the challenge
   iframe. Turnstile's `api.js` loads through a nonced `<script>`, which
   `'strict-dynamic'` already covers. Reader and work pages never get it.
+- **The upload page alone also adds** `connect-src 'self'
+  https://<R2 account id>.r2.cloudflarestorage.com`, the one host its script
+  PUTs files to. It is built per request from the Worker's `R2_ACCOUNT_ID`
+  (and left out if that isn't plain letters and digits, so the upload fails
+  closed). Every other page keeps `default-src 'self'` for connections.
 - **HTML pages aren't left to a shared cache with their nonce.** The CSP
   middleware sets `Cache-Control: private, no-store` on every HTML response
   that has no `Cache-Control` of its own, so a zone Cache Rule or a proxy can't
@@ -547,6 +567,15 @@ can be snapshotted.
   `<style>` and inline `style`, and by limiting links. The reader CSS also sets
   `.chapter { contain: content; }` and keeps `position` locked inside it. Treat
   any new trick here as a sanitizer bug.
+- **Chapter notes are styled by position.** The sanitizer drops `class` and
+  `id`, and the data model keeps no separate notes, so the reader CSS styles a
+  chapter's notes (#205) by structure: a label `<p>` followed by a
+  `<blockquote>`, first in `article.chapter` (chapter notes) or last (end
+  notes), flat or inside one wrapper `<div>`. Both are smaller and muted. The
+  accepted false match: a real quote block placed the same way (a paragraph then
+  a blockquote opening or closing a chapter) gets the same style, and so does
+  the paragraph that introduces it, since it has the label's shape. That's a
+  design choice, not a bug to fix with a class hook.
 - **We can re-sanitize everything.** Originals are kept in `originals/`, so
   when a bypass is found we fix the sanitizer and re-run ingest on every stored
   work from a backfill queue.
@@ -945,7 +974,7 @@ markup: its inline `style` attributes become stylesheet rules, because
   so does a form missing required fields (such as `/remove` without a contact
   email, or without a work or pseud). A sign-in POST from any other origin (a
   bad `Origin` / `Sec-Fetch-Site`, as in Auth) gets **403**. An upload request
-  declaring more than 25 MB gets **413**. A used, expired or unknown magic link is
+  declaring more than 25 MB for any file, or asking for more than 10 files, gets **413**. A used, expired or unknown magic link is
   **redirected to `/login`** with a plain message. A signed-out request to a
   signed-in page, or a signed-out report POST, is **redirected to sign in**,
   carrying `next` (Auth); a signed-out request a script makes, such as
