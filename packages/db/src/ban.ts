@@ -31,12 +31,14 @@ export async function banUser(
   return inTransaction(db, async (trx) => {
     // The pending uploads first, then the account: the order a confirm takes them in
     // (`countUploadQuota` claims the upload, then counts on the user), so a ban and a confirm
-    // by the same uploader wait for each other instead of deadlocking.
-    await trx
+    // by the same uploader wait for each other instead of deadlocking. By id, so two bans of
+    // one account lock its uploads in the same order.
+    const pending = await trx
       .selectFrom("uploads")
       .select("id")
       .where("user_id", "=", userId)
       .where("status", "=", "pending")
+      .orderBy("id")
       .forUpdate()
       .execute();
     // Locked to the end of the transaction, so a second ban or a role change waits for this
@@ -57,12 +59,13 @@ export async function banUser(
       .set({ banned_at: sql<Date>`now()` })
       .where("id", "=", userId)
       .execute();
-    await trx
-      .updateTable("uploads")
-      .set({ status: "account_banned" })
-      .where("user_id", "=", userId)
-      .where("status", "=", "pending")
-      .execute();
+    // Only the rows locked above: one written since would be locked after the account, the
+    // reverse of a confirm's order. A confirm (`endBannedUpload`) or ingest ends it instead.
+    await endPending(
+      trx,
+      userId,
+      pending.map((u) => u.id),
+    );
     await logModerationAction(trx, {
       moderatorId: options.actor,
       action: "ban",
@@ -97,10 +100,16 @@ export async function endBannedUpload(
   uploadId: string,
   userId: string,
 ): Promise<void> {
+  await endPending(db, userId, [uploadId]);
+}
+
+/** Ends those of `ids` that are still `userId`'s `pending` uploads as `account_banned`. */
+async function endPending(db: Kysely<Database>, userId: string, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
   await db
     .updateTable("uploads")
     .set({ status: "account_banned" })
-    .where("id", "=", uploadId)
+    .where("id", "in", ids)
     .where("user_id", "=", userId)
     .where("status", "=", "pending")
     .execute();
