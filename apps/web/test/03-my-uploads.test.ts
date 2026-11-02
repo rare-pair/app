@@ -58,6 +58,15 @@ function badgeOf(html: string, id: string): string | undefined {
   return item?.match(/<span class="badge"[^>]*>([^<]*)<\/span>/)?.[1];
 }
 
+/** The text of the message slot in the list item for upload `id`. */
+function messageOf(html: string, id: string): string | undefined {
+  const item = html.match(new RegExp(`<li[^>]*data-upload-id="${id}"[^>]*>[\\s\\S]*?</li>`))?.[0];
+  return item
+    ?.match(/<p class="upload-message">([^<]*)<\/p>/)?.[1]
+    ?.replaceAll("&#39;", "'")
+    .replaceAll("&amp;", "&");
+}
+
 const REFRESH = '<noscript><meta http-equiv="refresh" content="5"></noscript>';
 
 describe("03-upload-status: My uploads", () => {
@@ -80,26 +89,29 @@ describe("03-upload-status: My uploads", () => {
     expect(badgeOf(html, ids.live)).toBe("Live");
     expect(badgeOf(html, ids.held)).toBe("Held for review");
     expect(badgeOf(html, ids.duplicate)).toBe("Already in the archive");
-    expect(badgeOf(html, ids.rejected)).toBe("Rejected");
+    expect(badgeOf(html, ids.rejected)).toBe("Rejected: not an AO3 export");
     expect(badgeOf(html, ids.waiting)).toBe("Not uploaded yet");
     expect(badgeOf(html, ids.confirmed)).toBe("Processing");
   });
 
   it("Every rejection code gets a Rejected badge", async () => {
     const { userId, cookie } = await signIn();
-    const codes: UploadStatus[] = [
-      "not_epub",
-      "zip_bomb",
-      "too_large",
-      "not_ao3",
-      "opted_out",
-      "parse_failed",
+    const badges: Array<[UploadStatus, string]> = [
+      ["not_epub", "Rejected: not an EPUB"],
+      ["zip_bomb", "Rejected: file can't be opened safely"],
+      ["too_large", "Rejected: too large"],
+      ["not_ao3", "Rejected: not an AO3 export"],
+      ["opted_out", "Rejected"],
+      ["work_removed", "Rejected"],
+      ["account_banned", "Rejected: account can't upload"],
+      ["parse_failed", "Failed"],
     ];
-    const ids = await Promise.all(codes.map((code) => upload(userId, code)));
+    const ids: string[] = [];
+    for (const [code] of badges) ids.push(await upload(userId, code));
 
     const html = await (await page(cookie)).text();
 
-    for (const id of ids) expect(badgeOf(html, id)).toBe("Rejected");
+    expect(ids.map((id) => badgeOf(html, id))).toEqual(badges.map(([, badge]) => badge));
   });
 
   it("An upload over the daily quota is not called rejected", async () => {
@@ -359,6 +371,148 @@ describe("03-upload-status: My uploads", () => {
     expect(polling(unconfirmed)).toBe(false);
     expect(polling(live)).toBe(false);
     expect(html).toContain('<span class="upload-name">');
+  });
+
+  // Draft copy: the operator proofs the wording, so these check what a message says and
+  // asks of the uploader, not its exact words.
+  const rejected: Array<[UploadStatus, RegExp]> = [
+    ["not_ao3", /isn't an AO3 download.*Download the work from AO3 as an EPUB/],
+    ["not_epub", /isn't a valid EPUB.*try again/i],
+    ["zip_bomb", /won't open.*try again/i],
+    ["too_large", /too large.*25 MB/],
+    ["opted_out", /^This work can't be added to the archive\.$/],
+  ];
+  for (const [code, phrase] of rejected) {
+    it(`Rejected ${code} upload shows a plain-language message`, async () => {
+      const { userId, cookie } = await signIn();
+      const id = await upload(userId, code);
+
+      const html = await (await page(cookie)).text();
+
+      expect(messageOf(html, id)).toMatch(phrase);
+    });
+  }
+
+  it("Rejected opted_out upload names neither an opt-out nor a takedown, and links nothing", async () => {
+    const { userId, cookie } = await signIn();
+    const id = await upload(userId, "opted_out");
+
+    const html = await (await page(cookie)).text();
+
+    expect(messageOf(html, id)).not.toMatch(/opt|takedown|taken down|\/remove|\/dmca/i);
+    expect(html).not.toContain("/works/");
+  });
+
+  it("Duplicate upload says the work is already in the archive", async () => {
+    const { userId, cookie } = await signIn();
+    const work = await seedWork(db, { ao3WorkId: 16130, title: "u6c-dup" });
+    const id = await upload(userId, "duplicate", { workId: work.workId });
+
+    const html = await (await page(cookie)).text();
+
+    // Exactly this text, so it isn't "Rejected": a duplicate is a status, not a rejection.
+    expect(badgeOf(html, id)).toBe("Already in the archive");
+    expect(html).toContain('<a href="/works/16130">');
+    expect(messageOf(html, id)).toMatch(/already in the archive/);
+  });
+
+  it("A live or duplicate upload of a work no longer open says nothing of the archive", async () => {
+    const { userId, cookie } = await signIn();
+    const hidden = await seedWork(db, {
+      ao3WorkId: 16131,
+      title: "u6c-hidden",
+      status: "hidden",
+      hiddenCause: "moderator",
+    });
+    const live = await upload(userId, "live", { workId: hidden.workId });
+    const dup = await upload(userId, "duplicate", { workId: hidden.workId });
+
+    const html = await (await page(cookie)).text();
+
+    for (const id of [live, dup]) {
+      const message = messageOf(html, id) ?? "";
+      expect(message).not.toBe("");
+      expect(message).not.toMatch(/archive/i);
+    }
+    expect(html).not.toContain("/works/16131");
+  });
+
+  it("Held upload is shown to its uploader", async () => {
+    const u = await signIn();
+    const v = await signIn();
+    const id = await upload(u.userId, "held_for_review");
+
+    const html = await (await page(u.cookie)).text();
+
+    expect(badgeOf(html, id)).toBe("Held for review");
+    expect(messageOf(html, id)).toMatch(/moderator will check/);
+    expect(await (await page(v.cookie)).text()).not.toContain(id);
+  });
+
+  it("Failed upload shows a plain-language message", async () => {
+    const { userId, cookie } = await signIn();
+    const id = await upload(userId, "parse_failed");
+
+    const html = await (await page(cookie)).text();
+
+    expect(messageOf(html, id)).toMatch(/couldn't process this file.*try uploading it again/i);
+    expect(html).not.toContain("marker");
+  });
+
+  it("The other statuses each get a message", async () => {
+    const { userId, cookie } = await signIn();
+    const work = await seedWork(db, { ao3WorkId: 16132, title: "u6c-other" });
+    const waiting = await upload(userId, "pending", { confirmed: false });
+    const confirmed = await upload(userId, "pending");
+    const processing = await upload(userId, "processing");
+    const live = await upload(userId, "live", { workId: work.workId });
+    const quota = await upload(userId, "over_quota");
+    const removed = await upload(userId, "work_removed");
+    const banned = await upload(userId, "account_banned");
+
+    const html = await (await page(cookie)).text();
+
+    expect(messageOf(html, waiting)).toMatch(/hasn't finished uploading/);
+    expect(messageOf(html, confirmed)).toMatch(/reading this file/);
+    expect(messageOf(html, processing)).toMatch(/reading this file/);
+    expect(messageOf(html, live)).toBe("This work is in the archive.");
+    expect(messageOf(html, quota)).toMatch(/^(?!.*(UTC|\d\d:\d\d)).*daily limit/);
+    expect(messageOf(html, removed)).toBe("This work was removed from the archive.");
+    expect(messageOf(html, banned)).toBe("This account can no longer upload.");
+  });
+
+  it("Messages never imply AO3 approval", async () => {
+    const { userId, cookie } = await signIn();
+    const work = await seedWork(db, { ao3WorkId: 16133, title: "u6c-approval" });
+    const statuses: UploadStatus[] = [
+      "pending",
+      "processing",
+      "live",
+      "held_for_review",
+      "duplicate",
+      "not_epub",
+      "zip_bomb",
+      "too_large",
+      "not_ao3",
+      "opted_out",
+      "parse_failed",
+      "over_quota",
+      "work_removed",
+      "account_banned",
+    ];
+    const ids: string[] = [];
+    for (const status of statuses) {
+      ids.push(await upload(userId, status, { workId: status === "live" ? work.workId : null }));
+    }
+
+    const html = await (await page(cookie)).text();
+
+    for (const id of ids) {
+      const text = `${badgeOf(html, id)} ${messageOf(html, id)}`;
+      expect(messageOf(html, id)).toBeTruthy();
+      expect(text).not.toMatch(/approv|verif|official|endors|affiliat|partner|authoriz/i);
+      expect(text.replace(/an AO3 (download|export)|from AO3/g, "")).not.toMatch(/AO3/);
+    }
   });
 
   it("An unconfirmed pending upload brings neither the script nor the refresh", async () => {
