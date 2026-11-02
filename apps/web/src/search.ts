@@ -14,6 +14,9 @@ import { DRAFT, escapeHtml, layout } from "./pages";
 /** The query is in the URL: a cross-site link on a result must not carry it in the Referer. */
 const PRIVATE = { "Referrer-Policy": "strict-origin" };
 
+/** The most of a fandom name that is read. */
+const MAX_FANDOM = 200;
+
 /** What the URL asks the results to be narrowed by, less anything the form can't send. */
 interface Filters {
   /** As typed. Absent for any fandom, or one that folds to no name at all. */
@@ -24,9 +27,9 @@ interface Filters {
 
 function filtersOf(rawFandom: string | undefined, rawRating: string | undefined): Filters {
   const filters: Filters = {};
-  if (rawFandom !== undefined && tagNameKeys("fandom", rawFandom).length > 0) {
-    filters.fandom = rawFandom;
-  }
+  // Cut, as the query is: no fandom name is longer, and it is echoed into every link.
+  const fandom = rawFandom?.slice(0, MAX_FANDOM);
+  if (fandom !== undefined && tagNameKeys("fandom", fandom).length > 0) filters.fandom = fandom;
   if (rawRating !== undefined && RATINGS.includes(rawRating)) filters.rating = rawRating;
   return filters;
 }
@@ -66,7 +69,10 @@ export async function showSearch(c: Context<{ Bindings: Bindings }>) {
       ...filters,
     });
     const last = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    if (page > last) return c.notFound();
+    if (page > last) {
+      c.header("Referrer-Policy", PRIVATE["Referrer-Policy"]);
+      return c.notFound();
+    }
     // Draft copy, for the operator to proof.
     const list =
       works.length === 0 ? `<p>No works match your search.</p>\n${DRAFT}` : workList(works);

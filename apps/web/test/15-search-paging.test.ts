@@ -76,7 +76,10 @@ describe("15-search paging and filters", () => {
     });
 
     it("A page past the last is not found", async () => {
-      expect((await get(`/search?q=${WORD}&page=3`)).status).toBe(404);
+      const res = await get(`/search?q=${WORD}&page=3`);
+      expect(res.status).toBe(404);
+      // The URL holds the reader's query, so the 404 keeps it out of the Referer too.
+      expect(res.headers.get("Referrer-Policy")).toBe("strict-origin");
     });
 
     it("A page that isn't a number is the first", async () => {
@@ -136,6 +139,11 @@ describe("15-search paging and filters", () => {
       expect(html).toMatch(/<option value="Mature" selected>/);
       // The form has no page field, so applying a filter returns to the first page.
       expect(html).not.toContain('name="page"');
+    });
+
+    it("A very long fandom is cut, not echoed whole", async () => {
+      const html = await search(`q=${FILTERED_WORD}&fandom=${"x".repeat(5000)}`);
+      expect(html).not.toContain("x".repeat(201));
     });
 
     it("An unknown rating is dropped", async () => {
