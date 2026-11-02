@@ -4,6 +4,8 @@ import type { Bindings } from "./env";
 import { escapeHtml, layout } from "./pages";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
+import { myUploadsScriptTag } from "./my-uploads-script";
+import { badgeLabel, inProgress, messageFor, REFRESH_SECONDS } from "./upload-badge";
 import { joinedWork, uploadStatusBody } from "./upload-status";
 
 // FRONTEND-DISCOVERY, Page inventory (My uploads). The page lists the signed-in user's
@@ -17,31 +19,6 @@ type MyUploadsContext = Context<{
 // The newest uploads shown, with no paging. Rows made before a confirm, and rejections,
 // aren't counted by the quota, so a long list is possible: the page says when it is cut.
 const LIST_LIMIT = 50;
-
-// Seconds between refreshes while an upload is in progress.
-const REFRESH_SECONDS = 5;
-
-// The badge text for each status that isn't a rejection. Every other status is treated
-// as a rejection code, so one added later still gets the generic label. Draft copy: U6c
-// words the messages for each code.
-const LABELS: Partial<Record<UploadStatus, string>> = {
-  pending: "Not uploaded yet",
-  processing: "Processing",
-  live: "Live",
-  held_for_review: "Held for review",
-  duplicate: "Already in the archive",
-  // ARCHITECTURE: over_quota is not a rejection, the day's limit was spent.
-  over_quota: "Daily limit reached",
-};
-const REJECTED = "Rejected";
-
-/** A confirmed `pending` upload waits for ingest, so it counts as in progress. */
-const inProgress = (status: UploadStatus, confirmed: boolean) =>
-  status === "processing" || (status === "pending" && confirmed);
-
-/** The badge text for an upload. */
-const badgeLabel = (status: UploadStatus, confirmed: boolean): string =>
-  status === "pending" && confirmed ? "Processing" : (LABELS[status] ?? REJECTED);
 
 /** "2026-03-04 05:06 UTC" */
 const utcMinute = (at: Date) => `${at.toISOString().slice(0, 16).replace("T", " ")} UTC`;
@@ -63,24 +40,29 @@ function item(row: Row): string {
       ? `<a href="${escapeHtml(link.url)}"><bdi>${escapeHtml(row.title)}</bdi></a>`
       : escapeHtml(`Upload of ${utcMinute(row.created_at)}`);
   const label = badgeLabel(row.status, row.quota_counted_at !== null);
-  return `<li data-upload-id="${escapeHtml(row.id)}" data-status="${escapeHtml(row.status)}">${name} <span class="badge">${label}</span><p class="upload-message"></p></li>`;
+  const message = escapeHtml(messageFor(row.status, row.quota_counted_at !== null, link !== null));
+  // `data-polling` marks the rows the page's script polls: an unconfirmed `pending` row
+  // has the same `data-status` as a confirmed one but is not waiting for ingest.
+  const polling = inProgress(row.status, row.quota_counted_at !== null) ? " data-polling" : "";
+  return `<li data-upload-id="${escapeHtml(row.id)}" data-status="${escapeHtml(row.status)}"${polling}><span class="upload-name">${name}</span> <span class="badge">${label}</span><p class="upload-message">${message}</p></li>`;
 }
 
 /**
- * The `/me/uploads` page, in `layout`. The meta refresh sits in the head, and only
- * while some upload is in progress.
+ * The `/me/uploads` page, in `layout`. While some upload is in progress the head holds
+ * the page's script and, inside `<noscript>`, the meta refresh: only a browser without
+ * JavaScript reloads the page, and the script polls instead.
  */
-export function myUploadsPage(rows: Row[], cut: boolean) {
-  const refresh = rows.some((r) => inProgress(r.status, r.quota_counted_at !== null))
-    ? `<meta http-equiv="refresh" content="${REFRESH_SECONDS}">`
+export function myUploadsPage(rows: Row[], cut: boolean, nonce: string) {
+  const head = rows.some((r) => inProgress(r.status, r.quota_counted_at !== null))
+    ? `<noscript><meta http-equiv="refresh" content="${REFRESH_SECONDS}"></noscript>${myUploadsScriptTag(nonce)}`
     : "";
   const body =
     rows.length === 0
       ? `<p>You haven't uploaded anything yet. <a href="/upload">Upload a work</a>.</p>`
-      : `<ul class="upload-list">\n${rows.map(item).join("\n")}\n</ul>${
+      : `<ul class="upload-list" aria-live="polite">\n${rows.map(item).join("\n")}\n</ul>${
           cut ? `\n<p>Showing your ${LIST_LIMIT} most recent uploads.</p>` : ""
         }`;
-  return layout("My uploads", body, refresh);
+  return layout("My uploads", body, head);
 }
 
 /** `GET /me/uploads`: the signed-in user's uploads, newest first. Signing in is `requireSignIn`'s. */
@@ -111,7 +93,9 @@ export async function showMyUploads(c: MyUploadsContext) {
       // One more than shown, to know whether the list was cut.
       .limit(LIST_LIMIT + 1)
       .execute();
-    return c.html(myUploadsPage(rows.slice(0, LIST_LIMIT), rows.length > LIST_LIMIT));
+    return c.html(
+      myUploadsPage(rows.slice(0, LIST_LIMIT), rows.length > LIST_LIMIT, c.get("nonce")),
+    );
   } finally {
     c.executionCtx.waitUntil(db.destroy());
   }

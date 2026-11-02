@@ -95,10 +95,12 @@
       "namespace_id": "1031",
       "simple": { "limit": 3, "period": 60 },
     },
-    // POST /uploads, per signed-in user and per client IP, both counted before the form is read,
-    // so a flood costs neither a body nor a Turnstile check, and a refused request counts. First
-    // values (user 20, so a new account's whole daily quota fits one window; IP 40), to be revisited before launch: a shared office or school IP may
-    // want a higher IP limit. The Postgres count is the daily quota (ARCHITECTURE, Surge
+    // POST /uploads, per signed-in user and per client IP. The first unit of each is counted
+    // before the form is read, so a flood costs neither a body nor a Turnstile check, and a
+    // refused request counts. A batch spends one unit per file, the rest once its sizes are
+    // checked and before Turnstile, so a batch of ten takes ten of the user's 20 and of the
+    // IP's 40. First values (user 20, IP 40), to be revisited before launch: a shared office
+    // or school IP may want a higher IP limit. The Postgres count is the daily quota (ARCHITECTURE, Surge
     // controls); this binding is only approximate and per location.
     {
       "name": "UPLOAD_USER_LIMIT",

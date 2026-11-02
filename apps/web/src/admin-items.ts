@@ -38,8 +38,8 @@ export const adminItems = new Hono<AdminEnv>();
 
 const iso = (date: Date) => date.toISOString();
 
-/** The `from` field of a hide, restore or reject form, if it names an item page (remove reads its form itself, for `confirm`). */
-async function fromField(request: Request) {
+/** The `from` field of a hide, restore, reject or ban form, if it names a page to go back to (remove reads its form itself, for `confirm`). */
+export async function fromField(request: Request) {
   const form = await readForm(request, MAX_FORM);
   return safeFrom(form?.get("from"));
 }

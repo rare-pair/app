@@ -6,6 +6,7 @@ import { confirmSignIn, showConfirm } from "./confirm";
 import type { Bindings } from "./env";
 import { showDmcaForm, submitDmca } from "./dmca";
 import { showFull } from "./full";
+import { MY_UPLOADS_SCRIPT, MY_UPLOADS_SCRIPT_PATH } from "./my-uploads-script";
 import { POSITION_SCRIPT, POSITION_SCRIPT_PATH, savePosition } from "./position";
 import { continueWarnings, showWarnings } from "./warnings";
 import { homePage } from "./home";
@@ -19,6 +20,7 @@ import { aboutPage, notFoundPage, privacyPage, termsPage } from "./pages";
 import { showRemoveForm, submitRemove } from "./remove";
 import { pageState } from "./page-state";
 import { SETTINGS_SCRIPT, SETTINGS_SCRIPT_PATH } from "./reader-settings";
+import { UPLOAD_SCRIPT, UPLOAD_SCRIPT_PATH } from "./upload-script";
 import { closedBeforeLaunch, disableClosedLinks, isPrelaunch } from "./prelaunch";
 import {
   contentSecurityPolicy,
@@ -150,6 +152,24 @@ app.get(SETTINGS_SCRIPT_PATH, (c) =>
 // The reading position script, likewise hashed. Loaded with the page's nonce.
 app.get(POSITION_SCRIPT_PATH, (c) =>
   c.body(POSITION_SCRIPT, 200, {
+    "Content-Type": "text/javascript; charset=utf-8",
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+  }),
+);
+
+// The My uploads script, likewise hashed. Loaded with the page's nonce.
+app.get(MY_UPLOADS_SCRIPT_PATH, (c) =>
+  c.body(MY_UPLOADS_SCRIPT, 200, {
+    "Content-Type": "text/javascript; charset=utf-8",
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+  }),
+);
+
+// The upload page's script, likewise hashed. Loaded with the page's nonce.
+app.get(UPLOAD_SCRIPT_PATH, (c) =>
+  c.body(UPLOAD_SCRIPT, 200, {
     "Content-Type": "text/javascript; charset=utf-8",
     "Cache-Control": "public, max-age=31536000, immutable",
     "X-Content-Type-Options": "nosniff",

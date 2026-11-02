@@ -4,7 +4,7 @@
 
 import { makeVersionCurrent } from "@archive/db";
 import { Hono } from "hono";
-import type { AdminEnv } from "./admin";
+import { isModerator, type AdminEnv } from "./admin";
 import { workByAo3Id } from "./admin-items";
 import { resultPage, workActions, workAdminPage, workStatusText } from "./admin-pages";
 import { readForm } from "./login";
@@ -31,7 +31,10 @@ adminWork.get("/works/:id", async (c) => {
       "work_versions.created_at",
       "work_versions.chapter_count",
       "uploads.status as upload_status",
+      "user.id as user_id",
       "user.email",
+      "user.banned_at",
+      "user.role",
     ])
     .where("work_versions.work_id", "=", found.id)
     .orderBy("work_versions.created_at")
@@ -46,6 +49,9 @@ adminWork.get("/works/:id", async (c) => {
         id: v.id,
         added: v.created_at.toISOString(),
         uploader: v.email ?? "",
+        // A moderator or an admin can't be banned, so their rows offer no form.
+        uploaderId: isModerator(v.role) ? null : v.user_id,
+        banned: v.banned_at !== null,
         chapters: v.chapter_count,
         current: v.id === work.current_version_id,
         held: v.upload_status !== "live",

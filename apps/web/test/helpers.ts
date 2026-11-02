@@ -18,6 +18,9 @@ export const fetchW = (input: string, init: RequestInit = {}) =>
 export const STRICT =
   "default-src 'self'; script-src 'nonce-{n}' 'strict-dynamic'; style-src 'self'; img-src 'self' https://content.rarepair.fans; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 export const TURNSTILE = `${STRICT}; frame-src https://challenges.cloudflare.com`;
+// /upload alone may also send to the R2 account's S3 host: the page PUTs files there.
+// The account id is vitest.config.ts's throwaway one.
+export const UPLOAD_CSP = `${TURNSTILE}; connect-src 'self' https://test0000000000000000000000000acct.r2.cloudflarestorage.com`;
 
 /** The nonce in a CSP header, or null when there is none. */
 export const nonceOf = (csp: string | null) => csp?.match(/'nonce-([^']*)'/)?.[1] ?? null;
