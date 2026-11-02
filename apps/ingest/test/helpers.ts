@@ -67,13 +67,20 @@ export const uploadRow = (id: string) =>
       .executeTakeFirstOrThrow(),
   );
 
-/** Runs the queue handler on one batch of message bodies, and returns the queue's result. */
+/**
+ * Runs the queue handler on one batch of message bodies from `queue` (the ingest queue unless
+ * given), and returns the queue's result.
+ */
 export async function deliver(
   bodies: unknown[],
-  { attempts = 1, handler = worker }: { attempts?: number; handler?: Handler } = {},
+  {
+    attempts = 1,
+    handler = worker,
+    queue = "ingest",
+  }: { attempts?: number; handler?: Handler; queue?: string } = {},
 ) {
   const batch = createMessageBatch(
-    "ingest",
+    queue,
     bodies.map((body, i) => ({ id: `msg-${i}`, timestamp: new Date(1000), attempts, body })),
   );
   const ctx = createExecutionContext();
@@ -256,6 +263,8 @@ export const beforePut =
   (hook: (key: string) => Promise<void>): NonNullable<Steps["bucket"]> =>
   (real) => ({
     get: real.get.bind(real),
+    delete: real.delete.bind(real),
+    list: real.list.bind(real),
     put: async (key, value, options) => {
       await hook(key);
       return real.put(key, value, options);
@@ -467,6 +476,10 @@ export const versionsOf = (ao3WorkId: number) =>
       .select([
         "id",
         "upload_id",
+        "source",
+        "source_upload_id",
+        "review_reasons",
+        "checked_at",
         "r2_prefix",
         "chapter_count",
         "chapter_total",
@@ -502,6 +515,16 @@ export const versionsOf = (ao3WorkId: number) =>
       })),
     };
   });
+
+/** Marks the version checked, as a moderator's approval does. */
+export const checkVersion = (versionId: string | null) =>
+  withDb((db) =>
+    db
+      .updateTable("work_versions")
+      .set({ checked_at: new Date() })
+      .where("id", "=", versionId ?? "")
+      .execute(),
+  );
 
 /** Makes the work hidden, as a moderator does. */
 export const hideWork = (ao3WorkId: number) =>

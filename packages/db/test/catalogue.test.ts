@@ -1,5 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { HiddenCause, TagType, UploadStatus, WorkStatus } from "../src/index";
+import type { Insertable } from "kysely";
+import type {
+  HiddenCause,
+  TagType,
+  UploadStatus,
+  VersionSource,
+  WorkStatus,
+  WorkVersionTable,
+} from "../src/index";
 import { createTestDb, type TestDb } from "../src/testing";
 
 let t: TestDb;
@@ -43,7 +51,7 @@ const expected = {
   work_versions: {
     id: { type: "text", nullable: false },
     work_id: { type: "text", nullable: false },
-    upload_id: { type: "text", nullable: false },
+    upload_id: { type: "text", nullable: true },
     chapter_count: { type: "int4", nullable: false },
     chapter_total: { type: "int4", nullable: true },
     r2_prefix: { type: "text", nullable: false },
@@ -62,6 +70,8 @@ const expected = {
     updated_at: { type: "timestamptz", nullable: true },
     raw_meta: { type: "jsonb", nullable: true },
     hold_reason: { type: "text", nullable: true },
+    source: { type: "text", nullable: false },
+    source_upload_id: { type: "text", nullable: true },
   },
   chapters: {
     work_id: { type: "text", nullable: false },
@@ -233,6 +243,33 @@ describe("packages/db catalogue constraints", () => {
         .where("id", "=", mine.id)
         .execute(),
     ).rejects.toThrow(/foreign key/i);
+  });
+
+  it("A backfill version names the upload it was re-made from, and has none of its own", async () => {
+    const work = await addWork(220);
+    const { id: versionId } = await addVersion(work.id);
+    const { upload_id: from } = await t.db
+      .selectFrom("work_versions")
+      .select("upload_id")
+      .where("id", "=", versionId)
+      .executeTakeFirstOrThrow();
+    const version = (fields: Partial<Insertable<WorkVersionTable>>) =>
+      t.db
+        .insertInto("work_versions")
+        .values({ work_id: work.id, chapter_count: 1, r2_prefix: "p", upload_id: null, ...fields })
+        .execute();
+    await expect(version({ source: "backfill", source_upload_id: from })).resolves.toBeDefined();
+    // An upload's version must name its upload, and a backfill's must not.
+    await expect(version({})).rejects.toThrow(/work_versions_source_check/);
+    await expect(
+      version({ source: "backfill", upload_id: from, source_upload_id: from }),
+    ).rejects.toThrow(/work_versions_source_check|unique/);
+    await expect(version({ source: "backfill" })).rejects.toThrow(/work_versions_source_check/);
+    // SAFETY: the test passes a value the VersionSource union refuses, to reach the CHECK.
+    const other = "other" as VersionSource;
+    await expect(version({ source: other, source_upload_id: from })).rejects.toThrow(
+      /work_versions_source_check/,
+    );
   });
 
   it("A chapter number appears once per version", async () => {

@@ -135,6 +135,7 @@ function authorKeys(facts: VersionFacts): Set<string> {
   );
 }
 
-function sameSet(a: Set<string>, b: Set<string>): boolean {
+/** Whether the two sets hold the same keys. */
+export function sameSet(a: Set<string>, b: Set<string>): boolean {
   return a.size === b.size && [...a].every((key) => b.has(key));
 }

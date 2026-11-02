@@ -7,14 +7,41 @@ import {
   type UploadStatus,
 } from "@archive/db";
 import type { ParsedWork } from "@archive/epub";
-import type { Kysely, Transaction } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 import type { Lease } from "./lease";
-import { decideVersion, type VersionDecision, type VersionFacts } from "./versioning";
+import { decideVersion, sameSet, type VersionDecision, type VersionFacts } from "./versioning";
 
-/** What saving needs from the bucket: writes, and reads of the current version's fragments. */
+/**
+ * What saving needs from the bucket: writes, reads of the current version's fragments, and the
+ * listing and deletes that clear a removed work's folder again.
+ */
 export interface SaveBucket {
   get(key: string): Promise<R2ObjectBody | null>;
   put(key: string, value: string | Uint8Array, options?: R2PutOptions): Promise<R2Object | null>;
+  list(options: R2ListOptions): Promise<R2Objects>;
+  delete(keys: string[]): Promise<void>;
+}
+
+/** R2's most keys for one list page and for one delete call. */
+const R2_BATCH = 1000;
+
+/**
+ * Deletes everything under a removed work's `works/<ao3_work_id>/` folder, as its removal did
+ * (apps/web, remove-objects.ts): what a backfill that raced the removal put back. Every key is
+ * listed before any is deleted. Deleting a key already gone is no error, so a repeat is safe.
+ */
+export async function clearRemovedWork(bucket: SaveBucket, ao3WorkId: number): Promise<void> {
+  const keys: string[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await bucket.list({ prefix: `works/${ao3WorkId}/`, cursor, limit: R2_BATCH });
+    keys.push(...page.objects.map((o) => o.key));
+    if (!page.truncated) break;
+    cursor = page.cursor;
+  }
+  for (let i = 0; i < keys.length; i += R2_BATCH) {
+    await bucket.delete(keys.slice(i, i + R2_BATCH));
+  }
 }
 
 /**
@@ -100,19 +127,7 @@ export async function saveWork(
   let current = await readCurrent(deps, ao3WorkId);
   const facts = factsOf(work);
   const prefix = `works/${ao3WorkId}/${lease.id}/`;
-  const chapters = work.chapters.map((c) => ({ ...c, key: `${prefix}${c.n}.html` }));
-  await inPool(chapters, async (c) => {
-    await deps.bucket.put(c.key, c.html, {
-      httpMetadata: { contentType: "text/html; charset=utf-8" },
-    });
-  });
-  // Outside the upload's prefix, shared by every version of the work: keyed by the bytes, so a
-  // retry writes the same keys.
-  await inPool([...images], async ([key, image]) => {
-    await deps.bucket.put(`works/${ao3WorkId}/img/${key}`, image.bytes, {
-      httpMetadata: { contentType: image.mediaType },
-    });
-  });
+  const chapters = await putFiles(deps.bucket, ao3WorkId, prefix, work, images);
   await deps.bucket.put(`originals/${lease.id}.epub`, bytes, {
     httpMetadata: { contentType: "application/epub+zip" },
   });
@@ -143,17 +158,168 @@ export async function saveWork(
         if (attempt >= MAX_ATTEMPTS) throw new Error("the work kept changing under the save");
         continue;
       }
-      const state = sqlState(error);
-      // Class 21 (cardinality, such as two of the file's tags landing on one row), 22 (data
-      // exception), 23 (integrity constraint) and 54 (program limit, such as an index row too
-      // large): the file's own data broke a rule, and will again. Anything else, such as a lost
-      // connection, is worth a retry.
-      if (state !== null && /^(21|22|23|54)/.test(state)) {
-        throw new SaveRejected(`save_rejected_${state}`);
-      }
-      throw error;
+      throwSaveError(error);
     }
   }
+}
+
+/**
+ * Writes a version's chapter fragments under `prefix`, then the work's images under its shared
+ * `img/` prefix, keyed by their bytes, so a retry and every version of the work write the same
+ * image keys. Returns the chapters with their keys.
+ */
+async function putFiles(
+  bucket: SaveBucket,
+  ao3WorkId: number,
+  prefix: string,
+  work: ParsedWork,
+  images: WorkImages,
+): Promise<Chapters> {
+  const chapters = work.chapters.map((c) => ({ ...c, key: `${prefix}${c.n}.html` }));
+  await inPool(chapters, async (c) => {
+    await bucket.put(c.key, c.html, {
+      httpMetadata: { contentType: "text/html; charset=utf-8" },
+    });
+  });
+  await inPool([...images], async ([key, image]) => {
+    await bucket.put(`works/${ao3WorkId}/img/${key}`, image.bytes, {
+      httpMetadata: { contentType: image.mediaType },
+    });
+  });
+  return chapters;
+}
+
+/** The version a backfill re-makes: the work's current one when the message was made. */
+export interface BackfillSource {
+  workId: string;
+  ao3WorkId: number;
+  versionId: string;
+  /** The upload whose `originals/<id>.epub` the version was made from. */
+  originalUploadId: string;
+  reviewReasons: string[];
+}
+
+/**
+ * Saves a backfill: a new version of the work re-made from the source version's original by
+ * the processor as it is now (ARCHITECTURE, EPUB processor, step 8). It is decided by neither
+ * `decideVersion` nor any upload: the same file, re-sanitized, always replaces its source. Its
+ * fragments go under a prefix of its own, `works/<ao3_work_id>/<version id>/`, so no fragment
+ * already written is rewritten and every cached one keeps its key; its images go to the
+ * work's `img/` prefix; the original is not written again. Then one transaction adds the
+ * version and moves `current_version_id` to it only if it is still the source version
+ * (compare-and-swap), and makes the work describe it, its summary included even when it has
+ * none. Status is left as it is. Returns `backfilled`; `not_current` when the pointer had
+ * moved, and nothing was committed (the new prefix's fragments are then left for the periodic
+ * sweep, as are a failed attempt's); or `removed` when the work was removed meanwhile, and
+ * everything under its `works/` folder is deleted again.
+ */
+export async function saveBackfill(
+  deps: { db: Kysely<Database>; bucket: SaveBucket },
+  source: BackfillSource,
+  work: ParsedWork,
+  images: WorkImages = new Map(),
+): Promise<"backfilled" | "not_current" | "removed"> {
+  if (work.chapters.length === 0) throw new SaveRejected("no_chapters");
+  const versionId = crypto.randomUUID();
+  const prefix = `works/${source.ao3WorkId}/${versionId}/`;
+  const chapters = await putFiles(deps.bucket, source.ao3WorkId, prefix, work, images);
+  // The moderator's check stands only for the parser's doubts it answered.
+  const sameReasons = sameSet(new Set(work.reviewReasons), new Set(source.reviewReasons));
+  const origin: VersionOrigin = {
+    id: versionId,
+    upload_id: null,
+    source: "backfill",
+    source_upload_id: source.originalUploadId,
+    checked_at: null,
+  };
+  try {
+    await deps.db.transaction().execute(async (trx) => {
+      await insertVersion(trx, origin, work, source.workId, prefix, chapters);
+      // The copy below keeps the work's summary when the version has none. The work takes the
+      // version's own instead, even none: a summary the fix emptied must not keep the markup it
+      // let through, nor an older file's, sanitized the old way. Set first, so the copy
+      // refreshes the search text from it; a lost race rolls it back with the rest.
+      await trx
+        .updateTable("works")
+        .set({ summary_html: work.summaryHtml })
+        .where("id", "=", source.workId)
+        .where("current_version_id", "=", source.versionId)
+        .execute();
+      await replaceCurrent(trx, source.workId, source.versionId, versionId);
+      // Read after the swap, not with the work: a check a moderator made while the file was
+      // processed carries over too.
+      if (sameReasons) {
+        await trx
+          .updateTable("work_versions")
+          .set((eb) => ({
+            checked_at: eb
+              .selectFrom("work_versions as source")
+              .select("source.checked_at")
+              .where("source.id", "=", source.versionId),
+          }))
+          .where("id", "=", versionId)
+          .execute();
+      }
+    });
+    return "backfilled";
+  } catch (error) {
+    if (!(error instanceof Stale)) throwSaveError(error);
+  }
+  // `now()` keeps Hyperdrive from answering from its cache: a stale `live` would leave behind
+  // what this job put back after a removal.
+  const row = await deps.db
+    .selectFrom("works")
+    .select(["status", sql<Date>`now()`.as("read_at")])
+    .where("id", "=", source.workId)
+    .executeTakeFirst();
+  if (row !== undefined && row.status !== "removed") return "not_current";
+  // Removed while the job ran: its purge may have run before these writes, so what they put
+  // back is deleted here.
+  await clearRemovedWork(deps.bucket, source.ao3WorkId);
+  return "removed";
+}
+
+/**
+ * Makes `versionId` the work's current version, as a replace and a backfill do: one statement
+ * moves the pointer only if it is still `from`, where it was read (a compare-and-swap), then
+ * the work describes the version (its columns, a field the file lacks keeping the work's
+ * value, its byline and tags, and the search text). A job that lost the race matches no row
+ * and throws `Stale`, so the transaction rolls back. A winner holds the row lock from here to
+ * its commit, so everything after it is one job's at a time. Status is left as it is: this
+ * never unhides a hidden work, and a work removed since the read isn't moved.
+ */
+async function replaceCurrent(
+  trx: Transaction<Database>,
+  workId: string,
+  from: string,
+  versionId: string,
+): Promise<void> {
+  const moved = await trx
+    .updateTable("works")
+    .set({ current_version_id: versionId })
+    .where("id", "=", workId)
+    .where("current_version_id", "=", from)
+    .where("status", "<>", "removed")
+    .returning("id")
+    .executeTakeFirst();
+  if (moved === undefined) throw new Stale();
+  await copyVersionToWork(trx, workId, versionId);
+}
+
+/**
+ * Throws a save's failure. Class 21 (cardinality, such as two of the file's
+ * tags landing on one row), 22 (data exception), 23 (integrity constraint) and 54 (program
+ * limit, such as an index row too large): the file's own data broke a rule, and will again, so
+ * it is thrown as a `SaveRejected`. Anything else, such as a lost connection, is worth a retry
+ * and is thrown as it is.
+ */
+// oxlint-disable-next-line deslop/no-unknown-parameters -- a caught value is unknown by contract
+function throwSaveError(error: unknown): never {
+  const state = sqlState(error);
+  if (state !== null && /^(21|22|23|54)/.test(state)) {
+    throw new SaveRejected(`save_rejected_${state}`);
+  }
+  throw error;
 }
 
 /**
@@ -288,28 +454,28 @@ async function writeRows(
     await confirmPointer(trx, current);
     // Its columns, tags and authors stay on the version, with the reason it was held: the
     // work's own are the current version's.
-    await insertVersion(trx, lease, work, workId, prefix, chapters, decision.reason);
+    await insertVersion(
+      trx,
+      { upload_id: lease.id },
+      work,
+      workId,
+      prefix,
+      chapters,
+      decision.reason,
+    );
     return endUpload(trx, lease, "held_for_review", workId);
   }
-  // A replace. The version first (the pointer's foreign key needs it), then one statement that
-  // moves the pointer only if it is still where it was read: a compare-and-swap. A job that lost
-  // the race matches no row, and the transaction rolls back. A winner holds the row lock from
-  // here to its commit, so everything after it is one job's at a time. Status is left as it is:
-  // a replace never unhides a hidden or removed work.
-  const versionId = await insertVersion(trx, lease, work, workId, prefix, chapters);
-  const moved = await trx
-    .updateTable("works")
-    .set({ current_version_id: versionId })
-    .where("id", "=", workId)
-    .where("current_version_id", "=", current.versionId)
-    // A work removed since the read isn't moved: `Stale` reads it again and refuses it.
-    .where("status", "<>", "removed")
-    .returning("id")
-    .executeTakeFirst();
-  if (moved === undefined) throw new Stale();
-  // The work describes the new version: its columns (a field the file lacks keeps the work's
-  // value), its byline and tags, and the search text.
-  await copyVersionToWork(trx, workId, versionId);
+  // A replace. The version first (the pointer's foreign key needs it), then the pointer's
+  // compare-and-swap. A `Stale` reads the work again, and refuses a work removed since.
+  const versionId = await insertVersion(
+    trx,
+    { upload_id: lease.id },
+    work,
+    workId,
+    prefix,
+    chapters,
+  );
+  await replaceCurrent(trx, workId, current.versionId, versionId);
   await endUpload(trx, lease, "live", workId);
 }
 
@@ -334,7 +500,14 @@ async function writeFirst(
   // That job's work is committed now: read it and decide as for any later upload.
   if (row === undefined) throw new Stale();
   const workId = row.id;
-  const versionId = await insertVersion(trx, lease, work, workId, prefix, chapters);
+  const versionId = await insertVersion(
+    trx,
+    { upload_id: lease.id },
+    work,
+    workId,
+    prefix,
+    chapters,
+  );
   // The work describes its version, as after any replace: the byline, tags and search text,
   // in this transaction.
   await copyVersionToWork(trx, workId, versionId);
@@ -366,12 +539,26 @@ async function confirmPointer(trx: Transaction<Database>, current: Current): Pro
 }
 
 /**
+ * What made a version: an upload, or a backfill, which names its own id (its prefix holds it),
+ * the upload it was re-made from, and the moderator's check it carries over.
+ */
+type VersionOrigin =
+  | { upload_id: string }
+  | {
+      id: string;
+      upload_id: null;
+      source: "backfill";
+      source_upload_id: string;
+      checked_at: Date | null;
+    };
+
+/**
  * The version row and its chapters, with `holdReason` for a held version. Returns the
  * version's id.
  */
 async function insertVersion(
   trx: Transaction<Database>,
-  lease: Lease,
+  origin: VersionOrigin,
   work: ParsedWork,
   workId: string,
   prefix: string,
@@ -383,7 +570,7 @@ async function insertVersion(
     .insertInto("work_versions")
     .values({
       work_id: workId,
-      upload_id: lease.id,
+      ...origin,
       chapter_count: count,
       chapter_total: total,
       r2_prefix: prefix,

@@ -1,6 +1,9 @@
+import { EpubError, processEpub } from "@archive/epub";
+import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import { ao3Epub } from "../../../packages/epub/test/helpers";
 import { TAKEDOWN_REMOVED } from "../src/lists";
-import { ingestWorker } from "../src/worker";
+import { ingestWorker, processForStorage, type Steps } from "../src/worker";
 import {
   addOptOut,
   addTakedown,
@@ -8,21 +11,53 @@ import {
   bucketKeys,
   bucketObject,
   bucketText,
+  checkVersion,
   deliver,
   epubWithImages,
   failingPut,
   freshAo3WorkId,
+  hideWork,
   imageBytes,
+  ingestReal,
+  liveWork,
   pendingUpload,
   seededWork,
+  setWorkStatus,
   sha256Hex,
   token,
   uploadRow,
+  versionsOf,
 } from "./helpers";
 
 const ORIGIN = "https://content.rarepair.fans";
 
 const png = (fill: string) => ({ mediaType: "image/png", data: imageBytes("png", fill) });
+
+const BACKFILL = "ingest-backfill";
+
+/** What a sanitizer bug let through: markup the processor as it is now drops. */
+const UNSAFE = `<script>unsafe()</script>`;
+
+/**
+ * Uploads `epub` and runs its job through the real save with a processor from before a
+ * sanitizer fix: each chapter keeps `UNSAFE`. Returns the upload's id.
+ */
+async function ingestBeforeFix(epub: Uint8Array, steps: Partial<Steps> = {}) {
+  const { id } = await ingestReal(epub, {
+    process: async (bytes) => {
+      const work = await processEpub(bytes);
+      return { ...work, chapters: work.chapters.map((c) => ({ ...c, html: c.html + UNSAFE })) };
+    },
+    ...steps,
+  });
+  return { id };
+}
+
+/** The backfill message for the work's current version. */
+const backfillOf = (work: { workId: string; current: string | null }) => ({
+  work_id: work.workId,
+  version_id: work.current,
+});
 
 describe("07-sanitizing-and-images", () => {
   it("Images inside the epub are rewritten to the content origin", async () => {
@@ -121,5 +156,267 @@ describe("07-sanitizing-and-images", () => {
 
     expect((await uploadRow(id)).status).toBe("opted_out");
     expect(await bucketKeys(`works/${removed.ao3WorkId}/img/`)).toEqual([]);
+  });
+
+  it("Sanitizer fixes can be backfilled", async () => {
+    const workId = freshAo3WorkId();
+    const epub = ao3Epub({ workId });
+    const before = await ingestBeforeFix(epub);
+    const old = await versionsOf(workId);
+    const [oldKey] = old.versions[0]?.chapterKeys ?? [];
+    const oldText = await bucketText(oldKey ?? "");
+    expect(oldText).toContain(UNSAFE);
+
+    const result = await deliver([backfillOf(old)], { queue: BACKFILL });
+
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    const now = await versionsOf(workId);
+    expect(now.versions).toHaveLength(2);
+    const remade = now.versions.find((v) => v.id === now.current);
+    expect(remade).toMatchObject({
+      upload_id: null,
+      source: "backfill",
+      source_upload_id: before.id,
+      r2_prefix: `works/${workId}/${now.current}/`,
+    });
+    // Re-sanitized by the processor as it is now, from the stored original.
+    const fixed = (await processEpub(epub)).chapters[0]?.html;
+    expect(await bucketText(remade?.chapterKeys[0] ?? "")).toBe(fixed);
+    // The old version's fragment is never rewritten.
+    expect(await bucketText(oldKey ?? "")).toBe(oldText);
+  });
+});
+
+describe("re-sanitize backfill", () => {
+  /** A work ingested before the fix, with its versions as the database holds them. */
+  async function unfixedWork(steps: Partial<Steps> = {}) {
+    const workId = freshAo3WorkId();
+    const { id } = await ingestBeforeFix(ao3Epub({ workId }), steps);
+    return { ao3WorkId: workId, uploadId: id, ...(await versionsOf(workId)) };
+  }
+
+  const backfill = (
+    bodies: unknown[],
+    options: { handler?: ReturnType<typeof ingestWorker>; attempts?: number } = {},
+  ) => deliver(bodies, { queue: BACKFILL, ...options });
+
+  it("delivering the same message twice makes one new version", async () => {
+    const work = await unfixedWork();
+
+    await backfill([backfillOf(work)]);
+    const again = await backfill([backfillOf(work)]);
+
+    expect(again.explicitAcks).toEqual(["msg-0"]);
+    const now = await versionsOf(work.ao3WorkId);
+    expect(now.versions).toHaveLength(2);
+  });
+
+  it("a version no longer current is acked with nothing written", async () => {
+    const work = await unfixedWork();
+    const keys = await bucketKeys(`works/${work.ao3WorkId}/`);
+
+    const result = await backfill([{ work_id: work.workId, version_id: crypto.randomUUID() }]);
+
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    expect((await versionsOf(work.ao3WorkId)).versions).toHaveLength(1);
+    expect(await bucketKeys(`works/${work.ao3WorkId}/`)).toEqual(keys);
+  });
+
+  it("a removed work is acked with nothing written, and its folder cleared again", async () => {
+    const work = await unfixedWork();
+    await setWorkStatus(work.ao3WorkId, "removed");
+    // What an earlier attempt that raced the removal left after its purge.
+    const leftover = `works/${work.ao3WorkId}/img/${token()}`;
+    await env.BUCKET.put(leftover, "leftover");
+
+    const result = await backfill([backfillOf(work)]);
+
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    const now = await versionsOf(work.ao3WorkId);
+    expect(now.versions).toHaveLength(1);
+    expect(now.current).toBe(work.current);
+    expect(await bucketKeys(`works/${work.ao3WorkId}/`)).toEqual([]);
+  });
+
+  it("a summary the fixed sanitizer empties keeps none of the old one", async () => {
+    const workId = freshAo3WorkId();
+    await ingestBeforeFix(ao3Epub({ workId }), {
+      process: async (bytes) => ({
+        ...(await processEpub(bytes)),
+        summaryHtml: `<p>s</p>${UNSAFE}`,
+      }),
+    });
+    const work = await versionsOf(workId);
+    const emptying = ingestWorker({
+      process: async (bytes, images) => ({
+        ...(await processForStorage(bytes, images)),
+        summaryHtml: null,
+      }),
+    });
+
+    await deliver([backfillOf(work)], { queue: BACKFILL, handler: emptying });
+
+    expect((await versionsOf(workId)).current).not.toBe(work.current);
+    expect((await liveWork(workId))?.work.summary_html).toBeNull();
+  });
+
+  it("a work removed while its backfill runs keeps nothing the backfill wrote", async () => {
+    const workId = freshAo3WorkId();
+    await ingestBeforeFix(epubWithImages(workId, { "one.png": png(`removed-${token()}`) }));
+    const work = await versionsOf(workId);
+    // The removal's purge (apps/web) ran before the job: nothing of the work is left.
+    await env.BUCKET.delete(await bucketKeys(`works/${workId}/`));
+    const removing = ingestWorker({
+      process: async (bytes, images) => {
+        const parsed = await processForStorage(bytes, images);
+        await setWorkStatus(workId, "removed");
+        return parsed;
+      },
+    });
+
+    const result = await deliver([backfillOf(work)], { queue: BACKFILL, handler: removing });
+
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    expect((await versionsOf(workId)).versions).toHaveLength(1);
+    expect(await bucketKeys(`works/${workId}/`)).toEqual([]);
+  });
+
+  it("a moderator's check made while the backfill runs carries over", async () => {
+    const reviewReasons = ["chapter_split_guessed"];
+    const work = await unfixedWork({
+      process: async (bytes) => ({ ...(await processEpub(bytes)), reviewReasons }),
+    });
+    const checking = ingestWorker({
+      process: async (bytes) => {
+        const parsed = await processEpub(bytes);
+        await checkVersion(work.current);
+        return { ...parsed, reviewReasons };
+      },
+    });
+
+    await deliver([backfillOf(work)], { queue: BACKFILL, handler: checking });
+
+    const now = await versionsOf(work.ao3WorkId);
+    expect(now.current).not.toBe(work.current);
+    expect(now.versions.find((v) => v.id === now.current)?.checked_at).not.toBeNull();
+  });
+
+  it("a batch from a queue the Worker doesn't consume is retried, never read", async () => {
+    const work = await unfixedWork();
+
+    const result = await deliver([backfillOf(work)], { queue: "ingest-backfill-staging" });
+
+    expect(result.retryBatch.retry).toBe(true);
+    expect(result.explicitAcks).toEqual([]);
+    expect((await versionsOf(work.ao3WorkId)).current).toBe(work.current);
+  });
+
+  it("a hidden work is backfilled and stays hidden", async () => {
+    const work = await unfixedWork();
+    await hideWork(work.ao3WorkId);
+
+    await backfill([backfillOf(work)]);
+
+    const now = await versionsOf(work.ao3WorkId);
+    expect(now.status).toBe("hidden");
+    expect(now.versions).toHaveLength(2);
+    expect(now.current).not.toBe(work.current);
+  });
+
+  it("an author who has opted out since is never published again", async () => {
+    const pseud = `someone${token()}`;
+    const workId = freshAo3WorkId();
+    const { id } = await ingestBeforeFix(ao3Epub({ workId, pseud }));
+    const work = await versionsOf(workId);
+    await addOptOut(pseud);
+    const puts: string[] = [];
+
+    const result = await backfill([backfillOf(work)], {
+      handler: ingestWorker({ bucket: beforePut(async (key) => void puts.push(key)) }),
+    });
+
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    expect(puts).toEqual([]);
+    expect((await versionsOf(workId)).current).toBe(work.current);
+    expect((await uploadRow(id)).status).toBe("live");
+  });
+
+  it("an original the processor now refuses keeps the current version", async () => {
+    const work = await unfixedWork();
+    const refusing = ingestWorker({
+      process: async () => {
+        throw new EpubError("parse_failed", "a synthetic refusal");
+      },
+    });
+
+    const result = await backfill([backfillOf(work)], { handler: refusing });
+
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    const now = await versionsOf(work.ao3WorkId);
+    expect(now.versions).toHaveLength(1);
+    expect(now.current).toBe(work.current);
+  });
+
+  it("a failing R2 write leaves no rows, and the message is retried", async () => {
+    const work = await unfixedWork();
+    const failing = ingestWorker({
+      bucket: beforePut(async (key) => {
+        if (key.startsWith(`works/${work.ao3WorkId}/`)) throw new Error("injected R2 failure");
+      }),
+    });
+
+    const result = await backfill([backfillOf(work)], { handler: failing });
+
+    expect(result.retryMessages.map((m) => m.msgId)).toEqual(["msg-0"]);
+    const now = await versionsOf(work.ao3WorkId);
+    expect(now.versions).toHaveLength(1);
+    expect(now.current).toBe(work.current);
+  });
+
+  it("a batch of several works backfills each", async () => {
+    const works = [await unfixedWork(), await unfixedWork()];
+
+    const result = await backfill(works.map(backfillOf));
+
+    expect(result.explicitAcks).toEqual(["msg-0", "msg-1"]);
+    for (const work of works) {
+      const now = await versionsOf(work.ao3WorkId);
+      expect(now.versions).toHaveLength(2);
+      expect(now.current).not.toBe(work.current);
+    }
+  });
+
+  it("a backfill version is backfilled again from the same original", async () => {
+    const work = await unfixedWork();
+    await backfill([backfillOf(work)]);
+    const once = await versionsOf(work.ao3WorkId);
+
+    await backfill([backfillOf(once)]);
+
+    const twice = await versionsOf(work.ao3WorkId);
+    expect(twice.versions).toHaveLength(3);
+    expect(twice.versions.find((v) => v.id === twice.current)).toMatchObject({
+      source: "backfill",
+      source_upload_id: work.uploadId,
+    });
+  });
+
+  it("a moderator's check carries over only when the review reasons are the same", async () => {
+    const reasons = ["chapter_split_guessed"];
+    const doubtful: Partial<Steps> = {
+      process: async (bytes) => ({ ...(await processEpub(bytes)), reviewReasons: reasons }),
+    };
+    const same = await unfixedWork(doubtful);
+    const changed = await unfixedWork(doubtful);
+    await checkVersion(same.current);
+    await checkVersion(changed.current);
+
+    await backfill([backfillOf(same)], { handler: ingestWorker(doubtful) });
+    await backfill([backfillOf(changed)]);
+
+    const kept = await versionsOf(same.ao3WorkId);
+    expect(kept.versions.find((v) => v.id === kept.current)?.checked_at).not.toBeNull();
+    const reset = await versionsOf(changed.ao3WorkId);
+    expect(reset.versions.find((v) => v.id === reset.current)?.checked_at).toBeNull();
   });
 });

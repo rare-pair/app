@@ -43,6 +43,11 @@ export interface SeedVersionOptions extends SeedVersionFields {
   reviewReasons?: string[];
   /** When the version was created here. Default: now. */
   addedAt?: string;
+  /**
+   * A backfill version (migration 0016) re-made from this upload's original: no upload of its
+   * own, and its fragments under `works/<ao3_work_id>/<version id>/`. Default: an upload's.
+   */
+  backfillOf?: string;
 }
 
 export interface SeedWorkOptions extends SeedVersionOptions {
@@ -62,9 +67,10 @@ export interface Fragment {
 }
 
 export interface SeededVersion {
+  /** The upload that made the version, or that a backfill version was re-made from. */
   uploadId: string;
   versionId: string;
-  /** `works/<ao3_work_id>/<upload_id>/` */
+  /** `works/<ao3_work_id>/<upload_id>/`, or `works/<ao3_work_id>/<version id>/` for a backfill */
   r2Prefix: string;
   /** Each chapter's `r2_key`, by number. */
   chapterKeys: string[];
@@ -295,27 +301,34 @@ async function addVersion(
 ): Promise<SeededVersion> {
   const { current, reviewReasons = [], chapterTotal = null, addedAt } = options;
   const chapters = planChapters(options.chapters);
-  // Chosen here rather than by the database, because the R2 keys name it.
-  const uploadId = crypto.randomUUID();
-  const r2Prefix = `works/${work.ao3WorkId}/${uploadId}/`;
-  await trx
-    .insertInto("uploads")
-    .values({
-      id: uploadId,
-      user_id: work.userId,
-      r2_key: `uploads/${uploadId}.epub`,
-      sha256: (crypto.randomUUID() + crypto.randomUUID()).replaceAll("-", ""),
-      bytes: 1024,
-      status: current ? "live" : "held_for_review",
-      work_id: work.workId,
-    })
-    .execute();
+  // Chosen here rather than by the database, because the R2 keys name them.
+  const versionId = crypto.randomUUID();
+  const backfillOf = options.backfillOf;
+  const uploadId = backfillOf ?? crypto.randomUUID();
+  const r2Prefix = `works/${work.ao3WorkId}/${backfillOf === undefined ? uploadId : versionId}/`;
+  if (backfillOf === undefined) {
+    await trx
+      .insertInto("uploads")
+      .values({
+        id: uploadId,
+        user_id: work.userId,
+        r2_key: `uploads/${uploadId}.epub`,
+        sha256: (crypto.randomUUID() + crypto.randomUUID()).replaceAll("-", ""),
+        bytes: 1024,
+        status: current ? "live" : "held_for_review",
+        work_id: work.workId,
+      })
+      .execute();
+  }
   const { authors, tags, ...own } = columns;
   const version = await trx
     .insertInto("work_versions")
     .values({
+      id: versionId,
       work_id: work.workId,
-      upload_id: uploadId,
+      ...(backfillOf === undefined
+        ? { upload_id: uploadId }
+        : { upload_id: null, source: "backfill" as const, source_upload_id: backfillOf }),
       chapter_count: chapters.length,
       chapter_total: chapterTotal,
       r2_prefix: r2Prefix,
@@ -324,7 +337,8 @@ async function addVersion(
       ...own,
       words: sum(chapters.map((c) => c.words)),
       raw_meta: "{}",
-      hold_reason: current ? null : (options.holdReason ?? "chapters_changed"),
+      hold_reason:
+        current || backfillOf !== undefined ? null : (options.holdReason ?? "chapters_changed"),
       tags: JSON.stringify(tags),
       authors: JSON.stringify(authors),
     })

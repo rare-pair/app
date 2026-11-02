@@ -49,7 +49,13 @@ export interface LiveWork {
     | "created_at"
     | "review_reasons"
     | "checked_at"
-  >;
+  > & {
+    /**
+     * The upload whose original, originals/<id>.epub, the version was made from: its own, or
+     * for a backfill version the one it was re-made from.
+     */
+    original_upload_id: string;
+  };
   /** The current version's chapters, by number. */
   chapters: Pick<Selectable<ChapterTable>, "n" | "title" | "words" | "r2_key">[];
 }
@@ -126,6 +132,13 @@ export async function getLiveWork(
       "work_versions.review_reasons",
       "work_versions.checked_at",
     ])
+    .select((eb) =>
+      // The schema's check gives every version one or the other.
+      eb.fn
+        .coalesce("work_versions.upload_id", "work_versions.source_upload_id")
+        .$notNull()
+        .as("original_upload_id"),
+    )
     .select((eb) => [
       jsonArrayFrom(
         eb
@@ -159,6 +172,7 @@ export async function getLiveWork(
     created_at,
     review_reasons,
     checked_at,
+    original_upload_id,
     authors,
     tags,
     chapters,
@@ -180,6 +194,7 @@ export async function getLiveWork(
       created_at,
       review_reasons,
       checked_at,
+      original_upload_id,
     },
     chapters: chapters.sort((a, b) => a.n - b.n),
   };
