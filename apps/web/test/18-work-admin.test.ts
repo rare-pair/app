@@ -25,6 +25,10 @@ async function signIn(email: string, role: string | null): Promise<string> {
   return res.headers.getSetCookie()[0]!.split(";")[0]!;
 }
 
+// A reader with a settings cookie, whose chapter pages skip the 60 s edge cache (R7), so a
+// read straight after a version change shows it.
+const READER = "__Host-reader=theme=dark";
+
 const get = (path: string, cookie?: string) =>
   fetchW(path, { headers: cookie === undefined ? {} : { cookie } });
 
@@ -121,14 +125,14 @@ describe("08 versioning and dedupe", () => {
 
   it("A moderator rolls back a bad replacement", async () => {
     expect(await currentOf(W)).toBe(v2);
-    expect(await (await get(`/works/${W}/chapters/1`)).text()).toContain("mod4-v2-one");
+    expect(await (await get(`/works/${W}/chapters/1`, READER)).text()).toContain("mod4-v2-one");
     const res = await post(`/admin/works/${W}/current`, moderator, { version: v1 });
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(await currentOf(W)).toBe(v1);
-    const chapter = await (await get(`/works/${W}/chapters/3`)).text();
+    const chapter = await (await get(`/works/${W}/chapters/3`, READER)).text();
     expect(chapter).toContain("mod4-v1-three");
-    expect(await (await get(`/works/${W}/chapters/1`)).text()).not.toContain("mod4-v2-one");
+    expect(await (await get(`/works/${W}/chapters/1`, READER)).text()).not.toContain("mod4-v2-one");
   });
 
   it("Make current refuses a held version and another work's version", async () => {
