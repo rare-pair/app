@@ -2,7 +2,7 @@
 // them: hide, restore and remove a work (keyed by its AO3 work ID) and reject an item (keyed by
 // its own id). Mounted in admin.ts, behind `adminGate`.
 
-import { hideWork, logModerationAction, removeWork, restoreWork } from "@archive/db";
+import { hideWork, logModerationAction, restoreWork } from "@archive/db";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import type { AdminEnv } from "./admin";
 import {
@@ -15,7 +15,7 @@ import {
   workStatusText,
 } from "./admin-pages";
 import { readForm } from "./login";
-import { deleteWorkObjects } from "./remove-objects";
+import { removeDeps, removeWorkEverywhere } from "./remove-work";
 import { isSameOrigin } from "./signin";
 
 /** An AO3 work ID is an int4. */
@@ -219,22 +219,28 @@ adminItems.post("/works/:id/remove", async (c) => {
   if (form?.get("confirm") !== "yes") {
     return c.html(removeConfirmPage(work.title, work.ao3_work_id, from));
   }
-  // The status and the log row commit first, then R2: a delete that fails partway
-  // leaves a removed work with leftover bytes, never a live one with missing bytes.
-  const removed = await removeWork(c.var.db, work.id, c.var.userId);
+  const removed = await removeWorkEverywhere(removeDeps(c.env, c.var.db), work.id, c.var.userId);
   if (!removed) return c.notFound();
   if (removed.outcome === "processing") {
     return c.html(
       resultPage("Nothing changed: the work is still processing. Try again shortly.", from),
     );
   }
-  // A repeat remove deletes again, so a remove whose deletes failed can be retried.
-  await deleteWorkObjects(c.env.BUCKET, removed.ao3WorkId, removed.uploads);
+  // The removal stands; only the purge failed, and a repeat remove retries it.
+  if (removed.caches === "failed") {
+    return c.html(
+      resultPage(
+        "The work is removed and its files are deleted, but clearing the caches failed. Use Remove again to retry.",
+        from,
+      ),
+      502,
+    );
+  }
   return c.html(
     resultPage(
       removed.outcome === "removed"
-        ? "The work is removed and its files are deleted."
-        : "The work was already removed. Its files were deleted again.",
+        ? "The work is removed and its files are deleted. Its caches are cleared."
+        : "The work was already removed. Its files were deleted again and its caches cleared.",
       from,
     ),
   );

@@ -4,6 +4,7 @@
 
 import { createDb, getLiveWork, getWorkAvailability, type LiveWork } from "@archive/db";
 import type { Context } from "hono";
+import { originalUrl } from "./content-host";
 import type { Bindings } from "./env";
 import { escapeHtml, layout } from "./pages";
 import { continueHref, loadPosition, type Position } from "./position";
@@ -30,14 +31,6 @@ const block = (tag: "p" | "section", className: string, content: string) =>
 
 const isLinked = (tag: Tag): tag is Tag & { type: LinkedType } =>
   Object.hasOwn(TAG_LABELS, tag.type);
-
-/**
- * The original epub on the content host, `originals/<one segment>` as apps/content
- * serves it. The segment is the upload whose file made this version: its own, or the
- * one a backfill version was re-made from. Provisional: #119 settles the key.
- */
-const originalHref = (uploadId: string) =>
-  `https://content.rarepair.fans/originals/${encodeURIComponent(uploadId)}`;
 
 /**
  * The reader's place, as a link: to the saved chapter or the entire-work page, with the
@@ -81,7 +74,7 @@ export function workPage(live: LiveWork, position: Position | null = null): stri
 ${block("p", "fandoms", fandoms.map(tagLink).join(", "))}${block("section", "summary", work.summary_html ?? "")}${block("p", "tags", listed.map(tagLink).join(", "))}<p class="stats">${stats.join(" · ")}</p>
 ${needsCheck ? `<p class="review-notice">Chapters may be imperfect; a moderator will check.</p>\n` : ""}${continueLink(live, position)}<ol class="chapters">${chapters.map((ch) => `<li><a href="${base}/chapters/${ch.n}">${escapeHtml(ch.title)}</a></li>`).join("")}</ol>
 <p class="full"><a href="${base}/full">Read the entire work on one page</a></p>
-<p class="download"><a href="${originalHref(version.original_upload_id)}">Download original epub</a></p>
+<p class="download"><a href="${originalUrl(version.original_upload_id)}">Download original epub</a></p>
 <p class="report"><a href="${base}/report">Report</a></p>
 <p class="remove"><a href="/remove?work=${work.ao3_work_id}">Ask for this to be removed</a></p>
 <p class="unofficial">rarepair is an unofficial stopgap, not the original archive: this copy is here while the original is offline.</p>

@@ -35,6 +35,28 @@ export async function deliveredEmails(): Promise<unknown[]> {
   return (await (await env.EMAIL_SINK.fetch("https://email-sink/")).json()) as unknown[];
 }
 
+/** A purge_cache request the Worker made, as vitest.config.ts's purge stand-in recorded it. */
+export type PurgeRequest = {
+  zone: string;
+  /** Whether it carried the test purge token. */
+  authorized: boolean;
+  body: { tags?: string[]; prefixes?: string[]; files?: string[] };
+};
+
+/**
+ * Every purge_cache request so far, from every test file in the run (files share the
+ * stand-in, so filter by your own work IDs and upload IDs).
+ */
+export async function purgeRequests(): Promise<PurgeRequest[]> {
+  // SAFETY: the stand-in answers with the JSON array of the requests it recorded.
+  return (await (await fetch("https://purge-log.test/")).json()) as PurgeRequest[];
+}
+
+/** Makes the next purge of `tag` fail: with an HTTP status, or a 200 with `success: false`. */
+export async function failNextPurge(tag: string, fail: number | "not-accepted") {
+  await fetch("https://purge-log.test/", { method: "POST", body: JSON.stringify({ tag, fail }) });
+}
+
 /** Every message the `ingest` queue has delivered so far, from vitest.config.ts's ingest-sink. */
 export async function deliveredIngest(): Promise<unknown[]> {
   // SAFETY: the sink answers with the JSON array of message bodies it was delivered.
