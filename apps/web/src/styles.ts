@@ -228,6 +228,28 @@ article.chapter table {
   max-width: 100%;
 }
 
+/* My uploads: rows like work cards; the badge is text in bold, never colour alone. */
+.upload-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.upload-list li {
+  padding: calc(var(--space) * 3) 0;
+  border-bottom: 1px solid var(--rule);
+  overflow-wrap: anywhere;
+}
+
+.upload-message {
+  margin: 0;
+}
+
+.badge {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* Work cards (FRONTEND-DISCOVERY, Work card): sections by whitespace and a hairline. */
 .work-list {
   list-style: none;
