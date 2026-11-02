@@ -163,11 +163,46 @@ export type VersionRow = {
   current: boolean;
   /** Held for review: only a moderator's approval makes it current (MOD3). */
   held: boolean;
+  /** Why ingest held it (its `hold_reason`, kept after an approval), or null. */
+  holdReason: string | null;
+  /** What ingest flagged for a moderator to check; empty when nothing. */
+  reviewReasons: string[];
+  /** A moderator has checked it (`checked_at` is set). */
+  checked: boolean;
 };
 
+/** The state column: why a version is held, and its review reasons and whether they are checked. */
+function versionState(v: VersionRow) {
+  const parts: string[] = [];
+  if (v.held) parts.push(`Held for review: ${v.holdReason ?? "no reason given"}`);
+  if (v.reviewReasons.length > 0) {
+    parts.push(`Review reasons: ${v.reviewReasons.join(", ")}`);
+    parts.push(v.checked ? "Checked" : "Not checked");
+  }
+  return escapeHtml(parts.join(". "));
+}
+
 /**
- * A work's admin page: its status and every version, oldest first, each with a "Make
- * current" form unless it is held for review; the current one is marked. The uploader is the
+ * Whether the version has something for "Approve": a held version (approving publishes it),
+ * or the current one whose review reasons nobody has checked (approving ends the notice,
+ * the rule at review-notice.ts).
+ */
+const needsApproval = (v: VersionRow) =>
+  v.held || (v.current && v.reviewReasons.length > 0 && !v.checked);
+
+/** The "Close wrong-version reports" form and the count it closes, or nothing. */
+function wrongVersionReports(ao3WorkId: number, open: number) {
+  if (open === 0) return "";
+  return `<p>Open reports that a version is wrong: ${open}</p>
+<form method="post" action="/admin/works/${ao3WorkId}/reports/close"><button type="submit">Close wrong-version reports</button></form>`;
+}
+
+/**
+ * A work's admin page, the detail page of Works to check: its status and every version,
+ * oldest first, each with its hold reason and review reasons, a "Make current" form unless it
+ * is held for review, and an "Approve" form where there is something to approve; the current
+ * one is marked. With open "This version is wrong" reports, their count and a form that
+ * closes them. The uploader is the
  * account's email: moderators only, on admin pages only, with a "Ban uploader" form, or
  * "Banned" once it is (neither for a moderator or an admin). `actions` is `workActions`.
  */
@@ -177,11 +212,16 @@ export function workAdminPage(
   status: string,
   versions: VersionRow[],
   actions: string,
+  openWrongVersionReports: number,
 ) {
+  const approve = (v: VersionRow) =>
+    needsApproval(v)
+      ? `<form method="post" action="/admin/works/${ao3WorkId}/approve"><input type="hidden" name="version" value="${escapeHtml(v.id)}"><button type="submit">Approve</button></form>`
+      : "";
   const makeCurrent = (v: VersionRow) =>
     v.held
-      ? "Held for review"
-      : `${v.current ? "Current " : ""}<form method="post" action="/admin/works/${ao3WorkId}/current"><input type="hidden" name="version" value="${escapeHtml(v.id)}"><button type="submit">Make current</button></form>`;
+      ? approve(v)
+      : `${v.current ? "Current " : ""}<form method="post" action="/admin/works/${ao3WorkId}/current"><input type="hidden" name="version" value="${escapeHtml(v.id)}"><button type="submit">Make current</button></form>${approve(v)}`;
   const banForm = (v: VersionRow) => {
     if (v.banned) return " Banned";
     if (v.uploaderId === null) return "";
@@ -191,7 +231,7 @@ export function workAdminPage(
   const rows = versions
     .map(
       (v) =>
-        `<tr><td>${escapeHtml(v.added)}</td><td>${escapeHtml(v.uploader)}${banForm(v)}</td><td>${v.chapters}</td><td>${makeCurrent(v)}</td></tr>`,
+        `<tr><td>${escapeHtml(v.added)}</td><td>${escapeHtml(v.uploader)}${banForm(v)}</td><td>${v.chapters}</td><td>${versionState(v)}</td><td>${makeCurrent(v)}</td></tr>`,
     )
     .join("\n");
   return layout(
@@ -200,11 +240,12 @@ export function workAdminPage(
 <p>Status: ${escapeHtml(status)}</p>
 <table>
 <caption>Versions, oldest first</caption>
-<thead><tr><th scope="col">Added</th><th scope="col">Uploader</th><th scope="col">Chapters</th><th scope="col">Action</th></tr></thead>
+<thead><tr><th scope="col">Added</th><th scope="col">Uploader</th><th scope="col">Chapters</th><th scope="col">Check</th><th scope="col">Action</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>
 </table>
+${wrongVersionReports(ao3WorkId, openWrongVersionReports)}
 ${actions}`,
   );
 }

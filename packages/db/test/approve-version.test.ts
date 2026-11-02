@@ -128,9 +128,7 @@ describe("18 moderation: Works to check", () => {
     const moderator = await addModerator();
     const w = await seedWork(t.db, { title: "apflag", reviewReasons: ["images_dropped"] });
 
-    expect(await approveVersion(t.db, w.workId, w.versionId, { actor: moderator })).toBe(
-      "cleared",
-    );
+    expect(await approveVersion(t.db, w.workId, w.versionId, { actor: moderator })).toBe("cleared");
 
     const live = await getLiveWork(t.db, w.ao3WorkId);
     expect(live?.version.checked_at).not.toBeNull();
@@ -146,9 +144,7 @@ describe("18 moderation: Works to check", () => {
     ]);
     // A second approval changes nothing and logs nothing.
     const checked = (await versionRow(w.versionId)).checked_at;
-    expect(await approveVersion(t.db, w.workId, w.versionId, { actor: moderator })).toBe(
-      "nothing",
-    );
+    expect(await approveVersion(t.db, w.workId, w.versionId, { actor: moderator })).toBe("nothing");
     expect((await versionRow(w.versionId)).checked_at).toEqual(checked);
     expect(await logOf(w.versionId)).toHaveLength(1);
   });
@@ -162,9 +158,7 @@ describe("18 moderation: Works to check", () => {
       .where("id", "=", w.workId)
       .execute();
 
-    expect(await approveVersion(t.db, w.workId, w.versionId, { actor: moderator })).toBe(
-      "cleared",
-    );
+    expect(await approveVersion(t.db, w.workId, w.versionId, { actor: moderator })).toBe("cleared");
   });
 
   it("Approving a version with nothing to approve changes nothing", async () => {
