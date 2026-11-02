@@ -19,7 +19,8 @@ export const isModeratorRole = (role: string | null | undefined): role is Modera
  * Bans an uploader's account (ARCHITECTURE, Moderation): sets `banned_at`, ends the account's
  * `pending` uploads as `account_banned`, and logs the ban with `actor`, the acting moderator's
  * user id, all in one transaction, or in the caller's when `db` is one. Live works, versions
- * and finished uploads stay as they are; a `processing` upload is ingest's, which refuses it.
+ * and finished uploads stay as they are; a `processing` upload is ingest's, which refuses it at
+ * its next ban check.
  * An account already banned keeps its first `banned_at` and writes nothing. The acting
  * moderator, another moderator and an admin can't be banned (`protected`).
  */
@@ -109,7 +110,9 @@ async function endPending(db: Kysely<Database>, userId: string, ids: string[]): 
   await db
     .updateTable("uploads")
     .set({ status: "account_banned" })
-    .where("id", "in", ids)
+    // One array parameter, not one per id: nothing caps an account's pending uploads, and
+    // Postgres takes at most 65,535 bind parameters.
+    .where(sql<boolean>`id = any(${ids}::text[])`)
     .where("user_id", "=", userId)
     .where("status", "=", "pending")
     .execute();

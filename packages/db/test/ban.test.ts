@@ -1,3 +1,4 @@
+import { sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { banUser, insertUpload, isBanned, type UploadStatus } from "../src/index";
 import { seedWork } from "../src/seed";
@@ -95,6 +96,24 @@ describe("18-moderation: Moderator bans an uploader", () => {
     expect(await banUser(t.db, userId, { actor: moderator })).toBe("banned");
 
     for (const [id, status] of kept) expect(await statusOf(id)).toBe(status);
+  });
+
+  it("A ban ends more pending uploads than Postgres takes bind parameters", async () => {
+    const moderator = await addUser("moderator");
+    const userId = await addUser();
+    // Unconfirmed rows stay pending, and nothing caps how many an account leaves.
+    await sql`insert into uploads (user_id, r2_key, bytes)
+      select ${userId}, 'uploads/flood-' || g, 1 from generate_series(1, 70000) g`.execute(t.db);
+
+    expect(await banUser(t.db, userId, { actor: moderator })).toBe("banned");
+
+    const left = await t.db
+      .selectFrom("uploads")
+      .select((eb) => eb.fn.countAll<string>().as("n"))
+      .where("user_id", "=", userId)
+      .where("status", "=", "pending")
+      .executeTakeFirstOrThrow();
+    expect(Number(left.n)).toBe(0);
   });
 
   it("A second ban changes nothing and writes no second row", async () => {

@@ -202,7 +202,9 @@ request and to every byline at ingest.
    25 MB gets 413, and a spent quota gets 429 with `Retry-After` (Surge
    controls). A request over the per-user or per-IP rate limit gets the same 429,
    counted right after the session check, before the form is read. The reply is
-   JSON `{ error, retryAfter }`, and the upload page shows the message. Otherwise it inserts an
+   JSON `{ error, retryAfter }`, and the upload page shows the message. A banned
+   account gets 403, checked with the quota (Moderation, *Block and ban*), and
+   `GET /upload` shows it a page saying it can't upload. Otherwise it inserts an
    `uploads` row and returns a presigned R2 `PUT` URL, valid for 10 minutes
    and locked to `Content-Type: application/epub+zip`. R2 presigned URLs support PUT but not
    form POST, and the bucket needs a CORS rule for `rarepair.fans`.
@@ -210,7 +212,8 @@ request and to every byline at ingest.
    Uploading needs JavaScript, as every form with a Turnstile check does
    (Turnstile can't produce a token without it); without JS the upload page
    says so (FRONTEND-DISCOVERY, *Where the frontend changes the architecture*).
-3. **Confirm.** `POST /uploads/:id/complete` HEADs the object, checks its size,
+3. **Confirm.** For a banned account, `POST /uploads/:id/complete` answers 403
+   and ends the upload `account_banned` before reading the object. Otherwise it HEADs the object, checks its size,
    and hashes it (SHA-256). If the hash matches an earlier upload that was
    ingested into a work that is `live` or `hidden` (that upload's status is
    `live`, `held_for_review` or `duplicate`, with a `work_id`), the new upload
@@ -729,12 +732,15 @@ epub, under the normal versioning rules.
   approves it). Every requester sees the same confirmation (FRONTEND-DISCOVERY,
   journey 4), and the page never reveals that a requester is blocked. Banning
   an uploader (an account, `banned_at`) stops it uploading and reporting, and
-  stops its in-flight uploads: its `pending` uploads, and any job ingest has
-  not yet saved, end `account_banned`. Its live works and finished uploads stay
+  stops its in-flight uploads: its `pending` uploads end `account_banned`, and
+  so does a job ingest has not yet saved, at its next ban check (before the
+  file is read, or in the save's transaction), unless the job was refused
+  for another reason first. Its live works and finished uploads stay
   until a moderator acts on them. A moderator bans from a work's admin page
   (`POST /admin/users/:id/ban`); nobody bans themselves, a moderator or an
-  admin, and there is no unban at launch. The ban is read from the database on
-  every request, so a session signed in before it is refused after it.
+  admin, and there is no unban at launch. The upload and report routes read
+  the ban from the database on every request, so a session signed in before it
+  is refused after it.
 - **What hidden, held and removed works show.**
   - **Hidden** (`hidden`, by a removal request or opt-out, by reports, or by a
     moderator): 451 on the work page, every chapter URL and `/full`, with one

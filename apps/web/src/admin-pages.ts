@@ -169,7 +169,7 @@ export type VersionRow = {
  * A work's admin page: its status and every version, oldest first, each with a "Make
  * current" form unless it is held for review; the current one is marked. The uploader is the
  * account's email: moderators only, on admin pages only, with a "Ban uploader" form, or
- * "Banned" once it is. `actions` is `workActions`.
+ * "Banned" once it is (neither for a moderator or an admin). `actions` is `workActions`.
  */
 export function workAdminPage(
   title: string,

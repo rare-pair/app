@@ -271,8 +271,9 @@ async function writeRows(
   current: Current | null,
   decision: VersionDecision | null,
 ): Promise<void> {
-  // First, with a key-share lock on the account to the commit: a ban committed since the job's check is seen
-  // here, and one still in flight waits for this save, whose upload then counts as finished.
+  // First, with a key-share lock on the account to the commit. A ban that locked the account
+  // first is waited for and seen here; one that comes after this lock waits for the save,
+  // whose upload then counts as finished.
   if (await isUploaderBanned(trx, lease.id, { lock: true })) throw new AccountBanned();
   if (current === null || decision === null) {
     return writeFirst(trx, lease, work, ao3WorkId, prefix, chapters);
