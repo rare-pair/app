@@ -40,6 +40,14 @@ const SIZE = /^[1-9][0-9]*$/;
 // No cache keeps a reply: a URL in one can write to the bucket.
 const NO_STORE = { "Cache-Control": "no-store" };
 
+/** Spends `extra` more of a limit, one by one; true as soon as one is refused. */
+async function spendMore(limiter: RateLimit, key: string, extra: number) {
+  for (let spent = 0; spent < extra; spent++) {
+    if (await isLimited(limiter, key)) return true;
+  }
+  return false;
+}
+
 /**
  * `GET /upload`: the upload page, or sign in first and come back. Neither is
  * cached: which one is sent depends on the cookie, and the page can carry a
@@ -114,15 +122,15 @@ export async function requestUpload(c: UploadContext) {
   // Each file counts once against both limits. The first of each was spent above, so a
   // flood still costs no body; the rest are spent here, once the sizes are known to be
   // good (a malformed batch spends no more) and before Turnstile, the user first.
-  for (let spent = 1; spent < declared.length; spent++) {
-    if (await isLimited(c.env.UPLOAD_USER_LIMIT, await userKey("upload", user.id))) {
-      return tooManyRequestsJson(c, TOO_FAST, UPLOAD_WINDOW_SECONDS);
-    }
-  }
-  for (let spent = 1; spent < declared.length; spent++) {
-    if (await isLimited(c.env.UPLOAD_IP_LIMIT, await ipKey("upload", clientIp))) {
-      return tooManyRequestsJson(c, TOO_FAST, UPLOAD_WINDOW_SECONDS);
-    }
+  if (
+    (await spendMore(
+      c.env.UPLOAD_USER_LIMIT,
+      await userKey("upload", user.id),
+      declared.length - 1,
+    )) ||
+    (await spendMore(c.env.UPLOAD_IP_LIMIT, await ipKey("upload", clientIp), declared.length - 1))
+  ) {
+    return tooManyRequestsJson(c, TOO_FAST, UPLOAD_WINDOW_SECONDS);
   }
 
   const turnstile = await verifyTurnstile(form.get("cf-turnstile-response"), {

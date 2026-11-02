@@ -56,14 +56,17 @@ export const UPLOAD_SCRIPT = `"use strict";
   };
 
   // The browser PUTs the file itself: its bytes never go through this site's Worker.
-  const put = (file, url, row) =>
+  const put = (file, url, row, deadline) =>
     new Promise((resolve) => {
+      // The URL stops working ten minutes after it was signed. A file that would start
+      // after that is not sent, and a transfer still going then is lost anyway: end it
+      // rather than hold the button and the other files for ever.
+      const left = deadline - Date.now();
+      if (left <= 0) return resolve(false);
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", url);
       xhr.setRequestHeader("Content-Type", TYPE);
-      // The URL stops working after ten minutes, so a transfer still going then is lost
-      // anyway: end a stalled one rather than hold the button and the other files for ever.
-      xhr.timeout = URL_LIFETIME_MS;
+      xhr.timeout = left;
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
           row.bar.max = event.total;
@@ -129,6 +132,8 @@ export const UPLOAD_SCRIPT = `"use strict";
     body.set("cf-turnstile-response", token);
     let res = null;
     let reply = {};
+    // The URLs are signed while the ask is answered; counting from before it errs early.
+    const deadline = Date.now() + URL_LIFETIME_MS;
     try {
       res = await fetch("/uploads", { method: "POST", body });
       reply = await readJson(res);
@@ -151,7 +156,7 @@ export const UPLOAD_SCRIPT = `"use strict";
     await runAtOnce(
       toSend.map(({ file, row }, i) => async () => {
         row.note.textContent = "Uploading.";
-        if (!(await put(file, granted[i].url, row))) {
+        if (!(await put(file, granted[i].url, row, deadline))) {
           row.note.textContent = "The upload didn't finish. Please try again.";
           return;
         }

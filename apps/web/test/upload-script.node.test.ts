@@ -78,6 +78,7 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
   );
   elements["file"]!.files = files;
   const calls: Call[] = [];
+  const clock = { now: 1_000_000 };
   const turnstile = {
     token: "token-1",
     resets: 0,
@@ -95,6 +96,7 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
       const reply = replies[calls.length - 1]!(call);
       return { ok: reply.status < 300, status: reply.status, json: async () => reply.body };
     },
+    Date: { now: () => clock.now },
     XMLHttpRequest: FakeXhr,
     URLSearchParams,
     turnstile,
@@ -105,6 +107,7 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
   const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
   return {
     calls,
+    clock,
     turnstile,
     button: elements["send"]!,
     message: elements["message"]!,
@@ -322,7 +325,7 @@ describe("02-upload-handshake", () => {
     expect(note(p.rows()[0]!)).toMatch(/try again/);
   });
 
-  it("A stalled transfer ends when its URL would have expired", async () => {
+  it("A stalled transfer ends when its URL expires", async () => {
     const p = page(
       [epub(1)],
       [() => ({ status: 200, body: { id: "up-1", url: "https://r2.example/put-1" } })],
@@ -334,6 +337,28 @@ describe("02-upload-handshake", () => {
     await clicked;
     expect(note(p.rows()[0]!)).toMatch(/try again/);
     expect(p.button.disabled).toBe(false);
+  });
+
+  it("A file that would start after its URL has expired is not sent", async () => {
+    const files = [1, 2, 3, 4].map((n) => epub(n));
+    const ids = ["a", "b", "c", "d"];
+    const p = page(files, [
+      () => ({
+        status: 200,
+        body: { uploads: ids.map((id) => ({ id, url: `https://r2.example/${id}` })) },
+      }),
+      () => ({ status: 200, body: { status: "queued" } }),
+    ]);
+    const clicked = p.click();
+    await p.flush();
+    // Past ten minutes from signing, the fourth file's URL is dead, so it never starts.
+    p.clock.now += 601000;
+    done(FakeXhr.all[0]!);
+    FakeXhr.all[1]!.onerror!();
+    FakeXhr.all[2]!.onerror!();
+    await clicked;
+    expect(FakeXhr.all).toHaveLength(3);
+    expect(note(p.rows()[3]!)).toMatch(/try again/);
   });
 
   it("A second click sends only the files not yet uploaded", async () => {
