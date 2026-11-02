@@ -30,7 +30,9 @@ adminWork.get("/works/:id", async (c) => {
       "work_versions.created_at",
       "work_versions.chapter_count",
       "uploads.status as upload_status",
+      "user.id as user_id",
       "user.email",
+      "user.banned_at",
     ])
     .where("work_versions.work_id", "=", found.id)
     .orderBy("work_versions.created_at")
@@ -45,6 +47,8 @@ adminWork.get("/works/:id", async (c) => {
         id: v.id,
         added: v.created_at.toISOString(),
         uploader: v.email ?? "",
+        uploaderId: v.user_id,
+        banned: v.banned_at !== null,
         chapters: v.chapter_count,
         current: v.id === work.current_version_id,
         held: v.upload_status !== "live",

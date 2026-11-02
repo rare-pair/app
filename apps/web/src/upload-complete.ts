@@ -2,6 +2,7 @@ import {
   createDb,
   getUploadOf,
   getUploadQuota,
+  isBanned,
   recordUploadHash,
   countUploadQuota,
   refundUploadQuota,
@@ -14,6 +15,7 @@ import { NO_STORE } from "./login";
 import { limitFor, quotaSpent } from "./quota";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
+import { BANNED_UPLOADER } from "./upload";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./upload-limit";
 
 // ARCHITECTURE, Ingestion pipeline, step 3. The upload page's script calls
@@ -43,7 +45,7 @@ const hex = (digest: ArrayBuffer) =>
  * the account's daily quota is spent.
  */
 export async function completeUpload(c: CompleteContext) {
-  const refuse = (status: 400 | 401 | 404 | 409 | 413 | 500 | 503, error: string) =>
+  const refuse = (status: 400 | 401 | 403 | 404 | 409 | 413 | 500 | 503, error: string) =>
     c.json({ error }, status, NO_STORE);
 
   // A script can't follow a sign-in redirect, so it gets a 401 to act on.
@@ -63,6 +65,9 @@ export async function completeUpload(c: CompleteContext) {
     const taken = () =>
       refuse(409, "That upload was already handled. Check its status on the upload page.");
     if (upload.status !== "pending") return taken();
+    // A ban ends an account's pending uploads; this one was written after it. Before the
+    // object is read, so nothing of it is hashed or queued.
+    if (await isBanned(db, user.id)) return refuse(403, BANNED_UPLOADER);
 
     // An upload over the quota is marked first, and only the request that marks it deletes the
     // object, as for an oversized one. The mark is refused for an upload another confirm has

@@ -1,8 +1,8 @@
-import { createDb, getUploadQuota, insertUpload } from "@archive/db";
+import { createDb, getUploadQuota, insertUpload, isBanned } from "@archive/db";
 import type { Context, MiddlewareHandler } from "hono";
 import type { Bindings } from "./env";
 import { readForm } from "./login";
-import { uploadPage } from "./pages";
+import { layout, uploadPage } from "./pages";
 import { presignPut } from "./presign";
 import { limitFor, quotaSpent } from "./quota";
 import type { SecurityVariables } from "./security";
@@ -37,17 +37,34 @@ const SIZE = /^[1-9][0-9]*$/;
 // No cache keeps a reply: a URL in one can write to the bucket.
 const NO_STORE = { "Cache-Control": "no-store" };
 
+/** What a banned account is told, by the page and by the upload routes. */
+export const BANNED_UPLOADER = "This account can't upload.";
+
+/** In place of the upload form for a banned account. Draft copy. */
+const bannedPage = () =>
+  layout(
+    "Uploading is closed",
+    `<p class="draft">Draft: this text has not been proofread yet.</p>
+<p>${BANNED_UPLOADER}</p>`,
+  );
+
 /**
- * `GET /upload`: the upload page, or sign in first and come back. Neither is
- * cached: which one is sent depends on the cookie, and the page can carry a
- * refreshed session cookie.
+ * `GET /upload`: the upload page, or sign in first and come back, or, for a banned
+ * account, a page saying it can't upload. None is cached: which one is sent depends
+ * on the cookie, and the page can carry a refreshed session cookie.
  */
-export const showUpload = (c: UploadContext) => {
+export async function showUpload(c: UploadContext) {
   c.header("Cache-Control", NO_STORE["Cache-Control"]);
-  return c.var.session === null
-    ? c.redirect(`/login?next=${encodeURIComponent("/upload")}`, 302)
-    : c.html(uploadPage(c.get("nonce"), c.env.TURNSTILE_SITE_KEY));
-};
+  const user = c.var.session?.user;
+  if (user === undefined) return c.redirect(`/login?next=${encodeURIComponent("/upload")}`, 302);
+  const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
+  try {
+    if (await isBanned(db, user.id)) return c.html(bannedPage(), 403);
+  } finally {
+    c.executionCtx.waitUntil(db.destroy());
+  }
+  return c.html(uploadPage(c.get("nonce"), c.env.TURNSTILE_SITE_KEY));
+}
 
 /**
  * Refuses a `POST /uploads` from anywhere but a page on the site, with a JSON 403.
@@ -66,7 +83,7 @@ export const sameOriginUpload: MiddlewareHandler = async (c, next) => {
  * `size`, the declared bytes, and `cf-turnstile-response`.
  */
 export async function requestUpload(c: UploadContext) {
-  const refuse = (status: 400 | 401 | 413 | 503, error: string) =>
+  const refuse = (status: 400 | 401 | 403 | 413 | 503, error: string) =>
     c.json({ error }, status, NO_STORE);
 
   // A script can't follow a sign-in redirect, so it gets a 401 to act on.
@@ -114,9 +131,11 @@ export async function requestUpload(c: UploadContext) {
       "The anti-spam check is not answering just now. Please try again in a minute.",
     );
   }
-  // One connection serves the quota read and the row.
+  // One connection serves the ban and quota reads and the row.
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
   try {
+    // From the database, never the session: a ban holds at once (ARCHITECTURE, Moderation).
+    if (await isBanned(db, user.id)) return refuse(403, BANNED_UPLOADER);
     // The quota is counted when an upload is confirmed (upload-complete.ts), which is where
     // the hard cap holds. Asking is refused early once today's is spent, so nobody is sent to
     // upload a file that confirm would refuse. Nothing is counted here.

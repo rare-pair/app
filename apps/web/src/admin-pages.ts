@@ -97,13 +97,13 @@ export function itemPage(title: string, fields: [string, string][], actions: str
 }
 
 /**
- * Where an action's page may link back to: an item's own page. `from` is a form
- * field, so anything else is dropped.
+ * Where an action's page may link back to: an item's own page, or a work's admin page.
+ * `from` is a form field, so anything else is dropped.
  */
 export const safeFrom = (from: string | null | undefined) =>
   from !== null &&
   from !== undefined &&
-  /^\/admin\/(reports|takedowns|requests)\/[\w%-]+$/.test(from)
+  /^\/admin\/((reports|takedowns|requests)\/[\w%-]+|works\/\d{1,10})$/.test(from)
     ? from
     : null;
 
@@ -137,6 +137,10 @@ export type VersionRow = {
   id: string;
   added: string;
   uploader: string;
+  /** The uploader's account id, for the "Ban uploader" form; null when the account is gone. */
+  uploaderId: string | null;
+  /** The uploader's account is banned: the row says so in place of the form. */
+  banned: boolean;
   chapters: number;
   current: boolean;
   /** Held for review: only a moderator's approval makes it current (MOD3). */
@@ -146,7 +150,8 @@ export type VersionRow = {
 /**
  * A work's admin page: its status and every version, oldest first, each with a "Make
  * current" form unless it is held for review; the current one is marked. The uploader is the
- * account's email: moderators only, on admin pages only. `actions` is `workActions`.
+ * account's email: moderators only, on admin pages only, with a "Ban uploader" form, or
+ * "Banned" once it is. `actions` is `workActions`.
  */
 export function workAdminPage(
   title: string,
@@ -159,10 +164,16 @@ export function workAdminPage(
     v.held
       ? "Held for review"
       : `${v.current ? "Current " : ""}<form method="post" action="/admin/works/${ao3WorkId}/current"><input type="hidden" name="version" value="${escapeHtml(v.id)}"><button type="submit">Make current</button></form>`;
+  const banForm = (v: VersionRow) => {
+    if (v.banned) return " Banned";
+    if (v.uploaderId === null) return "";
+    const action = `/admin/users/${encodeURIComponent(v.uploaderId)}/ban`;
+    return `<form method="post" action="${escapeHtml(action)}"><input type="hidden" name="from" value="/admin/works/${ao3WorkId}"><button type="submit">Ban uploader</button></form>`;
+  };
   const rows = versions
     .map(
       (v) =>
-        `<tr><td>${escapeHtml(v.added)}</td><td>${escapeHtml(v.uploader)}</td><td>${v.chapters}</td><td>${makeCurrent(v)}</td></tr>`,
+        `<tr><td>${escapeHtml(v.added)}</td><td>${escapeHtml(v.uploader)}${banForm(v)}</td><td>${v.chapters}</td><td>${makeCurrent(v)}</td></tr>`,
     )
     .join("\n");
   return layout(
