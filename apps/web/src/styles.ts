@@ -195,6 +195,21 @@ article.chapter table {
   overflow-x: auto;
 }
 
+/* Chapter notes (first in the chapter) and end notes (last): a label <p> then a
+   <blockquote>. The sanitizer drops class and id, so they are matched by position; a real
+   quote block placed the same way is styled the same (accepted, ARCHITECTURE Reading). */
+article.chapter > p:first-child:has(+ blockquote),
+article.chapter > p:first-child + blockquote,
+article.chapter > div:first-child > p:first-child:has(+ blockquote),
+article.chapter > div:first-child > p:first-child + blockquote,
+article.chapter > p:has(+ blockquote:last-child),
+article.chapter > p + blockquote:last-child,
+article.chapter > div:last-child > p:has(+ blockquote:last-child),
+article.chapter > div:last-child > p + blockquote:last-child {
+  font-size: 0.85em;
+  color: var(--muted);
+}
+
 /* The slim top bar scrolls away with the page: it is never sticky or fixed. */
 .reader-bar {
   display: flex;
@@ -226,6 +241,28 @@ article.chapter table {
 .chapter-nav select {
   font: inherit;
   max-width: 100%;
+}
+
+/* My uploads: rows like work cards; the badge is text in bold, never colour alone. */
+.upload-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.upload-list li {
+  padding: calc(var(--space) * 3) 0;
+  border-bottom: 1px solid var(--rule);
+  overflow-wrap: anywhere;
+}
+
+.upload-message {
+  margin: 0;
+}
+
+.badge {
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 /* Work cards (FRONTEND-DISCOVERY, Work card): sections by whitespace and a hairline. */

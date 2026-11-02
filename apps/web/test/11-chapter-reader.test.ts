@@ -52,6 +52,18 @@ afterAll(() => db.destroy());
 
 const chapterUrl = (id: number, n: number | string) => `/works/${id}/chapters/${n}`;
 
+// The selectors of the notes rule in styles.ts, one by one (same text as the CSS).
+const NOTE_SELECTORS = [
+  "article.chapter > p:first-child:has(+ blockquote)",
+  "article.chapter > p:first-child + blockquote",
+  "article.chapter > div:first-child > p:first-child:has(+ blockquote)",
+  "article.chapter > div:first-child > p:first-child + blockquote",
+  "article.chapter > p:has(+ blockquote:last-child)",
+  "article.chapter > p + blockquote:last-child",
+  "article.chapter > div:last-child > p:has(+ blockquote:last-child)",
+  "article.chapter > div:last-child > p + blockquote:last-child",
+];
+
 /** The markup between `<article class="chapter">` and its closing tag, or null. */
 const articleOf = (html: string) =>
   html.match(/<article class="chapter">([\s\S]*)<\/article>/)?.[1] ?? null;
@@ -201,8 +213,10 @@ describe("11-reader-and-csp", () => {
   });
 
   it("Notes surround the chapter text", async () => {
-    // The order half. The smaller, muted style needs a hook the sanitizer strips today
-    // (filed as its own issue).
+    // The order half, then the style half. The sanitizer drops class and id, so the notes
+    // are styled by position: the selectors below must match the served structure (a label
+    // <p> then a <blockquote>, first or last in the chapter). Workerd doesn't paint, so this
+    // shows the rules exist for that structure; the browser half is a live check.
     const html = await htmlOf(chapterUrl(W, 2));
     const article = articleOf(html) ?? "";
     const notes = article.indexOf("W-TWO-NOTES");
@@ -211,8 +225,19 @@ describe("11-reader-and-csp", () => {
     expect(notes).toBeGreaterThan(-1);
     expect(text).toBeGreaterThan(notes);
     expect(endNotes).toBeGreaterThan(text);
+    expect(article.startsWith("<p>Chapter Notes</p><blockquote>")).toBe(true);
+    expect(article.endsWith("</blockquote>")).toBe(true);
+    expect(article).toContain("<p>Chapter End Notes</p><blockquote>");
     // seedWork's summary is "A seeded summary.": the reader doesn't repeat it.
     expect(html).not.toContain("A seeded summary");
+    // Chapter notes and end notes: smaller and muted, at every position the shape allows.
+    const css = await stylesheetOf(html);
+    for (const selector of NOTE_SELECTORS) {
+      const bodies = rulesFor(css, selector);
+      expect(bodies, selector).toHaveLength(1);
+      expect(bodies[0], selector).toMatch(/font-size:\s*0\.85em;/);
+      expect(bodies[0], selector).toMatch(/color:\s*var\(--muted\);/);
+    }
   });
 
   it("Slim top bar", async () => {
@@ -284,7 +309,12 @@ describe("11-reader-and-csp", () => {
       chapters: [{ html: "<p>V1-ONE</p>" }, { html: "<p>V1-TWO</p>" }, { html: "<p>V1-THREE</p>" }],
     });
     await putFragments(env.BUCKET, first.fragments);
-    expect(articleOf(await htmlOf(chapterUrl(20002, 2)))).toBe("<p>V1-TWO</p>");
+    // A reader with a settings cookie skips the 60 s edge cache of the page (R7), so only
+    // the fragment cache, keyed by version, stands between the two reads.
+    const reader = { headers: { cookie: "__Host-reader=theme=dark" } };
+    const readChapter = async (n: number) =>
+      articleOf(await (await fetchW(chapterUrl(20002, n), reader)).text());
+    expect(await readChapter(2)).toBe("<p>V1-TWO</p>");
 
     const second = await seedVersion(db, first, {
       chapters: [{ html: "<p>V2-ONE</p>" }, { html: "<p>V2-TWO</p>" }],
@@ -292,7 +322,7 @@ describe("11-reader-and-csp", () => {
     await putFragments(env.BUCKET, second.fragments);
 
     // The new version's fragment, from its own prefix.
-    expect(articleOf(await htmlOf(chapterUrl(20002, 2)))).toBe("<p>V2-TWO</p>");
+    expect(await readChapter(2)).toBe("<p>V2-TWO</p>");
     expect(second.chapterKeys[1]?.startsWith(second.r2Prefix)).toBe(true);
     expect(second.r2Prefix).not.toBe(first.r2Prefix);
     // The old version's fragments are untouched.
@@ -301,7 +331,7 @@ describe("11-reader-and-csp", () => {
     );
     expect(oldBodies).toEqual(["<p>V1-ONE</p>", "<p>V1-TWO</p>", "<p>V1-THREE</p>"]);
     // The new version has two chapters, so the old third one is past the last.
-    expect((await fetchW(chapterUrl(20002, 3))).status).toBe(404);
+    expect((await fetchW(chapterUrl(20002, 3), reader)).status).toBe(404);
   });
 
   it("First chapter has no previous link", async () => {

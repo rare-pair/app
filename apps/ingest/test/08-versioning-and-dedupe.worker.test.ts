@@ -247,6 +247,7 @@ describe("08-versioning-and-dedupe", () => {
       type: "freeform",
       name: "Another Tag",
     });
+    expect(rows.versions.find((v) => v.upload_id === v2.id)?.hold_reason).toBe("tags_changed");
   });
 
   it("Newer upload with changed authors is held", async () => {
@@ -262,6 +263,7 @@ describe("08-versioning-and-dedupe", () => {
     expect(rows.versions.find((v) => v.upload_id === v2.id)?.authors).toEqual([
       { pseud: "someoneelse", user: "someoneelse" },
     ]);
+    expect(rows.versions.find((v) => v.upload_id === v2.id)?.hold_reason).toBe("authors_changed");
   });
 
   it("Older upload is marked duplicate", async () => {
@@ -301,6 +303,112 @@ describe("08-versioning-and-dedupe", () => {
     const rows = await versionsOf(workId);
     expect(rows.status).toBe("hidden");
     expect(rows.current).toBe(rows.versions.find((v) => v.upload_id === v2.id)?.id);
+  });
+
+  it("Each version stores its own columns, and a held one its hold reason", async () => {
+    const { workId, v1 } = await workAtV1();
+    const v2 = await ingestParsed(fixture(workId, { count: 4, title: "Second Title" }));
+    const v3 = await ingestParsed(fixture(workId, { count: 5, rewritten: [2], title: "Third" }));
+    expect([v2.row.status, v3.row.status]).toEqual(["live", "held_for_review"]);
+
+    const { versions } = await versionsOf(workId);
+    const own = (id: string) => {
+      const v = versions.find((x) => x.upload_id === id);
+      return {
+        title: v?.title,
+        summary_html: v?.summary_html,
+        rating: v?.rating,
+        language: v?.language,
+        words: v?.words,
+        chapter_total: v?.chapter_total,
+        complete: v?.complete,
+        published_at: v?.published_at,
+        updated_at: v?.updated_at,
+        raw_meta: v?.raw_meta,
+        hold_reason: v?.hold_reason,
+      };
+    };
+    const common = {
+      summary_html: "<p>A synthetic summary.</p>",
+      rating: "General Audiences",
+      language: "English",
+      complete: true,
+      published_at: new Date("2020-01-02T00:00:00Z"),
+      updated_at: new Date("2020-02-01T00:00:00Z"),
+      raw_meta: {},
+    };
+    expect(own(v1.id)).toEqual({
+      ...common,
+      title: "Synthetic Work",
+      words: 180,
+      chapter_total: 3,
+      hold_reason: null,
+    });
+    expect(own(v2.id)).toEqual({
+      ...common,
+      title: "Second Title",
+      words: 240,
+      chapter_total: 4,
+      hold_reason: null,
+    });
+    expect(own(v3.id)).toEqual({
+      ...common,
+      title: "Third",
+      words: 300,
+      chapter_total: 5,
+      hold_reason: "chapters_changed",
+    });
+  });
+
+  it("A replace from a file with no title keeps the work's title", async () => {
+    const { workId } = await workAtV1();
+
+    // The processor gives an empty title when neither the preface nor the OPF has one.
+    const v2 = await ingestParsed({ ...fixture(workId, { count: 4 }), title: "" });
+
+    expect(v2.row.status).toBe("live");
+    expect((await liveWork(workId))?.work.title).toBe("Synthetic Work");
+    const { versions } = await versionsOf(workId);
+    expect(versions.find((v) => v.upload_id === v2.id)?.title).toBeNull();
+  });
+
+  it("A replace with a missing field keeps the work's stored value", async () => {
+    const { workId, v1 } = await workAtV1();
+    const before = await liveWork(workId);
+    const bare = fixture(workId, { count: 4 });
+
+    const v2 = await ingestParsed({
+      ...bare,
+      language: null,
+      summaryHtml: null,
+      stats: { ...bare.stats, published: null, words: null, chapters: { posted: 4, total: null } },
+    });
+
+    expect(v2.row.status).toBe("live");
+    const live = await liveWork(workId);
+    expect(live?.version.r2_prefix).toBe(`works/${workId}/${v2.id}/`);
+    // The work keeps what the new file lacks, and takes what it has.
+    expect(live?.work).toMatchObject({
+      language: "English",
+      summary_html: "<p>A synthetic summary.</p>",
+      chapters_count: 4,
+      chapters_total: 3,
+    });
+    expect(live?.work.published_at).toEqual(before?.work.published_at);
+    // The new version's row records what its file lacked as NULL; the kept one is untouched.
+    const { versions } = await versionsOf(workId);
+    const stored = versions.find((v) => v.upload_id === v2.id);
+    expect(stored).toMatchObject({
+      language: null,
+      summary_html: null,
+      published_at: null,
+      chapter_total: null,
+    });
+    expect(versions.find((v) => v.upload_id === v1.id)).toMatchObject({
+      language: "English",
+      summary_html: "<p>A synthetic summary.</p>",
+      chapter_total: 3,
+    });
   });
 
   it("Two uploads of the same work processed at once", async () => {
