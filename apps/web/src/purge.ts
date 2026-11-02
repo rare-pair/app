@@ -94,6 +94,9 @@ async function request(
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      // The API never redirects; following one would carry the token wherever it points.
+      // A 3xx comes back as itself, not ok, so it counts as a failure. (workerd has no "error".)
+      redirect: "manual",
       signal: AbortSignal.timeout(options.timeoutMs ?? 5000),
     });
     if (!res.ok) {

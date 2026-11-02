@@ -10,7 +10,13 @@ const PURGE_URL = `https://api.cloudflare.com/client/v4/zones/${ZONE}/purge_cach
 
 /** A purge request's body, as the API takes it. */
 type Body = { tags?: string[]; prefixes?: string[]; files?: string[] };
-type Sent = { url: string; method?: string; headers: Headers; body: Body };
+type Sent = {
+  url: string;
+  method?: string;
+  redirect?: RequestInit["redirect"];
+  headers: Headers;
+  body: Body;
+};
 
 /** A stub `fetch` that records each request and answers with `reply()`, accepted by default. */
 function stubFetch(reply: () => Response | Promise<Response> = ok) {
@@ -18,7 +24,13 @@ function stubFetch(reply: () => Response | Promise<Response> = ok) {
   const fetch = async (url: string, init: RequestInit) => {
     // SAFETY: purgeWorkCaches sends one purge body as a JSON string.
     const body = JSON.parse(init.body as string) as Body;
-    sent.push({ url, method: init.method, headers: new Headers(init.headers), body });
+    sent.push({
+      url,
+      method: init.method,
+      redirect: init.redirect,
+      headers: new Headers(init.headers),
+      body,
+    });
     return reply();
   };
   return { sent, fetch };
@@ -47,6 +59,8 @@ describe("purgeWorkCaches", () => {
     for (const s of sent) {
       expect(s.url).toBe(PURGE_URL);
       expect(s.method).toBe("POST");
+      // A redirect would carry the token to wherever it points: never followed.
+      expect(s.redirect).toBe("manual");
       expect(s.headers.get("authorization")).toBe(`Bearer ${TOKEN}`);
       expect(s.headers.get("content-type")).toBe("application/json");
     }
@@ -85,6 +99,11 @@ describe("purgeWorkCaches", () => {
     };
     const failures: [string, (init: RequestInit) => Promise<Response>][] = [
       ["a 5xx", async () => new Response("down", { status: 503 })],
+      [
+        "a redirect",
+        async () =>
+          new Response(null, { status: 307, headers: { location: "https://x.example/" } }),
+      ],
       [
         "a 4xx",
         async () => Response.json({ success: false, errors: [{ code: 10000 }] }, { status: 403 }),
