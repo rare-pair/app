@@ -13,6 +13,7 @@ import { decideVersion, sameSet, type VersionDecision, type VersionFacts } from 
 /** What saving needs from the bucket: writes, and reads of the current version's fragments. */
 export interface SaveBucket {
   get(key: string): Promise<R2ObjectBody | null>;
+  delete(keys: string[]): Promise<void>;
   put(key: string, value: string | Uint8Array, options?: R2PutOptions): Promise<R2Object | null>;
 }
 
@@ -162,7 +163,6 @@ export interface BackfillSource {
   /** The upload whose `originals/<id>.epub` the version was made from. */
   originalUploadId: string;
   reviewReasons: string[];
-  checkedAt: Date | null;
 }
 
 /**
@@ -173,39 +173,68 @@ export interface BackfillSource {
  * already written is rewritten and every cached one keeps its key; its images go to the
  * work's `img/` prefix; the original is not written again. Then one transaction adds the
  * version and moves `current_version_id` to it only if it is still the source version
- * (compare-and-swap), and makes the work describe it. Status is left as it is. Returns false
- * when the pointer had moved, or the work was removed, and nothing was committed: the new
- * prefix's fragments are then left for the periodic sweep, as are a failed attempt's.
+ * (compare-and-swap), and makes the work describe it. Status is left as it is. Returns
+ * ackfilled; or 
+ot_current when the pointer had moved, and nothing was committed (the new
+ * prefix's fragments are then left for the periodic sweep, as are a failed attempt's); or
+ * 
+emoved when the work was removed meanwhile, and what the save wrote is deleted.
  */
 export async function saveBackfill(
   deps: { db: Kysely<Database>; bucket: SaveBucket },
   source: BackfillSource,
   work: ParsedWork,
   images: WorkImages = new Map(),
-): Promise<boolean> {
+): Promise<"backfilled" | "not_current" | "removed"> {
   if (work.chapters.length === 0) throw new SaveRejected("no_chapters");
   const versionId = crypto.randomUUID();
   const prefix = `works/${source.ao3WorkId}/${versionId}/`;
   const chapters = await putFiles(deps.bucket, source.ao3WorkId, prefix, work, images);
   // The moderator's check stands only for the parser's doubts it answered.
   const sameReasons = sameSet(new Set(work.reviewReasons), new Set(source.reviewReasons));
-  const origin: VersionOrigin = {
-    id: versionId,
-    upload_id: null,
-    source: "backfill",
-    source_upload_id: source.originalUploadId,
-    checked_at: sameReasons ? source.checkedAt : null,
-  };
   try {
     await deps.db.transaction().execute(async (trx) => {
+      // Read here, not with the work: a check a moderator made while the file was processed
+      // carries over too.
+      const checked = sameReasons
+        ? ((
+            await trx
+              .selectFrom("work_versions")
+              .select("checked_at")
+              .where("id", "=", source.versionId)
+              .executeTakeFirst()
+          )?.checked_at ?? null)
+        : null;
+      const origin: VersionOrigin = {
+        id: versionId,
+        upload_id: null,
+        source: "backfill",
+        source_upload_id: source.originalUploadId,
+        checked_at: checked,
+      };
       await insertVersion(trx, origin, work, source.workId, prefix, chapters);
       await replaceCurrent(trx, source.workId, source.versionId, versionId);
     });
-    return true;
+    return "backfilled";
   } catch (error) {
-    if (error instanceof Stale) return false;
-    throwSaveError(error);
+    if (!(error instanceof Stale)) throwSaveError(error);
   }
+  const row = await deps.db
+    .selectFrom("works")
+    .select("status")
+    .where("id", "=", source.workId)
+    .executeTakeFirst();
+  if (row !== undefined && row.status !== "removed") return "not_current";
+  // Removed while the job ran: its purge may have run before these writes, so what they put
+  // back is deleted here. The images go too, as every one of a removed work's does.
+  const keys = [
+    ...chapters.map((c) => c.key),
+    ...[...images.keys()].map((key) => `works/${source.ao3WorkId}/img/${key}`),
+  ];
+  for (let i = 0; i < keys.length; i += ROWS_PER_INSERT) {
+    await deps.bucket.delete(keys.slice(i, i + ROWS_PER_INSERT));
+  }
+  return "removed";
 }
 
 /**

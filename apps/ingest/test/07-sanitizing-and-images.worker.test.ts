@@ -1,8 +1,9 @@
 import { EpubError, processEpub } from "@archive/epub";
+import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { ao3Epub } from "../../../packages/epub/test/helpers";
 import { TAKEDOWN_REMOVED } from "../src/lists";
-import { ingestWorker, type Steps } from "../src/worker";
+import { ingestWorker, processForStorage, type Steps } from "../src/worker";
 import {
   addOptOut,
   addTakedown,
@@ -232,6 +233,47 @@ describe("re-sanitize backfill", () => {
     expect(now.versions).toHaveLength(1);
     expect(now.current).toBe(work.current);
     expect(await bucketKeys(`works/${work.ao3WorkId}/`)).toEqual(keys);
+  });
+
+  it("a work removed while its backfill runs keeps nothing the backfill wrote", async () => {
+    const workId = freshAo3WorkId();
+    await ingestBeforeFix(epubWithImages(workId, { "one.png": png(`removed-${token()}`) }));
+    const work = await versionsOf(workId);
+    // The removal's purge (apps/web) ran before the job: nothing of the work is left.
+    await env.BUCKET.delete(await bucketKeys(`works/${workId}/`));
+    const removing = ingestWorker({
+      process: async (bytes, images) => {
+        const parsed = await processForStorage(bytes, images);
+        await setWorkStatus(workId, "removed");
+        return parsed;
+      },
+    });
+
+    const result = await deliver([backfillOf(work)], { queue: BACKFILL, handler: removing });
+
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    expect((await versionsOf(workId)).versions).toHaveLength(1);
+    expect(await bucketKeys(`works/${workId}/`)).toEqual([]);
+  });
+
+  it("a moderator's check made while the backfill runs carries over", async () => {
+    const reviewReasons = ["chapter_split_guessed"];
+    const work = await unfixedWork({
+      process: async (bytes) => ({ ...(await processEpub(bytes)), reviewReasons }),
+    });
+    const checking = ingestWorker({
+      process: async (bytes) => {
+        const parsed = await processEpub(bytes);
+        await checkVersion(work.current);
+        return { ...parsed, reviewReasons };
+      },
+    });
+
+    await deliver([backfillOf(work)], { queue: BACKFILL, handler: checking });
+
+    const now = await versionsOf(work.ao3WorkId);
+    expect(now.current).not.toBe(work.current);
+    expect(now.versions.find((v) => v.id === now.current)?.checked_at).not.toBeNull();
   });
 
   it("a hidden work is backfilled and stays hidden", async () => {

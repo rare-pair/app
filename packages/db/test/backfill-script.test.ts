@@ -107,6 +107,19 @@ describe("07-sanitizing-and-images", () => {
     expect(bodies(rest.pushed)).toEqual(all.slice(2));
   });
 
+  it("A stop during a push says the batch may or may not be queued", async () => {
+    const stop = new AbortController();
+    const { stub } = queueStub(() => {
+      stop.abort();
+      return new DOMException("aborted", "AbortError");
+    });
+
+    const result = await backfill({ ...options(stub), signal: stop.signal });
+
+    expect(result).toMatchObject({ queued: 0, done: false });
+    expect(result.error).toMatch(/^interrupted during a push of 4 works/);
+  });
+
   it("An unreachable database is reported by its code, never its connection string", async () => {
     const { stub, pushed } = queueStub();
 

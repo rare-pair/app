@@ -34,7 +34,6 @@ export async function runBackfill(deps: BackfillDeps, message: BackfillMessage):
       "work_versions.upload_id",
       "work_versions.source_upload_id",
       "work_versions.review_reasons",
-      "work_versions.checked_at",
     ])
     .where("works.id", "=", message.work_id)
     .executeTakeFirst();
@@ -69,7 +68,7 @@ export async function runBackfill(deps: BackfillDeps, message: BackfillMessage):
   // Before anything is written: what an opt-out now blocks is not published again.
   if (await onRejectList(deps.db, work)) return "opted_out";
   try {
-    const saved = await saveBackfill(
+    return await saveBackfill(
       deps,
       {
         workId: message.work_id,
@@ -77,12 +76,10 @@ export async function runBackfill(deps: BackfillDeps, message: BackfillMessage):
         versionId: message.version_id,
         originalUploadId,
         reviewReasons: row.review_reasons,
-        checkedAt: row.checked_at,
       },
       work,
       images,
     );
-    return saved ? "backfilled" : "not_current";
   } catch (error) {
     if (error instanceof SaveRejected) return error.code;
     throw error;

@@ -54,7 +54,7 @@ const codeOf = (error) => {
  * @property {typeof fetch} [fetch]
  * @property {number} [batchSize]
  * @property {(line: string) => void} [log]
- * @property {AbortSignal} [signal] Stops the run between batches.
+ * @property {AbortSignal} [signal] Stops the run, aborting a push in flight.
  */
 
 /**
@@ -107,6 +107,10 @@ export async function backfill({
           content_type: "json",
         })),
       });
+      // A stop during the push aborts it: the batch may or may not have been queued.
+      if (error !== null && signal?.aborted) {
+        error = `interrupted during a push of ${rows.length} works, which may or may not be queued`;
+      }
       if (error !== null) break;
       queued += rows.length;
       after = rows.at(-1).id;
@@ -175,7 +179,8 @@ async function main() {
     );
     return 2;
   }
-  // A stop takes effect between batches. A second one ends the process at once.
+  // A stop ends the run after the page in hand, aborting its push if one is in flight. A second
+  // one ends the process at once.
   const stop = new AbortController();
   for (const name of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     process.on(name, () => {

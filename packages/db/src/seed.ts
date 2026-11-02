@@ -337,7 +337,8 @@ async function addVersion(
       ...own,
       words: sum(chapters.map((c) => c.words)),
       raw_meta: "{}",
-      hold_reason: current ? null : (options.holdReason ?? "chapters_changed"),
+      hold_reason:
+        current || backfillOf !== undefined ? null : (options.holdReason ?? "chapters_changed"),
       tags: JSON.stringify(tags),
       authors: JSON.stringify(authors),
     })

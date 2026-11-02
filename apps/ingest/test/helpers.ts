@@ -253,6 +253,7 @@ export const beforePut =
   (hook: (key: string) => Promise<void>): NonNullable<Steps["bucket"]> =>
   (real) => ({
     get: real.get.bind(real),
+    delete: real.delete.bind(real),
     put: async (key, value, options) => {
       await hook(key);
       return real.put(key, value, options);

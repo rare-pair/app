@@ -32,7 +32,7 @@ const CONTENT_ORIGIN = "https://content.rarepair.fans";
  * The processor, with each image's `src` pointed at the content origin under the work's `img`
  * prefix, and the images it accepts added to `images`, to be written by the save.
  */
-const processForStorage: JobDeps["process"] = (bytes, images) =>
+export const processForStorage: JobDeps["process"] = (bytes, images) =>
   processEpub(bytes, {
     imageBase: (ao3WorkId) => `${CONTENT_ORIGIN}/works/${ao3WorkId}/img/`,
     onImage: (ref, data) => void images?.set(ref.key, { mediaType: ref.mediaType, bytes: data }),

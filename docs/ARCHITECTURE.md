@@ -473,8 +473,11 @@ Chapter text isn't indexed.
    re-made version has the same review reasons. A file the processor now
    refuses is logged by its code and acked, leaving the current version
    alone; an R2 or Postgres failure is retried, then dead-lettered to
-   `ingest-backfill-dlq`. Only current versions are re-made, so an older
-   version made current again still has its old fragments. Nothing records
+   `ingest-backfill-dlq`. A message whose version is no longer current is
+   acked even when the work's new current version predates the fix: rerun the
+   script for it. Only current versions are re-made, so an older version made
+   current again, or a held version approved later, still has its old
+   fragments. Nothing records
    which sanitizer made a version, so a rerun re-makes every work again.
 
 **Rejection codes:** `not_epub`, `zip_bomb`, `too_large`, `not_ao3`,
