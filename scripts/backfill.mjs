@@ -110,6 +110,8 @@ export async function backfill({
       }
       const wait = lastPush + pushIntervalMs - Date.now();
       if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      // A stop during the wait: this page was never sent.
+      if (signal?.aborted) break;
       lastPush = Date.now();
       error = await push({
         messages: rows.map((row) => ({

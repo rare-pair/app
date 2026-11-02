@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { LEASE_SECONDS, MAX_RETRIES } from "../src/config";
+import { BACKFILL_QUEUE, INGEST_QUEUE, LEASE_SECONDS, MAX_RETRIES } from "../src/config";
 
 // The queue's batching, concurrency, retries and dead-letter queue are Cloudflare's to enforce,
 // from wrangler.jsonc: no local run shows them. This checks the config that deploys.
@@ -14,14 +14,19 @@ interface Consumer {
   dead_letter_queue: string;
 }
 
-/** The consumer of `queue` in wrangler.jsonc, read with its line comments and trailing commas removed. */
-function consumerOf(queue: string): Consumer {
+/** The consumers in wrangler.jsonc, read with its line comments and trailing commas removed. */
+function consumers(): Consumer[] {
   const text = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8")
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/,(\s*[}\]])/g, "$1");
   // SAFETY: the fields read from it are each checked by the assertions that read them.
   const config = JSON.parse(text) as { queues: { consumers: Consumer[] } };
-  const found = config.queues.consumers.find((c) => c.queue === queue);
+  return config.queues.consumers;
+}
+
+/** The consumer of `queue` in wrangler.jsonc. */
+function consumerOf(queue: string): Consumer {
+  const found = consumers().find((c) => c.queue === queue);
   if (found === undefined) throw new Error(`wrangler.jsonc has no consumer of ${queue}`);
   return found;
 }
@@ -59,5 +64,10 @@ describe("07-sanitizing-and-images", () => {
       max_retries: 3,
       dead_letter_queue: "ingest-backfill-dlq",
     });
+  });
+
+  it("The Worker routes the queues wrangler.jsonc binds, and no other", () => {
+    // The handler retries a batch from any queue it doesn't name.
+    expect(consumers().map((c) => c.queue)).toEqual([INGEST_QUEUE, BACKFILL_QUEUE]);
   });
 });

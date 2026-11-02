@@ -111,7 +111,7 @@ describe("07-sanitizing-and-images", () => {
   it("Pushes are spaced out, to stay under the Cloudflare API's rate limit", async () => {
     const starts: number[] = [];
     const { stub } = queueStub(() => {
-      starts.push(performance.now());
+      starts.push(Date.now());
       return ok();
     });
 

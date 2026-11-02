@@ -2,6 +2,7 @@ import { createDb, type Database } from "@archive/db";
 import { processEpub } from "@archive/epub";
 import type { Kysely } from "kysely";
 import { runBackfill, type BackfillDeps } from "./backfill";
+import { BACKFILL_QUEUE, INGEST_QUEUE } from "./config";
 import { errorCode, runJob, type JobDeps, type Verdict } from "./job";
 import { parseBackfillMessage, parseMessage } from "./message";
 import { saveWork, type SaveBucket } from "./save";
@@ -21,10 +22,6 @@ type JobBucket = JobDeps["bucket"] & SaveBucket;
 export type Steps = Pick<JobDeps, "process" | "save"> & {
   bucket: (real: R2Bucket) => JobBucket;
 };
-
-/** The queues this Worker consumes (wrangler.jsonc): uploads, and the re-sanitize backfill. */
-const INGEST_QUEUE = "ingest";
-const BACKFILL_QUEUE = "ingest-backfill";
 
 /** Where the content Worker serves a work's images from. */
 const CONTENT_ORIGIN = "https://content.rarepair.fans";
