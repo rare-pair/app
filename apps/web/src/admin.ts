@@ -4,7 +4,7 @@
 
 import { createDb, isModeratorRole, type Database, type ModeratorRole } from "@archive/db";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
-import type { Kysely } from "kysely";
+import { sql, type Kysely } from "kysely";
 import {
   adminHomePage,
   QUEUE_LIMIT,
@@ -195,12 +195,94 @@ export async function showRequests(c: AdminContext) {
   return c.html(queuePage("Requests", REQUEST_COLUMNS, cells));
 }
 
+/** One work in Works to check: its earliest trigger, and what each trigger said. */
+type Check = { title: string; ao3WorkId: number; created: Date; reasons: string[] };
+
 /**
- * `GET /admin/works`: Works to check. MOD3 (#47) fills it; until then it says so,
- * rather than that nothing is waiting.
+ * `GET /admin/works`: Works to check. One row per work, oldest trigger first, for
+ * any of: a version held for review, a live current version whose review reasons no
+ * moderator has cleared, an open "This version is wrong" report. Removed works are
+ * not listed; hidden ones are. Read only: the actions come with MOD3b.
  */
-export function showWorksToCheck(c: AdminContext) {
-  return c.html(queuePage("Works to check", WORK_COLUMNS, [], "This queue is not built yet."));
+export async function showWorksToCheck(c: AdminContext) {
+  const { db } = c.var;
+  const held = await db
+    .selectFrom("work_versions")
+    .innerJoin("uploads", "uploads.id", "work_versions.upload_id")
+    .innerJoin("works", "works.id", "work_versions.work_id")
+    .select(["works.id", "works.title", "works.ao3_work_id"])
+    .select((eb) => eb.fn.min("work_versions.created_at").as("created_at"))
+    .where("uploads.status", "=", "held_for_review")
+    .where("works.status", "<>", "removed")
+    // One row per work, so a work with many held versions can't use up the cap.
+    .groupBy(["works.id", "works.title", "works.ao3_work_id"])
+    .orderBy("created_at")
+    .orderBy("works.id")
+    .limit(QUEUE_LIMIT + 1)
+    .execute();
+  // The notice's own rule (review-notice.ts), on the current version only. A hidden
+  // work is listed too: it still needs its check.
+  const flagged = await db
+    .selectFrom("works")
+    .innerJoin("work_versions", "work_versions.id", "works.current_version_id")
+    .select([
+      "works.id",
+      "works.title",
+      "works.ao3_work_id",
+      "work_versions.created_at",
+      "work_versions.review_reasons",
+    ])
+    .where("works.status", "<>", "removed")
+    .where("work_versions.checked_at", "is", null)
+    .where(sql<boolean>`cardinality(work_versions.review_reasons) > 0`)
+    .orderBy("work_versions.created_at")
+    .orderBy("works.id")
+    .limit(QUEUE_LIMIT + 1)
+    .execute();
+  const wrong = await db
+    .selectFrom("reports")
+    .innerJoin("works", "works.id", "reports.work_id")
+    .select(["works.id", "works.title", "works.ao3_work_id"])
+    .select((eb) => eb.fn.min("reports.created_at").as("created_at"))
+    .where("reports.kind", "=", "wrong_version")
+    .where("reports.status", "=", "open")
+    .where("works.status", "<>", "removed")
+    .groupBy(["works.id", "works.title", "works.ao3_work_id"])
+    .orderBy("created_at")
+    .orderBy("works.id")
+    .limit(QUEUE_LIMIT + 1)
+    .execute();
+
+  const byWork = new Map<string, Check>();
+  const add = (
+    r: { id: string; title: string; ao3_work_id: number; created_at: Date },
+    reason: string,
+  ) => {
+    const have = byWork.get(r.id);
+    if (have === undefined) {
+      byWork.set(r.id, {
+        title: r.title,
+        ao3WorkId: r.ao3_work_id,
+        created: r.created_at,
+        reasons: [reason],
+      });
+    } else {
+      if (r.created_at < have.created) have.created = r.created_at;
+      if (!have.reasons.includes(reason)) have.reasons.push(reason);
+    }
+  };
+  for (const r of held) add(r, "Held version");
+  for (const r of flagged) add(r, `Review reasons: ${r.review_reasons.join(", ")}`);
+  for (const r of wrong) add(r, "Reported: this version is wrong");
+
+  const rows = [...byWork.entries()]
+    .sort(([aId, a], [bId, b]) => +a.created - +b.created || (aId < bId ? -1 : aId > bId ? 1 : 0))
+    .slice(0, QUEUE_LIMIT + 1)
+    .map(([, w]): Row => ({
+      href: `/admin/works/${w.ao3WorkId}`,
+      cells: [iso(w.created), workCell(w.title, w.ao3WorkId), w.reasons.join("; ")],
+    }));
+  return c.html(queuePage("Works to check", WORK_COLUMNS, rows));
 }
 
 /**

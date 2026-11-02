@@ -8,6 +8,7 @@ export {
   getWorkAvailability,
   hideWork,
   restoreWork,
+  makeVersionCurrent,
   listLiveWorksByTag,
   liveTagSpellings,
   NOT_RATED,
@@ -51,6 +52,7 @@ export {
   type ModeratorRole,
 } from "./ban";
 export { refreshWorkSearch } from "./search-index";
+export { copyVersionToWork } from "./version-copy";
 export { searchLiveWorks, type SearchOptions, type SearchResults } from "./search";
 export type {
   Database,
@@ -70,6 +72,7 @@ export type {
   WorkStatus,
   HiddenCause,
   TagType,
+  HoldReason,
   UploadStatus,
   RateLimitTable,
   ReportTable,
