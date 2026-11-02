@@ -237,7 +237,7 @@ describe("18 moderation: approving", () => {
 
     const res = await post("/admin/works/19520/approve", moderator, { version: held.versionId });
 
-    expect(await res.text()).toContain("That version is now published.");
+    expect(await res.text()).toContain("That version is approved and now current.");
     expect(await currentOf(19520)).toBe(held.versionId);
     const chapter = await (await get("/works/19520/chapters/2", READER)).text();
     expect(chapter).toContain("mod3b-hv-v2-two");

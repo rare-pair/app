@@ -42,6 +42,15 @@ adminWork.get("/works/:id", async (c) => {
   const work = await c.var.db
     .selectFrom("works")
     .select(["title", "ao3_work_id", "status", "hidden_cause", "current_version_id"])
+    .select((eb) =>
+      eb
+        .selectFrom("reports")
+        .select(eb.fn.countAll<string>().as("n"))
+        .where("reports.work_id", "=", found.id)
+        .where("reports.kind", "=", "wrong_version")
+        .where("reports.status", "=", "open")
+        .as("open_wrong_version"),
+    )
     .where("id", "=", found.id)
     .executeTakeFirstOrThrow();
   const versions = await c.var.db
@@ -65,13 +74,6 @@ adminWork.get("/works/:id", async (c) => {
     .orderBy("work_versions.created_at")
     .orderBy("work_versions.id")
     .execute();
-  const wrong = await c.var.db
-    .selectFrom("reports")
-    .select((eb) => eb.fn.countAll<string>().as("open"))
-    .where("work_id", "=", found.id)
-    .where("kind", "=", "wrong_version")
-    .where("status", "=", "open")
-    .executeTakeFirstOrThrow();
   return c.html(
     workAdminPage(
       work.title,
@@ -92,7 +94,7 @@ adminWork.get("/works/:id", async (c) => {
         checked: v.checked_at !== null,
       })),
       workActions(work.ao3_work_id, `/admin/works/${work.ao3_work_id}`),
-      Number(wrong.open),
+      Number(work.open_wrong_version),
     ),
   );
 });
@@ -136,7 +138,7 @@ adminWork.post("/works/:id/approve", async (c) => {
   const outcome = await approveVersion(c.var.db, found.id, version.id, { actor: c.var.userId });
   const message = {
     cleared: "The notice is cleared.",
-    published: "That version is now published.",
+    published: "That version is approved and now current.",
     nothing: "Nothing changed: that version has nothing to approve.",
     unavailable: "Nothing changed: the work is removed or not finished processing.",
   }[outcome];

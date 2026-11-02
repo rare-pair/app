@@ -202,7 +202,7 @@ type Check = { title: string; ao3WorkId: number; created: Date; reasons: string[
  * `GET /admin/works`: Works to check. One row per work, oldest trigger first, for
  * any of: a version held for review, a live current version whose review reasons no
  * moderator has cleared, an open "This version is wrong" report. Removed works are
- * not listed; hidden ones are. Read only: the actions come with MOD3b.
+ * not listed; hidden ones are. Each row links to the work's admin page, which has the actions.
  */
 export async function showWorksToCheck(c: AdminContext) {
   const { db } = c.var;

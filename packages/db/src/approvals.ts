@@ -3,7 +3,7 @@
 
 import { sql, type Kysely } from "kysely";
 import { inTransaction, logModerationAction } from "./moderation-actions";
-import { makeVersionCurrent } from "./queries";
+import { closeOpenWrongVersionReports, makeVersionCurrent } from "./queries";
 import type { Database } from "./schema";
 
 /**
@@ -108,14 +108,15 @@ export async function closeWrongVersionReports(
   options: { actor?: string } = {},
 ): Promise<number> {
   return inTransaction(db, async (trx) => {
-    const closed = await trx
-      .updateTable("reports")
-      .set({ status: "closed" })
-      .where("work_id", "=", workId)
-      .where("kind", "=", "wrong_version")
-      .where("status", "=", "open")
+    // Like the other actions, not on a removed work (or one that doesn't exist).
+    const work = await trx
+      .selectFrom("works")
+      .select("id")
+      .where("id", "=", workId)
+      .where("status", "<>", "removed")
       .executeTakeFirst();
-    const count = Number(closed.numUpdatedRows);
+    if (work === undefined) return 0;
+    const count = await closeOpenWrongVersionReports(trx, workId);
     if (count > 0 && options.actor !== undefined) {
       await logModerationAction(trx, {
         moderatorId: options.actor,

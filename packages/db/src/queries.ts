@@ -834,6 +834,21 @@ export async function restoreWork(
   });
 }
 
+/** Closes a work's open `wrong_version` reports and returns how many it closed. Logs nothing. */
+export async function closeOpenWrongVersionReports(
+  db: Kysely<Database>,
+  workId: string,
+): Promise<number> {
+  const closed = await db
+    .updateTable("reports")
+    .set({ status: "closed" })
+    .where("work_id", "=", workId)
+    .where("kind", "=", "wrong_version")
+    .where("status", "=", "open")
+    .executeTakeFirst();
+  return Number(closed.numUpdatedRows);
+}
+
 /**
  * Makes one of a work's versions current: moves `current_version_id` to it and makes the
  * work describe it (`copyVersionToWork`: its non-NULL columns, its byline and tags, the
@@ -875,13 +890,7 @@ export async function makeVersionCurrent(
       .execute();
     await copyVersionToWork(trx, workId, versionId);
     // Reports that this version is wrong were about the one it replaces.
-    await trx
-      .updateTable("reports")
-      .set({ status: "closed" })
-      .where("work_id", "=", workId)
-      .where("kind", "=", "wrong_version")
-      .where("status", "=", "open")
-      .execute();
+    await closeOpenWrongVersionReports(trx, workId);
     if (options.actor !== undefined) {
       await logModerationAction(trx, {
         moderatorId: options.actor,

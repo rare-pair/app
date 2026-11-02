@@ -239,6 +239,17 @@ describe("18 moderation: wrong-version reports", () => {
         note: "wrong_version reports",
       },
     ]);
+    // A removed work's reports stay as they are.
+    const gone = await seedWork(t.db, { title: "apclosegone" });
+    await report(gone, "wrong_version");
+    await t.db
+      .updateTable("works")
+      .set({ status: "removed" })
+      .where("id", "=", gone.workId)
+      .execute();
+    expect(await closeWrongVersionReports(t.db, gone.workId, { actor: moderator })).toBe(0);
+    expect(await openReports(gone.workId)).toBe(1);
+    expect(await logOf(gone.workId)).toEqual([]);
     // Nothing left to close: nothing changes, nothing is logged.
     expect(await closeWrongVersionReports(t.db, w.workId, { actor: moderator })).toBe(0);
     expect(await logOf(w.workId)).toHaveLength(1);
