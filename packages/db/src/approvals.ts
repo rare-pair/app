@@ -114,6 +114,8 @@ export async function closeWrongVersionReports(
       .select("id")
       .where("id", "=", workId)
       .where("status", "<>", "removed")
+      // The lock the other actions take, so a remove can't land between this check and the close.
+      .forNoKeyUpdate()
       .executeTakeFirst();
     if (work === undefined) return 0;
     const count = await closeOpenWrongVersionReports(trx, workId);

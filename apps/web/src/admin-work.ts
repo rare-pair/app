@@ -17,7 +17,7 @@ export const adminWork = new Hono<AdminEnv>();
 /**
  * The version a form's `version` field names, when it is one of this work's own: its id and
  * its upload's status. Null otherwise, which is a page that isn't there. Ids are uuids:
- * anything else is no version, and never reaches the database. The database refuses another
+ * anything that isn't a short id-shaped string is no version. The database refuses another
  * work's version too (a composite foreign key).
  */
 async function formVersion(c: Context<AdminEnv>, workId: string) {
@@ -156,7 +156,7 @@ adminWork.post("/works/:id/reports/close", async (c) => {
     resultPage(
       closed > 0
         ? `Closed ${closed} ${closed === 1 ? "report" : "reports"}.`
-        : "Nothing changed: no open reports that a version is wrong.",
+        : "Nothing changed: no open reports that a version is wrong, or the work is removed.",
       back,
     ),
   );

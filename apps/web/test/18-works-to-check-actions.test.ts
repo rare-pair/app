@@ -353,6 +353,21 @@ describe("18 moderation: approving", () => {
       body: new URLSearchParams({ version: w.versionId }).toString(),
     });
     expect(crossSite.status).toBe(404);
+    // The close route is behind the same check, and so is a post that names no origin.
+    await reportOn(w, "wrong_version");
+    const refused: Record<string, string>[] = [
+      { origin: "https://evil.example" },
+      { "sec-fetch-site": "cross-site" },
+      {},
+    ];
+    for (const headers of refused) {
+      const res = await fetchW("/admin/works/19540/reports/close", {
+        method: "POST",
+        headers: { ...headers, cookie: moderator },
+      });
+      expect(res.status, JSON.stringify(headers)).toBe(404);
+    }
+    expect(await openReports(w.workId)).toBe(1);
     expect(await queued(19540)).toBe(true);
     expect(await logged(w.versionId)).toEqual([]);
   });
