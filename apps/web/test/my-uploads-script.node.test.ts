@@ -2,7 +2,7 @@ import type { UploadStatus } from "@archive/db";
 import { runInNewContext, Script } from "node:vm";
 import { describe, expect, it } from "vitest";
 import { MY_UPLOADS_SCRIPT } from "../src/my-uploads-script";
-import { badgeLabel, inProgress } from "../src/upload-badge";
+import { badgeLabel, inProgress, messageFor } from "../src/upload-badge";
 
 // The My uploads script, run over hand-written fakes for the page, `fetch` and timers.
 // Real DOM and real timers are not covered: the Worker tests check the markup it reads.
@@ -38,11 +38,16 @@ function row(id: string, status: string, polling = true) {
   const badge = new FakeEl("span");
   const name = new FakeEl("span");
   name.textContent = "Upload of 2026-03-04 05:06 UTC";
-  const li = new FakeEl("li", { ".badge": badge, ".upload-name": name });
+  const message = new FakeEl("p");
+  const li = new FakeEl("li", {
+    ".badge": badge,
+    ".upload-name": name,
+    ".upload-message": message,
+  });
   li.setAttribute("data-upload-id", id);
   li.setAttribute("data-status", status);
   if (polling) li.setAttribute("data-polling", "");
-  return { li, badge, name };
+  return { li, badge, name, message };
 }
 
 type Task = () => Promise<void> | void;
@@ -144,6 +149,46 @@ describe("03-upload-status: My uploads updates in place with JS", () => {
     expect(link?.getAttribute("href")).toBe("/works/16200");
     expect(link?.textContent).toBe("View the work");
     expect(a.name.textContent).toBe("");
+  });
+
+  it("The message slot follows the status, as the server's table words it", async () => {
+    const a = row(ID_A, "processing");
+    const p = page([a], {
+      [`/uploads/${ID_A}`]: [
+        { status: 200, body: { status: "pending", work: null } },
+        { status: 200, body: { status: "live", work: { id: "w", url: "/works/16200" } } },
+      ],
+    });
+
+    await p.tick();
+    expect(a.message.textContent).toBe(messageFor("processing", true, false));
+    await p.tick();
+
+    expect(a.message.textContent).toBe(messageFor("live", true, true));
+  });
+
+  it("A live row with no work link gets the neutral message", async () => {
+    const a = row(ID_A, "processing");
+    const p = page([a], {
+      [`/uploads/${ID_A}`]: [{ status: 200, body: { status: "duplicate", work: null } }],
+    });
+
+    await p.tick();
+
+    expect(a.message.textContent).toBe(messageFor("duplicate", true, false));
+    expect(a.message.textContent).not.toMatch(/archive/i);
+  });
+
+  it("A rejection reads the same badge and message as the server's", async () => {
+    const a = row(ID_A, "processing");
+    const p = page([a], {
+      [`/uploads/${ID_A}`]: [{ status: 200, body: { status: "not_ao3", work: null } }],
+    });
+
+    await p.tick();
+
+    expect(a.badge.textContent).toBe("Rejected: not an AO3 export");
+    expect(a.message.textContent).toBe(messageFor("not_ao3", true, false));
   });
 
   it("A work url that is not a /works/ path is not made a link", async () => {

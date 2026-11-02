@@ -1,6 +1,6 @@
 import { escapeHtml } from "./pages";
 import { fnv1a } from "./styles";
-import { LABELS, REFRESH_SECONDS, REJECTED } from "./upload-badge";
+import { LABELS, MESSAGES, REFRESH_SECONDS, REJECTED, UNLINKED } from "./upload-badge";
 
 /**
  * The My uploads script, served from MY_UPLOADS_SCRIPT_PATH and loaded with the page's
@@ -12,18 +12,25 @@ import { LABELS, REFRESH_SECONDS, REJECTED } from "./upload-badge";
  * next round. Nothing polls while the tab is hidden. Page text is only ever set with
  * `textContent` and `setAttribute`.
  *
- * The labels are the server's (upload-badge.ts), interpolated; the in-progress rule
+ * The labels and messages are the server's (upload-badge.ts), interpolated; the in-progress rule
  * repeats `inProgress` for a confirmed upload, since only a confirmed row is polled.
  */
 export const MY_UPLOADS_SCRIPT = `"use strict";
 (() => {
   const LABELS = ${JSON.stringify(LABELS)};
+  const MESSAGES = ${JSON.stringify(MESSAGES)};
+  const UNLINKED = ${JSON.stringify(UNLINKED)};
   const REJECTED = ${JSON.stringify(REJECTED)};
   const INTERVAL = ${REFRESH_SECONDS * 1000};
   const rows = new Set(document.querySelectorAll("li[data-upload-id][data-polling]"));
   if (rows.size === 0) return;
   const label = (status) => (status === "pending" ? LABELS.processing : Object.hasOwn(LABELS, status) ? LABELS[status] : REJECTED);
-  const waiting = (status) => status === "pending" || status === "processing";
+  const message = (status, linked) => {
+    if (status === "pending") return MESSAGES.processing;
+    if (!linked && Object.hasOwn(UNLINKED, status)) return UNLINKED[status];
+    return Object.hasOwn(MESSAGES, status) ? MESSAGES[status] : "";
+  };
+  const waiting =(status) => status === "pending" || status === "processing";
   let timer = 0;
   let busy = false;
   const poll = async (li) => {
@@ -61,6 +68,8 @@ export const MY_UPLOADS_SCRIPT = `"use strict";
     if (badge) badge.textContent = label(body.status);
     li.setAttribute("data-status", body.status);
     const url = body.work && body.work.url;
+    const note = li.querySelector(".upload-message");
+    if (note) note.textContent = message(body.status, typeof url === "string");
     const name = li.querySelector(".upload-name");
     if (name && typeof url === "string" && /^\\/works\\/[1-9][0-9]{0,9}$/.test(url) && !name.querySelector("a")) {
       const link = document.createElement("a");

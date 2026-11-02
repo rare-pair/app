@@ -5,7 +5,7 @@ import { escapeHtml, layout } from "./pages";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
 import { myUploadsScriptTag } from "./my-uploads-script";
-import { badgeLabel, inProgress, REFRESH_SECONDS } from "./upload-badge";
+import { badgeLabel, inProgress, messageFor, REFRESH_SECONDS } from "./upload-badge";
 import { joinedWork, uploadStatusBody } from "./upload-status";
 
 // FRONTEND-DISCOVERY, Page inventory (My uploads). The page lists the signed-in user's
@@ -40,10 +40,11 @@ function item(row: Row): string {
       ? `<a href="${escapeHtml(link.url)}"><bdi>${escapeHtml(row.title)}</bdi></a>`
       : escapeHtml(`Upload of ${utcMinute(row.created_at)}`);
   const label = badgeLabel(row.status, row.quota_counted_at !== null);
+  const message = escapeHtml(messageFor(row.status, row.quota_counted_at !== null, link !== null));
   // `data-polling` marks the rows the page's script polls: an unconfirmed `pending` row
   // has the same `data-status` as a confirmed one but is not waiting for ingest.
   const polling = inProgress(row.status, row.quota_counted_at !== null) ? " data-polling" : "";
-  return `<li data-upload-id="${escapeHtml(row.id)}" data-status="${escapeHtml(row.status)}"${polling}><span class="upload-name">${name}</span> <span class="badge">${label}</span><p class="upload-message"></p></li>`;
+  return `<li data-upload-id="${escapeHtml(row.id)}" data-status="${escapeHtml(row.status)}"${polling}><span class="upload-name">${name}</span> <span class="badge">${label}</span><p class="upload-message">${message}</p></li>`;
 }
 
 /**
