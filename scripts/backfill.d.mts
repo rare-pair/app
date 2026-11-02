@@ -7,6 +7,7 @@ export interface BackfillOptions {
   after?: string | null;
   fetch?: typeof fetch;
   batchSize?: number;
+  pushIntervalMs?: number;
   log?: (line: string) => void;
   signal?: AbortSignal;
 }

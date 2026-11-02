@@ -7,7 +7,7 @@ import {
   type UploadStatus,
 } from "@archive/db";
 import type { ParsedWork } from "@archive/epub";
-import type { Kysely, Transaction } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 import type { Lease } from "./lease";
 import { decideVersion, sameSet, type VersionDecision, type VersionFacts } from "./versioning";
 
@@ -207,8 +207,8 @@ export interface BackfillSource {
  * already written is rewritten and every cached one keeps its key; its images go to the
  * work's `img/` prefix; the original is not written again. Then one transaction adds the
  * version and moves `current_version_id` to it only if it is still the source version
- * (compare-and-swap), and makes the work describe it, its summary included even when it is now
- * empty. Status is left as it is. Returns `backfilled`; `not_current` when the pointer had
+ * (compare-and-swap), and makes the work describe it, its summary included even when it has
+ * none. Status is left as it is. Returns `backfilled`; `not_current` when the pointer had
  * moved, and nothing was committed (the new prefix's fragments are then left for the periodic
  * sweep, as are a failed attempt's); or `removed` when the work was removed meanwhile, and
  * everything under its `works/` folder is deleted again.
@@ -225,29 +225,19 @@ export async function saveBackfill(
   const chapters = await putFiles(deps.bucket, source.ao3WorkId, prefix, work, images);
   // The moderator's check stands only for the parser's doubts it answered.
   const sameReasons = sameSet(new Set(work.reviewReasons), new Set(source.reviewReasons));
+  const origin: VersionOrigin = {
+    id: versionId,
+    upload_id: null,
+    source: "backfill",
+    source_upload_id: source.originalUploadId,
+    checked_at: null,
+  };
   try {
     await deps.db.transaction().execute(async (trx) => {
-      // Read here, not with the work: a check a moderator made while the file was processed
-      // carries over too.
-      const checked = sameReasons
-        ? ((
-            await trx
-              .selectFrom("work_versions")
-              .select("checked_at")
-              .where("id", "=", source.versionId)
-              .executeTakeFirst()
-          )?.checked_at ?? null)
-        : null;
-      const origin: VersionOrigin = {
-        id: versionId,
-        upload_id: null,
-        source: "backfill",
-        source_upload_id: source.originalUploadId,
-        checked_at: checked,
-      };
       await insertVersion(trx, origin, work, source.workId, prefix, chapters);
-      // The copy below keeps the work's summary when the version has none, but a summary the
-      // fixed sanitizer emptied must not keep the markup it let through. Set first, so the copy
+      // The copy below keeps the work's summary when the version has none. The work takes the
+      // version's own instead, even none: a summary the fix emptied must not keep the markup it
+      // let through, nor an older file's, sanitized the old way. Set first, so the copy
       // refreshes the search text from it; a lost race rolls it back with the rest.
       await trx
         .updateTable("works")
@@ -256,14 +246,30 @@ export async function saveBackfill(
         .where("current_version_id", "=", source.versionId)
         .execute();
       await replaceCurrent(trx, source.workId, source.versionId, versionId);
+      // Read after the swap, not with the work: a check a moderator made while the file was
+      // processed carries over too.
+      if (sameReasons) {
+        await trx
+          .updateTable("work_versions")
+          .set((eb) => ({
+            checked_at: eb
+              .selectFrom("work_versions as source")
+              .select("source.checked_at")
+              .where("source.id", "=", source.versionId),
+          }))
+          .where("id", "=", versionId)
+          .execute();
+      }
     });
     return "backfilled";
   } catch (error) {
     if (!(error instanceof Stale)) throwSaveError(error);
   }
+  // `now()` keeps Hyperdrive from answering from its cache: a stale `live` would leave behind
+  // what this job put back after a removal.
   const row = await deps.db
     .selectFrom("works")
-    .select("status")
+    .select(["status", sql<Date>`now()`.as("read_at")])
     .where("id", "=", source.workId)
     .executeTakeFirst();
   if (row !== undefined && row.status !== "removed") return "not_current";

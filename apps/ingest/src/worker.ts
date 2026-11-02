@@ -22,7 +22,8 @@ export type Steps = Pick<JobDeps, "process" | "save"> & {
   bucket: (real: R2Bucket) => JobBucket;
 };
 
-/** The re-sanitize backfill's queue (wrangler.jsonc); every other batch is the ingest queue's. */
+/** The queues this Worker consumes (wrangler.jsonc): uploads, and the re-sanitize backfill. */
+const INGEST_QUEUE = "ingest";
 const BACKFILL_QUEUE = "ingest-backfill";
 
 /** Where the content Worker serves a work's images from. */
@@ -44,6 +45,13 @@ export function ingestWorker(steps: Partial<Steps> = {}) {
     async queue(batch, env, ctx) {
       // Logs carry upload ids, verdicts, counts and error class names only: never an error's
       // message or other text from an uploaded file.
+      if (batch.queue !== INGEST_QUEUE && batch.queue !== BACKFILL_QUEUE) {
+        // A queue bound by mistake: its messages wait, then dead-letter, rather than being
+        // read as the wrong contract and acked as invalid.
+        console.error({ event: "ingest.unknown_queue", count: batch.messages.length });
+        batch.retryAll();
+        return;
+      }
       let db: Kysely<Database>;
       try {
         // One job at a time needs one connection.

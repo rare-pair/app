@@ -1,6 +1,6 @@
 import type { Database } from "@archive/db";
 import { EpubError, LIMITS, type ParsedWork } from "@archive/epub";
-import type { Kysely } from "kysely";
+import { sql, type Kysely } from "kysely";
 import type { JobDeps } from "./job";
 import { onRejectList } from "./lists";
 import type { BackfillMessage } from "./message";
@@ -40,6 +40,9 @@ export async function runBackfill(deps: BackfillDeps, message: BackfillMessage):
       "work_versions.upload_id",
       "work_versions.source_upload_id",
       "work_versions.review_reasons",
+      // Keeps Hyperdrive from answering from its cache: a stale pointer or status would re-make
+      // a work already done, or miss a removal.
+      sql<Date>`now()`.as("read_at"),
     ])
     .where("works.id", "=", message.work_id)
     .executeTakeFirst();

@@ -58,13 +58,14 @@ function queueStub(answer: (call: number) => Response | Error = () => ok()) {
 
 const options = (
   stub: typeof fetch,
-  extra: { batchSize?: number; after?: string | null } = {},
+  extra: { batchSize?: number; after?: string | null; pushIntervalMs?: number } = {},
 ) => ({
   connectionString: t.connectionString,
   accountId: "test-account",
   queueId: "test-queue",
   apiToken: "test-token",
   fetch: stub,
+  pushIntervalMs: 0,
   log: () => {},
   ...extra,
 });
@@ -105,6 +106,20 @@ describe("07-sanitizing-and-images", () => {
     const resumed = await backfill(options(rest.stub, { after: stopped.after }));
     expect(resumed).toMatchObject({ queued: 2, done: true, error: null });
     expect(bodies(rest.pushed)).toEqual(all.slice(2));
+  });
+
+  it("Pushes are spaced out, to stay under the Cloudflare API's rate limit", async () => {
+    const starts: number[] = [];
+    const { stub } = queueStub(() => {
+      starts.push(performance.now());
+      return ok();
+    });
+
+    await backfill(options(stub, { batchSize: 2, pushIntervalMs: 50 }));
+
+    expect(starts).toHaveLength(2);
+    // A little under 50, for timer rounding.
+    expect((starts[1] ?? 0) - (starts[0] ?? 0)).toBeGreaterThanOrEqual(45);
   });
 
   it("A stop during a push says the batch may or may not be queued", async () => {

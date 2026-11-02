@@ -301,6 +301,16 @@ describe("re-sanitize backfill", () => {
     expect(now.versions.find((v) => v.id === now.current)?.checked_at).not.toBeNull();
   });
 
+  it("a batch from a queue the Worker doesn't consume is retried, never read", async () => {
+    const work = await unfixedWork();
+
+    const result = await deliver([backfillOf(work)], { queue: "ingest-backfill-staging" });
+
+    expect(result.retryBatch.retry).toBe(true);
+    expect(result.explicitAcks).toEqual([]);
+    expect((await versionsOf(work.ao3WorkId)).current).toBe(work.current);
+  });
+
   it("a hidden work is backfilled and stays hidden", async () => {
     const work = await unfixedWork();
     await hideWork(work.ao3WorkId);

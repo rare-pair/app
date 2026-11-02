@@ -19,7 +19,7 @@ an unofficial stopgap.
 | Load target | Surge-ready: assume tens of thousands of signups in the first days |
 | Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend |
 | Accepted files | AO3-native epub exports only. FanFicFare support comes later |
-| New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review |
+| New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) |
 | Author identity | No work claims and no author verification while AO3 is down. Removal and opt-out are requests anyone can make, without proving who they are |
 | Search scope | Metadata only: title, author, tags, summary |
 | Chapter rendering | Inline in app pages behind a strict CSP, with no iframe |
@@ -474,10 +474,13 @@ Chapter text isn't indexed.
    `{ work_id, version_id }` message for each `live` or `hidden` work's current
    version on the `ingest-backfill` queue; `removed` works are left out, as
    their files are gone. The ingest Worker consumes it, one work at a time,
-   and acks the message without writing anything when the work is removed or
-   its current version is no longer the message's (a redelivery after the
-   commit, a moderator's make-current or a newer upload). Otherwise it reads
-   the version's original, `originals/<upload_id>.epub`, runs the processor as
+   and acks the message with no new version when the work is removed (it
+   clears the work's `works/<ao3_work_id>/` folder again, for an earlier
+   attempt that raced the removal) or its current version is no longer the
+   message's (a redelivery after the commit, a moderator's make-current or a
+   newer upload). Otherwise it reads the version's original,
+   `originals/<id>.epub` for its `upload_id`, or its `source_upload_id` when
+   it is itself a backfill version, runs the processor as
    it now is, checks the opt-out and takedown lists and the AO3 ID, and
    writes a **new version**: its fragments under a prefix of its own,
    `works/<ao3_work_id>/<version id>/`, its images under `img/`, and no second
@@ -487,7 +490,7 @@ Chapter text isn't indexed.
    re-made from (`upload_id` is NULL), and moves `current_version_id` to it
    with the same compare-and-swap as a replace, then copies it onto the work.
    It never calls `decideVersion`: the same file would be a `duplicate` there.
-   The work's summary is the new version's even when the fix emptied it. A
+   The work's summary is the new version's even when it has none. A
    work removed while the job ran has its `works/<ao3_work_id>/` folder
    cleared again, since the job may have written after the removal's purge.
    The work's status is left as it is. `checked_at` carries over only when the
@@ -499,7 +502,13 @@ Chapter text isn't indexed.
    script for it. Only current versions are re-made, so an older version made
    current again, or a held version approved later, still has its old
    fragments. Nothing records
-   which sanitizer made a version, so a rerun re-makes every work again.
+   which sanitizer made a version, so a rerun re-makes every work again (#464).
+   The script pushes 100 messages a call, at most two calls a second, under
+   the Cloudflare API's rate limit. The consumer re-makes one work at a time,
+   so a large archive takes days: create `ingest-backfill` with a message
+   retention longer than the run (Queues keep a message four days unless
+   configured, at most 14), or run the script in slices with `BACKFILL_AFTER`,
+   since a message that expires unconsumed is dropped without a trace.
 
 **Rejection codes:** `not_epub`, `zip_bomb`, `too_large`, `not_ao3`,
 `opted_out`, `parse_failed`, `work_removed`, `account_banned`. Each one shows a plain-language

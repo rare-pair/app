@@ -26,6 +26,10 @@ import pg from "pg";
 const BATCH_SIZE = 100;
 // A push that takes longer is treated as failed: the batch may or may not have been queued.
 const PUSH_TIMEOUT_MS = 30_000;
+// Pushes at most two a second: the Cloudflare API allows 1,200 requests per five minutes per
+// user, shared with everything else on the token, so a run over 200,000 works (2,000 pushes)
+// takes about 17 minutes and leaves headroom.
+const PUSH_INTERVAL_MS = 500;
 
 // The works a backfill re-makes, after work id $1 (NULL for the first), $2 at a time. The id is
 // the primary key, so the order is total and a page never repeats or skips a work.
@@ -53,6 +57,7 @@ const codeOf = (error) => {
  * @property {string | null} [after] Start after this work id: where a stopped run got to.
  * @property {typeof fetch} [fetch]
  * @property {number} [batchSize]
+ * @property {number} [pushIntervalMs] The least time between two pushes' starts.
  * @property {(line: string) => void} [log]
  * @property {AbortSignal} [signal] Stops the run, aborting a push in flight.
  */
@@ -73,6 +78,7 @@ export async function backfill({
   after: start = null,
   fetch: doFetch = globalThis.fetch,
   batchSize = BATCH_SIZE,
+  pushIntervalMs = PUSH_INTERVAL_MS,
   log = console.log,
   signal,
 }) {
@@ -93,6 +99,7 @@ export async function backfill({
   client.on("error", () => {});
   let error = null;
   let done = false;
+  let lastPush = -Infinity;
   try {
     await client.connect();
     while (!signal?.aborted) {
@@ -101,6 +108,9 @@ export async function backfill({
         done = true;
         break;
       }
+      const wait = lastPush + pushIntervalMs - Date.now();
+      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      lastPush = Date.now();
       error = await push({
         messages: rows.map((row) => ({
           body: { work_id: row.id, version_id: row.current_version_id },
