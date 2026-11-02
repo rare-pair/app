@@ -54,3 +54,17 @@ export function quotaSpent(c: Context): Response {
   const retryAfter = secondsToReset(new Date());
   return tooManyRequestsJson(c, quotaSpentMessage(retryAfter), retryAfter);
 }
+
+/**
+ * The 429 of a batch bigger than the quota left: how many uploads remain today, and when
+ * the quota resets, as `quotaSpent` says it.
+ */
+export function quotaShort(c: Context, left: number): Response {
+  const retryAfter = secondsToReset(new Date());
+  const noun = left === 1 ? "upload" : "uploads";
+  return tooManyRequestsJson(
+    c,
+    `You have ${left} ${noun} left today, and you picked more. Pick ${left} or fewer, or wait until midnight UTC for the quota to reset.`,
+    retryAfter,
+  );
+}
