@@ -186,7 +186,7 @@ export function workAdminPage(
     if (v.banned) return " Banned";
     if (v.uploaderId === null) return "";
     const action = `/admin/users/${encodeURIComponent(v.uploaderId)}/ban`;
-    return `<form method="post" action="${escapeHtml(action)}"><input type="hidden" name="from" value="/admin/works/${ao3WorkId}"><button type="submit">Ban uploader</button></form>`;
+    return `<form method="post" action="${escapeHtml(action)}">${fromInput(`/admin/works/${ao3WorkId}`)}<button type="submit">Ban uploader</button></form>`;
   };
   const rows = versions
     .map(

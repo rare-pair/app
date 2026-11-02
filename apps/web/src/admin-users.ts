@@ -4,11 +4,8 @@
 import { banUser, type BanResult } from "@archive/db";
 import { Hono } from "hono";
 import type { AdminEnv } from "./admin";
-import { resultPage, safeFrom } from "./admin-pages";
-import { readForm } from "./login";
-
-/** Plenty for the one field the form carries: the page to go back to. */
-const MAX_FORM = 1024;
+import { fromField } from "./admin-items";
+import { resultPage } from "./admin-pages";
 
 const MESSAGES: Record<Exclude<BanResult, "not_found">, string> = {
   banned: "The uploader is banned.",
@@ -19,8 +16,7 @@ const MESSAGES: Record<Exclude<BanResult, "not_found">, string> = {
 export const adminUsers = new Hono<AdminEnv>();
 
 adminUsers.post("/users/:id{[A-Za-z0-9_-]{1,64}}/ban", async (c) => {
-  const form = await readForm(c.req.raw, MAX_FORM);
-  const from = safeFrom(form?.get("from"));
+  const from = await fromField(c.req.raw);
   const result = await banUser(c.var.db, c.req.param("id"), { actor: c.var.userId });
   if (result === "not_found") return c.notFound();
   return c.html(resultPage(MESSAGES[result], from));

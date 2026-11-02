@@ -2,7 +2,7 @@ import { createDb, getUploadQuota, insertUpload, isBanned } from "@archive/db";
 import type { Context, MiddlewareHandler } from "hono";
 import type { Bindings } from "./env";
 import { readForm } from "./login";
-import { layout, uploadPage } from "./pages";
+import { DRAFT, layout, uploadPage } from "./pages";
 import { presignPut } from "./presign";
 import { limitFor, quotaSpent } from "./quota";
 import type { SecurityVariables } from "./security";
@@ -41,12 +41,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
 export const BANNED_UPLOADER = "This account can't upload.";
 
 /** In place of the upload form for a banned account. Draft copy. */
-const bannedPage = () =>
-  layout(
-    "Uploading is closed",
-    `<p class="draft">Draft: this text has not been proofread yet.</p>
-<p>${BANNED_UPLOADER}</p>`,
-  );
+const bannedPage = () => layout("Uploading is closed", `${DRAFT}\n<p>${BANNED_UPLOADER}</p>`);
 
 /**
  * `GET /upload`: the upload page, or sign in first and come back, or, for a banned

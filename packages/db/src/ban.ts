@@ -66,8 +66,12 @@ export async function isBanned(db: Kysely<Database>, userId: string): Promise<bo
     .select("banned_at")
     .where("id", "=", userId)
     .executeTakeFirst();
-  return user === undefined || user.banned_at !== null;
+  return bannedRow(user);
 }
+
+/** The one rule both checks share: a banned account, or none at all. */
+const bannedRow = (user: { banned_at: Date | null } | undefined) =>
+  user === undefined || user.banned_at !== null;
 
 /**
  * Whether the account that made upload `uploadId` is banned, as `isBanned` decides. With
@@ -87,6 +91,5 @@ export async function isUploaderBanned(
       eb.selectFrom("uploads").select("uploads.user_id").where("uploads.id", "=", uploadId),
     );
   if (lock) query = query.forShare();
-  const user = await query.executeTakeFirst();
-  return user === undefined || user.banned_at !== null;
+  return bannedRow(await query.executeTakeFirst());
 }
