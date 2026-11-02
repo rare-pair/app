@@ -43,7 +43,7 @@ export type Stage = "read" | "process" | "save";
 
 /** How a job ends for its upload: back to `pending` for a retry, or a rejection code. */
 export interface Outcome {
-  status: "pending" | Extract<UploadStatus, EpubErrorCode | "opted_out">;
+  status: "pending" | Extract<UploadStatus, EpubErrorCode | "opted_out" | "work_removed">;
   /** The stage that failed, and a short fixed code for what happened. */
   failure?: { stage: Stage; error: string };
 }

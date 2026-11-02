@@ -198,6 +198,31 @@ describe("02-upload-handshake", () => {
     expect((await rowOf(up.id)).status).toBe("pending");
   });
 
+  // The earlier upload has no work, as the scenarios give: it is still in the pipeline, or
+  // was rejected.
+  it.each([
+    ["Hash match on an upload still being processed gets no shortcut", "pending"],
+    ["Hash match on an upload still being processed gets no shortcut", "processing"],
+    ["Hash match on a rejected upload gets no shortcut", "not_ao3"],
+  ] as const)("%s: %s earlier upload", async (_title, status) => {
+    const { userId, cookie } = await signIn(`u7-${status}@example.test`);
+    const bytes = randomBytes(500);
+    const earlier = await uploaded(userId, bytes);
+    await db
+      .updateTable("uploads")
+      .set({ sha256: await sha256Hex(bytes), status })
+      .where("id", "=", earlier.id)
+      .execute();
+    const up = await uploaded(userId, bytes);
+    expect((await complete(up.id, { cookie })).status).toBe(200);
+    expect(await ingestFor(up.id)).toEqual([{ upload_id: up.id }]);
+    expect(await rowOf(up.id)).toEqual({
+      status: "pending",
+      work_id: null,
+      sha256: await sha256Hex(bytes),
+    });
+  });
+
   // Two scenario cases, 02's and 19's, with the same steps.
   describe.each([
     ["Confirm deletes an oversized object", 0],

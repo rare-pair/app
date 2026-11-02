@@ -141,7 +141,8 @@ requests     (id, kind, work_id NULL, pseud_norm NULL, contact_email, statement,
 optouts      (id, pseud_norm, ao3_user NULL, request_id, active, created_at)  -- checked at ingest
 requester_blocks (id, contact_email NULL, ip_hash NULL, created_by, created_at)
 moderation_actions (id, moderator_id, action, target_kind, target_id, note NULL,
-              created_at)  -- no FK on target_id (it points at different tables); action and
+              created_at)  -- no FK on moderator_id (rows outlive the account) or target_id (it
+                           -- points at different tables); action and
                            -- target_kind are free text; note is short, never reader data
                            -- or a requester's email
 waitlist     (email PRIMARY KEY,               -- trimmed and lowercased; deleted after launch
@@ -149,6 +150,10 @@ waitlist     (email PRIMARY KEY,               -- trimmed and lowercased; delete
               confirm_count,                    -- confirmation emails sent, 3 at most
               confirmed_at NULL, notified_at NULL,
               unsubscribe_token_hash NULL, created_at)  -- no IP, user agent or referrer
+sweep_state  (id,                -- one row: id 1
+              after NULL,        -- the R2 key the periodic sweep's next run lists after; NULL starts over
+              current NULL,      -- the folder a run is in; still set at the next start, it was killed there
+              updated_at)
 ```
 
 `user.role` is `user`, `moderator` or `admin`. An admin has every moderator
@@ -210,7 +215,8 @@ request and to every byline at ingest.
    in the archive" badge with a link to the work. Any other match (an upload
    still `pending` or `processing`, one that was rejected, or one whose work
    was removed) gets no shortcut: the new upload is enqueued like any other,
-   and the versioning rules or the same rejection decide it. Otherwise it
+   and the versioning rules, the same rejection, or (for a removed work) the
+   opt-out and takedown checks, then `work_removed`, decide it. Otherwise it
    enqueues `{upload_id}`.
 4. **Process.** The ingest consumer runs with a batch size of about 5, retries,
    and a dead-letter queue. See the EPUB processor section below.
@@ -333,7 +339,8 @@ Chapter text isn't indexed.
      the work keeps serving its current version, the held one is listed only
      for its uploader (My uploads) and for moderators (*Works to check*), and
      only a moderator's approval makes it current.
-   - **is marked `duplicate`** if it isn't newer. It's stored but not used.
+   - **is marked `duplicate`** if it isn't newer. Its original is stored but
+     not used, and its fragments are swept (step 8).
      This is a status, not a rejection: the uploader sees "Already in the
      archive" with a link to the work. A byte-identical file never gets this
      far; `/complete` marks it `duplicate` (Ingestion pipeline, step 3).
@@ -394,16 +401,27 @@ Chapter text isn't indexed.
    byline and tags from the new version and refreshes its search text; the
    upload is `live`. A job that loses the swap rolls back, reads the work
    again and decides again, so two uploads at once leave one current version.
+   Before the current version is read, and before any R2 write, the job checks
+   the work's status: an upload of a `removed` work is refused as
+   `work_removed`, with nothing written and no `work_id`. (A file whose AO3
+   ID is unusable or that has no chapters is refused earlier, as
+   `parse_failed`.) The transaction checks the status again, so a work removed
+   while the job ran is never versioned. Its upload is then `work_removed` too,
+   though the R2 files the job had already written stay in the bucket.
    A `hold` adds the version and chapters and leaves the work, its byline and
    tags alone (the version keeps its own in `work_versions.tags` and
    `authors`); the upload is `held_for_review`. A `duplicate` adds no
-   version; the upload is `duplicate`, with its `work_id` set and its files
-   kept. A replace never changes the work's status: a hidden or removed work
-   stays so. Only a work's first upload sets it `live`.
+   version; the upload is `duplicate`, with its `work_id` set and its
+   original kept under `originals/`. No version points at its `<upload_id>/`
+   fragments, so the periodic sweep deletes them, like any orphaned prefix,
+   on its first pass over the work after they are 24 hours old. A replace never changes the work's status: a hidden work stays so (a
+   removed work takes no upload). Only a work's first upload sets it `live`.
 
 **Rejection codes:** `not_epub`, `zip_bomb`, `too_large`, `not_ao3`,
-`opted_out`, `parse_failed`. Each one shows a plain-language message to the
-uploader. Step 2 lists which problem gives which of the first three.
+`opted_out`, `parse_failed`, `work_removed`. Each one shows a plain-language
+message to the uploader. `work_removed` is the upload of a work a moderator or
+its author removed, checked after the opt-out and takedown lists and before
+the current version is read. Step 2 lists which problem gives which of the first three.
 `not_ao3` covers any file without an AO3 preface "Posted originally" line,
 including one whose AO3 work URL is only in the OPF (step 4). `opted_out`
 covers the opt-out list and the takedown list of moderator-removed works.
@@ -514,8 +532,10 @@ can be snapshotted.
   check runs before any edge-cached page is served. A work with no rating (the
   `missing_rating` review reason) is shown as "Not Rated" on its card, work
   page and warnings screen, and always gets the screen, as if it had warnings.
-  A signed-in reader can turn warnings off; the choice is stored on their
-  account (`user.warnings_off`), not in the settings cookie. Signed-out readers can't turn them off.
+  A signed-in reader can turn warnings off, from a checkbox on the screen or from
+  `/settings/reader`; the choice is stored on their account (`user.warnings_off`), not
+  in the settings cookie, and skips the screen for every work that would show it, a
+  work with no rating included. Signed-out readers can't turn them off.
 - **"May be imperfect" notice.** When the current version has review reasons
   that no moderator has cleared (EPUB processor, step 5), the work page and
   every reader page show one line: "Chapters may be imperfect; a moderator will
@@ -739,10 +759,10 @@ epub, under the normal versioning rules.
   outside the database, such as removing a work's files, can't join that
   transaction.) A reject that also lifts a hide logs only the reject. A hide
   no moderator chose (the reports' automatic hide, a removal request's hide)
-  writes none. Hide, restore and the request and takedown rejects write a row
+  writes none. Hide, restore, remove and the request and takedown rejects write a row
   today; each later action calls the same helper, `logModerationAction`, when
-  it is built. The row's `moderator_id` keeps its foreign key to `user`, so
-  an account with logged actions can't be deleted. Anyone
+  it is built. The row's `moderator_id` has no foreign key to `user`, so
+  deleting an account keeps its log rows, with the id as it was. Anyone
   without the moderator or admin role, signed out included, gets 404 for every
   `/admin` URL, so the admin area isn't advertised.
 
@@ -936,6 +956,7 @@ apps/web/          Hono Worker: pages, auth, upload handshake, search, admin
 apps/content/      Worker serving epub images and original downloads from R2
 apps/ingest/       Queue consumer: epub processing
 apps/mailer/       Queue consumer: sends email (Resend, with failover)
+apps/sweep/        Daily cron: deletes unreferenced images and orphaned upload prefixes from R2
 packages/epub/     unzip + OPF + AO3 preface parser + sanitizer (tested in workerd)
 packages/db/       SQL migrations + typed queries
 fixtures/epubs/    real AO3 epub samples for parser and sanitizer tests
