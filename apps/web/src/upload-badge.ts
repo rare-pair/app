@@ -38,7 +38,7 @@ export const MESSAGES: Record<UploadStatus, string> = {
   processing: "We're reading this file. This page updates by itself.",
   live: "This work is in the archive.",
   held_for_review: "A moderator will check this upload. You don't need to do anything.",
-  duplicate: "This work is already in the archive, so your file was kept but not added.",
+  duplicate: "This work is already in the archive, so nothing was added from your file.",
   not_ao3:
     "This file isn't an AO3 download, so we can't accept it here. Download the work from AO3 as an EPUB and upload that.",
   not_epub:
@@ -58,19 +58,26 @@ export const FALLBACK_MESSAGE = "Reload this page to see the latest on this uplo
 // to it the message doesn't say the work is in the archive.
 export const UNLINKED: Partial<Record<UploadStatus, string>> = {
   live: "This upload has been processed.",
-  duplicate: "Your file matches a work we already have, so it was kept but not added.",
+  duplicate: "Nothing was added from this file.",
 };
 
 /** A confirmed `pending` upload waits for ingest, so it counts as in progress. */
 export const inProgress = (status: UploadStatus, confirmed: boolean) =>
   status === "processing" || (status === "pending" && confirmed);
 
+// A row's status comes from the database, so one this Worker is a deploy behind on still renders.
+
 /** The badge text for an upload. */
 export const badgeLabel = (status: UploadStatus, confirmed: boolean): string =>
-  status === "pending" && confirmed ? LABELS.processing : LABELS[status];
+  status === "pending" && confirmed
+    ? LABELS.processing
+    : Object.hasOwn(LABELS, status)
+      ? LABELS[status]
+      : REJECTED;
 
 /** The message for an upload; `linked` is whether its work is open to read and linked. */
 export const messageFor = (status: UploadStatus, confirmed: boolean, linked: boolean): string =>
   status === "pending" && confirmed
     ? MESSAGES.processing
-    : (!linked && UNLINKED[status]) || MESSAGES[status];
+    : (!linked && UNLINKED[status]) ||
+      (Object.hasOwn(MESSAGES, status) ? MESSAGES[status] : FALLBACK_MESSAGE);

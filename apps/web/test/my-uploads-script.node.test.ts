@@ -203,6 +203,14 @@ describe("03-upload-status: My uploads updates in place with JS", () => {
     expect(a.message.textContent).toBe(FALLBACK_MESSAGE);
   });
 
+  it("A status the server doesn't know gets the generic badge and message, not a crash", () => {
+    // SAFETY: stands in for a status added to the database after this Worker was deployed.
+    const unknown = "something_new" as UploadStatus;
+
+    expect(badgeLabel(unknown, true)).toBe("Rejected");
+    expect(messageFor(unknown, true, false)).toBe(FALLBACK_MESSAGE);
+  });
+
   it("A rejection reads the same badge and message as the server's", async () => {
     const a = row(ID_A, "processing");
     const p = page([a], {
