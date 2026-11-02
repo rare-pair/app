@@ -24,6 +24,8 @@ export {
   useUploadQuota,
   countUploadQuota,
   refundUploadQuota,
+  removeWork,
+  type RemovedWork,
   type OwnUpload,
   type ListedWork,
   type ListingOptions,
@@ -70,4 +72,5 @@ export type {
   ModerationActionTable,
   RequestKind,
   WaitlistTable,
+  SweepStateTable,
 } from "./schema";
