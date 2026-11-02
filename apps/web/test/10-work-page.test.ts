@@ -1,5 +1,5 @@
 import { createDb } from "@archive/db";
-import { seedWork } from "@archive/db/seed";
+import { seedVersion, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { fetchW, nonceOf, STRICT, withoutNonce } from "./helpers";
@@ -24,6 +24,9 @@ const REPOINTED = 12351;
 const NO_BYLINE = 12352;
 /** No rating at all, and no warnings. */
 const NO_RATING = 12353;
+/** Its current version re-made from its first upload's original by the backfill (I7). */
+const BACKFILLED = 12354;
+let backfilledFrom: string;
 
 // The site chrome test's check: names only as provenance, never in the page.
 const BRANDING = /AO3|OTW|Archive of Our Own|Organization for Transformative Works/i;
@@ -120,6 +123,9 @@ beforeAll(async () => {
     .set({ summary_html: LONG_SUMMARY })
     .where("ao3_work_id", "=", W)
     .execute();
+  const backfilled = await seedWork(db, { ao3WorkId: BACKFILLED, tags: [...FEW_TAGS] });
+  backfilledFrom = backfilled.uploadId;
+  await seedVersion(db, backfilled, { backfillOf: backfilled.uploadId });
 });
 
 afterAll(async () => {
@@ -309,6 +315,14 @@ describe("10-work-page, its links", () => {
     expect(links[0]?.[1]).toMatch(
       /^https:\/\/content\.rarepair\.fans\/originals\/[A-Za-z0-9_-][A-Za-z0-9._-]*$/,
     );
+  });
+
+  it("A backfill version's download link names the original it was re-made from", async () => {
+    const { html } = await page(`/works/${BACKFILLED}`);
+    const links = [...html.matchAll(/<a href="([^"]*)">Download original epub<\/a>/g)];
+    expect(links.map((l) => l[1])).toEqual([
+      `https://content.rarepair.fans/originals/${backfilledFrom}`,
+    ]);
   });
 
   it("Remove link prefills the request form", async () => {

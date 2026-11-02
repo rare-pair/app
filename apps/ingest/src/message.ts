@@ -31,8 +31,7 @@ export interface BackfillMessage {
 }
 
 // Work and version ids are random text too (packages/db, 0002).
-const isId = (value: unknown): value is string =>
-  typeof value === "string" && value.length > 0 && value.length <= MAX_ID;
+const isId = (value: string) => value.length > 0 && value.length <= MAX_ID;
 
 // Returns the message if its body keeps the contract, or null, which no retry can change.
 export function parseBackfillMessage(body: unknown): BackfillMessage | null {
@@ -40,6 +39,7 @@ export function parseBackfillMessage(body: unknown): BackfillMessage | null {
   // SAFETY: body is a non-null object, so reading named properties off it is safe; the values
   // are checked below.
   const { work_id, version_id } = body as Record<string, unknown>;
+  if (typeof work_id !== "string" || typeof version_id !== "string") return null;
   if (!isId(work_id) || !isId(version_id)) return null;
   return { work_id, version_id };
 }
