@@ -1,4 +1,5 @@
 import type { MiddlewareHandler } from "hono";
+import { CONTENT_HOST } from "./content-host";
 import type { Bindings } from "./env";
 import { isPrelaunch } from "./prelaunch";
 
@@ -10,7 +11,7 @@ const strictPolicy = (nonce: string) =>
     "default-src 'self'",
     `script-src 'nonce-${nonce}' 'strict-dynamic'`,
     "style-src 'self'",
-    "img-src 'self' https://content.rarepair.fans",
+    `img-src 'self' https://${CONTENT_HOST}`,
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",

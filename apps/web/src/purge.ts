@@ -42,7 +42,8 @@ export async function purgeWorkCaches(
   options: PurgeOptions = {},
 ): Promise<void> {
   // A Worker deployed or run without them fails here, loudly, rather than skip the purge.
-  if (credentials.token === "") throw new PurgeError("cache purge failed: no purge token");
+  // An unset secret arrives as undefined, whatever its type says, so the test is falsiness.
+  if (!credentials.token) throw new PurgeError("cache purge failed: no purge token");
   if (!ZONE_ID.test(credentials.zoneId) || credentials.zoneId === ZONE_PLACEHOLDER) {
     throw new PurgeError("cache purge failed: no zone id");
   }

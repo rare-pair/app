@@ -170,7 +170,9 @@ describe("18 moderation", () => {
     const res = await post(`/admin/works/${W}/remove`, moderator, { confirm: "yes" });
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
-    expect(await res.text()).toContain("removed");
+    expect(await res.text()).toContain(
+      "removed and its files are deleted. Its caches are cleared.",
+    );
     expect(await workRow(W)).toMatchObject({ status: "removed", hidden_cause: null });
     expect((await get(`/works/${W}`)).status).toBe(410);
     expect((await env.BUCKET.list({ prefix: `works/${W}/` })).objects).toEqual([]);
@@ -196,7 +198,11 @@ describe("18 moderation", () => {
     // Its cached pages and fragments (by tag), images (by prefix) and downloads (by URL)
     // are purged, and the neighbour's are not.
     const purged = await purgesOf(W, uploadIds);
-    expect(purged.every((p) => p.zone === ZONE && p.authorized)).toBe(true);
+    expect(purged.map((p) => [p.zone, p.authorized])).toEqual([
+      [ZONE, true],
+      [ZONE, true],
+      [ZONE, true],
+    ]);
     expect(purged.flatMap((p) => p.body.tags ?? [])).toEqual([`work-${W}`]);
     expect(purged.flatMap((p) => p.body.prefixes ?? [])).toEqual([
       `content.rarepair.fans/works/${W}/img/`,
@@ -308,7 +314,7 @@ describe("Remove work: who may, and which works", () => {
       // Remove again retries, and this time the purge is accepted.
       const retry = await post(`/admin/works/${id}/remove`, moderator, { confirm: "yes" });
       expect(retry.status).toBe(200);
-      expect(await retry.text()).toContain("deleted again");
+      expect(await retry.text()).toContain("deleted again and its caches cleared");
       const tags = (await purgesOf(id, uploadIds)).flatMap((p) => p.body.tags ?? []);
       expect(tags).toEqual([`work-${id}`, `work-${id}`]);
     }

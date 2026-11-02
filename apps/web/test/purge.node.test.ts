@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PurgeError, purgeWorkCaches } from "../src/purge";
+import { PurgeError, purgeWorkCaches, type PurgeCredentials } from "../src/purge";
 
 // The purge's requests to Cloudflare's purge_cache API, against a stub `fetch`
 // (https://developers.cloudflare.com/api/resources/cache/methods/purge/).
@@ -120,6 +120,10 @@ describe("purgeWorkCaches", () => {
   it("Refuses a missing token or zone, or wrangler.jsonc's placeholder zone, and sends nothing", async () => {
     const refused: [string, { token: string; zoneId: string }][] = [
       ["no token", { token: "", zoneId: ZONE }],
+      // SAFETY: an unset secret is missing from the Worker's env, whatever Bindings says.
+      ["an unset token", { zoneId: ZONE } as PurgeCredentials],
+      // SAFETY: as above, for the zone.
+      ["an unset zone", { token: TOKEN } as PurgeCredentials],
       ["no zone", { token: TOKEN, zoneId: "" }],
       ["the placeholder zone", { token: TOKEN, zoneId: "00000000000000000000000000000000" }],
       ["a zone that isn't one", { token: TOKEN, zoneId: "../../accounts/x" }],

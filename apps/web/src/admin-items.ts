@@ -239,8 +239,8 @@ adminItems.post("/works/:id/remove", async (c) => {
   return c.html(
     resultPage(
       removed.outcome === "removed"
-        ? "The work is removed and its files are deleted."
-        : "The work was already removed. Its files were deleted again.",
+        ? "The work is removed and its files are deleted. Its caches are cleared."
+        : "The work was already removed. Its files were deleted again and its caches cleared.",
       from,
     ),
   );
