@@ -2,8 +2,18 @@
 // text. `refreshWorkSearch` (search-index.ts) fills the two indexed columns; `searchLiveWorks`
 // reads them. Nothing here logs a query: the repo is public and readers' searches
 // are private.
-import { sql, type Kysely } from "kysely";
-import { asListed, bylineAndTags, isCount, PAGE_SIZE, SUMMARY, type ListedWork } from "./queries";
+import { sql, type ExpressionBuilder, type Kysely } from "kysely";
+import {
+  asListed,
+  bylineAndTags,
+  isCount,
+  PAGE_SIZE,
+  rated,
+  SUMMARY,
+  tagged,
+  tagNameKeys,
+  type ListedWork,
+} from "./queries";
 import type { Database } from "./schema";
 
 export interface SearchOptions {
@@ -11,6 +21,10 @@ export interface SearchOptions {
   pageSize?: number;
   /** Rows to skip; default 0; one below 0 or not a whole number is 0. */
   offset?: number;
+  /** Only works with this rating, as the listing matches it ("Not Rated" also takes works with none). */
+  rating?: string;
+  /** Only works carrying a fandom tag that matches this name under the tag rule. One that names no tag matches nothing. */
+  fandom?: string;
 }
 
 export interface SearchResults {
@@ -35,7 +49,7 @@ const MAX_PAGE_SIZE = 100;
 export async function searchLiveWorks(
   db: Kysely<Database>,
   query: string,
-  { pageSize, offset }: SearchOptions = {},
+  { pageSize, offset, rating, fandom }: SearchOptions = {},
 ): Promise<SearchResults> {
   // Postgres refuses a NUL in text.
   // Cut by code point, so an astral character isn't split.
@@ -62,11 +76,20 @@ export async function searchLiveWorks(
     : sql<boolean>`(works.search @@ ${tsq} or works.search_text %> ${fuzzy}::text)`;
   const rank = sql<number>`(coalesce(ts_rank_cd(works.search, ${tsq}, 32), 0)
     + coalesce(word_similarity(${fuzzy}::text, works.search_text), 0))`;
+  const fandomKeys = fandom === undefined ? [] : tagNameKeys("fandom", fandom);
+  if (fandom !== undefined && fandomKeys.length === 0) return { works: [], total: 0 };
+  // One condition for the count and the page, so the total, the pages and the filters agree.
+  const listed = (eb: ExpressionBuilder<Database, "works">) =>
+    eb.and([
+      eb("works.status", "=", "live"),
+      matches,
+      ...(fandom === undefined ? [] : [tagged(eb, "fandom", fandomKeys)]),
+      ...(rating === undefined ? [] : [rated(eb, rating)]),
+    ]);
   const { count } = await db
     .selectFrom("works")
     .select((eb) => eb.fn.countAll<string>().as("count"))
-    .where("works.status", "=", "live")
-    .where(matches)
+    .where(listed)
     .executeTakeFirstOrThrow();
   const total = Number(count);
   const size =
@@ -78,8 +101,7 @@ export async function searchLiveWorks(
   const page = await db
     .selectFrom("works")
     .select("works.ao3_work_id")
-    .where("works.status", "=", "live")
-    .where(matches)
+    .where(listed)
     .orderBy(rank, "desc")
     // AO3 work ID last: a total order, so pages neither repeat nor skip.
     .orderBy("works.ao3_work_id")

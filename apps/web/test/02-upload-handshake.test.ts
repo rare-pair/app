@@ -1,14 +1,18 @@
 import { createDb } from "@archive/db";
+import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { sql } from "kysely";
 import { afterAll, describe, expect, it } from "vitest";
+import app from "../src/index";
 import {
+  BASE,
   fetchW,
+  TURNSTILE,
   nonceOf,
   UPLOAD_TOKEN,
   postLogin,
   signIn as signInAs,
-  TURNSTILE,
+  UPLOAD_CSP,
   withoutNonce,
 } from "./helpers";
 
@@ -184,7 +188,7 @@ describe("02-upload-handshake", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
     const csp = res.headers.get("content-security-policy");
-    expect(withoutNonce(csp)).toBe(TURNSTILE);
+    expect(withoutNonce(csp)).toBe(UPLOAD_CSP);
 
     const html = await res.text();
     const noscript = html.match(/<noscript>([\s\S]*?)<\/noscript>/)?.[1] ?? "";
@@ -198,6 +202,35 @@ describe("02-upload-handshake", () => {
     const scripts = html.match(/<script\b[^>]*>/g) ?? [];
     expect(scripts.length).toBeGreaterThan(0);
     for (const tag of scripts) expect(tag).toContain(`nonce="${nonceOf(csp)}"`);
+  });
+
+  it("An account id that is not letters and digits adds nothing to the policy", async () => {
+    const { cookie } = await signIn("u3-bad-account@example.test");
+    const ctx = createExecutionContext();
+    const res = await app.fetch(
+      new Request(`${BASE}/upload`, { headers: { cookie } }),
+      { ...env, R2_ACCOUNT_ID: "acct.example; script-src *" },
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(res.status).toBe(200);
+    expect(withoutNonce(res.headers.get("content-security-policy"))).toBe(TURNSTILE);
+  });
+
+  it("The upload page's script is served with the page's nonce and nothing else is let in", async () => {
+    const { cookie } = await signIn("u3-script-tag@example.test");
+    const res = await fetchW("/upload", { headers: { cookie } });
+    const html = await res.text();
+    const tag = html.match(/<script src="(\/assets\/upload\.[0-9a-f]+\.js)"[^>]*>/);
+    expect(tag).not.toBeNull();
+    expect(tag![0]).toContain(`nonce="${nonceOf(res.headers.get("content-security-policy"))}"`);
+    const script = await fetchW(tag![1]!);
+    expect(script.status).toBe(200);
+    expect(script.headers.get("content-type")).toMatch(/^text\/javascript/);
+    expect(script.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(script.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    // Only the page's own address and R2's: nothing else the script could send a file to.
+    expect(res.headers.get("content-security-policy")).not.toMatch(/connect-src[^;]*\*/);
   });
 
   it("The upload page has the site's chrome", async () => {

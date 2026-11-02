@@ -6,6 +6,7 @@ import { LINK_LIFETIME_MINUTES } from "./signin";
 import { STYLESHEET_PATH } from "./styles";
 import { TURNSTILE_ACTIONS } from "./turnstile";
 import { EPUB_TYPE, MAX_UPLOAD_MB } from "./upload-limit";
+import { UPLOAD_SCRIPT_PATH } from "./upload-script";
 
 export const TURNSTILE_API = `${TURNSTILE_ORIGIN}/turnstile/v0/api.js`;
 
@@ -174,8 +175,9 @@ export const signInPage = (nonce: string, form: SignInForm) =>
 
 /**
  * The upload page, signed in. Like the sign-in form it starts `hidden` and a nonced
- * script shows it. It is no form: the page's script asks `POST /uploads` for a URL and
- * PUTs the file to R2 itself, so without JavaScript nothing on it can send a file.
+ * script shows it. It is no form: the page's script asks `POST /uploads` once for a URL
+ * for each file picked and PUTs each to R2 itself, so without JavaScript nothing on it can
+ * send a file.
  */
 export const uploadPage = (nonce: string, siteKey: string) =>
   layout(
@@ -185,9 +187,12 @@ export const uploadPage = (nonce: string, siteKey: string) =>
 <label for="file">EPUB files, ${MAX_UPLOAD_MB} MB at most each</label>
 <input id="file" type="file" name="file" accept=".epub,${EPUB_TYPE}" multiple>
 <div class="cf-turnstile" data-sitekey="${escapeHtml(siteKey)}" data-action="${TURNSTILE_ACTIONS.upload}"></div>
-<button type="button">Upload</button>
+<button id="send" type="button">Upload</button>
+<p id="message" role="status"></p>
+<ul id="files"></ul>
 </div>
-<script nonce="${escapeHtml(nonce)}">document.getElementById("upload").hidden = false;</script>`,
+<script nonce="${escapeHtml(nonce)}">document.getElementById("upload").hidden = false;</script>
+<script src="${UPLOAD_SCRIPT_PATH}" nonce="${escapeHtml(nonce)}" defer></script>`,
     `<script src="${TURNSTILE_API}" nonce="${escapeHtml(nonce)}" async defer></script>`,
   );
 
