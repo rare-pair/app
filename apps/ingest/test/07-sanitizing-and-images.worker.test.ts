@@ -19,6 +19,7 @@ import {
   hideWork,
   imageBytes,
   ingestReal,
+  liveWork,
   pendingUpload,
   seededWork,
   setWorkStatus,
@@ -221,10 +222,12 @@ describe("re-sanitize backfill", () => {
     expect(await bucketKeys(`works/${work.ao3WorkId}/`)).toEqual(keys);
   });
 
-  it("a removed work is acked with nothing written", async () => {
+  it("a removed work is acked with nothing written, and its folder cleared again", async () => {
     const work = await unfixedWork();
     await setWorkStatus(work.ao3WorkId, "removed");
-    const keys = await bucketKeys(`works/${work.ao3WorkId}/`);
+    // What an earlier attempt that raced the removal left after its purge.
+    const leftover = `works/${work.ao3WorkId}/img/${token()}`;
+    await env.BUCKET.put(leftover, "leftover");
 
     const result = await backfill([backfillOf(work)]);
 
@@ -232,7 +235,29 @@ describe("re-sanitize backfill", () => {
     const now = await versionsOf(work.ao3WorkId);
     expect(now.versions).toHaveLength(1);
     expect(now.current).toBe(work.current);
-    expect(await bucketKeys(`works/${work.ao3WorkId}/`)).toEqual(keys);
+    expect(await bucketKeys(`works/${work.ao3WorkId}/`)).toEqual([]);
+  });
+
+  it("a summary the fixed sanitizer empties keeps none of the old one", async () => {
+    const workId = freshAo3WorkId();
+    await ingestBeforeFix(ao3Epub({ workId }), {
+      process: async (bytes) => ({
+        ...(await processEpub(bytes)),
+        summaryHtml: `<p>s</p>${UNSAFE}`,
+      }),
+    });
+    const work = await versionsOf(workId);
+    const emptying = ingestWorker({
+      process: async (bytes, images) => ({
+        ...(await processForStorage(bytes, images)),
+        summaryHtml: null,
+      }),
+    });
+
+    await deliver([backfillOf(work)], { queue: BACKFILL, handler: emptying });
+
+    expect((await versionsOf(workId)).current).not.toBe(work.current);
+    expect((await liveWork(workId))?.work.summary_html).toBeNull();
   });
 
   it("a work removed while its backfill runs keeps nothing the backfill wrote", async () => {

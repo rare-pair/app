@@ -4,7 +4,13 @@ import type { Kysely } from "kysely";
 import type { JobDeps } from "./job";
 import { onRejectList } from "./lists";
 import type { BackfillMessage } from "./message";
-import { saveBackfill, SaveRejected, type SaveBucket, type WorkImages } from "./save";
+import {
+  clearRemovedWork,
+  saveBackfill,
+  SaveRejected,
+  type SaveBucket,
+  type WorkImages,
+} from "./save";
 
 /** What a backfill job needs: the request's Kysely, the bucket and the processor. */
 export interface BackfillDeps {
@@ -39,8 +45,12 @@ export async function runBackfill(deps: BackfillDeps, message: BackfillMessage):
     .executeTakeFirst();
   // No such work, or one with no version yet: nothing to re-make.
   if (row === undefined) return "no_work";
-  // Its fragments and originals are purged with it (#398).
-  if (row.status === "removed") return "removed";
+  // Its fragments and originals are purged with it (#398). The folder is cleared again, for an
+  // earlier attempt of this message that raced the removal and wrote after its purge.
+  if (row.status === "removed") {
+    await clearRemovedWork(deps.bucket, row.ao3_work_id);
+    return "removed";
+  }
   // Already backfilled (a redelivery after the commit lands here), or a moderator or a newer
   // upload has moved the work since the message was made.
   if (row.current_version_id !== message.version_id) return "not_current";

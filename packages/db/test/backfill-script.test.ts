@@ -120,6 +120,16 @@ describe("07-sanitizing-and-images", () => {
     expect(result.error).toMatch(/^interrupted during a push of 4 works/);
   });
 
+  it("A queue id with a path in it stays one segment of the API URL", async () => {
+    const { stub, pushed } = queueStub();
+
+    await backfill({ ...options(stub, { batchSize: 100 }), queueId: "q/../../zones?x" });
+
+    expect(pushed[0]?.url).toBe(
+      "https://api.cloudflare.com/client/v4/accounts/test-account/queues/q%2F..%2F..%2Fzones%3Fx/messages/batch",
+    );
+  });
+
   it("An unreachable database is reported by its code, never its connection string", async () => {
     const { stub, pushed } = queueStub();
 

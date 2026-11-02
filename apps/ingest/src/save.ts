@@ -10,11 +10,37 @@ import type { Kysely, Transaction } from "kysely";
 import type { Lease } from "./lease";
 import { decideVersion, sameSet, type VersionDecision, type VersionFacts } from "./versioning";
 
-/** What saving needs from the bucket: writes, and reads of the current version's fragments. */
+/**
+ * What saving needs from the bucket: writes, reads of the current version's fragments, and the
+ * listing and deletes that clear a removed work's folder again.
+ */
 export interface SaveBucket {
   get(key: string): Promise<R2ObjectBody | null>;
-  delete(keys: string[]): Promise<void>;
   put(key: string, value: string | Uint8Array, options?: R2PutOptions): Promise<R2Object | null>;
+  list(options: R2ListOptions): Promise<R2Objects>;
+  delete(keys: string[]): Promise<void>;
+}
+
+/** R2's most keys for one list page and for one delete call. */
+const R2_BATCH = 1000;
+
+/**
+ * Deletes everything under a removed work's `works/<ao3_work_id>/` folder, as its removal did
+ * (apps/web, remove-objects.ts): what a backfill that raced the removal put back. Every key is
+ * listed before any is deleted. Deleting a key already gone is no error, so a repeat is safe.
+ */
+export async function clearRemovedWork(bucket: SaveBucket, ao3WorkId: number): Promise<void> {
+  const keys: string[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await bucket.list({ prefix: `works/${ao3WorkId}/`, cursor, limit: R2_BATCH });
+    keys.push(...page.objects.map((o) => o.key));
+    if (!page.truncated) break;
+    cursor = page.cursor;
+  }
+  for (let i = 0; i < keys.length; i += R2_BATCH) {
+    await bucket.delete(keys.slice(i, i + R2_BATCH));
+  }
 }
 
 /**
@@ -173,12 +199,11 @@ export interface BackfillSource {
  * already written is rewritten and every cached one keeps its key; its images go to the
  * work's `img/` prefix; the original is not written again. Then one transaction adds the
  * version and moves `current_version_id` to it only if it is still the source version
- * (compare-and-swap), and makes the work describe it. Status is left as it is. Returns
- * ackfilled; or 
-ot_current when the pointer had moved, and nothing was committed (the new
- * prefix's fragments are then left for the periodic sweep, as are a failed attempt's); or
- * 
-emoved when the work was removed meanwhile, and what the save wrote is deleted.
+ * (compare-and-swap), and makes the work describe it, its summary included even when it is now
+ * empty. Status is left as it is. Returns `backfilled`; `not_current` when the pointer had
+ * moved, and nothing was committed (the new prefix's fragments are then left for the periodic
+ * sweep, as are a failed attempt's); or `removed` when the work was removed meanwhile, and
+ * everything under its `works/` folder is deleted again.
  */
 export async function saveBackfill(
   deps: { db: Kysely<Database>; bucket: SaveBucket },
@@ -213,6 +238,15 @@ export async function saveBackfill(
         checked_at: checked,
       };
       await insertVersion(trx, origin, work, source.workId, prefix, chapters);
+      // The copy below keeps the work's summary when the version has none, but a summary the
+      // fixed sanitizer emptied must not keep the markup it let through. Set first, so the copy
+      // refreshes the search text from it; a lost race rolls it back with the rest.
+      await trx
+        .updateTable("works")
+        .set({ summary_html: work.summaryHtml })
+        .where("id", "=", source.workId)
+        .where("current_version_id", "=", source.versionId)
+        .execute();
       await replaceCurrent(trx, source.workId, source.versionId, versionId);
     });
     return "backfilled";
@@ -226,14 +260,8 @@ export async function saveBackfill(
     .executeTakeFirst();
   if (row !== undefined && row.status !== "removed") return "not_current";
   // Removed while the job ran: its purge may have run before these writes, so what they put
-  // back is deleted here. The images go too, as every one of a removed work's does.
-  const keys = [
-    ...chapters.map((c) => c.key),
-    ...[...images.keys()].map((key) => `works/${source.ao3WorkId}/img/${key}`),
-  ];
-  for (let i = 0; i < keys.length; i += ROWS_PER_INSERT) {
-    await deps.bucket.delete(keys.slice(i, i + ROWS_PER_INSERT));
-  }
+  // back is deleted here.
+  await clearRemovedWork(deps.bucket, source.ao3WorkId);
   return "removed";
 }
 

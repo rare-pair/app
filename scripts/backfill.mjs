@@ -127,7 +127,8 @@ export async function backfill({
     let response;
     try {
       response = await doFetch(
-        `https://api.cloudflare.com/client/v4/accounts/${accountId}/queues/${queueId}/messages/batch`,
+        // Encoded, so a pasted id with a slash or `?` can't send the token to another endpoint.
+        `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/queues/${encodeURIComponent(queueId)}/messages/batch`,
         {
           method: "POST",
           headers: { authorization: `Bearer ${apiToken}`, "content-type": "application/json" },

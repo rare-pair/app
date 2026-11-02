@@ -469,6 +469,9 @@ Chapter text isn't indexed.
    re-made from (`upload_id` is NULL), and moves `current_version_id` to it
    with the same compare-and-swap as a replace, then copies it onto the work.
    It never calls `decideVersion`: the same file would be a `duplicate` there.
+   The work's summary is the new version's even when the fix emptied it. A
+   work removed while the job ran has its `works/<ao3_work_id>/` folder
+   cleared again, since the job may have written after the removal's purge.
    The work's status is left as it is. `checked_at` carries over only when the
    re-made version has the same review reasons. A file the processor now
    refuses is logged by its code and acked, leaving the current version
