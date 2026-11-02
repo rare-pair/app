@@ -127,6 +127,22 @@ describe("18-moderation", () => {
     expect(asked.headers.get("cache-control")).toBe("no-store");
     expect(await asked.json()).toEqual({ error: "This account can't upload." });
     expect(await uploadsOf(z.id)).toHaveLength(before);
+    // A batch is refused whole: no row for any of its files.
+    const batch = await postLogin(
+      {},
+      {
+        url: "/uploads",
+        headers: { cookie: z.cookie },
+        body: new URLSearchParams([
+          ["size", "1000"],
+          ["size", "2000"],
+          ["cf-turnstile-response", UPLOAD_TOKEN],
+        ]).toString(),
+      },
+    );
+    expect(batch.status).toBe(403);
+    expect(await batch.json()).toEqual({ error: "This account can't upload." });
+    expect(await uploadsOf(z.id)).toHaveLength(before);
     // A row written after the ban (one a request in flight had passed its check for).
     const late = await pendingUpload(z.id);
     const confirmed = await postLogin(
