@@ -57,4 +57,8 @@ export type Bindings = {
   /** The R2 API token presigned URLs are signed with: Object Read and Write on R2_BUCKET only. */
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
+  /** The Cloudflare API token removal purges the cache with: Cache Purge on the zone only (src/purge.ts). */
+  CLOUDFLARE_PURGE_TOKEN: string;
+  /** The rarepair.fans zone, whose cache removal purges (wrangler.jsonc). */
+  CLOUDFLARE_ZONE_ID: string;
 };

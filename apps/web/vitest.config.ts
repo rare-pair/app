@@ -16,9 +16,13 @@ const DUMMY_TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
  * "#" and the action it was solved under, then optionally "@" and the host:
  * "XXXX.DUMMY.TOKEN.XXXX#login@other.example". The host is rarepair.fans when left out.
  * A token with no "#" is reported with no action. "siteverify-down" gets a 503;
- * any other token fails.
+ * any other token fails. Cloudflare's purge_cache API and its test log are stood in for
+ * below (`purgeCache`, `purgeLog`).
  */
 async function outbound(request: Request): Promise<Response> {
+  if (request.url.startsWith(PURGE_LOG)) return purgeLog(request);
+  const zone = PURGE_API.exec(request.url)?.[1];
+  if (zone !== undefined && request.method === "POST") return purgeCache(request, zone);
   if (request.url !== SITEVERIFY) {
     return new Response("outbound network blocked in tests", { status: 599 });
   }
@@ -30,6 +34,58 @@ async function outbound(request: Request): Promise<Response> {
     return Response.json({ success: true, hostname, action, "error-codes": [] });
   }
   return Response.json({ success: false, "error-codes": ["invalid-input-response"] });
+}
+
+// Throwaway purge credentials, not Cloudflare's: a made-up token, and a made-up zone id in the
+// shape the Worker checks (src/purge.ts).
+const CLOUDFLARE_PURGE_TOKEN = "test-only-purge-token";
+const CLOUDFLARE_ZONE_ID = "0123456789abcdef0123456789abcdef";
+const PURGE_API = /^https:\/\/api\.cloudflare\.com\/client\/v4\/zones\/([^/]+)\/purge_cache$/;
+// Not a real host: the tests read the purge log here. The test file's own `fetch` goes
+// through `outbound` too.
+const PURGE_LOG = "https://purge-log.test/";
+
+/** Every purge_cache request the Worker made, in order, from every test file in the run. */
+const purges: { zone: string; authorized: boolean; body: unknown }[] = [];
+/** Tags whose next purge request fails, and how: an HTTP status, or 200 with `success: false`. */
+const failing = new Map<string, number | "not-accepted">();
+
+/**
+ * Cloudflare's purge_cache API: records the request (the zone, whether it carried the test
+ * token, and the JSON body; never the token) and accepts it, unless the token is wrong or
+ * a test asked for its tag to fail.
+ */
+async function purgeCache(request: Request, zone: string): Promise<Response> {
+  // SAFETY: the Worker sends a JSON object; a test reads the body back as it was sent.
+  const body = (await request.json()) as { tags?: string[] };
+  const authorized = request.headers.get("authorization") === `Bearer ${CLOUDFLARE_PURGE_TOKEN}`;
+  purges.push({ zone, authorized, body });
+  if (!authorized) {
+    return Response.json({ success: false, errors: [{ code: 10000 }] }, { status: 403 });
+  }
+  const tag = body.tags?.find((t) => failing.has(t));
+  if (tag !== undefined) {
+    const how = failing.get(tag);
+    failing.delete(tag);
+    if (how === "not-accepted") return Response.json({ success: false, errors: [{ code: 1134 }] });
+    return new Response("unavailable", { status: how });
+  }
+  return Response.json({ success: true, errors: [], messages: [], result: { id: "test" } });
+}
+
+/**
+ * The tests' side of the stand-in: GET answers with every purge request so far; POST
+ * `{ tag, fail }` makes the next purge of that tag fail (`fail` an HTTP status, or
+ * "not-accepted").
+ */
+async function purgeLog(request: Request): Promise<Response> {
+  if (request.method === "POST") {
+    // SAFETY: test/helpers.ts's failNextPurge sends this shape.
+    const { tag, fail } = (await request.json()) as { tag: string; fail: number | "not-accepted" };
+    failing.set(tag, fail);
+    return new Response(null, { status: 204 });
+  }
+  return Response.json(purges);
 }
 
 // Stands in for a queue's consumer (apps/mailer for `email`, apps/ingest for `ingest`), and answers a fetch
@@ -79,6 +135,9 @@ const worker = (bindings: Record<string, string> = {}) =>
         R2_ACCOUNT_ID: "test0000000000000000000000000acct",
         R2_ACCESS_KEY_ID: "test-only-access-key-id",
         R2_SECRET_ACCESS_KEY: "test-only-secret-access-key",
+        // Sent only to the purge stand-in above.
+        CLOUDFLARE_PURGE_TOKEN,
+        CLOUDFLARE_ZONE_ID,
         ...bindings,
       },
       serviceBindings: { EMAIL_SINK: "email-sink", INGEST_SINK: "ingest-sink" },

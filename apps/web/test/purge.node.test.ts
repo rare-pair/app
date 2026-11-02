@@ -8,16 +8,18 @@ const ZONE = "0123456789abcdef0123456789abcdef";
 const credentials = { token: TOKEN, zoneId: ZONE };
 const PURGE_URL = `https://api.cloudflare.com/client/v4/zones/${ZONE}/purge_cache`;
 
-type Sent = { url: string; method?: string; headers: Headers; body: unknown };
+/** A purge request's body, as the API takes it. */
+type Body = { tags?: string[]; prefixes?: string[]; files?: string[] };
+type Sent = { url: string; method?: string; headers: Headers; body: Body };
 
-/** A stub `fetch` that records each request and answers with `reply(body)`, accepted by default. */
-function stubFetch(reply: (body: Record<string, unknown>) => Response | Promise<Response> = ok) {
+/** A stub `fetch` that records each request and answers with `reply()`, accepted by default. */
+function stubFetch(reply: () => Response | Promise<Response> = ok) {
   const sent: Sent[] = [];
   const fetch = async (url: string, init: RequestInit) => {
-    // SAFETY: purgeWorkCaches sends a JSON string body.
-    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    // SAFETY: purgeWorkCaches sends one purge body as a JSON string.
+    const body = JSON.parse(init.body as string) as Body;
     sent.push({ url, method: init.method, headers: new Headers(init.headers), body });
-    return reply(body);
+    return reply();
   };
   return { sent, fetch };
 }
@@ -54,12 +56,8 @@ describe("purgeWorkCaches", () => {
     const uploadIds = Array.from({ length: 120 }, (_, i) => `up-${i}`);
     const many = stubFetch();
     await purgeWorkCaches(credentials, { ao3WorkId: 12, uploadIds }, { fetch: many.fetch });
-    // SAFETY: the stub's bodies are the JSON purgeWorkCaches sent.
-    const files = many.sent.flatMap((s) => (s.body as { files?: string[] }).files ?? []);
-    const sizes = many.sent
-      // SAFETY: as above.
-      .map((s) => (s.body as { files?: string[] }).files?.length)
-      .filter((n) => n !== undefined);
+    const files = many.sent.flatMap((s) => s.body.files ?? []);
+    const sizes = many.sent.flatMap((s) => (s.body.files ? [s.body.files.length] : []));
     expect(sizes).toEqual([100, 100, 40]);
     expect(new Set(files).size).toBe(240);
     expect(files).toContain("https://content.rarepair.fans/originals/up-119.epub");
@@ -79,6 +77,7 @@ describe("purgeWorkCaches", () => {
     const failTags = (failure: (init: RequestInit) => Promise<Response>) => {
       const stub = stubFetch();
       const fetch = (url: string, init: RequestInit) =>
+        // SAFETY: purgeWorkCaches sends a JSON string body.
         (init.body as string).includes('"tags"')
           ? (stub.fetch(url, init), failure(init))
           : stub.fetch(url, init);
@@ -142,18 +141,10 @@ describe("purgeWorkCaches", () => {
         errors: [{ code: 1134, message: `zone ${ZONE} token ${TOKEN}` }],
       }),
     );
-    const error = await purgeWorkCaches(
-      credentials,
-      { ao3WorkId: 12, uploadIds: ["up-1"] },
-      {
-        fetch,
-      },
-    ).catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(PurgeError);
-    // SAFETY: checked just above.
-    const { message } = error as PurgeError;
-    expect(message).toContain("1134");
-    expect(message).not.toContain(TOKEN);
-    expect(message).not.toContain(ZONE);
+    const failed = purgeWorkCaches(credentials, { ao3WorkId: 12, uploadIds: ["up-1"] }, { fetch });
+    await expect(failed).rejects.toThrow(PurgeError);
+    await expect(failed).rejects.toThrow(/1134/);
+    await expect(failed).rejects.toMatchObject({ message: expect.not.stringContaining(TOKEN) });
+    await expect(failed).rejects.toMatchObject({ message: expect.not.stringContaining(ZONE) });
   });
 });

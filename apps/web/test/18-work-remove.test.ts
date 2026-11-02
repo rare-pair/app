@@ -2,7 +2,7 @@ import { createDb } from "@archive/db";
 import { putFragments, seedVersion, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { BASE, fetchW, signIn } from "./helpers";
+import { BASE, failNextPurge, fetchW, purgeRequests, signIn, type PurgeRequest } from "./helpers";
 
 // One database and one bucket serve every test file in the run. This file keeps to AO3
 // work IDs 14300 to 14399, plus 143001 (a neighbour whose ID starts with W's digits), and
@@ -90,6 +90,32 @@ async function bucketKeys(keys: string[]) {
   return held.filter((k) => k !== null).sort();
 }
 
+/** vitest.config.ts's made-up zone id, which the purge requests name. */
+const ZONE = "0123456789abcdef0123456789abcdef";
+
+/** Both forms of each upload's download URL, sorted: `.epub` (the R2 key) and bare (the link). */
+const downloadUrls = (uploadIds: string[]) =>
+  uploadIds
+    .flatMap((u) => [
+      `https://content.rarepair.fans/originals/${u}.epub`,
+      `https://content.rarepair.fans/originals/${u}`,
+    ])
+    .sort();
+
+/**
+ * The purge requests naming work `ao3WorkId` (its tag or images prefix) or any of its
+ * uploads' download URLs. Other files' requests share the log, so this filters.
+ */
+async function purgesOf(ao3WorkId: number, uploadIds: string[]): Promise<PurgeRequest[]> {
+  const urls = new Set(downloadUrls(uploadIds));
+  return (await purgeRequests()).filter(
+    (p) =>
+      (p.body.tags ?? []).includes(`work-${ao3WorkId}`) ||
+      (p.body.prefixes ?? []).includes(`content.rarepair.fans/works/${ao3WorkId}/img/`) ||
+      (p.body.files ?? []).some((f) => urls.has(f)),
+  );
+}
+
 let moderator: string;
 let plainUser: string;
 
@@ -114,6 +140,7 @@ describe("18 moderation", () => {
     expect(html).toContain('name="confirm"');
     expect(html).toContain('name="from" value="/admin/reports/xr1a-report"');
     expect((await workRow(id)).status).toBe("live");
+    expect(await purgesOf(id, [])).toEqual([]);
   });
 
   it("The confirm page escapes the work's title", async () => {
@@ -166,13 +193,23 @@ describe("18 moderation", () => {
       .where("target_id", "=", seeded.workId)
       .execute();
     expect(logged).toEqual([{ moderator_id: moderatorId, action: "remove", target_kind: "work" }]);
+    // Its cached pages and fragments (by tag), images (by prefix) and downloads (by URL)
+    // are purged, and the neighbour's are not.
+    const purged = await purgesOf(W, uploadIds);
+    expect(purged.every((p) => p.zone === ZONE && p.authorized)).toBe(true);
+    expect(purged.flatMap((p) => p.body.tags ?? [])).toEqual([`work-${W}`]);
+    expect(purged.flatMap((p) => p.body.prefixes ?? [])).toEqual([
+      `content.rarepair.fans/works/${W}/img/`,
+    ]);
+    expect(purged.flatMap((p) => p.body.files ?? []).sort()).toEqual(downloadUrls(uploadIds));
+    expect(await purgesOf(143001, neighbour.uploadIds)).toEqual([]);
   });
 });
 
 describe("Remove work: who may, and which works", () => {
   it("Non-moderators, signed-out and cross-site posts get 404 and change nothing", async () => {
     const id = W + 10;
-    const { keys } = await seedWithObjects(id);
+    const { keys, uploadIds } = await seedWithObjects(id);
     const crossSite = { origin: "https://evil.example", "sec-fetch-site": "cross-site" };
     for (const [who, res] of [
       ["plain user", await post(`/admin/works/${id}/remove`, plainUser, { confirm: "yes" })],
@@ -186,6 +223,7 @@ describe("Remove work: who may, and which works", () => {
     }
     expect((await workRow(id)).status).toBe("live");
     expect(await bucketKeys(keys)).toEqual(keys);
+    expect(await purgesOf(id, uploadIds)).toEqual([]);
   });
 
   it("An unknown work gets 404", async () => {
@@ -209,7 +247,7 @@ describe("Remove work: who may, and which works", () => {
 
   it("A processing work is refused and keeps its files", async () => {
     const id = W + 12;
-    const { seeded, keys } = await seedWithObjects(id);
+    const { seeded, keys, uploadIds } = await seedWithObjects(id);
     await db
       .updateTable("works")
       .set({ status: "processing" })
@@ -220,11 +258,12 @@ describe("Remove work: who may, and which works", () => {
     expect(await res.text()).toContain("Nothing changed");
     expect((await workRow(id)).status).toBe("processing");
     expect(await bucketKeys(keys)).toEqual(keys);
+    expect(await purgesOf(id, uploadIds)).toEqual([]);
   });
 
-  it("A repeat remove deletes the files again and writes no second row", async () => {
+  it("A repeat remove deletes the files again, purges again and writes no second row", async () => {
     const id = W + 13;
-    const { seeded } = await seedWithObjects(id);
+    const { seeded, uploadIds } = await seedWithObjects(id);
     await post(`/admin/works/${id}/remove`, moderator, { confirm: "yes" });
     // Bytes a failed delete, or a late ingest job, left behind.
     await env.BUCKET.put(`works/${id}/img/${IMAGE_SHA}`, "xr1a-leftover");
@@ -238,6 +277,41 @@ describe("Remove work: who may, and which works", () => {
       .where("target_id", "=", seeded.workId)
       .execute();
     expect(logged).toHaveLength(1);
+    const tags = (await purgesOf(id, uploadIds)).flatMap((p) => p.body.tags ?? []);
+    expect(tags).toEqual([`work-${id}`, `work-${id}`]);
+  });
+
+  it("A failed purge says so with a 502, and the work stays removed with its files deleted", async () => {
+    for (const [id, fail] of [
+      [W + 15, 503],
+      [W + 16, "not-accepted"],
+    ] as const) {
+      const { uploadIds } = await seedWithObjects(id);
+      await failNextPurge(`work-${id}`, fail);
+      const res = await post(`/admin/works/${id}/remove`, moderator, {
+        confirm: "yes",
+        from: "/admin/reports/xr1b-report",
+      });
+      expect(res.status, String(fail)).toBe(502);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(res.headers.get("content-security-policy")).toMatch(/'nonce-[^']+'/);
+      const html = await res.text();
+      expect(html).toContain("clearing the caches failed");
+      expect(html).toContain("Remove again");
+      expect(html).toContain('href="/admin/reports/xr1b-report"');
+      expect(await workRow(id)).toMatchObject({ status: "removed", hidden_cause: null });
+      expect((await env.BUCKET.list({ prefix: `works/${id}/` })).objects).toEqual([]);
+      // The images and downloads were still asked for.
+      const purged = await purgesOf(id, uploadIds);
+      expect(purged.flatMap((p) => p.body.prefixes ?? [])).toHaveLength(1);
+      expect(purged.flatMap((p) => p.body.files ?? []).sort()).toEqual(downloadUrls(uploadIds));
+      // Remove again retries, and this time the purge is accepted.
+      const retry = await post(`/admin/works/${id}/remove`, moderator, { confirm: "yes" });
+      expect(retry.status).toBe(200);
+      expect(await retry.text()).toContain("deleted again");
+      const tags = (await purgesOf(id, uploadIds)).flatMap((p) => p.body.tags ?? []);
+      expect(tags).toEqual([`work-${id}`, `work-${id}`]);
+    }
   });
 
   it("Every work action list offers the remove button", async () => {
@@ -259,5 +333,11 @@ describe("09 content origin", () => {
     for (const uploadId of uploadIds) {
       expect(await env.BUCKET.get(`originals/${uploadId}.epub`), uploadId).toBeNull();
     }
+    // The images and download URLs are purged from the cache.
+    const purged = await purgesOf(id, uploadIds);
+    expect(purged.flatMap((p) => p.body.prefixes ?? [])).toEqual([
+      `content.rarepair.fans/works/${id}/img/`,
+    ]);
+    expect(purged.flatMap((p) => p.body.files ?? []).sort()).toEqual(downloadUrls(uploadIds));
   });
 });

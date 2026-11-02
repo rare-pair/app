@@ -54,18 +54,17 @@ export async function purgeWorkCaches(
     `https://${CONTENT_HOST}/originals/${id}.epub`,
     `https://${CONTENT_HOST}/originals/${id}`,
   ]);
-  const bodies: object[] = [
-    { tags: [workCacheTag(target.ao3WorkId)] },
+  const requests: { step: string; body: PurgeBody }[] = [
+    { step: "tags", body: { tags: [workCacheTag(target.ao3WorkId)] } },
     // No scheme, as the API wants, and the trailing slash keeps works/12/ from matching works/123/.
-    { prefixes: [`${CONTENT_HOST}/works/${target.ao3WorkId}/img/`] },
+    { step: "prefixes", body: { prefixes: [`${CONTENT_HOST}/works/${target.ao3WorkId}/img/`] } },
   ];
   for (let i = 0; i < files.length; i += MAX_FILES) {
-    bodies.push({ files: files.slice(i, i + MAX_FILES) });
+    requests.push({ step: "files", body: { files: files.slice(i, i + MAX_FILES) } });
   }
   // All at once, and each to the end, so one failing doesn't leave the others unasked.
   const failed = await Promise.all(
-    bodies.map(async (body) => {
-      const step = Object.keys(body)[0];
+    requests.map(async ({ step, body }) => {
       const why = await request(url, credentials.token, body, options);
       return why === null ? null : `${step} (${why})`;
     }),
@@ -83,14 +82,16 @@ export class PurgeError extends Error {
   override name = "PurgeError";
 }
 
+/** One purge request's body: the API takes one kind of purge per request. */
+type PurgeBody = { tags: string[] } | { prefixes: string[] } | { files: string[] };
+
 /** Sends one purge request: null when Cloudflare accepted it, or why not. */
 async function request(
   url: string,
   token: string,
-  body: object,
+  body: PurgeBody,
   options: PurgeOptions,
 ): Promise<string | null> {
-  let reply: { success?: boolean; errors?: { code?: number }[] } | null;
   try {
     const res = await (options.fetch ?? fetch)(url, {
       method: "POST",
@@ -99,14 +100,15 @@ async function request(
       signal: AbortSignal.timeout(options.timeoutMs ?? 5000),
     });
     if (!res.ok) return `HTTP ${res.status}`;
-    reply = await res.json();
+    // `success: true` means accepted; anything else, a 200 included, is a failure.
+    const reply: { success?: boolean; errors?: { code?: number }[] } | null = await res.json();
+    if (reply?.success === true) return null;
+    const codes = (Array.isArray(reply?.errors) ? reply.errors : []).flatMap((e) =>
+      Number.isInteger(e.code) ? [e.code] : [],
+    );
+    return codes.length > 0 ? `codes ${codes.join(" ")}` : "not accepted";
   } catch (error) {
-    // Unreachable, too slow, or an answer that isn't JSON.
+    // Unreachable, too slow, or an answer that isn't the JSON Cloudflare sends.
     return error instanceof Error ? error.name : "no reply";
   }
-  if (reply?.success === true) return null;
-  const codes = (Array.isArray(reply?.errors) ? reply.errors : [])
-    .map((e) => e?.code)
-    .filter((code) => Number.isInteger(code));
-  return codes.length > 0 ? `codes ${codes.join(" ")}` : "not accepted";
 }

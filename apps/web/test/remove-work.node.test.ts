@@ -24,7 +24,7 @@ function memoryBucket(keys: string[], failDelete = false) {
   const bucket: ObjectBucket = {
     async list({ prefix }) {
       return {
-        objects: [...held].filter((k) => k.startsWith(prefix)).map((key) => ({ key })),
+        objects: [...held].flatMap((key) => (key.startsWith(prefix) ? [{ key }] : [])),
         truncated: false,
       };
     },
@@ -48,7 +48,11 @@ function recordingPurge(held: Set<string>, fail = false) {
 
 /** A seeded work and its objects in R2. */
 async function seeded(ao3WorkId: number, status: "live" | "processing" = "live") {
-  const work = await seedWork(t.db, { ao3WorkId, status });
+  const work = await seedWork(t.db, { ao3WorkId });
+  // An ingest job still saving it, as the workerd tests set it up.
+  if (status === "processing") {
+    await t.db.updateTable("works").set({ status }).where("id", "=", work.workId).execute();
+  }
   const keys = [
     `works/${ao3WorkId}/${work.uploadId}/00001.html`,
     `works/${ao3WorkId}/img/${"ab".repeat(32)}`,

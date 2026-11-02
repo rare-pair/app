@@ -136,12 +136,20 @@
     // testing; these are first values, to be revisited then.
     "UPLOAD_QUOTA_NEW": "20",
     "UPLOAD_QUOTA_TRUSTED": "100",
+    // The rarepair.fans zone, whose cache a work's removal purges (src/purge.ts): its pages and
+    // fragments, and content.rarepair.fans's images and downloads, a custom domain on the same
+    // zone. Not a secret. A placeholder: the operator deploys with the real id in its place
+    // (`wrangler deploy --var CLOUDFLARE_ZONE_ID:...`). Under the placeholder every purge
+    // fails, and the remove says so.
+    "CLOUDFLARE_ZONE_ID": "00000000000000000000000000000000",
   },
   // Set with `wrangler secret put`. IP_HASH_KEY keys the HMAC of a requester's stored network
   // address (src/ip-hash.ts): a long random value, kept for as long as stored hashes are
   // matched, since changing it orphans them. The R2 ones sign upload URLs: an R2 API token with Object
   // Read and Write on the rarepair bucket only. Only its secret key is secret: every issued URL
   // shows the access key id and the account id, which are here only to keep them out of the repo.
+  // CLOUDFLARE_PURGE_TOKEN is the Cloudflare API token a removal purges the cache with: permission
+  // Zone > Cache Purge > Purge, on the rarepair.fans zone only.
   "secrets": {
     "required": [
       "BETTER_AUTH_SECRET",
@@ -150,6 +158,7 @@
       "R2_ACCOUNT_ID",
       "R2_ACCESS_KEY_ID",
       "R2_SECRET_ACCESS_KEY",
+      "CLOUDFLARE_PURGE_TOKEN",
     ],
   },
 }
