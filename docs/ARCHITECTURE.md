@@ -759,7 +759,7 @@ epub, under the normal versioning rules.
   outside the database, such as removing a work's files, can't join that
   transaction.) A reject that also lifts a hide logs only the reject. A hide
   no moderator chose (the reports' automatic hide, a removal request's hide)
-  writes none. Hide, restore and the request and takedown rejects write a row
+  writes none. Hide, restore, remove and the request and takedown rejects write a row
   today; each later action calls the same helper, `logModerationAction`, when
   it is built. The row's `moderator_id` has no foreign key to `user`, so
   deleting an account keeps its log rows, with the id as it was. Anyone
