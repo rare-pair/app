@@ -1,7 +1,7 @@
 // The versioning decision (ARCHITECTURE, EPUB processor step 7): whether an upload of a known
 // work replaces its current version, is held for review, or is a duplicate. Pure: it sees only
 // the two versions' facts, never who uploaded either, so nobody gets special treatment.
-import { normalizePseud, normalizeTagName, type TagType } from "@archive/db";
+import { normalizePseud, normalizeTagName, type HoldReason, type TagType } from "@archive/db";
 
 /**
  * How alike two versions of a chapter must be, from 0 to 1, for the edit to count as small.
@@ -26,7 +26,7 @@ export interface VersionFacts {
 export type VersionDecision =
   | { outcome: "replace" }
   | { outcome: "duplicate"; reason: "not_newer" }
-  | { outcome: "hold"; reason: "chapters_changed" | "tags_changed" | "authors_changed" };
+  | { outcome: "hold"; reason: HoldReason };
 
 export interface VersionOptions {
   /** Chapter similarity at or above which an edit is small. Defaults to `SIMILARITY_THRESHOLD`. */

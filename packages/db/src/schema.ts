@@ -160,7 +160,26 @@ export interface WorkVersionTable {
   tags: ColumnType<VersionTag[] | null, string | null | undefined, string | null>;
   /** This version's byline in the file's order. NULL before migration 0010. Write it with `JSON.stringify`. */
   authors: ColumnType<VersionAuthor[] | null, string | null | undefined, string | null>;
+  // This version's own copy of the `works` columns that describe it, as ingest read them from
+  // its file: NULL for a field the file lacked (words, the updated date and `complete` are
+  // derived when it doesn't state them), and on every version saved before migration 0012
+  // that wasn't then current. `works` holds the current version's.
+  title: string | null;
+  summary_html: string | null;
+  rating: string | null;
+  language: string | null;
+  words: number | null;
+  complete: boolean | null;
+  published_at: Timestamp | null;
+  updated_at: Timestamp | null;
+  /** Write it with `JSON.stringify`. */
+  raw_meta: ColumnType<Record<string, string> | null, string | null | undefined, string | null>;
+  /** Why ingest held this version for review. NULL for a version it didn't hold, and for one held before migration 0012. */
+  hold_reason: HoldReason | null;
 }
+
+/** `decideVersion`'s reasons for holding a newer version (ARCHITECTURE, EPUB processor step 7). */
+export type HoldReason = "chapters_changed" | "tags_changed" | "authors_changed";
 
 export interface VersionTag {
   type: TagType;
@@ -328,6 +347,16 @@ export interface WaitlistTable {
   created_at: CreatedTimestamp;
 }
 
+/** Where the periodic sweep (apps/sweep) stopped: one row, `id` 1. */
+export interface SweepStateTable {
+  id: ColumnType<number, never, never>;
+  /** The R2 key the next run lists after, past the last folder swept. NULL for the first folder. */
+  after: string | null;
+  /** The folder a run is sweeping, cleared when it ends. Set at a run's start: the last one was killed there. */
+  current: string | null;
+  updated_at: CreatedTimestamp;
+}
+
 export interface Database {
   user: UserTable;
   session: SessionTable;
@@ -348,4 +377,5 @@ export interface Database {
   requester_blocks: RequesterBlockTable;
   moderation_actions: ModerationActionTable;
   waitlist: WaitlistTable;
+  sweep_state: SweepStateTable;
 }
