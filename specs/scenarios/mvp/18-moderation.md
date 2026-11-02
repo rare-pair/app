@@ -110,7 +110,8 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 - WHEN M uses the ban uploader action
 - THEN Z's `banned_at` is set
 - AND Z can no longer upload or report
-- AND Z's existing uploads stay as they are until a moderator acts on them
+- AND Z's live works and finished uploads stay as they are until a moderator acts on them
+- AND Z's pending and processing uploads end `account_banned`
 
 ### Moderation works without JS
 - GIVEN moderator M with JavaScript off

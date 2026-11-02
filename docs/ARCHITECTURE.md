@@ -411,10 +411,14 @@ Chapter text isn't indexed.
    removed work takes no upload). Only a work's first upload sets it `live`.
 
 **Rejection codes:** `not_epub`, `zip_bomb`, `too_large`, `not_ao3`,
-`opted_out`, `parse_failed`, `work_removed`. Each one shows a plain-language
+`opted_out`, `parse_failed`, `work_removed`, `account_banned`. Each one shows a plain-language
 message to the uploader. `work_removed` is the upload of a work a moderator or
 its author removed, checked after the opt-out and takedown lists and before
-the current version is read. Step 2 lists which problem gives which of the first three.
+the current version is read. `account_banned` is an upload by an account a
+moderator banned (its meaning to the uploader: the account can no longer
+upload): the ban sets it on the account's `pending` uploads, and ingest sets it
+on a job whose uploader is banned, checked before the file is read and again,
+with the account's row locked shared, in the save's transaction. Step 2 lists which problem gives which of the first three.
 `not_ao3` covers any file without an AO3 preface "Posted originally" line,
 including one whose AO3 work URL is only in the OPF (step 4). `opted_out`
 covers the opt-out list and the takedown list of moderator-removed works.
@@ -687,8 +691,13 @@ epub, under the normal versioning rules.
   longer hide anything (an opt-out from them isn't applied until a moderator
   approves it). Every requester sees the same confirmation (FRONTEND-DISCOVERY,
   journey 4), and the page never reveals that a requester is blocked. Banning
-  an uploader (an account, `banned_at`) stops it uploading and reporting; its
-  existing uploads stay until a moderator acts on them.
+  an uploader (an account, `banned_at`) stops it uploading and reporting, and
+  stops its in-flight uploads: its `pending` uploads, and any job ingest has
+  not yet saved, end `account_banned`. Its live works and finished uploads stay
+  until a moderator acts on them. A moderator bans from a work's admin page
+  (`POST /admin/users/:id/ban`); nobody bans themselves, a moderator or an
+  admin, and there is no unban at launch. The ban is read from the database on
+  every request, so a session signed in before it is refused after it.
 - **What hidden, held and removed works show.**
   - **Hidden** (`hidden`, by a removal request or opt-out, by reports, or by a
     moderator): 451 on the work page, every chapter URL and `/full`, with one
@@ -752,7 +761,7 @@ epub, under the normal versioning rules.
   outside the database, such as removing a work's files, can't join that
   transaction.) A reject that also lifts a hide logs only the reject. A hide
   no moderator chose (the reports' automatic hide, a removal request's hide)
-  writes none. Hide, restore and the request and takedown rejects write a row
+  writes none. Hide, restore, ban and the request and takedown rejects write a row
   today; each later action calls the same helper, `logModerationAction`, when
   it is built. The row's `moderator_id` has no foreign key to `user`, so
   deleting an account keeps its log rows, with the id as it was. Anyone
