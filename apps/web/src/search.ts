@@ -12,7 +12,7 @@ import { PAGE_SIZE, pager, pageOf, RATINGS, select, workList, type Pair } from "
 import { DRAFT, escapeHtml, layout } from "./pages";
 
 /** The query is in the URL: a cross-site link on a result must not carry it in the Referer. */
-const PRIVATE = { "Referrer-Policy": "strict-origin" };
+const REFERRER_POLICY = "strict-origin";
 
 /** The most of a fandom name, and of a query, that is read. The db cuts a query at the same length. */
 const MAX_FANDOM = 200;
@@ -63,11 +63,12 @@ function searchHref(q: string, { fandom, rating }: Filters, page: number): strin
 
 export async function showSearch(c: Context<{ Bindings: Bindings }>) {
   // On every response, an error and a 404 too: the URL holds the reader's query.
-  c.header("Referrer-Policy", PRIVATE["Referrer-Policy"]);
-  const q = cut(c.req.query("q") ?? "", MAX_QUERY);
+  c.header("Referrer-Policy", REFERRER_POLICY);
+  // Postgres refuses a NUL, so the db reads one as a space; the page shows what was searched.
+  const q = cut((c.req.query("q") ?? "").replaceAll("\0", " "), MAX_QUERY);
   const filters = filtersOf(c.req.query("fandom"), c.req.query("rating"));
   // A missing or blank query shows the form and no results, whatever the filters.
-  if (q.trim() === "") return c.html(layout("Search", searchForm(q, filters)), 200, PRIVATE);
+  if (q.trim() === "") return c.html(layout("Search", searchForm(q, filters)));
   const page = pageOf(c.req.query("page"));
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
   try {
@@ -84,8 +85,6 @@ export async function showSearch(c: Context<{ Bindings: Bindings }>) {
     const href = (n: number) => searchHref(q, filters, n);
     return c.html(
       layout("Search", `${searchForm(q, filters)}\n${list}\n${pager(href, page, last)}`),
-      200,
-      PRIVATE,
     );
   } finally {
     c.executionCtx.waitUntil(db.destroy());

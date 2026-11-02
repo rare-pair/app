@@ -154,6 +154,12 @@ describe("15-search paging and filters", () => {
       expect(html).not.toContain("y".repeat(201));
     });
 
+    it("A NUL in the query is shown as the space it is searched as", async () => {
+      const html = await search(`q=%00${FILTERED_WORD}`);
+      expect(html).not.toContain("\0");
+      expect(hasWork(html, FILTERED_TEEN)).toBe(true);
+    });
+
     it("A fandom is cut by character, not in the middle of one", async () => {
       const html = await search(
         `q=${FILTERED_WORD}&fandom=${encodeURIComponent(`${"z".repeat(199)}\u{1F600}`)}`,

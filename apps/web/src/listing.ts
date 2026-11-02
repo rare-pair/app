@@ -199,7 +199,8 @@ function listingHref(type: TagType, name: string, params: Pair[]): string {
 /**
  * Previous, the page numbers and next, all real links; the current page is
  * marked and not a link. Page numbers are the first, the last and those within
- * PAGES_AROUND of the current one, with a gap shown between runs.
+ * PAGES_AROUND of the current one, with a gap shown between runs. `href` returns a
+ * value already escaped for an attribute.
  */
 export function pager(href: (n: number) => string, page: number, last: number): string {
   if (last === 1) return "";
