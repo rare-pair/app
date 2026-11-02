@@ -85,6 +85,38 @@ describe("purgeWorkCaches", () => {
     ]);
   });
 
+  it("Sends exactly 100 URLs for 50 uploads and 100 then 2 for 51", async () => {
+    for (const [n, sizes] of [
+      [50, [100]],
+      [51, [100, 2]],
+    ] as const) {
+      const uploadIds = Array.from({ length: n }, (_, i) => `up-${i}`);
+      const { sent, fetch } = stubFetch();
+      await purgeWorkCaches(credentials, { ao3WorkId: 12, uploadIds }, { fetch });
+      expect(
+        sent.flatMap((s) => (s.body.files ? [s.body.files.length] : [])),
+        String(n),
+      ).toEqual(sizes);
+    }
+  });
+
+  it("Has at most three requests open at once, however many uploads", async () => {
+    let open = 0;
+    let most = 0;
+    const fetch = async () => {
+      open += 1;
+      most = Math.max(most, open);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      open -= 1;
+      return ok();
+    };
+    const uploadIds = Array.from({ length: 300 }, (_, i) => `up-${i}`);
+    await purgeWorkCaches(credentials, { ao3WorkId: 12, uploadIds }, { fetch });
+    // The tags, the prefixes, and one batch of download URLs at a time: a Worker has six
+    // connections, and a request waiting for one would spend its timeout queued.
+    expect(most).toBe(3);
+  });
+
   it("Fails when any request fails, after sending every one", async () => {
     const target = { ao3WorkId: 12, uploadIds: ["up-1"] };
     /** Answers the tag request with `failure`, the others as accepted. */

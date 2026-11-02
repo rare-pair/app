@@ -137,8 +137,8 @@
     "UPLOAD_QUOTA_NEW": "20",
     "UPLOAD_QUOTA_TRUSTED": "100",
     // The rarepair.fans zone, whose cache a work's removal purges (src/purge.ts): its pages and
-    // fragments, and content.rarepair.fans's images and downloads, a custom domain on the same
-    // zone. Not a secret. A placeholder: the operator deploys with the real id in its place
+    // fragments, and content.rarepair.fans's image and download URLs (a custom domain on the
+    // same zone), in case the zone caches them. Not a secret. A placeholder: the operator deploys with the real id in its place
     // (`wrangler deploy --var CLOUDFLARE_ZONE_ID:...`). Under the placeholder every purge
     // fails, and the remove says so.
     "CLOUDFLARE_ZONE_ID": "00000000000000000000000000000000",

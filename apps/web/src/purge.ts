@@ -32,9 +32,12 @@ export interface PurgeOptions {
 }
 
 /**
- * Asks Cloudflare to purge every cached copy of the work: its web pages and fragments
+ * Asks Cloudflare to purge the work from the zone's cache: its web pages and fragments
  * by tag, its images by prefix, and its original downloads by URL. The API takes one
- * kind per request, so that is three requests.
+ * kind per request: one tag request, one prefix request, and one download request per
+ * 100 URLs (two URLs an upload; none for a work with no uploads). Whether the zone
+ * cache holds the content host's responses at all is the operator's to settle: no
+ * purge reaches a browser's cache, or apps/content's own cache if it ever has one.
  */
 export async function purgeWorkCaches(
   credentials: PurgeCredentials,
@@ -51,22 +54,30 @@ export async function purgeWorkCaches(
   // Both forms of each download URL until #119 settles the key: ingest stores
   // originals/<id>.epub, and the work page links originals/<id>.
   const files = target.uploadIds.flatMap((id) => [`${originalUrl(id)}.epub`, originalUrl(id)]);
-  const requests: { step: string; body: PurgeBody }[] = [
-    { step: "tags", body: { tags: [workCacheTag(target.ao3WorkId)] } },
-    // No scheme, as the API wants, and the trailing slash keeps works/12/ from matching works/123/.
-    { step: "prefixes", body: { prefixes: [`${CONTENT_HOST}/works/${target.ao3WorkId}/img/`] } },
-  ];
-  for (let i = 0; i < files.length; i += MAX_FILES) {
-    requests.push({ step: "files", body: { files: files.slice(i, i + MAX_FILES) } });
-  }
-  // All at once, and each to the end, so one failing doesn't leave the others unasked.
-  const failed = await Promise.all(
-    requests.map(async ({ step, body }) => {
-      const why = await request(url, credentials.token, body, options);
-      return why === null ? null : `${step} (${why})`;
-    }),
-  );
-  const failures = failed.filter((f) => f !== null);
+  /** Sends one request: nothing when it was accepted, or what failed. */
+  const send = async (step: string, body: PurgeBody) => {
+    const why = await request(url, credentials.token, body, options);
+    return why === null ? [] : [`${step} (${why})`];
+  };
+  /** The download URLs, one batch at a time, each to the end. */
+  const sendFiles = async () => {
+    const failed: string[] = [];
+    for (let i = 0; i < files.length; i += MAX_FILES) {
+      // One at a time on purpose: a Worker has six connections, and a request queued for
+      // one would spend its timeout waiting.
+      failed.push(...(await send("files", { files: files.slice(i, i + MAX_FILES) })));
+    }
+    return failed;
+  };
+  // Three lanes at once, each to the end, so one failing doesn't leave the others unasked.
+  const failures = (
+    await Promise.all([
+      send("tags", { tags: [workCacheTag(target.ao3WorkId)] }),
+      // No scheme, as the API wants, and the trailing slash keeps works/12/ from matching works/123/.
+      send("prefixes", { prefixes: [`${CONTENT_HOST}/works/${target.ao3WorkId}/img/`] }),
+      sendFiles(),
+    ])
+  ).flat();
   if (failures.length > 0) throw new PurgeError(`cache purge failed: ${failures.join(", ")}`);
 }
 
