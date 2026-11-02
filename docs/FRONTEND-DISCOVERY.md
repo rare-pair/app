@@ -161,7 +161,7 @@ without it. Elsewhere the
 | Confirm sign-in | `/login/confirm?token=…` | all | "Sign in" button (POST form); used, expired or unknown links redirect to `/login` with a message | — |
 | Accept terms | `/welcome/terms` | new accounts, once | Terms summary, link to `/terms`, Accept button (POST form); every other signed-in page redirects here until accepted | — |
 | Upload | `/upload` | signed in | `<noscript>` message: uploading needs JavaScript | Turnstile, then direct-to-R2 upload with progress, one or more files |
-| My uploads | `/me/uploads` | signed in | Status list that refreshes itself with `<meta http-equiv="refresh">` while anything is processing | Updates in place |
+| My uploads | `/me/uploads` | signed in | Status list; with JS it updates in place, without JS a `<meta http-equiv="refresh">` inside `<noscript>` reloads it while anything is processing | Updates in place |
 | Remove my work / opt out | `/remove` (`?work=:id` prefills) | all | `<noscript>` message with the moderators' contact address | Request form with Turnstile, then a confirmation page that is the same for every requester |
 | Report | `/works/:id/report` | signed in (others are redirected to sign in, carrying `next`) | Form, then a confirmation page | — |
 | DMCA notice | `/dmca` | all | Statutory notice form | — |
@@ -194,10 +194,11 @@ updated to match.
    POST that sets the cookie and redirects back. With JS on, a script flips the
    attributes and writes the cookie. The script is served from `'self'` with
    the page's nonce.
-3. **Upload status without JS.** *My uploads* refreshes itself with a
-   `<meta http-equiv="refresh" content="5">` while any upload is processing,
-   and drops it once nothing is. CSP doesn't block that, and it needs no
-   script.
+3. **Upload status without JS.** *My uploads* puts a
+   `<meta http-equiv="refresh" content="5">` inside `<noscript>` in the head
+   while any upload is processing, and drops it once nothing is, so it applies
+   only without JS. CSP doesn't block that, and it needs no script. With JS
+   the page polls `GET /uploads/:id` and updates in place instead.
 
 ## Typographic system
 
