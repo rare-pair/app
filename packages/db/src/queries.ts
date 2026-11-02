@@ -842,7 +842,8 @@ export async function restoreWork(
  * false. A version already current is left as it is: true, with nothing written. Otherwise the
  * work's row is locked (for no key update, the lock ingest's compare-and-swap takes) before
  * any tag row, and every change to the work comes with the pointer's move, so a replace, hold
- * or duplicate that read the old pointer fails its pointer check and decides again. It doesn't check
+ * or duplicate that read the old pointer fails its pointer check and decides again. The work's
+ * open `wrong_version` reports close with the move (they were about the replaced version). It doesn't check
  * the version's upload: the caller decides whether a held version may become current (only
  * an approval makes one current).
  *
@@ -873,6 +874,14 @@ export async function makeVersionCurrent(
       .where("id", "=", workId)
       .execute();
     await copyVersionToWork(trx, workId, versionId);
+    // Reports that this version is wrong were about the one it replaces.
+    await trx
+      .updateTable("reports")
+      .set({ status: "closed" })
+      .where("work_id", "=", workId)
+      .where("kind", "=", "wrong_version")
+      .where("status", "=", "open")
+      .execute();
     if (options.actor !== undefined) {
       await logModerationAction(trx, {
         moderatorId: options.actor,
