@@ -270,6 +270,30 @@ describe("18 moderation: approving", () => {
     expect(await logged(held.versionId)).toHaveLength(1);
   });
 
+  it("A flagged backfill version is never held and can be approved", async () => {
+    const w = await seedWork(db, {
+      ao3WorkId: 19535,
+      title: "mod3b-backfill",
+      addedAt: "1999-01-25T00:00:00Z",
+    });
+    // Re-made from the first upload, so it has none of its own.
+    const remade = await seedVersion(db, w, {
+      backfillOf: w.uploadId,
+      reviewReasons: ["mod3b-reason"],
+      addedAt: "1999-02-25T00:00:00Z",
+    });
+    const html = await (await get("/admin/works/19535", moderator)).text();
+    const row = rowWith(html, "1999-02-25");
+    expect(row).not.toContain("Held for review");
+    expect(row).toContain(`action="/admin/works/19535/approve"`);
+    expect(row).toContain(`action="/admin/works/19535/current"`);
+
+    const res = await post("/admin/works/19535/approve", moderator, { version: remade.versionId });
+
+    expect(await res.text()).toContain("The notice is cleared.");
+    expect(await queued(19535)).toBe(false);
+  });
+
   it("Approve refuses what it can't approve and answers 404 to the rest", async () => {
     const w = await seedWork(db, {
       ao3WorkId: 19530,

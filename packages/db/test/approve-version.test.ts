@@ -32,7 +32,7 @@ const logOf = (targetId: string) =>
 const versionRow = (id: string) =>
   t.db
     .selectFrom("work_versions")
-    .innerJoin("uploads", "uploads.id", "work_versions.upload_id")
+    .leftJoin("uploads", "uploads.id", "work_versions.upload_id")
     .select([
       "work_versions.checked_at",
       "work_versions.hold_reason",
@@ -147,6 +147,32 @@ describe("18 moderation: Works to check", () => {
     expect(await approveVersion(t.db, w.workId, w.versionId, { actor: moderator })).toBe("nothing");
     expect((await versionRow(w.versionId)).checked_at).toEqual(checked);
     expect(await logOf(w.versionId)).toHaveLength(1);
+  });
+
+  it("Approving a flagged backfill version clears its notice and touches no upload", async () => {
+    const moderator = await addModerator();
+    const w = await seedWork(t.db, { title: "apbackfill" });
+    // Re-made from the first upload: no upload of its own (migration 0016), flagged.
+    const remade = await seedVersion(t.db, w, { backfillOf: w.uploadId, reviewReasons: ["x"] });
+    const uploadBefore = await t.db
+      .selectFrom("uploads")
+      .selectAll()
+      .where("id", "=", w.uploadId)
+      .executeTakeFirstOrThrow();
+
+    expect(await approveVersion(t.db, w.workId, remade.versionId, { actor: moderator })).toBe(
+      "cleared",
+    );
+
+    expect((await versionRow(remade.versionId)).checked_at).not.toBeNull();
+    expect(
+      await t.db
+        .selectFrom("uploads")
+        .selectAll()
+        .where("id", "=", w.uploadId)
+        .executeTakeFirstOrThrow(),
+    ).toEqual(uploadBefore);
+    expect(await logOf(remade.versionId)).toHaveLength(1);
   });
 
   it("Approving a hidden work's flagged version clears it", async () => {

@@ -44,7 +44,8 @@ export async function approveVersion(
     if (work === undefined) return "unavailable";
     const version = await trx
       .selectFrom("work_versions")
-      .innerJoin("uploads", "uploads.id", "work_versions.upload_id")
+      // A backfill version (migration 0016) has no upload of its own, so no upload to hold.
+      .leftJoin("uploads", "uploads.id", "work_versions.upload_id")
       .select(["work_versions.upload_id", "uploads.status as upload_status"])
       .where("work_versions.id", "=", versionId)
       .where("work_versions.work_id", "=", workId)
@@ -52,7 +53,7 @@ export async function approveVersion(
     if (version === undefined) return "nothing";
 
     let outcome: ApproveOutcome;
-    if (version.upload_status === "held_for_review") {
+    if (version.upload_id !== null && version.upload_status === "held_for_review") {
       const published = await trx
         .updateTable("uploads")
         .set({ status: "live" })
@@ -71,7 +72,11 @@ export async function approveVersion(
         throw new Error("The work was locked as live or hidden, so the version must be current.");
       }
       outcome = "published";
-    } else if (version.upload_status === "live" && work.current_version_id === versionId) {
+    } else if (
+      // A backfill version is never held: it re-makes a version that went live.
+      (version.upload_id === null || version.upload_status === "live") &&
+      work.current_version_id === versionId
+    ) {
       const cleared = await trx
         .updateTable("work_versions")
         .set({ checked_at: sql<Date>`now()` })

@@ -29,6 +29,21 @@
         // A job that fails for good is recorded as parse_failed, then dead-lettered here.
         "dead_letter_queue": "ingest-dlq",
       },
+      {
+        // The re-sanitize backfill (ARCHITECTURE, EPUB processor, step 8): one `{work_id,
+        // version_id}` a message, put there by scripts/backfill.mjs. One work a batch and one
+        // invocation at once, so a run over every stored work holds one Postgres connection
+        // and one epub, and leaves the rest to the uploads on the ingest queue.
+        "queue": "ingest-backfill",
+        "max_batch_size": 1,
+        "max_batch_timeout": 5,
+        "max_concurrency": 1,
+        // Retries for R2 and Postgres outages only: a file the current processor refuses is
+        // logged and acked, leaving the work's current version as it is.
+        "max_retries": 3,
+        "retry_delay": 120,
+        "dead_letter_queue": "ingest-backfill-dlq",
+      },
     ],
   },
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "rarepair" }],

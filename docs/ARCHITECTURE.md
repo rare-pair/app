@@ -19,7 +19,7 @@ an unofficial stopgap.
 | Load target | Surge-ready: assume tens of thousands of signups in the first days |
 | Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend |
 | Accepted files | AO3-native epub exports only. FanFicFare support comes later |
-| New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review |
+| New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) |
 | Author identity | No work claims and no author verification while AO3 is down. Removal and opt-out are requests anyone can make, without proving who they are |
 | Search scope | Metadata only: title, author, tags, summary |
 | Chapter rendering | Inline in app pages behind a strict CSP, with no iframe |
@@ -57,7 +57,9 @@ an unofficial stopgap.
   expires on its own. Original files we keep go in `originals/`, and processed
   chapters go under `works/<ao3_work_id>/<upload_id>/`: one prefix per version,
   keyed by the upload that produced it, so a retried job overwrites only its own
-  files. `work_versions.r2_prefix` records it; version numbers live only in
+  files. A version the re-sanitize backfill re-makes has no upload of its own
+  and goes under `works/<ao3_work_id>/<version id>/` (EPUB processor, step 8).
+  `work_versions.r2_prefix` records it; version numbers live only in
   Postgres. The AO3 work ID is known once the preface is parsed, before anything
   is written.
 - **Neon Postgres over D1.** D1 is capped at 10 GB per database, the cap can't
@@ -117,7 +119,11 @@ works        (id, ao3_work_id UNIQUE NOT NULL, title, summary_html, rating, lang
               search_text)       -- the same text, for pg_trgm fuzzy matching
 work_authors (work_id, pseud, ao3_user NULL,
               position)  -- the author's place in the byline, from 0; unique per work
-work_versions(id, work_id, upload_id, chapter_count,
+work_versions(id, work_id,
+              upload_id NULL,         -- the upload that made it; NULL for a backfill version, which has none
+              source,                 -- upload | backfill (step 8, The re-sanitize backfill)
+              source_upload_id NULL,  -- a backfill version's original: the upload it was re-made from
+              chapter_count,
               chapter_total NULL,  -- the planned total as this version's preface gave it
               r2_prefix, created_at,
               review_reasons text[],  -- from the parser; non-empty shows the notice
@@ -461,6 +467,49 @@ Chapter text isn't indexed.
    on its first pass over the work after they are 24 hours old. A replace never changes the work's status: a hidden work stays so (a
    removed work takes no upload). Only a work's first upload sets it `live`.
 
+   **The re-sanitize backfill** is a third kind of save, decided by "same
+   original, new sanitizer", not by the uploader-facing rules of step 7, and
+   no `uploads` row is involved (operator ruling, 2026-11-01). After a
+   sanitizer fix the operator runs `scripts/backfill.mjs`, which puts one
+   `{ work_id, version_id }` message for each `live` or `hidden` work's current
+   version on the `ingest-backfill` queue; `removed` works are left out, as
+   their files are gone. The ingest Worker consumes it, one work at a time,
+   and acks the message with no new version when the work is removed (it
+   clears the work's `works/<ao3_work_id>/` folder again, for an earlier
+   attempt that raced the removal) or its current version is no longer the
+   message's (a redelivery after the commit, a moderator's make-current or a
+   newer upload). Otherwise it reads the version's original,
+   `originals/<id>.epub` for its `upload_id`, or its `source_upload_id` when
+   it is itself a backfill version, runs the processor as
+   it now is, checks the opt-out and takedown lists and the AO3 ID, and
+   writes a **new version**: its fragments under a prefix of its own,
+   `works/<ao3_work_id>/<version id>/`, its images under `img/`, and no second
+   copy of the original. Existing fragments are never rewritten, so every
+   cached fragment keeps its key (#441). One transaction adds the version, with
+   `source = backfill` and `source_upload_id` naming the upload it was
+   re-made from (`upload_id` is NULL), and moves `current_version_id` to it
+   with the same compare-and-swap as a replace, then copies it onto the work.
+   It never calls `decideVersion`: the same file would be a `duplicate` there.
+   The work's summary is the new version's even when it has none. A
+   work removed while the job ran has its `works/<ao3_work_id>/` folder
+   cleared again, since the job may have written after the removal's purge.
+   The work's status is left as it is. `checked_at` carries over only when the
+   re-made version has the same review reasons. A file the processor now
+   refuses is logged by its code and acked, leaving the current version
+   alone; an R2 or Postgres failure is retried, then dead-lettered to
+   `ingest-backfill-dlq`. A message whose version is no longer current is
+   acked even when the work's new current version predates the fix: rerun the
+   script for it. Only current versions are re-made, so an older version made
+   current again, or a held version approved later, still has its old
+   fragments. Nothing records
+   which sanitizer made a version, so a rerun re-makes every work again (#464).
+   The script pushes 100 messages a call, at most two calls a second, under
+   the Cloudflare API's rate limit. The consumer re-makes one work at a time,
+   so a large archive takes days: create `ingest-backfill` with a message
+   retention longer than the run (Queues keep a message four days unless
+   configured, at most 14), or run the script in slices with `BACKFILL_AFTER`,
+   since a message that expires unconsumed is dropped without a trace.
+
 **Rejection codes:** `not_epub`, `zip_bomb`, `too_large`, `not_ao3`,
 `opted_out`, `parse_failed`, `work_removed`, `account_banned`. Each one shows a plain-language
 message to the uploader. `work_removed` is the upload of a work a moderator or
@@ -578,7 +627,9 @@ can be snapshotted.
   design choice, not a bug to fix with a class hook.
 - **We can re-sanitize everything.** Originals are kept in `originals/`, so
   when a bypass is found we fix the sanitizer and re-run ingest on every stored
-  work from a backfill queue.
+  work from a backfill queue. Each re-run work gets a new version under its own
+  prefix, made current; old fragments are never rewritten (EPUB processor,
+  step 8, The re-sanitize backfill).
 - **Caching.** Fragments in R2 never change once written, since each version
   has its own prefix. The Worker caches them with the Cache API. Reader
   settings (font, spacing, theme) come from a cookie. The server writes them as
@@ -619,7 +670,8 @@ can be snapshotted.
   itself never moves the reader.
 - "Download original epub" serves the file from `originals/` with
   `Content-Disposition: attachment` from `content.rarepair.fans`. It's never
-  displayed inline.
+  displayed inline. The link names the current version's upload, or for a
+  backfill version the upload it was re-made from (`source_upload_id`).
 
 ## Auth (magic link: Better Auth + Resend)
 

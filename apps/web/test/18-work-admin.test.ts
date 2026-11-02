@@ -255,6 +255,29 @@ describe("08 versioning and dedupe", () => {
     expect(await currentOf(W)).toBe(before);
   });
 
+  it("A backfill version is listed and can be made current", async () => {
+    // W + 3: its first version, then one the backfill (I7) re-made from that upload's original.
+    const first = await seedWork(db, { ao3WorkId: W + 3, addedAt: "2002-01-01T00:00:00Z" });
+    const remade = await seedVersion(db, first, {
+      backfillOf: first.uploadId,
+      addedAt: "2002-02-01T00:00:00Z",
+    });
+    expect(
+      (await post(`/admin/works/${W + 3}/current`, moderator, { version: first.versionId })).status,
+    ).toBe(200);
+
+    const html = await (await get(`/admin/works/${W + 3}`, moderator)).text();
+    const rows = [...html.matchAll(/<tr>[\s\S]*?<\/tr>/g)].map((m) => m[0]);
+    const row = rows.find((r) => r.includes("2002-02-01")) ?? "";
+    // Not held: its original's upload went live, and the form offers it.
+    expect(row).toContain(`name="version" value="${remade.versionId}"`);
+    const res = await post(`/admin/works/${W + 3}/current`, moderator, {
+      version: remade.versionId,
+    });
+    expect(await res.text()).toContain("That version is now current.");
+    expect(await currentOf(W + 3)).toBe(remade.versionId);
+  });
+
   it("An unknown work has no admin page", async () => {
     expect((await get("/admin/works/14299", moderator)).status).toBe(404);
     expect((await get("/admin/works/nope", moderator)).status).toBe(404);
