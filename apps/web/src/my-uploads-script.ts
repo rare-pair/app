@@ -22,7 +22,7 @@ export const MY_UPLOADS_SCRIPT = `"use strict";
   const INTERVAL = ${REFRESH_SECONDS * 1000};
   const rows = new Set(document.querySelectorAll("li[data-upload-id][data-polling]"));
   if (rows.size === 0) return;
-  const label = (status) => (status === "pending" ? LABELS.processing : LABELS[status] || REJECTED);
+  const label = (status) => (status === "pending" ? LABELS.processing : Object.hasOwn(LABELS, status) ? LABELS[status] : REJECTED);
   const waiting = (status) => status === "pending" || status === "processing";
   let timer = 0;
   let busy = false;
@@ -31,6 +31,7 @@ export const MY_UPLOADS_SCRIPT = `"use strict";
     try {
       res = await fetch("/uploads/" + encodeURIComponent(li.getAttribute("data-upload-id")), {
         headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(INTERVAL * 2),
       });
     } catch (e) {
       return;
@@ -41,6 +42,7 @@ export const MY_UPLOADS_SCRIPT = `"use strict";
       return;
     }
     if (res.status === 404) {
+      li.removeAttribute("data-polling");
       rows.delete(li);
       return;
     }
@@ -80,7 +82,7 @@ export const MY_UPLOADS_SCRIPT = `"use strict";
     if (document.hidden || busy) return;
     busy = true;
     try {
-      await Promise.all(Array.from(rows, poll));
+      await Promise.allSettled(Array.from(rows, poll));
     } finally {
       busy = false;
     }

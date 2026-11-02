@@ -81,6 +81,7 @@ function page(rows: ReturnType<typeof row>[], replies: Record<string, Reply[]>) 
     fetch,
     setTimeout: (fn: Task) => timers.push(fn),
     clearTimeout: () => {},
+    AbortSignal,
     location: {
       reload: () => {
         state.reloads++;
