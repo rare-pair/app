@@ -3,7 +3,8 @@
 // it, and the takedown and author paths will too.
 import { removeWork, type Database } from "@archive/db";
 import type { Kysely } from "kysely";
-import type { PurgeTarget } from "./purge";
+import type { Bindings } from "./env";
+import { purgeWorkCaches, type PurgeTarget } from "./purge";
 import { deleteWorkObjects, type ObjectBucket } from "./remove-objects";
 
 export interface RemoveDeps {
@@ -11,6 +12,12 @@ export interface RemoveDeps {
   bucket: ObjectBucket;
   /** Purges the work from Cloudflare's cache: `purgeWorkCaches` with the Worker's credentials. */
   purge: (target: PurgeTarget) => Promise<void>;
+}
+
+/** What `removeWorkEverywhere` needs, from the Worker's bindings and the request's database. */
+export function removeDeps(env: Bindings, db: Kysely<Database>): RemoveDeps {
+  const credentials = { token: env.CLOUDFLARE_PURGE_TOKEN, zoneId: env.CLOUDFLARE_ZONE_ID };
+  return { db, bucket: env.BUCKET, purge: (target) => purgeWorkCaches(credentials, target) };
 }
 
 /**

@@ -1,9 +1,9 @@
 import { seedWork } from "@archive/db/seed";
 import { createTestDb, type TestDb } from "@archive/db/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { PurgeError, type PurgeTarget } from "../src/purge";
-import type { ObjectBucket } from "../src/remove-objects";
 import { removeWorkEverywhere } from "../src/remove-work";
+import { fakeBucket } from "./fake-bucket";
 
 // The one remove, in order: the status, then R2, then the cache purge. Cloudflare's purge API
 // is the stub (the workerd tests in 18-work-remove.test.ts cover the route and its requests);
@@ -17,24 +17,6 @@ afterAll(async () => {
   // oxlint-disable-next-line typescript/no-unnecessary-condition -- unset if beforeAll failed
   await t?.close();
 }, 60_000);
-
-/** An in-memory bucket holding `keys`; `failDelete` makes every delete throw. */
-function memoryBucket(keys: string[], failDelete = false) {
-  const held = new Set(keys);
-  const bucket: ObjectBucket = {
-    async list({ prefix }) {
-      return {
-        objects: [...held].flatMap((key) => (key.startsWith(prefix) ? [{ key }] : [])),
-        truncated: false,
-      };
-    },
-    async delete(toDelete) {
-      if (failDelete) throw new Error("R2 unavailable");
-      for (const k of toDelete) held.delete(k);
-    },
-  };
-  return { bucket, held };
-}
 
 /** A purge stand-in recording each target with the keys the bucket held at that moment. */
 function recordingPurge(held: Set<string>, fail = false) {
@@ -67,7 +49,7 @@ describe("removeWorkEverywhere", () => {
     { timeout: 30_000 },
     async () => {
       const { work, keys } = await seeded(14501);
-      const { bucket, held } = memoryBucket(keys);
+      const { bucket, held } = fakeBucket(keys);
       const { calls, purge } = recordingPurge(held);
       const result = await removeWorkEverywhere(
         { db: t.db, bucket, purge },
@@ -87,17 +69,16 @@ describe("removeWorkEverywhere", () => {
     { timeout: 30_000 },
     async () => {
       const { work, keys } = await seeded(14502);
-      const { bucket, held } = memoryBucket(keys);
+      const { bucket, held } = fakeBucket(keys);
       const { purge } = recordingPurge(held, true);
       const logged: unknown[][] = [];
-      const error = console.error;
-      console.error = (...args: unknown[]) => logged.push(args);
-      let result;
-      try {
-        result = await removeWorkEverywhere({ db: t.db, bucket, purge }, work.workId, work.userId);
-      } finally {
-        console.error = error;
-      }
+      const spy = vi.spyOn(console, "error").mockImplementation((...args) => logged.push(args));
+      const result = await removeWorkEverywhere(
+        { db: t.db, bucket, purge },
+        work.workId,
+        work.userId,
+      );
+      spy.mockRestore();
       expect(result).toEqual({ outcome: "removed", caches: "failed" });
       expect(held.size).toBe(0);
       const status = await t.db
@@ -113,7 +94,7 @@ describe("removeWorkEverywhere", () => {
 
   it("A failed delete skips the purge", { timeout: 30_000 }, async () => {
     const { work, keys } = await seeded(14503);
-    const { bucket, held } = memoryBucket(keys, true);
+    const { bucket, held } = fakeBucket(keys, { failDelete: true });
     const { calls, purge } = recordingPurge(held);
     await expect(
       removeWorkEverywhere({ db: t.db, bucket, purge }, work.workId, work.userId),
@@ -126,13 +107,13 @@ describe("removeWorkEverywhere", () => {
     { timeout: 30_000 },
     async () => {
       const { work, keys } = await seeded(14504);
-      const first = memoryBucket(keys);
+      const first = fakeBucket(keys);
       await removeWorkEverywhere(
         { db: t.db, bucket: first.bucket, purge: recordingPurge(first.held).purge },
         work.workId,
         work.userId,
       );
-      const again = memoryBucket(keys);
+      const again = fakeBucket(keys);
       const repeat = recordingPurge(again.held);
       expect(
         await removeWorkEverywhere(
@@ -145,7 +126,7 @@ describe("removeWorkEverywhere", () => {
       expect(repeat.calls).toHaveLength(1);
 
       const processing = await seeded(14505, "processing");
-      const untouched = memoryBucket(processing.keys);
+      const untouched = fakeBucket(processing.keys);
       const none = recordingPurge(untouched.held);
       expect(
         await removeWorkEverywhere(

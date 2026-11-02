@@ -4,6 +4,7 @@
 
 import { createDb, getLiveWork, getWorkAvailability, type LiveWork } from "@archive/db";
 import type { Context } from "hono";
+import { originalUrl } from "./content-host";
 import type { Bindings } from "./env";
 import { escapeHtml, layout } from "./pages";
 import { continueHref, loadPosition, type Position } from "./position";
@@ -32,12 +33,10 @@ const isLinked = (tag: Tag): tag is Tag & { type: LinkedType } =>
   Object.hasOwn(TAG_LABELS, tag.type);
 
 /**
- * The original epub on the content host, `originals/<one segment>` as apps/content
- * serves it. The segment is the upload that made this version, the third part of
- * its prefix (`works/<ao3_work_id>/<upload_id>/`). Provisional: #119 settles the key.
+ * The original epub on the content host. The upload that made this version is the third
+ * part of its prefix (`works/<ao3_work_id>/<upload_id>/`).
  */
-const originalHref = (r2Prefix: string) =>
-  `https://content.rarepair.fans/originals/${encodeURIComponent(r2Prefix.split("/")[2] ?? "")}`;
+const originalHref = (r2Prefix: string) => originalUrl(r2Prefix.split("/")[2] ?? "");
 
 /**
  * The reader's place, as a link: to the saved chapter or the entire-work page, with the

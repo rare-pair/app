@@ -15,8 +15,7 @@ import {
   workStatusText,
 } from "./admin-pages";
 import { readForm } from "./login";
-import { purgeWorkCaches } from "./purge";
-import { removeWorkEverywhere } from "./remove-work";
+import { removeDeps, removeWorkEverywhere } from "./remove-work";
 import { isSameOrigin } from "./signin";
 
 /** An AO3 work ID is an int4. */
@@ -220,19 +219,7 @@ adminItems.post("/works/:id/remove", async (c) => {
   if (form?.get("confirm") !== "yes") {
     return c.html(removeConfirmPage(work.title, work.ao3_work_id, from));
   }
-  const credentials = {
-    token: c.env.CLOUDFLARE_PURGE_TOKEN,
-    zoneId: c.env.CLOUDFLARE_ZONE_ID,
-  };
-  const removed = await removeWorkEverywhere(
-    {
-      db: c.var.db,
-      bucket: c.env.BUCKET,
-      purge: (target) => purgeWorkCaches(credentials, target),
-    },
-    work.id,
-    c.var.userId,
-  );
+  const removed = await removeWorkEverywhere(removeDeps(c.env, c.var.db), work.id, c.var.userId);
   if (!removed) return c.notFound();
   if (removed.outcome === "processing") {
     return c.html(

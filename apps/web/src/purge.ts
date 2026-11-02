@@ -2,10 +2,9 @@
 // "Removal really removes"), through the zone's purge_cache API: the Cache API's own
 // `delete` clears one data centre only.
 // https://developers.cloudflare.com/api/resources/cache/methods/purge/
+import { CONTENT_HOST, originalUrl } from "./content-host";
 import { workCacheTag } from "./edge-cache";
 
-/** The host apps/content serves images and original downloads on. */
-const CONTENT_HOST = "content.rarepair.fans";
 /** The most URLs one purge-by-URL request takes below Enterprise. */
 const MAX_FILES = 100;
 /** A Cloudflare zone id: 32 lowercase hex digits. */
@@ -50,10 +49,7 @@ export async function purgeWorkCaches(
   const url = `https://api.cloudflare.com/client/v4/zones/${credentials.zoneId}/purge_cache`;
   // Both forms of each download URL until #119 settles the key: ingest stores
   // originals/<id>.epub, and the work page links originals/<id>.
-  const files = target.uploadIds.flatMap((id) => [
-    `https://${CONTENT_HOST}/originals/${id}.epub`,
-    `https://${CONTENT_HOST}/originals/${id}`,
-  ]);
+  const files = target.uploadIds.flatMap((id) => [`${originalUrl(id)}.epub`, originalUrl(id)]);
   const requests: { step: string; body: PurgeBody }[] = [
     { step: "tags", body: { tags: [workCacheTag(target.ao3WorkId)] } },
     // No scheme, as the API wants, and the trailing slash keeps works/12/ from matching works/123/.
@@ -99,7 +95,11 @@ async function request(
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(options.timeoutMs ?? 5000),
     });
-    if (!res.ok) return `HTTP ${res.status}`;
+    if (!res.ok) {
+      // Unread, its body would hold the connection until garbage collection.
+      await res.body?.cancel();
+      return `HTTP ${res.status}`;
+    }
     // `success: true` means accepted; anything else, a 200 included, is a failure.
     const reply: { success?: boolean; errors?: { code?: number }[] } | null = await res.json();
     if (reply?.success === true) return null;
