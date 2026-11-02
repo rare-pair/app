@@ -195,8 +195,8 @@ request and to every byline at ingest.
 
 ## Ingestion pipeline
 
-1. **Ask.** `POST /uploads` checks the session, Turnstile, the daily quota and
-   the declared size (25 MB or less). One call asks for one file or for several
+1. **Ask.** `POST /uploads` checks the session, Turnstile, the account's ban, the
+   daily quota and the declared size (25 MB or less). One call asks for one file or for several
    (at most 10): one `size` field per file, under one Turnstile token. A call
    with good sizes spends one unit per file of both the per-user and the per-IP
    rate limit (a call refused for a bad count or size spends only the first of
@@ -211,10 +211,10 @@ request and to every byline at ingest.
    counted right after the session check, before the form is read (the rest of a
    batch's files are counted once the form is read, before Turnstile). The reply is
    JSON `{ error, retryAfter }`, and the upload page shows the message. A banned
-   account gets 403 for the whole batch, checked with the quota (Moderation,
-   *Block and ban*), and `GET /upload` shows it a page saying it can't upload.
-   Otherwise it inserts an
-   `uploads` row and returns a presigned R2 `PUT` URL for each file, valid for 10 minutes
+   account gets 403 with `{ error }` for the whole batch, checked just before the
+   quota (Moderation, *Block and ban*), and `GET /upload` shows it a page saying
+   it can't upload. Otherwise it inserts an `uploads` row for each file, all in
+   one transaction, and returns a presigned R2 `PUT` URL for each, valid for 10 minutes
    and locked to `Content-Type: application/epub+zip`: JSON `{ id, url }` for one file,
    `{ uploads: [{ id, url }, ...] }` for several. R2 presigned URLs support PUT but not
    form POST, and the bucket needs a CORS rule for `rarepair.fans`.

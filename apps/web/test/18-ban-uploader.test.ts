@@ -141,6 +141,7 @@ describe("18-moderation", () => {
       },
     );
     expect(batch.status).toBe(403);
+    expect(batch.headers.get("cache-control")).toBe("no-store");
     expect(await batch.json()).toEqual({ error: "This account can't upload." });
     expect(await uploadsOf(z.id)).toHaveLength(before);
     // A row written after the ban (one a request in flight had passed its check for).
@@ -159,7 +160,11 @@ describe("18-moderation", () => {
     expect(form.headers.get("cache-control")).toBe("no-store");
     const formHtml = await form.text();
     expect(formHtml).toContain("This account can't upload.");
+    // None of the upload page: no form, no upload area, no script, no Turnstile widget.
     expect(formHtml).not.toContain("<form");
+    expect(formHtml).not.toContain('id="upload"');
+    expect(formHtml).not.toContain("<script");
+    expect(formHtml).not.toContain("cf-turnstile");
 
     // AND Z can no longer report.
     const report = await postLogin(
