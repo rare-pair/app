@@ -2,8 +2,9 @@
 // repoints the work at one of them (FRONTEND-DISCOVERY, Moderation queues). Mounted in
 // admin.ts, behind `adminGate`.
 
-import { makeVersionCurrent } from "@archive/db";
+import { makeVersionCurrent, type UploadStatus, type VersionSource } from "@archive/db";
 import { Hono } from "hono";
+import { sql } from "kysely";
 import { isModerator, type AdminEnv } from "./admin";
 import { workByAo3Id } from "./admin-items";
 import { resultPage, workActions, workAdminPage, workStatusText } from "./admin-pages";
@@ -13,6 +14,19 @@ import { readForm } from "./login";
 const MAX_FORM = 1024;
 
 export const adminWork = new Hono<AdminEnv>();
+
+/**
+ * Joins a version to the upload whose file made it: its own, or for a backfill version
+ * (migration 0016) the one it was re-made from, whose uploader the page shows.
+ */
+const originalUpload = sql<boolean>`uploads.id = coalesce(work_versions.upload_id, work_versions.source_upload_id)`;
+
+/**
+ * Whether the version waits on a moderator's approval: an upload's that didn't go live. A
+ * backfill version re-makes the work's current version, so it is never held.
+ */
+const isHeld = (source: VersionSource, uploadStatus: UploadStatus) =>
+  source === "upload" && uploadStatus !== "live";
 
 adminWork.get("/works/:id", async (c) => {
   const found = await workByAo3Id(c, c.req.param("id"));
@@ -24,12 +38,13 @@ adminWork.get("/works/:id", async (c) => {
     .executeTakeFirstOrThrow();
   const versions = await c.var.db
     .selectFrom("work_versions")
-    .innerJoin("uploads", "uploads.id", "work_versions.upload_id")
+    .innerJoin("uploads", (join) => join.on(originalUpload))
     .leftJoin("user", "user.id", "uploads.user_id")
     .select([
       "work_versions.id",
       "work_versions.created_at",
       "work_versions.chapter_count",
+      "work_versions.source",
       "uploads.status as upload_status",
       "user.id as user_id",
       "user.email",
@@ -54,7 +69,7 @@ adminWork.get("/works/:id", async (c) => {
         banned: v.banned_at !== null,
         chapters: v.chapter_count,
         current: v.id === work.current_version_id,
-        held: v.upload_status !== "live",
+        held: isHeld(v.source, v.upload_status),
       })),
       workActions(work.ao3_work_id, null),
     ),
@@ -76,15 +91,15 @@ adminWork.post("/works/:id/current", async (c) => {
   // foreign key), and a version of another work is a page that isn't there.
   const version = await c.var.db
     .selectFrom("work_versions")
-    .innerJoin("uploads", "uploads.id", "work_versions.upload_id")
-    .select("uploads.status")
+    .innerJoin("uploads", (join) => join.on(originalUpload))
+    .select(["work_versions.source", "uploads.status"])
     .where("work_versions.id", "=", versionId)
     .where("work_versions.work_id", "=", found.id)
     .executeTakeFirst();
   if (!version) return c.notFound();
   // Only a moderator's approval makes a held version current (ARCHITECTURE, step 7), so
   // only a version whose upload went live (as every replaced one did) is offered here.
-  if (version.status !== "live") {
+  if (isHeld(version.source, version.status)) {
     return c.html(resultPage("Nothing changed: that version is held for review.", back));
   }
   // The work then describes the version: its columns, byline, tags and search text. Not a

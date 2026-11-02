@@ -73,6 +73,7 @@ export type {
   HiddenCause,
   TagType,
   HoldReason,
+  VersionSource,
   UploadStatus,
   RateLimitTable,
   ReportTable,
