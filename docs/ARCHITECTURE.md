@@ -146,7 +146,8 @@ requests     (id, kind, work_id NULL, pseud_norm NULL, contact_email, statement,
 optouts      (id, pseud_norm, ao3_user NULL, request_id, active, created_at)  -- checked at ingest
 requester_blocks (id, contact_email NULL, ip_hash NULL, created_by, created_at)
 moderation_actions (id, moderator_id, action, target_kind, target_id, note NULL,
-              created_at)  -- no FK on target_id (it points at different tables); action and
+              created_at)  -- no FK on moderator_id (rows outlive the account) or target_id (it
+                           -- points at different tables); action and
                            -- target_kind are free text; note is short, never reader data
                            -- or a requester's email
 waitlist     (email PRIMARY KEY,               -- trimmed and lowercased; deleted after launch
@@ -154,6 +155,10 @@ waitlist     (email PRIMARY KEY,               -- trimmed and lowercased; delete
               confirm_count,                    -- confirmation emails sent, 3 at most
               confirmed_at NULL, notified_at NULL,
               unsubscribe_token_hash NULL, created_at)  -- no IP, user agent or referrer
+sweep_state  (id,                -- one row: id 1
+              after NULL,        -- the R2 key the periodic sweep's next run lists after; NULL starts over
+              current NULL,      -- the folder a run is in; still set at the next start, it was killed there
+              updated_at)
 ```
 
 `user.role` is `user`, `moderator` or `admin`. An admin has every moderator
@@ -339,7 +344,8 @@ Chapter text isn't indexed.
      the work keeps serving its current version, the held one is listed only
      for its uploader (My uploads) and for moderators (*Works to check*), and
      only a moderator's approval makes it current.
-   - **is marked `duplicate`** if it isn't newer. It's stored but not used.
+   - **is marked `duplicate`** if it isn't newer. Its original is stored but
+     not used, and its fragments are swept (step 8).
      This is a status, not a rejection: the uploader sees "Already in the
      archive" with a link to the work. A byte-identical file never gets this
      far; `/complete` marks it `duplicate` (Ingestion pipeline, step 3).
@@ -431,8 +437,10 @@ Chapter text isn't indexed.
    A `hold` adds the version and chapters and leaves the work, its byline and
    tags alone (the version keeps its own columns, `tags`, `authors` and
    `hold_reason`); the upload is `held_for_review`. A `duplicate` adds no
-   version; the upload is `duplicate`, with its `work_id` set and its files
-   kept. A replace never changes the work's status: a hidden work stays so (a
+   version; the upload is `duplicate`, with its `work_id` set and its
+   original kept under `originals/`. No version points at its `<upload_id>/`
+   fragments, so the periodic sweep deletes them, like any orphaned prefix,
+   on its first pass over the work after they are 24 hours old. A replace never changes the work's status: a hidden work stays so (a
    removed work takes no upload). Only a work's first upload sets it `live`.
 
 **Rejection codes:** `not_epub`, `zip_bomb`, `too_large`, `not_ao3`,
@@ -780,8 +788,8 @@ epub, under the normal versioning rules.
   writes none. Hide, restore, make current (logged on the version, and only when the
   pointer moved) and the request and takedown rejects write a row
   today; each later action calls the same helper, `logModerationAction`, when
-  it is built. The row's `moderator_id` keeps its foreign key to `user`, so
-  an account with logged actions can't be deleted. Anyone
+  it is built. The row's `moderator_id` has no foreign key to `user`, so
+  deleting an account keeps its log rows, with the id as it was. Anyone
   without the moderator or admin role, signed out included, gets 404 for every
   `/admin` URL, so the admin area isn't advertised.
 
@@ -975,6 +983,7 @@ apps/web/          Hono Worker: pages, auth, upload handshake, search, admin
 apps/content/      Worker serving epub images and original downloads from R2
 apps/ingest/       Queue consumer: epub processing
 apps/mailer/       Queue consumer: sends email (Resend, with failover)
+apps/sweep/        Daily cron: deletes unreferenced images and orphaned upload prefixes from R2
 packages/epub/     unzip + OPF + AO3 preface parser + sanitizer (tested in workerd)
 packages/db/       SQL migrations + typed queries
 fixtures/epubs/    real AO3 epub samples for parser and sanitizer tests
