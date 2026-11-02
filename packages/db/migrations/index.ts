@@ -11,8 +11,10 @@ import m0008 from "./0008_search";
 import m0009 from "./0009_upload_quota_day";
 import m0010 from "./0010_version_tags_and_authors";
 import m0011 from "./0011_moderation_actions";
+import m0012 from "./0012_version_work_columns";
 import m0013 from "./0013_upload_work_removed";
 import m0014 from "./0014_moderation_actions_drop_moderator_fk";
+import m0015 from "./0015_sweep_state";
 
 export const migrations: ReadonlyArray<{ name: string; sql: string }> = [
   { name: "0001_better_auth", sql: m0001 },
@@ -26,6 +28,8 @@ export const migrations: ReadonlyArray<{ name: string; sql: string }> = [
   { name: "0009_upload_quota_day", sql: m0009 },
   { name: "0010_version_tags_and_authors", sql: m0010 },
   { name: "0011_moderation_actions", sql: m0011 },
+  { name: "0012_version_work_columns", sql: m0012 },
   { name: "0013_upload_work_removed", sql: m0013 },
   { name: "0014_moderation_actions_drop_moderator_fk", sql: m0014 },
+  { name: "0015_sweep_state", sql: m0015 },
 ];

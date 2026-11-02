@@ -3,6 +3,7 @@
 // long work never sits in the isolate's memory: one chunk at a time per reader.
 
 import { createDb, getLiveWork, getWorkAvailability } from "@archive/db";
+import { cachedFragments } from "./edge-cache";
 import { escapeHtml, layoutAround } from "./pages";
 import {
   chapterTitle,
@@ -23,7 +24,7 @@ export interface FragmentSource {
   get(key: string): Promise<{ body: ReadableStream<Uint8Array> } | null>;
 }
 
-/** One chapter fragment's body from R2, unread. R7's cache goes in here. */
+/** One chapter fragment's body, unread: from R2, or the cache in front of it. */
 export const openFragment = async (bucket: FragmentSource, key: string) =>
   (await bucket.get(key))?.body ?? null;
 
@@ -143,7 +144,9 @@ export async function showFull(c: ReaderContext) {
   // with no chapters can't be read either.
   const [head, ...rest] = chapters;
   if (!head) return unavailable(c);
-  const bucket = c.env.BUCKET;
+  // The same fragments every reader gets, from the Worker's cache when a chapter page has
+  // put them there.
+  const bucket = cachedFragments(caches.default, c.env.BUCKET, id, version.id, chapters);
   const first = await openFragment(bucket, head.r2_key).catch((error: Error) => {
     logFailure(error);
     return null;

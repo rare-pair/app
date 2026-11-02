@@ -284,7 +284,12 @@ describe("11-reader-and-csp", () => {
       chapters: [{ html: "<p>V1-ONE</p>" }, { html: "<p>V1-TWO</p>" }, { html: "<p>V1-THREE</p>" }],
     });
     await putFragments(env.BUCKET, first.fragments);
-    expect(articleOf(await htmlOf(chapterUrl(20002, 2)))).toBe("<p>V1-TWO</p>");
+    // A reader with a settings cookie skips the 60 s edge cache of the page (R7), so only
+    // the fragment cache, keyed by version, stands between the two reads.
+    const reader = { headers: { cookie: "__Host-reader=theme=dark" } };
+    const readChapter = async (n: number) =>
+      articleOf(await (await fetchW(chapterUrl(20002, n), reader)).text());
+    expect(await readChapter(2)).toBe("<p>V1-TWO</p>");
 
     const second = await seedVersion(db, first, {
       chapters: [{ html: "<p>V2-ONE</p>" }, { html: "<p>V2-TWO</p>" }],
@@ -292,7 +297,7 @@ describe("11-reader-and-csp", () => {
     await putFragments(env.BUCKET, second.fragments);
 
     // The new version's fragment, from its own prefix.
-    expect(articleOf(await htmlOf(chapterUrl(20002, 2)))).toBe("<p>V2-TWO</p>");
+    expect(await readChapter(2)).toBe("<p>V2-TWO</p>");
     expect(second.chapterKeys[1]?.startsWith(second.r2Prefix)).toBe(true);
     expect(second.r2Prefix).not.toBe(first.r2Prefix);
     // The old version's fragments are untouched.
@@ -301,7 +306,7 @@ describe("11-reader-and-csp", () => {
     );
     expect(oldBodies).toEqual(["<p>V1-ONE</p>", "<p>V1-TWO</p>", "<p>V1-THREE</p>"]);
     // The new version has two chapters, so the old third one is past the last.
-    expect((await fetchW(chapterUrl(20002, 3))).status).toBe(404);
+    expect((await fetchW(chapterUrl(20002, 3), reader)).status).toBe(404);
   });
 
   it("First chapter has no previous link", async () => {

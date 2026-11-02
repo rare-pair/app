@@ -14,6 +14,7 @@ import type {
 } from "./schema";
 import { inTransaction, logModerationAction } from "./moderation-actions";
 import { compareCodeUnits, normalizeTagName } from "./tags";
+import { copyVersionToWork } from "./version-copy";
 
 /** A work's own fields, as a page shows them. */
 export type WorkSummary = Pick<
@@ -830,5 +831,114 @@ export async function restoreWork(
       });
     }
     return true;
+  });
+}
+
+/**
+ * Makes one of a work's versions current: moves `current_version_id` to it and makes the
+ * work describe it (`copyVersionToWork`: its non-NULL columns, its byline and tags, the
+ * search text), in one transaction. True when the version is current afterwards. A removed
+ * work, or one ingest is still finishing (it sets the version itself), is left as it is:
+ * false. A version already current is left as it is: true, with nothing written. Otherwise the
+ * work's row is locked (for no key update, the lock ingest's compare-and-swap takes) before
+ * any tag row, and every change to the work comes with the pointer's move, so a replace, hold
+ * or duplicate that read the old pointer fails its pointer check and decides again. It doesn't check
+ * the version's upload: the caller decides whether a held version may become current (only
+ * an approval makes one current).
+ *
+ * With `actor`, the acting moderator's user id, it also logs `make_current` on the version
+ * when the pointer moved. It runs in the caller's transaction when `db` is one.
+ */
+export async function makeVersionCurrent(
+  db: Kysely<Database>,
+  workId: string,
+  versionId: string,
+  options: { actor?: string } = {},
+): Promise<boolean> {
+  return inTransaction(db, async (trx) => {
+    const work = await trx
+      .selectFrom("works")
+      .select("current_version_id")
+      .where("id", "=", workId)
+      .where("status", "in", ["live", "hidden"])
+      .forNoKeyUpdate()
+      .executeTakeFirst();
+    if (work === undefined) return false;
+    // Nothing changes, so nothing is written or logged: a copy without a pointer move would
+    // change the facts an ingest decided on without failing its pointer check.
+    if (work.current_version_id === versionId) return true;
+    await trx
+      .updateTable("works")
+      .set({ current_version_id: versionId })
+      .where("id", "=", workId)
+      .execute();
+    await copyVersionToWork(trx, workId, versionId);
+    if (options.actor !== undefined) {
+      await logModerationAction(trx, {
+        moderatorId: options.actor,
+        action: "make_current",
+        targetKind: "version",
+        targetId: versionId,
+      });
+    }
+    return true;
+  });
+}
+
+/** What `removeWork` did, and the uploads whose raw files go from R2 with the work. */
+export interface RemovedWork {
+  /**
+   * `removed` now, `already_removed` before (nothing changed, so no log row), or
+   * `processing`: an ingest job is still saving it, so it was left as it is.
+   */
+  outcome: "removed" | "already_removed" | "processing";
+  /** The work's AO3 work ID, which keys its objects under `works/`. */
+  ao3WorkId: number;
+  /** Every upload of the work, with its raw file's key (`uploads.r2_key`). Empty while processing. */
+  uploads: { id: string; r2_key: string }[];
+}
+
+/**
+ * Sets a `live` or `hidden` work `removed`, clearing its hidden cause (the schema's
+ * check allows one only while hidden), and logs the moderator's remove in the same
+ * transaction. The uploads are read in it too, so the caller deletes from R2 what
+ * this transaction saw, after it commits (a failed delete then leaves a removed work
+ * with leftover bytes, never a live one with missing ones). The upload and version
+ * rows stay. Null when there is no such work.
+ */
+export async function removeWork(
+  db: Kysely<Database>,
+  workId: string,
+  actor: string,
+): Promise<RemovedWork | null> {
+  return inTransaction(db, async (trx) => {
+    // Locked, so a concurrent remove waits and then sees this one's status.
+    const work = await trx
+      .selectFrom("works")
+      .select(["status", "ao3_work_id"])
+      .where("id", "=", workId)
+      .forNoKeyUpdate()
+      .executeTakeFirst();
+    if (!work) return null;
+    const ao3WorkId = work.ao3_work_id;
+    if (work.status === "processing") return { outcome: "processing", ao3WorkId, uploads: [] };
+    const uploads = await trx
+      .selectFrom("uploads")
+      .select(["id", "r2_key"])
+      .where("work_id", "=", workId)
+      .execute();
+    if (work.status === "removed") return { outcome: "already_removed", ao3WorkId, uploads };
+    await trx
+      .updateTable("works")
+      .set({ status: "removed", hidden_cause: null })
+      .where("id", "=", workId)
+      .execute();
+    await logModerationAction(trx, {
+      moderatorId: actor,
+      action: "remove",
+      targetKind: "work",
+      targetId: workId,
+    });
+    return { outcome: "removed", ao3WorkId, uploads };
   });
 }
