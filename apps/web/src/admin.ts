@@ -2,7 +2,7 @@
 // every /admin URL goes through, and the four queues, read only. Actions and detail
 // pages come with later tickets (MOD2 on).
 
-import { createDb, type Database } from "@archive/db";
+import { createDb, isModeratorRole, type Database, type ModeratorRole } from "@archive/db";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import type { Kysely } from "kysely";
 import {
@@ -22,8 +22,7 @@ import type { Bindings } from "./env";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
 
-/** The roles with every moderator power (ARCHITECTURE, Data model): an admin has them too. */
-export type ModeratorRole = "moderator" | "admin";
+export type { ModeratorRole };
 
 /** Set by `adminGate` for every /admin handler: the moderator's role, user id, and the request's database. */
 export type AdminVariables = { role: ModeratorRole; db: Kysely<Database>; userId: string };
@@ -33,9 +32,8 @@ export type AdminEnv = {
   Variables: SecurityVariables & SessionVariables & AdminVariables;
 };
 
-/** Exactly a role with moderator powers: not null, not "user", no other spelling. */
-export const isModerator = (role: string | null | undefined): role is ModeratorRole =>
-  role === "moderator" || role === "admin";
+/** Exactly a role with moderator powers: the same rule a ban's `protected` uses. */
+export const isModerator = isModeratorRole;
 
 type AdminContext = Context<AdminEnv>;
 

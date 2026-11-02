@@ -155,7 +155,7 @@ export type VersionRow = {
   id: string;
   added: string;
   uploader: string;
-  /** The uploader's account id, for the "Ban uploader" form; null when the account is gone. */
+  /** The uploader's account id, for the "Ban uploader" form; null when it can't be banned. */
   uploaderId: string | null;
   /** The uploader's account is banned: the row says so in place of the form. */
   banned: boolean;

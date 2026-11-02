@@ -5,9 +5,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BASE, fetchW, postLogin, signIn as signInAs, UPLOAD_TOKEN } from "./helpers";
 
 // MOD6's cases: a moderator bans an uploader from a work's admin page. One database serves
-// every test file in the run. This file keeps to AO3 work IDs 14300 to 14399 and gives every
+// every test file in the run. This file keeps to AO3 work IDs 14400 to 14499 and gives every
 // account and marker a "mod6-" prefix. Text is synthetic.
-const W = 14300;
+const W = 14400;
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 afterAll(() => db.destroy());
 
@@ -136,7 +136,8 @@ describe("18-moderation", () => {
     expect(confirmed.status).toBe(403);
     expect(confirmed.headers.get("cache-control")).toBe("no-store");
     expect(await confirmed.json()).toEqual({ error: "This account can't upload." });
-    expect(await statusOf(late)).toBe("pending");
+    // Ended as the ban ends every pending upload, so it never sits "not uploaded yet".
+    expect(await statusOf(late)).toBe("account_banned");
     const form = await get("/upload", z.cookie);
     expect(form.status).toBe(403);
     expect(form.headers.get("cache-control")).toBe("no-store");
@@ -185,6 +186,10 @@ describe("18-moderation", () => {
       expect(await bannedAt(target.id)).toBeNull();
       expect(await logFor(target.id)).toEqual([]);
     }
+    // So the work page offers no form for their uploads.
+    await seedWork(db, { ao3WorkId: W + 1, title: "mod6-by-moderator", userId: other.id });
+    const page = await (await get(`/admin/works/${W + 1}`, moderator.cookie)).text();
+    expect(page).not.toContain("Ban uploader");
   });
 
   it("An unknown account is not found", async () => {

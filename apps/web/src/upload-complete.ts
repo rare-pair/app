@@ -1,5 +1,6 @@
 import {
   createDb,
+  endBannedUpload,
   getUploadOf,
   getUploadQuota,
   isBanned,
@@ -65,9 +66,12 @@ export async function completeUpload(c: CompleteContext) {
     const taken = () =>
       refuse(409, "That upload was already handled. Check its status on the upload page.");
     if (upload.status !== "pending") return taken();
-    // A ban ends an account's pending uploads; this one was written after it. Before the
-    // object is read, so nothing of it is hashed or queued.
-    if (await isBanned(db, user.id)) return refuse(403, BANNED_UPLOADER);
+    // A ban ends an account's pending uploads; this one was written after it, so it is ended
+    // the same way. Before the object is read, so nothing of it is hashed or queued.
+    if (await isBanned(db, user.id)) {
+      await endBannedUpload(db, upload.id, user.id);
+      return refuse(403, BANNED_UPLOADER);
+    }
 
     // An upload over the quota is marked first, and only the request that marks it deletes the
     // object, as for an oversized one. The mark is refused for an upload another confirm has

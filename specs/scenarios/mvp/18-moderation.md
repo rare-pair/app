@@ -111,7 +111,7 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 - THEN Z's `banned_at` is set
 - AND Z can no longer upload or report
 - AND Z's live works and finished uploads stay as they are until a moderator acts on them
-- AND Z's pending and processing uploads end `account_banned`
+- AND Z's pending uploads, and processing ones ingest has not yet saved, end `account_banned`
 
 ### Moderation works without JS
 - GIVEN moderator M with JavaScript off

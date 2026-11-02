@@ -41,7 +41,15 @@ export {
   type ModerationTargetKind,
   type ModerationEntry,
 } from "./moderation-actions";
-export { banUser, isBanned, isUploaderBanned, type BanResult } from "./ban";
+export {
+  banUser,
+  endBannedUpload,
+  isBanned,
+  isModeratorRole,
+  isUploaderBanned,
+  type BanResult,
+  type ModeratorRole,
+} from "./ban";
 export { refreshWorkSearch } from "./search-index";
 export { searchLiveWorks, type SearchOptions, type SearchResults } from "./search";
 export type {

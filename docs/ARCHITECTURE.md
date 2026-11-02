@@ -423,9 +423,13 @@ message to the uploader. `work_removed` is the upload of a work a moderator or
 its author removed, checked after the opt-out and takedown lists and before
 the current version is read. `account_banned` is an upload by an account a
 moderator banned (its meaning to the uploader: the account can no longer
-upload): the ban sets it on the account's `pending` uploads, and ingest sets it
-on a job whose uploader is banned, checked before the file is read and again,
-with the account's row locked shared, in the save's transaction. Step 2 lists which problem gives which of the first three.
+upload): the ban sets it on the account's `pending` uploads (and a confirm sets
+it on one written after the ban), and ingest sets it on a job whose uploader is
+banned, checked before the file is read and again, with a key-share lock on the
+account's row, in the save's transaction. A save that took that lock first
+finishes, and its upload counts as finished. A ban the save's check catches
+leaves the R2 files the job had already written, `originals/` included, as a
+`work_removed` refusal does. Step 2 lists which problem gives which of the first three.
 `not_ao3` covers any file without an AO3 preface "Posted originally" line,
 including one whose AO3 work URL is only in the OPF (step 4). `opted_out`
 covers the opt-out list and the takedown list of moderator-removed works.
