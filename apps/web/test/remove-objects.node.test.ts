@@ -1,30 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { deleteWorkObjects, type ObjectBucket } from "../src/remove-objects";
-
-/**
- * An in-memory stand-in for R2 with the limits Cloudflare documents: a list page holds
- * at most 1000 keys (and 1000 by default), `truncated` with a `cursor` says there are
- * more, and one delete call takes at most 1000 keys.
- */
-function fakeBucket(keys: string[]) {
-  const held = new Set(keys);
-  const bucket: ObjectBucket = {
-    async list({ prefix, cursor, limit = 1000 }) {
-      const all = [...held].filter((k) => k.startsWith(prefix)).sort();
-      const start = cursor === undefined ? 0 : all.findIndex((k) => k > cursor);
-      const page = start < 0 ? [] : all.slice(start, start + Math.min(limit, 1000));
-      const truncated = start >= 0 && start + page.length < all.length;
-      return truncated
-        ? { objects: page.map((key) => ({ key })), truncated, cursor: page.at(-1)! }
-        : { objects: page.map((key) => ({ key })), truncated };
-    },
-    async delete(toDelete) {
-      if (toDelete.length > 1000) throw new Error("R2 deletes at most 1000 keys a call");
-      for (const k of toDelete) held.delete(k);
-    },
-  };
-  return { bucket, held };
-}
+import { deleteWorkObjects } from "../src/remove-objects";
+import { fakeBucket } from "./fake-bucket";
 
 const chapters = (prefix: string, n: number) =>
   Array.from({ length: n }, (_, i) => `${prefix}${String(i).padStart(5, "0")}.html`);
