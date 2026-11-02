@@ -71,4 +71,5 @@ export type {
   ModerationActionTable,
   RequestKind,
   WaitlistTable,
+  SweepStateTable,
 } from "./schema";
