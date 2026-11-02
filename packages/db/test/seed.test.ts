@@ -194,6 +194,94 @@ describe("@archive/db/seed seedVersion", () => {
     expect(work?.work.chapters_count).toBe(3);
   });
 
+  it("A seeded version carries the work's columns as its own", async () => {
+    const first = await seedWork(t.db, {
+      title: "Seed columns",
+      summary: "<p>Own summary.</p>",
+      rating: "Mature",
+      complete: false,
+      updatedAt: "2021-05-06T00:00:00Z",
+      authors: [{ pseud: "Penned", ao3_user: "penned" }],
+      tags: [{ type: "fandom", name: "Seed Columns Fandom" }],
+      chapters: [{ words: 300 }, { words: 200 }],
+    });
+    const held = await seedVersion(t.db, first, { current: false, chapters: 3 });
+
+    const rows = await t.db
+      .selectFrom("work_versions")
+      .select([
+        "id",
+        "title",
+        "summary_html",
+        "rating",
+        "language",
+        "words",
+        "complete",
+        "published_at",
+        "updated_at",
+        "raw_meta",
+        "hold_reason",
+        "tags",
+        "authors",
+      ])
+      .where("id", "in", [first.versionId, held.versionId])
+      .execute();
+    const expected = {
+      title: "Seed columns",
+      summary_html: "<p>Own summary.</p>",
+      rating: "Mature",
+      language: "English",
+      complete: false,
+      published_at: new Date("2020-01-01T00:00:00Z"),
+      updated_at: new Date("2021-05-06T00:00:00Z"),
+      raw_meta: {},
+      tags: [{ type: "fandom", name: "Seed Columns Fandom" }],
+      authors: [{ pseud: "Penned", user: "penned" }],
+    };
+    expect(rows.find((r) => r.id === first.versionId)).toEqual({
+      id: first.versionId,
+      ...expected,
+      words: 500,
+      hold_reason: null,
+    });
+    // A held version inherits the work's columns, with its own word count, and is held for
+    // its chapters by default.
+    expect(rows.find((r) => r.id === held.versionId)).toEqual({
+      id: held.versionId,
+      ...expected,
+      words: 3000,
+      hold_reason: "chapters_changed",
+    });
+  });
+
+  it("A replacing version with its own title, byline and tags describes the work", async () => {
+    const first = await seedWork(t.db, { title: "Before" });
+    await seedVersion(t.db, first, {
+      title: "After",
+      summary: "<p>After summary.</p>",
+      authors: [{ pseud: "Later", ao3_user: null }],
+      tags: [{ type: "freeform", name: "Seed After Tag" }],
+    });
+
+    const work = await getLiveWork(t.db, first.ao3WorkId);
+    expect(work?.work.title).toBe("After");
+    expect(work?.work.summary_html).toBe("<p>After summary.</p>");
+    expect(work?.authors).toEqual([{ pseud: "Later", ao3_user: null }]);
+    expect(work?.tags.map((x) => [x.type, x.name])).toEqual([["freeform", "Seed After Tag"]]);
+  });
+
+  it("A replacing version given only a rating carries it as its rating tag too", async () => {
+    const first = await seedWork(t.db, { tags: [{ type: "fandom", name: "Seed Rated Fandom" }] });
+    await seedVersion(t.db, first, { rating: "Mature" });
+
+    const work = await getLiveWork(t.db, first.ao3WorkId);
+    expect(work?.work.rating).toBe("Mature");
+    expect(work?.tags.map((x) => [x.type, x.name])).toEqual([
+      ["rating", "Mature"],
+      ["fandom", "Seed Rated Fandom"],
+    ]);
+  });
+
   it("A held version is kept but does not become current", async () => {
     const first = await seedWork(t.db);
     const held = await seedVersion(t.db, first, { current: false });
@@ -226,7 +314,7 @@ describe("@archive/db/seed in workerd", () => {
       }
     };
     await visit("seed");
-    expect([...seen].sort()).toEqual(["schema", "search-index", "seed", "tags"]);
+    expect([...seen].sort()).toEqual(["schema", "search-index", "seed", "tags", "version-copy"]);
     expect([...packages]).toEqual(["kysely"]);
   });
 });
