@@ -89,22 +89,10 @@ export async function requestUpload(c: UploadContext) {
   const form = await readForm(c.req.raw);
   if (form === null) return refuse(413, "That request was too large. Please try again.");
 
-  // One `size` per file. A batch over the cap is refused before it spends more of a limit.
+  // One `size` per file. A batch over the cap is refused outright.
   const sizes = form.getAll("size");
   if (sizes.length > MAX_BATCH_FILES) {
     return refuse(413, `You can upload ${MAX_BATCH_FILES} files at a time. Please pick fewer.`);
-  }
-  // Each file counts once against both limits. The first of each was spent above, so a
-  // flood still costs no body; the rest are spent here, before Turnstile, the user first.
-  for (let spent = 1; spent < sizes.length; spent++) {
-    if (await isLimited(c.env.UPLOAD_USER_LIMIT, await userKey("upload", user.id))) {
-      return tooManyRequestsJson(c, TOO_FAST, UPLOAD_WINDOW_SECONDS);
-    }
-  }
-  for (let spent = 1; spent < sizes.length; spent++) {
-    if (await isLimited(c.env.UPLOAD_IP_LIMIT, await ipKey("upload", clientIp))) {
-      return tooManyRequestsJson(c, TOO_FAST, UPLOAD_WINDOW_SECONDS);
-    }
   }
 
   // Before Turnstile, so a size that can't pass spends no token and no siteverify call.
@@ -121,6 +109,20 @@ export async function requestUpload(c: UploadContext) {
       413,
       `${declared.length === 1 ? "That file is" : "A file is"} over the ${MAX_UPLOAD_MB} MB limit, so it can't be uploaded.`,
     );
+  }
+
+  // Each file counts once against both limits. The first of each was spent above, so a
+  // flood still costs no body; the rest are spent here, once the sizes are known to be
+  // good (a malformed batch spends no more) and before Turnstile, the user first.
+  for (let spent = 1; spent < declared.length; spent++) {
+    if (await isLimited(c.env.UPLOAD_USER_LIMIT, await userKey("upload", user.id))) {
+      return tooManyRequestsJson(c, TOO_FAST, UPLOAD_WINDOW_SECONDS);
+    }
+  }
+  for (let spent = 1; spent < declared.length; spent++) {
+    if (await isLimited(c.env.UPLOAD_IP_LIMIT, await ipKey("upload", clientIp))) {
+      return tooManyRequestsJson(c, TOO_FAST, UPLOAD_WINDOW_SECONDS);
+    }
   }
 
   const turnstile = await verifyTurnstile(form.get("cf-turnstile-response"), {

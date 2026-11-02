@@ -179,5 +179,9 @@ describe("19-surge-controls-and-quotas", () => {
     const ip = await send(3, 2, ["1", "1", "1"]);
     expect(ip.status).toBe(429);
     expect(await uploadsOf(userId)).toHaveLength(3);
+
+    // A batch with a bad size is refused before it spends more than the first of each.
+    expect((await send(9, 9, ["1", "abc", "1"])).status).toBe(400);
+    expect(calls).toEqual({ user: 1, ip: 1 });
   });
 });

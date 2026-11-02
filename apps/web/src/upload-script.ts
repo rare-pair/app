@@ -5,8 +5,9 @@ import { EPUB_TYPE, MAX_BATCH_FILES, MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./u
  * The upload page's script, served from UPLOAD_SCRIPT_PATH and loaded with the page's
  * nonce. On Upload it asks `POST /uploads` once for every file picked, with the Turnstile
  * token and one `size` each, then PUTs each file straight to R2 with an XMLHttpRequest
- * (`fetch` reports no upload progress), three at a time so a later file's URL, good for ten
- * minutes, doesn't expire waiting. Each finished PUT is confirmed with
+ * (`fetch` reports no upload progress), three at a time so fewer files wait on a URL that
+ * is good for ten minutes; one that still starts too late fails, and another click on Upload
+ * sends the files not yet uploaded. Each finished PUT is confirmed with
  * `POST /uploads/:id/complete`. The server stays the authority: what the script checks first
  * (type, size, count) only saves a round trip. Built with textContent only, never innerHTML,
  * so a file name is never read as markup.
@@ -18,6 +19,9 @@ export const UPLOAD_SCRIPT = `"use strict";
   const MAX_MB = ${MAX_UPLOAD_MB};
   const MAX_FILES = ${MAX_BATCH_FILES};
   const AT_ONCE = 3;
+  const URL_LIFETIME_MS = 600000;
+  // Files already uploaded and confirmed, so a second click, to retry the rest, skips them.
+  const finished = new Set();
   const input = document.getElementById("file");
   const button = document.getElementById("send");
   const message = document.getElementById("message");
@@ -57,6 +61,9 @@ export const UPLOAD_SCRIPT = `"use strict";
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", url);
       xhr.setRequestHeader("Content-Type", TYPE);
+      // The URL stops working after ten minutes, so a transfer still going then is lost
+      // anyway: end a stalled one rather than hold the button and the other files for ever.
+      xhr.timeout = URL_LIFETIME_MS;
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
           row.bar.max = event.total;
@@ -70,11 +77,12 @@ export const UPLOAD_SCRIPT = `"use strict";
       xhr.send(file);
     });
 
-  const confirm = async (id, row) => {
+  const confirm = async (file, id, row) => {
     row.note.textContent = "Checking the file.";
     try {
       const res = await fetch("/uploads/" + encodeURIComponent(id) + "/complete", { method: "POST" });
       const body = await readJson(res);
+      if (res.ok) finished.add(file);
       if (res.ok && body.status === "duplicate") row.note.textContent = "We already have this one.";
       else if (res.ok) row.note.textContent = "Uploaded. It will appear once it has been checked.";
       else row.note.textContent = body.error || "Something went wrong. Please try again.";
@@ -106,7 +114,8 @@ export const UPLOAD_SCRIPT = `"use strict";
     const toSend = [];
     for (const file of picked) {
       let refusal = "";
-      if (!/\\.epub$/i.test(file.name)) refusal = "Not an epub file, so it was not uploaded.";
+      if (finished.has(file)) refusal = "Already uploaded.";
+      else if (!/\\.epub$/i.test(file.name)) refusal = "Not an epub file, so it was not uploaded.";
       else if (file.size === 0) refusal = "This file is empty, so it was not uploaded.";
       else if (file.size > MAX_BYTES) refusal = "Over the " + MAX_MB + " MB limit, so it was not uploaded.";
       const row = addRow(file, refusal === "");
@@ -146,7 +155,7 @@ export const UPLOAD_SCRIPT = `"use strict";
           row.note.textContent = "The upload didn't finish. Please try again.";
           return;
         }
-        await confirm(granted[i].id, row);
+        await confirm(file, granted[i].id, row);
       }),
     );
   };

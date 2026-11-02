@@ -209,7 +209,9 @@ request and to every byline at ingest.
    `{ uploads: [{ id, url }, ...] }` for several. R2 presigned URLs support PUT but not
    form POST, and the bucket needs a CORS rule for `rarepair.fans`.
 2. **Upload.** The browser PUTs each file straight to R2 and shows each file's
-   progress, three at a time so a later URL doesn't expire waiting. The page's
+   progress, three at a time so fewer files wait on a URL that lasts 10 minutes (a
+   file that still starts too late fails, and another click sends the files not yet
+   uploaded). The page's
    script sends with `XMLHttpRequest`, since `fetch` reports no upload progress.
    Each finished PUT is confirmed with `POST /uploads/:id/complete`.
    Uploading needs JavaScript, as every form with a Turnstile check does

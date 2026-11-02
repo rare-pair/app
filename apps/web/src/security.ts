@@ -19,7 +19,8 @@ const strictPolicy = (nonce: string) =>
 
 // The pages with a Turnstile check, matched exactly: only they, and / and /waitlist
 // before launch (hasTurnstile), may frame the challenge.
-const TURNSTILE_PATHS = new Set(["/login", "/upload", "/remove"]);
+const UPLOAD_PATH = "/upload";
+const TURNSTILE_PATHS = new Set(["/login", UPLOAD_PATH, "/remove"]);
 export const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
 const TURNSTILE_FRAME = `frame-src ${TURNSTILE_ORIGIN}`;
 
@@ -62,7 +63,6 @@ const hasTurnstile = (path: string, env: Pick<Bindings, "PRELAUNCH">) =>
 // account, at https://<account id>.r2.cloudflarestorage.com. That one host is its whole
 // allowance. An account id is letters and digits, so anything else (a typo in the secret
 // that would otherwise add to the policy) leaves the directive out and the upload fails closed.
-const UPLOAD_PATH = "/upload";
 const connectSrc = (accountId: string | undefined) =>
   accountId !== undefined && /^[A-Za-z0-9]+$/.test(accountId)
     ? `connect-src 'self' https://${accountId}.r2.cloudflarestorage.com`

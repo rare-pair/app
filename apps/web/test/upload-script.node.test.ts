@@ -47,6 +47,7 @@ class FakeXhr {
   headers: Record<string, string> = {};
   sent: Fake | null = null;
   status = 0;
+  timeout = 0;
   upload = new FakeUpload();
   onload?: () => void;
   onerror?: () => void;
@@ -319,6 +320,51 @@ describe("02-upload-handshake", () => {
     await clicked;
     expect(p.calls).toHaveLength(1);
     expect(note(p.rows()[0]!)).toMatch(/try again/);
+  });
+
+  it("A stalled transfer ends when its URL would have expired", async () => {
+    const p = page(
+      [epub(1)],
+      [() => ({ status: 200, body: { id: "up-1", url: "https://r2.example/put-1" } })],
+    );
+    const clicked = p.click();
+    await p.flush();
+    expect(FakeXhr.all[0]!.timeout).toBe(600000);
+    FakeXhr.all[0]!.ontimeout!();
+    await clicked;
+    expect(note(p.rows()[0]!)).toMatch(/try again/);
+    expect(p.button.disabled).toBe(false);
+  });
+
+  it("A second click sends only the files not yet uploaded", async () => {
+    const files = [epub(1), epub(2)];
+    const p = page(files, [
+      () => ({
+        status: 200,
+        body: {
+          uploads: [
+            { id: "a", url: "https://r2.example/a" },
+            { id: "b", url: "https://r2.example/b" },
+          ],
+        },
+      }),
+      () => ({ status: 200, body: { status: "queued" } }),
+      () => ({ status: 200, body: { id: "c", url: "https://r2.example/c" } }),
+      () => ({ status: 200, body: { status: "queued" } }),
+    ]);
+    const first = p.click();
+    await p.flush();
+    done(FakeXhr.all[0]!);
+    FakeXhr.all[1]!.onerror!();
+    await first;
+
+    const second = p.click();
+    await p.flush();
+    // Only the file that failed is asked for again.
+    expect(sizesOf(p.calls[2]!.body)).toEqual(["1002"]);
+    expect(p.rows().map(note)[0]).toMatch(/Already uploaded/);
+    done(FakeXhr.all[2]!);
+    await second;
   });
 
   it("A network error on a transfer is shown too", async () => {
