@@ -295,7 +295,7 @@ export const isCount = (n: number) => Number.isSafeInteger(n) && n >= 1;
 type WorksWhere = ExpressionBuilder<Database, "works">;
 
 /** The work carries a tag of this type whose `name_norm` is one of `keys`. */
-const tagged = (eb: WorksWhere, type: TagType, keys: string[]) =>
+export const tagged = (eb: WorksWhere, type: TagType, keys: string[]) =>
   eb.exists(
     eb
       .selectFrom("work_tags")
@@ -306,7 +306,7 @@ const tagged = (eb: WorksWhere, type: TagType, keys: string[]) =>
       .where("tags.type", "=", type),
   );
 
-const rated = (eb: WorksWhere, rating: string) =>
+export const rated = (eb: WorksWhere, rating: string) =>
   rating === NOT_RATED
     ? eb.or([
         eb("works.rating", "=", rating),
