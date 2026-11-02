@@ -68,3 +68,25 @@ export async function isBanned(db: Kysely<Database>, userId: string): Promise<bo
     .executeTakeFirst();
   return user === undefined || user.banned_at !== null;
 }
+
+/**
+ * Whether the account that made upload `uploadId` is banned, as `isBanned` decides. With
+ * `lock`, inside a transaction, the account's row stays locked shared to its end, so a ban
+ * (`banUser` locks the row for update) either commits first and is seen here, or waits for
+ * the transaction to commit.
+ */
+export async function isUploaderBanned(
+  db: Kysely<Database>,
+  uploadId: string,
+  { lock = false }: { lock?: boolean } = {},
+): Promise<boolean> {
+  let query = db
+    .selectFrom("user")
+    .select("banned_at")
+    .where("id", "=", (eb) =>
+      eb.selectFrom("uploads").select("uploads.user_id").where("uploads.id", "=", uploadId),
+    );
+  if (lock) query = query.forShare();
+  const user = await query.executeTakeFirst();
+  return user === undefined || user.banned_at !== null;
+}

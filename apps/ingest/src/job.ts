@@ -1,10 +1,10 @@
-import type { Database } from "@archive/db";
+import { isUploaderBanned, type Database } from "@archive/db";
 import { EpubError, LIMITS, type ParsedWork } from "@archive/epub";
 import type { Kysely } from "kysely";
 import { MAX_RETRIES } from "./config";
 import { claimLease, endLease, type Lease, type Outcome, type Stage } from "./lease";
 import { onRejectList } from "./lists";
-import { LeaseLost, SaveRejected, WorkRemoved, type WorkImages } from "./save";
+import { AccountBanned, LeaseLost, SaveRejected, WorkRemoved, type WorkImages } from "./save";
 
 /** What a job needs from outside: the request's Kysely, the bucket and the two steps. */
 export interface JobDeps {
@@ -18,7 +18,8 @@ export interface JobDeps {
   /**
    * Saves the parsed work from the upload's `bytes` (R2 fragments, `originals/`, the Postgres
    * transaction). Throws `SaveRejected` for a file that can't be saved, `WorkRemoved` for an
-   * upload of a removed work, and `LeaseLost` when another job has taken the upload over.
+   * upload of a removed work, `AccountBanned` for an upload by a banned account, and
+   * `LeaseLost` when another job has taken the upload over.
    */
   save: (upload: Lease, work: ParsedWork, bytes: Uint8Array, images?: WorkImages) => Promise<void>;
 }
@@ -63,6 +64,12 @@ export async function runJob(deps: JobDeps, uploadId: string, attempt: number): 
   return "ack";
 }
 
+/** A banned account's upload, refused at `stage`: no retry lifts a ban (there is no unban). */
+const ACCOUNT_BANNED = (stage: Stage): Outcome => ({
+  status: "account_banned",
+  failure: { stage, error: "account_banned" },
+});
+
 /**
  * Reads, processes and saves the upload. Returns the outcome to record, or null when the work
  * was saved; throws on a failure worth retrying.
@@ -72,6 +79,9 @@ async function run(
   lease: Lease,
   enter: (stage: Stage) => void,
 ): Promise<Outcome | null> {
+  // A ban stops the account's in-flight uploads (ARCHITECTURE, Moderation): before the file is
+  // read. The save checks again in its transaction, for a ban that lands while the job runs.
+  if (await isUploaderBanned(deps.db, lease.id)) return ACCOUNT_BANNED("read");
   const object = await deps.bucket.get(lease.r2Key);
   // Gone, as after the 7-day expiry of uploads/ (#176): no retry brings it back.
   if (object === null) {
@@ -108,6 +118,7 @@ async function run(
     if (error instanceof WorkRemoved) {
       return { status: "work_removed", failure: { stage: "save", error: "work_removed" } };
     }
+    if (error instanceof AccountBanned) return ACCOUNT_BANNED("save");
     if (!(error instanceof SaveRejected)) throw error;
     return { status: "parse_failed", failure: { stage: "save", error: error.code } };
   }
