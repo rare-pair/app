@@ -123,6 +123,7 @@ describe("03-upload-status", () => {
     "opted_out",
     "parse_failed",
     "work_removed",
+    "account_banned",
   ] satisfies UploadStatus[])("A %s upload's status is its stored status", async (status) => {
     const { userId, cookie } = await signIn();
     const id = await upload(userId, status);

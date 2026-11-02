@@ -195,8 +195,8 @@ request and to every byline at ingest.
 
 ## Ingestion pipeline
 
-1. **Ask.** `POST /uploads` checks the session, Turnstile, the daily quota and
-   the declared size (25 MB or less). One call asks for one file or for several
+1. **Ask.** `POST /uploads` checks the session, Turnstile, the account's ban, the
+   daily quota and the declared size (25 MB or less). One call asks for one file or for several
    (at most 10): one `size` field per file, under one Turnstile token. A call
    with good sizes spends one unit per file of both the per-user and the per-IP
    rate limit (a call refused for a bad count or size spends only the first of
@@ -210,8 +210,11 @@ request and to every byline at ingest.
    controls). A request over the per-user or per-IP rate limit gets the same 429,
    counted right after the session check, before the form is read (the rest of a
    batch's files are counted once the form is read, before Turnstile). The reply is
-   JSON `{ error, retryAfter }`, and the upload page shows the message. Otherwise it inserts an
-   `uploads` row and returns a presigned R2 `PUT` URL for each file, valid for 10 minutes
+   JSON `{ error, retryAfter }`, and the upload page shows the message. A banned
+   account gets 403 with `{ error }` for the whole batch, checked just before the
+   quota (Moderation, *Block and ban*), and `GET /upload` shows it a page saying
+   it can't upload. Otherwise it inserts an `uploads` row for each file, all in
+   one transaction, and returns a presigned R2 `PUT` URL for each, valid for 10 minutes
    and locked to `Content-Type: application/epub+zip`: JSON `{ id, url }` for one file,
    `{ uploads: [{ id, url }, ...] }` for several. R2 presigned URLs support PUT but not
    form POST, and the bucket needs a CORS rule for `rarepair.fans`.
@@ -224,7 +227,8 @@ request and to every byline at ingest.
    Uploading needs JavaScript, as every form with a Turnstile check does
    (Turnstile can't produce a token without it); without JS the upload page
    says so (FRONTEND-DISCOVERY, *Where the frontend changes the architecture*).
-3. **Confirm.** `POST /uploads/:id/complete` HEADs the object, checks its size,
+3. **Confirm.** For a banned account, `POST /uploads/:id/complete` answers 403
+   and ends the upload `account_banned` before reading the object. Otherwise it HEADs the object, checks its size,
    and hashes it (SHA-256). If the hash matches an earlier upload that was
    ingested into a work that is `live` or `hidden` (that upload's status is
    `live`, `held_for_review` or `duplicate`, with a `work_id`), the new upload
@@ -458,10 +462,18 @@ Chapter text isn't indexed.
    removed work takes no upload). Only a work's first upload sets it `live`.
 
 **Rejection codes:** `not_epub`, `zip_bomb`, `too_large`, `not_ao3`,
-`opted_out`, `parse_failed`, `work_removed`. Each one shows a plain-language
+`opted_out`, `parse_failed`, `work_removed`, `account_banned`. Each one shows a plain-language
 message to the uploader. `work_removed` is the upload of a work a moderator or
 its author removed, checked after the opt-out and takedown lists and before
-the current version is read. Step 2 lists which problem gives which of the first three.
+the current version is read. `account_banned` is an upload by an account a
+moderator banned (its meaning to the uploader: the account can no longer
+upload): the ban sets it on the account's `pending` uploads (and a confirm sets
+it on one written after the ban), and ingest sets it on a job whose uploader is
+banned, checked before the file is read and again, with a key-share lock on the
+account's row, in the save's transaction. A save that took that lock first
+finishes, and its upload counts as finished. A ban the save's check catches
+leaves the R2 files the job had already written, `originals/` included, as a
+`work_removed` refusal does. Step 2 lists which problem gives which of the first three.
 `not_ao3` covers any file without an AO3 preface "Posted originally" line,
 including one whose AO3 work URL is only in the OPF (step 4). `opted_out`
 covers the opt-out list and the takedown list of moderator-removed works.
@@ -748,8 +760,16 @@ epub, under the normal versioning rules.
   longer hide anything (an opt-out from them isn't applied until a moderator
   approves it). Every requester sees the same confirmation (FRONTEND-DISCOVERY,
   journey 4), and the page never reveals that a requester is blocked. Banning
-  an uploader (an account, `banned_at`) stops it uploading and reporting; its
-  existing uploads stay until a moderator acts on them.
+  an uploader (an account, `banned_at`) stops it uploading and reporting, and
+  stops its in-flight uploads: its `pending` uploads end `account_banned`, and
+  so does a job ingest has not yet saved, at its next ban check (before the
+  file is read, or in the save's transaction), unless the job was refused
+  for another reason first. Its live works and finished uploads stay
+  until a moderator acts on them. A moderator bans from a work's admin page
+  (`POST /admin/users/:id/ban`); nobody bans themselves, a moderator or an
+  admin, and there is no unban at launch. The upload and report routes read
+  the ban from the database on every request, so a session signed in before it
+  is refused after it.
 - **What hidden, held and removed works show.**
   - **Hidden** (`hidden`, by a removal request or opt-out, by reports, or by a
     moderator): 451 on the work page, every chapter URL and `/full`, with one
@@ -814,7 +834,7 @@ epub, under the normal versioning rules.
   transaction.) A reject that also lifts a hide logs only the reject. A hide
   no moderator chose (the reports' automatic hide, a removal request's hide)
   writes none. Hide, restore, remove, make current (logged on the version, and only when
-  the pointer moved) and the request and takedown rejects write a row
+  the pointer moved), ban and the request and takedown rejects write a row
   today; each later action calls the same helper, `logModerationAction`, when
   it is built. The row's `moderator_id` has no foreign key to `user`, so
   deleting an account keeps its log rows, with the id as it was. Anyone
