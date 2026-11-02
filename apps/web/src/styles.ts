@@ -195,6 +195,21 @@ article.chapter table {
   overflow-x: auto;
 }
 
+/* Chapter notes (first in the chapter) and end notes (last): a label <p> then a
+   <blockquote>. The sanitizer drops class and id, so they are matched by position; a real
+   quote block placed the same way is styled the same (accepted, ARCHITECTURE Reading). */
+article.chapter > p:first-child:has(+ blockquote),
+article.chapter > p:first-child + blockquote,
+article.chapter > div:first-child > p:first-child:has(+ blockquote),
+article.chapter > div:first-child > p:first-child + blockquote,
+article.chapter > p:has(+ blockquote:last-child),
+article.chapter > p + blockquote:last-child,
+article.chapter > div:last-child > p:has(+ blockquote:last-child),
+article.chapter > div:last-child > p + blockquote:last-child {
+  font-size: 0.85em;
+  color: var(--muted);
+}
+
 /* The slim top bar scrolls away with the page: it is never sticky or fixed. */
 .reader-bar {
   display: flex;

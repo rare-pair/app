@@ -510,6 +510,14 @@ can be snapshotted.
   `<style>` and inline `style`, and by limiting links. The reader CSS also sets
   `.chapter { contain: content; }` and keeps `position` locked inside it. Treat
   any new trick here as a sanitizer bug.
+- **Chapter notes are styled by position.** The sanitizer drops `class` and
+  `id`, and the data model keeps no separate notes, so the reader CSS styles a
+  chapter's notes (#205) by structure: a label `<p>` followed by a
+  `<blockquote>`, first in `article.chapter` (chapter notes) or last (end
+  notes), flat or inside one wrapper `<div>`. Both are smaller and muted. The
+  accepted false match: a real quote block placed the same way (a paragraph then
+  a blockquote opening or closing a chapter) gets the same style. That's a
+  design choice, not a bug to fix with a class hook.
 - **We can re-sanitize everything.** Originals are kept in `originals/`, so
   when a bypass is found we fix the sanitizer and re-run ingest on every stored
   work from a backfill queue.
