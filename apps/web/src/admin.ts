@@ -211,13 +211,18 @@ export async function showWorksToCheck(c: AdminContext) {
     .selectFrom("work_versions")
     .innerJoin("uploads", "uploads.id", "work_versions.upload_id")
     .innerJoin("works", "works.id", "work_versions.work_id")
-    .select(["works.id", "works.title", "works.ao3_work_id", "work_versions.created_at"])
+    .select(["works.id", "works.title", "works.ao3_work_id"])
+    .select((eb) => eb.fn.min("work_versions.created_at").as("created_at"))
     .where("uploads.status", "=", "held_for_review")
     .where("works.status", "<>", "removed")
-    .orderBy("work_versions.created_at")
+    // One row per work, so a work with many held versions can't use up the cap.
+    .groupBy(["works.id", "works.title", "works.ao3_work_id"])
+    .orderBy("created_at")
+    .orderBy("works.id")
     .limit(QUEUE_LIMIT + 1)
     .execute();
-  // The notice's own rule (review-notice.ts), on the current version only.
+  // The notice's own rule (review-notice.ts), on the current version only. A hidden
+  // work is listed too: it still needs its check.
   const flagged = await db
     .selectFrom("works")
     .innerJoin("work_versions", "work_versions.id", "works.current_version_id")
@@ -228,10 +233,11 @@ export async function showWorksToCheck(c: AdminContext) {
       "work_versions.created_at",
       "work_versions.review_reasons",
     ])
-    .where("works.status", "=", "live")
+    .where("works.status", "<>", "removed")
     .where("work_versions.checked_at", "is", null)
     .where(sql<boolean>`cardinality(work_versions.review_reasons) > 0`)
     .orderBy("work_versions.created_at")
+    .orderBy("works.id")
     .limit(QUEUE_LIMIT + 1)
     .execute();
   const wrong = await db
@@ -244,6 +250,7 @@ export async function showWorksToCheck(c: AdminContext) {
     .where("works.status", "<>", "removed")
     .groupBy(["works.id", "works.title", "works.ao3_work_id"])
     .orderBy("created_at")
+    .orderBy("works.id")
     .limit(QUEUE_LIMIT + 1)
     .execute();
 
@@ -273,7 +280,7 @@ export async function showWorksToCheck(c: AdminContext) {
     .sort(([aId, a], [bId, b]) => +a.created - +b.created || (aId < bId ? -1 : aId > bId ? 1 : 0))
     .slice(0, QUEUE_LIMIT + 1)
     .map(([, w]): Row => ({
-      href: `/admin/works/${encodeURIComponent(String(w.ao3WorkId))}`,
+      href: `/admin/works/${w.ao3WorkId}`,
       cells: [iso(w.created), workCell(w.title, w.ao3WorkId), w.reasons.join("; ")],
     }));
   return c.html(queuePage("Works to check", WORK_COLUMNS, rows));

@@ -126,6 +126,17 @@ describe("18 moderation: Works to check", () => {
     const html = await queue();
     expect(html).toContain("mod3a-14320 (14320)");
     expect(html).not.toContain("mod3a-14321");
+    // Flagged by review reasons alone, a hidden work is listed too.
+    await seed(14322, { status: "hidden", hiddenCause: "moderator", reviewReasons: ["mod3a-r"] });
+    expect(await queue()).toContain("mod3a-14322 (14322)");
+  });
+
+  it("A work with several held versions is listed once, from the oldest", async () => {
+    const w = await seed(14360);
+    await seedVersion(db, w, { current: false, addedAt: "2001-08-01T00:00:00Z" });
+    await seedVersion(db, w, { current: false, addedAt: "2001-07-01T00:00:00Z" });
+    const cells = rowWith(await queue(), "mod3a-14360 (");
+    expect(cells[0]).toBe("2001-07-01T00:00:00.000Z");
   });
 
   it("A work with two triggers is listed once, from the earliest, with both reasons", async () => {
