@@ -1,8 +1,9 @@
 import { createDb, type Database } from "@archive/db";
 import { processEpub } from "@archive/epub";
 import type { Kysely } from "kysely";
+import { runBackfill, type BackfillDeps } from "./backfill";
 import { errorCode, runJob, type JobDeps, type Verdict } from "./job";
-import { parseMessage } from "./message";
+import { parseBackfillMessage, parseMessage } from "./message";
 import { saveWork, type SaveBucket } from "./save";
 
 export interface Env {
@@ -20,6 +21,9 @@ type JobBucket = JobDeps["bucket"] & SaveBucket;
 export type Steps = Pick<JobDeps, "process" | "save"> & {
   bucket: (real: R2Bucket) => JobBucket;
 };
+
+/** The re-sanitize backfill's queue (wrangler.jsonc); every other batch is the ingest queue's. */
+const BACKFILL_QUEUE = "ingest-backfill";
 
 /** Where the content Worker serves a work's images from. */
 const CONTENT_ORIGIN = "https://content.rarepair.fans";
@@ -58,6 +62,14 @@ export function ingestWorker(steps: Partial<Steps> = {}) {
           steps.save ??
           ((lease, work, bytes, images) => saveWork({ db, bucket }, lease, work, bytes, images)),
       };
+      if (batch.queue === BACKFILL_QUEUE) {
+        try {
+          await backfillBatch(batch, { db, bucket, process: deps.process });
+        } finally {
+          ctx.waitUntil(db.destroy());
+        }
+        return;
+      }
       let invalid = 0;
       try {
         // One job at a time: an invocation holds one epub and its parse in memory, not five.
@@ -88,6 +100,39 @@ export function ingestWorker(steps: Partial<Steps> = {}) {
       }
     },
   } satisfies ExportedHandler<Env>;
+}
+
+/**
+ * Runs each backfill message's job, one after another. Logs carry work and version ids,
+ * outcomes and error class names only. A final outcome is acked; a failure worth retrying is
+ * retried, and dead-lettered once the queue's retries are spent, leaving the work as it was.
+ */
+async function backfillBatch(batch: MessageBatch, deps: BackfillDeps): Promise<void> {
+  let invalid = 0;
+  for (const message of batch.messages) {
+    const parsed = parseBackfillMessage(message.body);
+    if (parsed === null) {
+      invalid++;
+      message.ack();
+      continue;
+    }
+    const line = {
+      event: "ingest.backfill",
+      workId: parsed.work_id,
+      versionId: parsed.version_id,
+      attempt: message.attempts,
+    };
+    // Caught per message: a throw out of queue() would retry the whole batch.
+    try {
+      const outcome = await runBackfill(deps, parsed);
+      console.log({ ...line, outcome });
+      message.ack();
+    } catch (error) {
+      console.error({ ...line, outcome: "retry", error: errorCode(error) });
+      message.retry();
+    }
+  }
+  if (invalid > 0) console.warn({ event: "ingest.backfill_invalid", count: invalid });
 }
 
 export default ingestWorker();

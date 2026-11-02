@@ -93,19 +93,7 @@ export async function saveWork(
   let current = await readCurrent(deps, ao3WorkId);
   const facts = factsOf(work);
   const prefix = `works/${ao3WorkId}/${lease.id}/`;
-  const chapters = work.chapters.map((c) => ({ ...c, key: `${prefix}${c.n}.html` }));
-  await inPool(chapters, async (c) => {
-    await deps.bucket.put(c.key, c.html, {
-      httpMetadata: { contentType: "text/html; charset=utf-8" },
-    });
-  });
-  // Outside the upload's prefix, shared by every version of the work: keyed by the bytes, so a
-  // retry writes the same keys.
-  await inPool([...images], async ([key, image]) => {
-    await deps.bucket.put(`works/${ao3WorkId}/img/${key}`, image.bytes, {
-      httpMetadata: { contentType: image.mediaType },
-    });
-  });
+  const chapters = await putFiles(deps.bucket, ao3WorkId, prefix, work, images);
   await deps.bucket.put(`originals/${lease.id}.epub`, bytes, {
     httpMetadata: { contentType: "application/epub+zip" },
   });
@@ -145,6 +133,102 @@ export async function saveWork(
       }
       throw error;
     }
+  }
+}
+
+/**
+ * Writes a version's chapter fragments under `prefix`, then the work's images under its shared
+ * `img/` prefix, keyed by their bytes, so a retry and every version of the work write the same
+ * image keys. Returns the chapters with their keys.
+ */
+async function putFiles(
+  bucket: SaveBucket,
+  ao3WorkId: number,
+  prefix: string,
+  work: ParsedWork,
+  images: WorkImages,
+): Promise<Chapters> {
+  const chapters = work.chapters.map((c) => ({ ...c, key: `${prefix}${c.n}.html` }));
+  await inPool(chapters, async (c) => {
+    await bucket.put(c.key, c.html, {
+      httpMetadata: { contentType: "text/html; charset=utf-8" },
+    });
+  });
+  await inPool([...images], async ([key, image]) => {
+    await bucket.put(`works/${ao3WorkId}/img/${key}`, image.bytes, {
+      httpMetadata: { contentType: image.mediaType },
+    });
+  });
+  return chapters;
+}
+
+/** The version a backfill re-makes: the work's current one when the message was made. */
+export interface BackfillSource {
+  workId: string;
+  ao3WorkId: number;
+  versionId: string;
+  /** The upload whose `originals/<id>.epub` the version was made from. */
+  originalUploadId: string;
+  reviewReasons: string[];
+  checkedAt: Date | null;
+}
+
+/**
+ * Saves a backfill: a new version of the work re-made from the source version's original by
+ * the processor as it is now (ARCHITECTURE, EPUB processor, step 8). It is decided by neither
+ * `decideVersion` nor any upload: the same file, re-sanitized, always replaces its source. Its
+ * fragments go under a prefix of its own, `works/<ao3_work_id>/<version id>/`, so no fragment
+ * already written is rewritten and every cached one keeps its key; its images go to the
+ * work's `img/` prefix; the original is not written again. Then one transaction adds the
+ * version and moves `current_version_id` to it only if it is still the source version
+ * (compare-and-swap), and makes the work describe it. Status is left as it is. Returns false
+ * when the pointer had moved, or the work was removed, and nothing was committed: the new
+ * prefix's fragments are then left for the periodic sweep, as are a failed attempt's.
+ */
+export async function saveBackfill(
+  deps: { db: Kysely<Database>; bucket: SaveBucket },
+  source: BackfillSource,
+  work: ParsedWork,
+  images: WorkImages = new Map(),
+): Promise<boolean> {
+  if (work.chapters.length === 0) throw new SaveRejected("no_chapters");
+  const versionId = crypto.randomUUID();
+  const prefix = `works/${source.ao3WorkId}/${versionId}/`;
+  const chapters = await putFiles(deps.bucket, source.ao3WorkId, prefix, work, images);
+  // The moderator's check stands only for the parser's doubts it answered.
+  const sameReasons =
+    JSON.stringify([...work.reviewReasons].sort()) ===
+    JSON.stringify([...source.reviewReasons].sort());
+  const origin: VersionOrigin = {
+    id: versionId,
+    upload_id: null,
+    source: "backfill",
+    source_upload_id: source.originalUploadId,
+    checked_at: sameReasons ? source.checkedAt : null,
+  };
+  try {
+    await deps.db.transaction().execute(async (trx) => {
+      await insertVersion(trx, origin, work, source.workId, prefix, chapters);
+      const moved = await trx
+        .updateTable("works")
+        .set({ current_version_id: versionId })
+        .where("id", "=", source.workId)
+        .where("current_version_id", "=", source.versionId)
+        .where("status", "<>", "removed")
+        .returning("id")
+        .executeTakeFirst();
+      if (moved === undefined) throw new Stale();
+      await copyVersionToWork(trx, source.workId, versionId);
+    });
+    return true;
+  } catch (error) {
+    if (error instanceof Stale) return false;
+    const state = sqlState(error);
+    // As for an upload: the file's own data broke a rule, and will again.
+    if (state !== null && /^(21|22|23|54)/.test(state)) {
+      throw new SaveRejected(`save_rejected_${state}`);
+    }
+    throw error;
   }
 }
 
@@ -276,7 +360,15 @@ async function writeRows(
     await confirmPointer(trx, current);
     // Its columns, tags and authors stay on the version, with the reason it was held: the
     // work's own are the current version's.
-    await insertVersion(trx, lease, work, workId, prefix, chapters, decision.reason);
+    await insertVersion(
+      trx,
+      { upload_id: lease.id },
+      work,
+      workId,
+      prefix,
+      chapters,
+      decision.reason,
+    );
     return endUpload(trx, lease, "held_for_review", workId);
   }
   // A replace. The version first (the pointer's foreign key needs it), then one statement that
@@ -284,7 +376,14 @@ async function writeRows(
   // the race matches no row, and the transaction rolls back. A winner holds the row lock from
   // here to its commit, so everything after it is one job's at a time. Status is left as it is:
   // a replace never unhides a hidden or removed work.
-  const versionId = await insertVersion(trx, lease, work, workId, prefix, chapters);
+  const versionId = await insertVersion(
+    trx,
+    { upload_id: lease.id },
+    work,
+    workId,
+    prefix,
+    chapters,
+  );
   const moved = await trx
     .updateTable("works")
     .set({ current_version_id: versionId })
@@ -322,7 +421,14 @@ async function writeFirst(
   // That job's work is committed now: read it and decide as for any later upload.
   if (row === undefined) throw new Stale();
   const workId = row.id;
-  const versionId = await insertVersion(trx, lease, work, workId, prefix, chapters);
+  const versionId = await insertVersion(
+    trx,
+    { upload_id: lease.id },
+    work,
+    workId,
+    prefix,
+    chapters,
+  );
   // The work describes its version, as after any replace: the byline, tags and search text,
   // in this transaction.
   await copyVersionToWork(trx, workId, versionId);
@@ -354,12 +460,26 @@ async function confirmPointer(trx: Transaction<Database>, current: Current): Pro
 }
 
 /**
+ * What made a version: an upload, or a backfill, which names its own id (its prefix holds it),
+ * the upload it was re-made from, and the moderator's check it carries over.
+ */
+type VersionOrigin =
+  | { upload_id: string }
+  | {
+      id: string;
+      upload_id: null;
+      source: "backfill";
+      source_upload_id: string;
+      checked_at: Date | null;
+    };
+
+/**
  * The version row and its chapters, with `holdReason` for a held version. Returns the
  * version's id.
  */
 async function insertVersion(
   trx: Transaction<Database>,
-  lease: Lease,
+  origin: VersionOrigin,
   work: ParsedWork,
   workId: string,
   prefix: string,
@@ -371,7 +491,7 @@ async function insertVersion(
     .insertInto("work_versions")
     .values({
       work_id: workId,
-      upload_id: lease.id,
+      ...origin,
       chapter_count: count,
       chapter_total: total,
       r2_prefix: prefix,
