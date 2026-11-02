@@ -2,7 +2,7 @@ import type { UploadStatus } from "@archive/db";
 import { runInNewContext, Script } from "node:vm";
 import { describe, expect, it } from "vitest";
 import { MY_UPLOADS_SCRIPT } from "../src/my-uploads-script";
-import { badgeLabel, inProgress, messageFor } from "../src/upload-badge";
+import { badgeLabel, FALLBACK_MESSAGE, inProgress, messageFor } from "../src/upload-badge";
 
 // The My uploads script, run over hand-written fakes for the page, `fetch` and timers.
 // Real DOM and real timers are not covered: the Worker tests check the markup it reads.
@@ -177,6 +177,30 @@ describe("03-upload-status: My uploads updates in place with JS", () => {
 
     expect(a.message.textContent).toBe(messageFor("duplicate", true, false));
     expect(a.message.textContent).not.toMatch(/archive/i);
+  });
+
+  it("A work url the script wouldn't link gets the neutral message too", async () => {
+    const a = row(ID_A, "processing");
+    const p = page([a], {
+      [`/uploads/${ID_A}`]: [
+        { status: 200, body: { status: "live", work: { id: "w", url: "/works/0" } } },
+      ],
+    });
+
+    await p.tick();
+
+    expect(a.message.textContent).toBe(messageFor("live", true, false));
+  });
+
+  it("A status the script doesn't know gets a generic message, not a blank one", async () => {
+    const a = row(ID_A, "processing");
+    const p = page([a], {
+      [`/uploads/${ID_A}`]: [{ status: 200, body: { status: "something_new", work: null } }],
+    });
+
+    await p.tick();
+
+    expect(a.message.textContent).toBe(FALLBACK_MESSAGE);
   });
 
   it("A rejection reads the same badge and message as the server's", async () => {

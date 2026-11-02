@@ -1,11 +1,18 @@
 import { escapeHtml } from "./pages";
 import { fnv1a } from "./styles";
-import { LABELS, MESSAGES, REFRESH_SECONDS, REJECTED, UNLINKED } from "./upload-badge";
+import {
+  LABELS,
+  MESSAGES,
+  REFRESH_SECONDS,
+  FALLBACK_MESSAGE,
+  REJECTED,
+  UNLINKED,
+} from "./upload-badge";
 
 /**
  * The My uploads script, served from MY_UPLOADS_SCRIPT_PATH and loaded with the page's
  * nonce while some upload is in progress. Every REFRESH_SECONDS it asks `GET /uploads/:id`
- * about each row marked `data-polling` and rewrites that row's badge in place; a row that
+ * about each row marked `data-polling` and rewrites that row's badge and message in place; a row that
  * went live gets a link to its work. A row leaves the set when it is no longer in
  * progress or answers 404, and the script stops when the set is empty. A 401 (the session
  * ended) reloads the page, which lands on sign-in. A network error or a 5xx waits for the
@@ -21,6 +28,7 @@ export const MY_UPLOADS_SCRIPT = `"use strict";
   const MESSAGES = ${JSON.stringify(MESSAGES)};
   const UNLINKED = ${JSON.stringify(UNLINKED)};
   const REJECTED = ${JSON.stringify(REJECTED)};
+  const FALLBACK = ${JSON.stringify(FALLBACK_MESSAGE)};
   const INTERVAL = ${REFRESH_SECONDS * 1000};
   const rows = new Set(document.querySelectorAll("li[data-upload-id][data-polling]"));
   if (rows.size === 0) return;
@@ -28,9 +36,9 @@ export const MY_UPLOADS_SCRIPT = `"use strict";
   const message = (status, linked) => {
     if (status === "pending") return MESSAGES.processing;
     if (!linked && Object.hasOwn(UNLINKED, status)) return UNLINKED[status];
-    return Object.hasOwn(MESSAGES, status) ? MESSAGES[status] : "";
+    return Object.hasOwn(MESSAGES, status) ? MESSAGES[status] : FALLBACK;
   };
-  const waiting =(status) => status === "pending" || status === "processing";
+  const waiting = (status) => status === "pending" || status === "processing";
   let timer = 0;
   let busy = false;
   const poll = async (li) => {
@@ -67,11 +75,12 @@ export const MY_UPLOADS_SCRIPT = `"use strict";
     const badge = li.querySelector(".badge");
     if (badge) badge.textContent = label(body.status);
     li.setAttribute("data-status", body.status);
-    const url = body.work && body.work.url;
+    const raw = body.work && body.work.url;
+    const url = typeof raw === "string" && /^\\/works\\/[1-9][0-9]{0,9}$/.test(raw) ? raw : null;
     const note = li.querySelector(".upload-message");
-    if (note) note.textContent = message(body.status, typeof url === "string");
+    if (note) note.textContent = message(body.status, url !== null);
     const name = li.querySelector(".upload-name");
-    if (name && typeof url === "string" && /^\\/works\\/[1-9][0-9]{0,9}$/.test(url) && !name.querySelector("a")) {
+    if (name && url !== null && !name.querySelector("a")) {
       const link = document.createElement("a");
       link.setAttribute("href", url);
       link.textContent = "View the work";

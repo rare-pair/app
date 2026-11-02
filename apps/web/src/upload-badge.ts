@@ -37,13 +37,12 @@ export const MESSAGES: Record<UploadStatus, string> = {
   pending: "This file hasn't finished uploading. Upload it again from the upload page.",
   processing: "We're reading this file. This page updates by itself.",
   live: "This work is in the archive.",
-  held_for_review:
-    "A moderator will check this upload before it replaces the current version. You don't need to do anything.",
+  held_for_review: "A moderator will check this upload. You don't need to do anything.",
   duplicate: "This work is already in the archive, so your file was kept but not added.",
   not_ao3:
     "This file isn't an AO3 download, so we can't accept it here. Download the work from AO3 as an EPUB and upload that.",
   not_epub:
-    "This file isn't a valid EPUB, so we couldn't read it. Download the EPUB again and try again.",
+    "This file isn't a valid EPUB, so we couldn't read it. Download a fresh copy and try again.",
   zip_bomb: "This file is built in a way we won't open. Download a fresh EPUB and try again.",
   too_large: `This file is too large. We accept EPUBs up to ${MAX_UPLOAD_MB} MB.`,
   opted_out: "This work can't be added to the archive.",
@@ -53,6 +52,8 @@ export const MESSAGES: Record<UploadStatus, string> = {
   work_removed: "This work was removed from the archive.",
   account_banned: "This account can no longer upload.",
 };
+// For a status the script doesn't know (one added after the page was served).
+export const FALLBACK_MESSAGE = "Reload this page to see the latest on this upload.";
 // A live or duplicate upload's work may since have been hidden or removed. With no link
 // to it the message doesn't say the work is in the archive.
 export const UNLINKED: Partial<Record<UploadStatus, string>> = {
