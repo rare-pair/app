@@ -14,8 +14,10 @@ afterAll(async () => {
   await t?.close();
 });
 
-const ids = async (query: string, options?: { pageSize?: number; offset?: number }) =>
-  (await searchLiveWorks(t.db, query, options)).works.map((w) => w.work.ao3_work_id);
+const ids = async (
+  query: string,
+  options?: { pageSize?: number; offset?: number; rating?: string; fandom?: string },
+) => (await searchLiveWorks(t.db, query, options)).works.map((w) => w.work.ao3_work_id);
 
 describe("Metadata search", () => {
   let w1: number;
@@ -260,5 +262,105 @@ describe("search backfill", () => {
     } finally {
       await old.close();
     }
+  });
+});
+
+describe("Search filters", () => {
+  const word = "quillfeather";
+  let teen: number;
+  let teenOther: number;
+  let general: number;
+  let unrated: number;
+  let hidden: number;
+  beforeAll(async () => {
+    const fandom = (name: string) => ({ type: "fandom" as const, name });
+    teen = (
+      await seedWork(t.db, {
+        title: `${word} one`,
+        rating: "Teen And Up Audiences",
+        tags: [fandom("Filterverse Saga")],
+      })
+    ).ao3WorkId;
+    teenOther = (
+      await seedWork(t.db, {
+        title: `${word} two`,
+        rating: "Teen And Up Audiences",
+        tags: [fandom("Otherverse")],
+      })
+    ).ao3WorkId;
+    general = (
+      await seedWork(t.db, {
+        title: `${word} three`,
+        rating: "General Audiences",
+        tags: [fandom("Filterverse Saga")],
+      })
+    ).ao3WorkId;
+    unrated = (await seedWork(t.db, { title: `${word} four`, rating: null })).ao3WorkId;
+    hidden = (
+      await seedWork(t.db, {
+        title: `${word} five`,
+        rating: "Teen And Up Audiences",
+        tags: [fandom("Filterverse Saga")],
+        status: "hidden",
+        hiddenCause: "reports",
+      })
+    ).ao3WorkId;
+  });
+
+  it("A fandom filter narrows the works and the total", async () => {
+    const r = await searchLiveWorks(t.db, word, { fandom: "Filterverse Saga" });
+    expect(r.works.map((w) => w.work.ao3_work_id).sort((a, b) => a - b)).toEqual(
+      [teen, general].sort((a, b) => a - b),
+    );
+    expect(r.total).toBe(2);
+  });
+
+  it("A fandom matches however it is spelled", async () => {
+    expect(await ids(word, { fandom: "  FILTERVERSE   saga " })).toContain(teen);
+  });
+
+  it("A fandom naming no tag matches nothing", async () => {
+    expect(await searchLiveWorks(t.db, word, { fandom: "No Such Fandom Anywhere" })).toEqual({
+      works: [],
+      total: 0,
+    });
+    // A name that folds to nothing is no tag either.
+    expect(await searchLiveWorks(t.db, word, { fandom: "!!!" })).toEqual({ works: [], total: 0 });
+  });
+
+  it("A rating filter narrows the works and the total", async () => {
+    const r = await searchLiveWorks(t.db, word, { rating: "Teen And Up Audiences" });
+    expect(r.works.map((w) => w.work.ao3_work_id).sort((a, b) => a - b)).toEqual(
+      [teen, teenOther].sort((a, b) => a - b),
+    );
+    expect(r.total).toBe(2);
+  });
+
+  it("Not Rated finds a work with no rating", async () => {
+    expect(await ids(word, { rating: "Not Rated" })).toEqual([unrated]);
+  });
+
+  it("Fandom and rating combine", async () => {
+    expect(await ids(word, { fandom: "Filterverse Saga", rating: "General Audiences" })).toEqual([
+      general,
+    ]);
+  });
+
+  it("The total under a filter pages with the offset", async () => {
+    const fandom = "Filterverse Saga";
+    const first = await searchLiveWorks(t.db, word, { fandom, pageSize: 1 });
+    const second = await searchLiveWorks(t.db, word, { fandom, pageSize: 1, offset: 1 });
+    const past = await searchLiveWorks(t.db, word, { fandom, pageSize: 1, offset: 2 });
+    expect(first.total).toBe(2);
+    expect(second.total).toBe(2);
+    expect(
+      [...first.works, ...second.works].map((w) => w.work.ao3_work_id).sort((a, b) => a - b),
+    ).toEqual([teen, general].sort((a, b) => a - b));
+    expect(past).toEqual({ works: [], total: 2 });
+  });
+
+  it("A filter never admits a hidden work", async () => {
+    expect(await ids(word, { fandom: "Filterverse Saga" })).not.toContain(hidden);
+    expect(await ids(word, { rating: "Teen And Up Audiences" })).not.toContain(hidden);
   });
 });
