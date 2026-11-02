@@ -191,17 +191,27 @@ request and to every byline at ingest.
 ## Ingestion pipeline
 
 1. **Ask.** `POST /uploads` checks the session, Turnstile, the daily quota and
-   the declared size (25 MB or less). The upload page's script calls it, so a
+   the declared size (25 MB or less). One call asks for one file or for several
+   (at most 10): one `size` field per file, under one Turnstile token. Each file
+   counts once against the per-user and per-IP rate limits and against the quota
+   left today. A batch larger than the quota left is refused whole, with a 429 saying how
+   many uploads remain, and one bad or oversized size refuses the whole batch, so
+   a refused call writes no `uploads` row. The upload page's script calls it, so a
    signed-out request gets 401 rather than a redirect it can't follow (the
    page itself redirects to sign in), a failed or missing Turnstile token gets 400, a declared size over
    25 MB gets 413, and a spent quota gets 429 with `Retry-After` (Surge
    controls). A request over the per-user or per-IP rate limit gets the same 429,
-   counted right after the session check, before the form is read. The reply is
+   counted right after the session check, before the form is read (the rest of a
+   batch's files are counted once the form is read, before Turnstile). The reply is
    JSON `{ error, retryAfter }`, and the upload page shows the message. Otherwise it inserts an
-   `uploads` row and returns a presigned R2 `PUT` URL, valid for 10 minutes
-   and locked to `Content-Type: application/epub+zip`. R2 presigned URLs support PUT but not
+   `uploads` row and returns a presigned R2 `PUT` URL for each file, valid for 10 minutes
+   and locked to `Content-Type: application/epub+zip`: JSON `{ id, url }` for one file,
+   `{ uploads: [{ id, url }, ...] }` for several. R2 presigned URLs support PUT but not
    form POST, and the bucket needs a CORS rule for `rarepair.fans`.
-2. **Upload.** The browser PUTs the file straight to R2 and shows progress.
+2. **Upload.** The browser PUTs each file straight to R2 and shows each file's
+   progress, three at a time so a later URL doesn't expire waiting. The page's
+   script sends with `XMLHttpRequest`, since `fetch` reports no upload progress.
+   Each finished PUT is confirmed with `POST /uploads/:id/complete`.
    Uploading needs JavaScript, as every form with a Turnstile check does
    (Turnstile can't produce a token without it); without JS the upload page
    says so (FRONTEND-DISCOVERY, *Where the frontend changes the architecture*).
@@ -499,6 +509,11 @@ can be snapshotted.
   allowance, `frame-src https://challenges.cloudflare.com`, for the challenge
   iframe. Turnstile's `api.js` loads through a nonced `<script>`, which
   `'strict-dynamic'` already covers. Reader and work pages never get it.
+- **The upload page alone also adds** `connect-src 'self'
+  https://<R2 account id>.r2.cloudflarestorage.com`, the one host its script
+  PUTs files to. It is built per request from the Worker's `R2_ACCOUNT_ID`
+  (and left out if that isn't plain letters and digits, so the upload fails
+  closed). Every other page keeps `default-src 'self'` for connections.
 - **HTML pages aren't left to a shared cache with their nonce.** The CSP
   middleware sets `Cache-Control: private, no-store` on every HTML response
   that has no `Cache-Control` of its own, so a zone Cache Rule or a proxy can't
