@@ -95,15 +95,17 @@ const addTakedown = (id: string, workId: string) =>
     })
     .execute();
 
-// Confirmed by default (X3b, #487): an unconfirmed request hid nothing, which these cases'
-// reject and restore rules depend on.
-const addRequest = (
+/**
+ * A request as `/remove` stores it once confirmed (X3b, #487): for a work, with the
+ * `request_works` row of the hide it made. Unconfirmed, it has hidden nothing, so no link.
+ */
+const addRequest = async (
   id: string,
   workId: string | null,
   kind: "remove_work" | "opt_out",
   confirmed = true,
-) =>
-  db
+) => {
+  await db
     .insertInto("requests")
     .values({
       id,
@@ -117,6 +119,10 @@ const addRequest = (
       confirmed_at: confirmed ? "2001-06-01T00:05:00Z" : null,
     })
     .execute();
+  if (workId !== null && confirmed) {
+    await db.insertInto("request_works").values({ request_id: id, work_id: workId }).execute();
+  }
+};
 
 const statusOf = async (table: "reports" | "takedowns" | "requests", id: string) =>
   (await db.selectFrom(table).select("status").where("id", "=", id).executeTakeFirstOrThrow())
@@ -164,7 +170,7 @@ describe("18 moderation detail pages", () => {
         "/admin/requests/mod2-detail-optout",
         ["mod2-detail-optout-pseud", "mod2-detail-optout@example.test"],
         [reject("requests", "mod2-detail-optout")],
-        ["/hide", "/restore"],
+        ["/admin/works/"],
       ],
     ] as const) {
       const res = await get(path, moderator);
@@ -202,8 +208,8 @@ describe("18 moderation detail pages", () => {
       await get("/admin/requests/mod2-unconfirmed-request", moderator)
     ).text();
     const confirmed = await (await get("/admin/requests/mod2-confirmed-request", moderator)).text();
-    expect(unconfirmed).toContain("pending (unconfirmed)");
-    expect(confirmed).not.toContain("unconfirmed");
+    expect(unconfirmed).toContain("<dt>Status</dt><dd>pending (unconfirmed)</dd>");
+    expect(confirmed).toContain("<dt>Status</dt><dd>pending</dd>");
   });
 
   it("An unknown item is not found", async () => {

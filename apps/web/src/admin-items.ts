@@ -9,7 +9,10 @@ import {
   approveConfirmPage,
   approveForm,
   itemPage,
+  QUEUE_LIMIT,
   rejectForm,
+  relatedTable,
+  restoreRelatedForm,
   removeConfirmPage,
   resultPage,
   safeFrom,
@@ -17,6 +20,12 @@ import {
   workActions,
   workStatusText,
 } from "./admin-pages";
+import {
+  lockLinkedWorks,
+  relatedRequests,
+  restoreOwnWorks,
+  restoredNote,
+} from "./admin-request-actions";
 import { readForm } from "./login";
 import { removeDeps, removeWorkEverywhere, type RemoveResult } from "./remove-work";
 import { isSameOrigin } from "./signin";
@@ -41,9 +50,43 @@ export const adminItems = new Hono<AdminEnv>();
 
 const iso = (date: Date) => date.toISOString();
 
-/** The forms that decide a pending item: reject, and approve where approving removes a work. */
-const decideForms = (queue: "takedowns" | "requests", id: string, canApprove = true) =>
-  `${rejectForm(queue, id)}${canApprove ? `\n${approveForm(queue, id)}` : ""}`;
+/** The forms that decide a pending item: reject and approve, each labelled for what it does. */
+const decideForms = (
+  queue: "takedowns" | "requests",
+  id: string,
+  labels: { approve?: string; reject?: string } = {},
+) => `${rejectForm(queue, id, labels.reject)}\n${approveForm(queue, id, labels.approve)}`;
+
+/** The actions on a request's page: decide it by what it is, and restore the works of the spree it belongs to. */
+function requestForms(
+  id: string,
+  request: { kind: string; status: string; confirmed_at: Date | null },
+  hasRelated: boolean,
+) {
+  const forms: string[] = [];
+  // Approve is for a request its requester has confirmed (X3b, #487): an unconfirmed one
+  // can only be rejected.
+  const confirmed = request.confirmed_at !== null;
+  if (request.kind === "opt_out") {
+    // Rejecting an opt-out reverses it, pending or approved.
+    if (request.status === "pending" && confirmed) {
+      forms.push(
+        decideForms("requests", id, {
+          approve: "Confirm opt-out",
+          reject: "Reject and reverse opt-out",
+        }),
+      );
+    } else if (request.status === "pending") {
+      forms.push(rejectForm("requests", id));
+    } else if (request.status === REQUEST_APPROVED) {
+      forms.push(rejectForm("requests", id, "Reverse opt-out"));
+    }
+  } else if (request.status === "pending") {
+    forms.push(confirmed ? decideForms("requests", id) : rejectForm("requests", id));
+  }
+  if (request.kind === "remove_work" || hasRelated) forms.push(restoreRelatedForm(id));
+  return forms.join("\n");
+}
 
 /** An approved takedown's `status`: the value the ingest takedown list reads (`TAKEDOWN_REMOVED`, apps/ingest/src/lists.ts). */
 const TAKEDOWN_APPROVED = "removed";
@@ -150,6 +193,7 @@ adminItems.get("/requests/:id{[A-Za-z0-9_-]+}", async (c) => {
       "requests.status",
       "requests.pseud_norm",
       "requests.contact_email",
+      "requests.ip_hash",
       "requests.statement",
       "requests.confirmed_at",
       "works.title",
@@ -160,6 +204,27 @@ adminItems.get("/requests/:id{[A-Za-z0-9_-]+}", async (c) => {
     .where("requests.id", "=", id)
     .executeTakeFirst();
   if (!row) return c.notFound();
+  // The same contact email or IP hash; the hash itself is never shown.
+  const related = await relatedRequests(c.var.db, {
+    id,
+    contactEmail: row.contact_email,
+    ipHash: row.ip_hash,
+  })
+    .leftJoin("works", "works.id", "requests.work_id")
+    .select([
+      "requests.id",
+      "requests.created_at",
+      "requests.kind",
+      "requests.status",
+      "requests.pseud_norm",
+      "requests.confirmed_at",
+      "works.title",
+      "works.ao3_work_id",
+    ])
+    .orderBy("requests.created_at")
+    .orderBy("requests.id")
+    .limit(QUEUE_LIMIT + 1)
+    .execute();
   const self = `/admin/requests/${encodeURIComponent(id)}`;
   const about: [string, string][] =
     row.title !== null && row.work_status !== null
@@ -179,7 +244,22 @@ adminItems.get("/requests/:id{[A-Za-z0-9_-]+}", async (c) => {
         ["Contact email", row.contact_email],
         ["Statement", row.statement],
       ],
-      `${row.ao3_work_id === null ? "" : workActions(row.ao3_work_id, self)}\n${row.status === "pending" ? decideForms("requests", id, row.kind === "remove_work" && row.ao3_work_id !== null) : ""}`,
+      `${row.ao3_work_id === null ? "" : workActions(row.ao3_work_id, self)}\n${requestForms(
+        id,
+        row,
+        related.length > QUEUE_LIMIT || related.some((r) => r.kind === "remove_work"),
+      )}\n${relatedTable(
+        related.slice(0, QUEUE_LIMIT).map((r) => ({
+          cells: [
+            iso(r.created_at),
+            r.kind,
+            r.ao3_work_id === null ? (r.pseud_norm ?? "") : `${r.title ?? ""} (${r.ao3_work_id})`,
+            `${r.status}${unconfirmedMark(r.confirmed_at)}`,
+          ],
+          href: `/admin/requests/${encodeURIComponent(r.id)}`,
+        })),
+        related.length > QUEUE_LIMIT,
+      )}`,
     ),
   );
 });
@@ -289,60 +369,73 @@ function removedPage(c: Context<AdminEnv>, removed: RemoveResult, from: string |
   );
 }
 
+/**
+ * Rejecting a request marks it `rejected` and brings back the works it hid. For an opt-out,
+ * pending or approved, that is also its reversal: its `optouts` row goes inactive, so new
+ * uploads by the pseud are accepted again. Only the works the request's own `request_works`
+ * rows name come back, and none that something else still covers (admin-request-actions.ts).
+ */
 adminItems.post("/requests/:id{[A-Za-z0-9_-]+}/reject", async (c) => {
   const id = c.req.param("id");
   // One transaction: the status, the hide coming off and the log row stand or fall
   // together. Inside it only `trx` is used: `c.var.db` has one connection, which the
   // transaction holds.
   const decided = await c.var.db.transaction().execute(async (trx) => {
-    // Lock the work first: two moderators deciding the last two requests at once
-    // must not each see the other's as pending (the check in `restoreWork` reads
-    // only committed rows) and leave the work hidden for good. The second waits
-    // here for the first to commit.
     const asked = await trx
       .selectFrom("requests")
-      .select("work_id")
+      .select("kind")
       .where("id", "=", id)
-      .where("status", "=", "pending")
+      // Requests before works, as the bulk restore locks them.
+      .forUpdate()
       .executeTakeFirst();
-    if (asked?.work_id) {
-      await trx
-        .selectFrom("works")
-        .select("id")
-        .where("id", "=", asked.work_id)
-        .forNoKeyUpdate()
-        .execute();
-    }
+    if (!asked) return null;
+    const optOut = asked.kind === "opt_out";
+    // Lock the works first: two moderators deciding the last two requests at once
+    // must not each see the other's as pending (the check in `restoreWork` reads
+    // only committed rows) and leave a work hidden for good. The second waits
+    // here for the first to commit.
+    const linked = (await lockLinkedWorks(trx, [id])).get(id) ?? [];
     const rejected = await trx
       .updateTable("requests")
       .set({ status: "rejected" })
       .where("id", "=", id)
-      .where("status", "=", "pending")
-      .returning("work_id")
+      // An approved opt-out can still be reversed; an approved removal is done.
+      .where("status", "in", optOut ? ["pending", REQUEST_APPROVED] : ["pending"])
+      .returning("id")
       .executeTakeFirst();
     if (!rejected) return null;
+    if (optOut) {
+      await trx
+        .updateTable("optouts")
+        .set({ active: false })
+        .where("request_id", "=", id)
+        .execute();
+    }
     // The hide a request caused comes off, never a moderator's or the reports', and
-    // not while another removal request for the work is still waiting. It is a
-    // consequence of the reject, so only the reject is logged.
-    const restored =
-      rejected.work_id !== null &&
-      (await restoreWork(trx, rejected.work_id, {
-        cause: "removal_request",
-        noPendingRequests: true,
-      }));
+    // not while something else covers the work. It is a consequence of the reject, so
+    // only the reject is logged, with the works it brought back in its note.
+    const { restored, covered } = await restoreOwnWorks(trx, id, linked, new Set());
     await logModerationAction(trx, {
       moderatorId: c.var.userId,
       action: "reject",
       targetKind: "request",
       targetId: id,
+      note: restoredNote(restored, optOut ? "Opt-out reversed. " : ""),
     });
-    return { restored };
+    return { restored: restored.length, covered: covered.length, optOut };
   });
   if (!decided) return decidedOrMissing(c, "requests", id);
-  const { restored } = decided;
+  const lifted =
+    decided.restored === 0
+      ? ""
+      : ` ${decided.restored} work${decided.restored === 1 ? " is" : "s are"} live again.`;
+  const held =
+    decided.covered === 0
+      ? ""
+      : ` ${decided.covered} work${decided.covered === 1 ? " stays" : "s stay"} hidden: something else still covers ${decided.covered === 1 ? "it" : "them"}.`;
   return c.html(
     resultPage(
-      restored ? "Rejected. The work is live again." : "Rejected.",
+      `Rejected.${decided.optOut ? " The opt-out is no longer active." : ""}${lifted}${held}`,
       `/admin/requests/${encodeURIComponent(id)}`,
     ),
   );
@@ -380,21 +473,60 @@ adminItems.post("/requests/:id{[A-Za-z0-9_-]+}/approve", async (c) => {
     .select([
       "requests.kind",
       "requests.status",
+      "requests.confirmed_at",
       "works.id as work_id",
       "works.title",
       "works.ao3_work_id",
     ])
     .where("requests.id", "=", id)
     .executeTakeFirst();
-  // An opt-out names a pseud and is decided elsewhere: to this route it is not a request.
-  if (!item || item.kind !== "remove_work" || item.work_id === null) return c.notFound();
+  if (!item) return c.notFound();
   if (item.status !== "pending") return decidedOrMissing(c, "requests", id);
+  // Its requester hasn't confirmed it, so it hid nothing and can't be approved yet (X3b,
+  // #487). Nothing changes. A request only ever goes from unconfirmed to confirmed, so
+  // this read can't be stale in the unsafe direction.
+  if (item.confirmed_at === null) return notConfirmed(c);
+  if (item.kind === "opt_out") return confirmOptOut(c, id);
+  if (item.work_id === null) return c.notFound();
   return approveRemoval(c, "requests", id, {
     workId: item.work_id,
     title: item.title ?? "",
     ao3WorkId: item.ao3_work_id ?? 0,
   });
 });
+
+/**
+ * Confirming an opt-out marks it `approved` and logs `approve`. Nothing else changes: its
+ * `optouts` row stays active and its works stay hidden (both were done when it was made),
+ * and nothing is removed, so there is no confirm step; rejecting it reverses it.
+ */
+async function confirmOptOut(c: Context<AdminEnv>, id: string) {
+  const confirmed = await c.var.db.transaction().execute(async (trx) => {
+    const marked = await trx
+      .updateTable("requests")
+      .set({ status: REQUEST_APPROVED })
+      .where("id", "=", id)
+      .where("kind", "=", "opt_out")
+      .where("status", "=", "pending")
+      .returning("id")
+      .executeTakeFirst();
+    if (!marked) return false;
+    await logModerationAction(trx, {
+      moderatorId: c.var.userId,
+      action: "approve",
+      targetKind: "request",
+      targetId: id,
+    });
+    return true;
+  });
+  if (!confirmed) return decidedOrMissing(c, "requests", id);
+  return c.html(
+    resultPage(
+      "Confirmed. The opt-out stays active and the works stay hidden.",
+      `/admin/requests/${encodeURIComponent(id)}`,
+    ),
+  );
+}
 
 /** Approving a takedown removes its work and sets the takedown `removed`, which puts the work's AO3 work ID on the takedown list. */
 adminItems.post("/takedowns/:id{[A-Za-z0-9_-]+}/approve", async (c) => {
@@ -490,6 +622,16 @@ async function approveRemoval(
   // Marked even when the purge failed: Remove on the work retries it.
   return removedPage(c, removed, self);
 }
+
+/** An approve of a request whose requester hasn't confirmed it: refused, and nothing changed. */
+const notConfirmed = (c: Context<AdminEnv>) =>
+  c.html(
+    resultPage(
+      "Nothing changed: its requester has not confirmed it yet, so it can't be approved. You can reject it.",
+      null,
+    ),
+    409,
+  );
 
 /** A reject that changed no row: 404 for an item that isn't there, else it was decided already. */
 async function decidedOrMissing(c: Context<AdminEnv>, table: "requests" | "takedowns", id: string) {

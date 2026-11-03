@@ -17,6 +17,7 @@ import {
   type Row,
 } from "./admin-pages";
 import { adminItems, adminSameOrigin } from "./admin-items";
+import { adminRequestActions } from "./admin-request-actions";
 import { adminUsers } from "./admin-users";
 import { adminWork } from "./admin-work";
 import type { Bindings } from "./env";
@@ -304,5 +305,6 @@ admin.get("/takedowns", showTakedowns);
 admin.get("/requests", showRequests);
 admin.get("/works", showWorksToCheck);
 admin.route("/", adminItems);
+admin.route("/", adminRequestActions);
 admin.route("/", adminWork);
 admin.route("/", adminUsers);

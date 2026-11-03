@@ -90,6 +90,12 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Author identity), § Data 
 - THEN it is listed as pending and marked unconfirmed
 - AND a confirmed request carries no mark
 
+### Approve needs a confirmed request
+- GIVEN a pending removal request or opt-out whose requester has not confirmed it
+- WHEN a moderator opens it, or posts its approve
+- THEN no Approve form is offered, only Reject, and the post is refused with the item left unchanged
+- AND the related-requests table marks it unconfirmed too
+
 ### An unconfirmed opt-out blocks nothing at ingest
 - GIVEN an opt-out for pseud P that is not confirmed
 - WHEN an upload by P is ingested
