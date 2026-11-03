@@ -5,8 +5,9 @@
 export const CONTENT_HOST = "content.rarepair.fans";
 
 /**
- * An upload's original epub, `originals/<one segment>` as apps/content serves it.
- * Provisional: #119 settles the key.
+ * An upload's original epub, `originals/<one segment>` as apps/content serves it: the
+ * extensionless URL. Ingest stores `originals/<upload_id>.epub`, and the work page
+ * appends `.epub` to this URL.
  */
 export const originalUrl = (uploadId: string) =>
   `https://${CONTENT_HOST}/originals/${encodeURIComponent(uploadId)}`;

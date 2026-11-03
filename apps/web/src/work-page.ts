@@ -74,7 +74,7 @@ export function workPage(live: LiveWork, position: Position | null = null): stri
 ${block("p", "fandoms", fandoms.map(tagLink).join(", "))}${block("section", "summary", work.summary_html ?? "")}${block("p", "tags", listed.map(tagLink).join(", "))}<p class="stats">${stats.join(" · ")}</p>
 ${needsCheck ? `<p class="review-notice">Chapters may be imperfect; a moderator will check.</p>\n` : ""}${continueLink(live, position)}<ol class="chapters">${chapters.map((ch) => `<li><a href="${base}/chapters/${ch.n}">${escapeHtml(ch.title)}</a></li>`).join("")}</ol>
 <p class="full"><a href="${base}/full">Read the entire work on one page</a></p>
-<p class="download"><a href="${originalUrl(version.original_upload_id)}">Download original epub</a></p>
+<p class="download"><a href="${originalUrl(version.original_upload_id)}.epub">Download original epub</a></p>
 <p class="report"><a href="${base}/report">Report</a></p>
 <p class="remove"><a href="/remove?work=${work.ao3_work_id}">Ask for this to be removed</a></p>
 <p class="unofficial">rarepair is an unofficial stopgap, not the original archive: this copy is here while the original is offline.</p>
