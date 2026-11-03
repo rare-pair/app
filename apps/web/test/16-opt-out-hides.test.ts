@@ -2,9 +2,10 @@ import { createDb } from "@archive/db";
 import { putFragments, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { BASE, fetchW, freshIp, REMOVE_TOKEN } from "./helpers";
+import { BASE, confirmRemoval, fetchW, freshIp, REMOVE_TOKEN } from "./helpers";
 
-// X3 (#63). One database serves every test file in the run, so this file keeps to AO3 work
+// X3 (#63), reworked for X3b (#487): an opt-out takes effect only once its emailed link is
+// pressed, so each case posts, then confirms (`confirmRemoval`). One database serves every test file in the run, so this file keeps to AO3 work
 // IDs 40100 to 40199, finds its requests by its own `example.test` contact emails, and names
 // every pseud, title and tag with an "x3" marker. Everything here is synthetic.
 const PSEUD = "x3 Moon Child";
@@ -22,7 +23,7 @@ const REMOVED = 40110;
 const SECOND = 40111; // for the second opt-out
 const TWICE = 40112; // two authors that both match the pseud
 const FRESH = 40120; // for the confirmation page
-const RECEIVED = "Your request was received; a moderator will review it and email you.";
+const RECEIVED = "Check your email: we've sent a link to the address you gave.";
 
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 
@@ -101,7 +102,7 @@ describe("16-removal-and-opt-out", () => {
   // The first test of this describe hides the pseud's works; later ones read what it left.
   let optOutId = "";
 
-  it("Opt-out by pseud hides every existing work", async () => {
+  it("Opt-out by pseud hides every existing work once confirmed", async () => {
     expect(await searchHas(W2)).toBe(true);
     expect((await fetchW(`/works/${W2}`)).status).toBe(200);
 
@@ -116,6 +117,15 @@ describe("16-removal-and-opt-out", () => {
     expect(row?.status).toBe("pending");
     expect(row?.pseud_norm).toBe("x3 moon child");
     optOutId = row?.id ?? "";
+
+    // Unconfirmed: no opt-out row, no link, every work as it was.
+    expect(await optoutsOf(optOutId)).toEqual([]);
+    expect(await linksOf(optOutId)).toEqual([]);
+    for (const id of [W1, W2, W3, CO_AUTHORED, TWICE]) {
+      expect((await stateOf(id)).status, String(id)).toBe("live");
+    }
+
+    expect((await confirmRemoval(email)).status).toBe(200);
 
     const [optout, ...restOptouts] = await optoutsOf(optOutId);
     expect(restOptouts).toEqual([]);
@@ -173,6 +183,7 @@ describe("16-removal-and-opt-out", () => {
     const email = fresh("second");
     const res = await post({ email, pseud: PSEUD });
     expect(res.status).toBe(200);
+    expect((await confirmRemoval(email)).status).toBe(200);
     const [row] = await requestsFrom(email);
     expect(row?.kind).toBe("opt_out");
     expect(await linksOf(row?.id ?? "")).toEqual([]);
@@ -193,13 +204,18 @@ describe("16-removal-and-opt-out", () => {
     };
 
     it("reads the same whether or not anything was hidden, and says nothing of hiding", async () => {
-      const hid = await post({ email: fresh("page-a"), pseud: "x3 Fresh Pseud" });
-      const none = await post({
-        email: fresh("page-b"),
-        pseud: `x3 nobody ${crypto.randomUUID()}`,
-      });
+      const emailA = fresh("page-a");
+      const emailB = fresh("page-b");
+      const hid = await post({ email: emailA, pseud: "x3 Fresh Pseud" });
+      const none = await post({ email: emailB, pseud: `x3 nobody ${crypto.randomUUID()}` });
       expect(hid.status).toBe(200);
+      expect((await stateOf(FRESH)).status).toBe("live");
+      // The confirmed pages read the same too, whether or not the opt-out hid anything.
+      const confirmedHid = await confirmRemoval(emailA);
+      const confirmedNone = await confirmRemoval(emailB);
       expect((await stateOf(FRESH)).status).toBe("hidden");
+      expect(confirmedHid.status).toBe(200);
+      expect(await bytesOf(confirmedNone)).toBe(await bytesOf(confirmedHid));
       const hidHtml = await bytesOf(hid);
       expect(hidHtml).toContain(RECEIVED);
       expect(hidHtml).not.toMatch(/hidden|hide/i);

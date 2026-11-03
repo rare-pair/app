@@ -6,6 +6,7 @@ import { ipHash } from "../src/ip-hash";
 import { REMOVE_WINDOW_SECONDS } from "../src/rate-limit";
 import {
   BASE,
+  confirmRemoval,
   fetchW,
   freshIp,
   LOGIN_TOKEN,
@@ -30,13 +31,13 @@ const W = 12600;
 const UNKNOWN = 40099;
 /** Hidden by a moderator already. */
 const HIDDEN = 40022;
-/** Asked for by the cases that only need a stored request: the first hides it. */
+/** Asked for by the cases that only need a stored request: none is confirmed, so it stays live. */
 const S = 40021;
 /** Live until its own test asks for it to be removed. */
 const HASHED = 40020;
 const WORK_URL = `${BASE}/works/${W}`;
 const S_URL = `${BASE}/works/${S}`;
-const RECEIVED = "Your request was received; a moderator will review it and email you.";
+const RECEIVED = "Check your email: we've sent a link to the address you gave.";
 
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 
@@ -346,13 +347,15 @@ describe("16-removal-and-opt-out", () => {
         .where("ao3_work_id", "=", HASHED)
         .executeTakeFirstOrThrow();
       expect(row?.work_id).toBe(work.id);
-      // X2 (#62): the request hides the work, and the reply above doesn't say so.
+      // X3b (#487): stored unconfirmed, so it hides nothing until its emailed link is pressed.
+      expect(row?.confirmed_at).toBeNull();
+      expect(row?.confirm_token_hash).toMatch(/^[0-9a-f]{64}$/);
       const after = await db
         .selectFrom("works")
         .select(["status", "hidden_cause"])
         .where("ao3_work_id", "=", HASHED)
         .executeTakeFirstOrThrow();
-      expect(after).toEqual({ status: "hidden", hidden_cause: "removal_request" });
+      expect(after).toEqual({ status: "live", hidden_cause: null });
     });
 
     it("stores the same hash for the same IP and another for another", async () => {
@@ -388,13 +391,17 @@ describe("16-removal-and-opt-out", () => {
       expect(row?.work_id).toBeNull();
       expect(row?.statement).toBe("");
       expect(row?.ip_hash).toMatch(/^[0-9a-f]{64}$/);
-      const optouts = await db
-        .selectFrom("optouts")
-        .select(["pseud_norm", "active"])
-        .where("request_id", "=", row?.id ?? "")
-        .execute();
+      const optouts = () =>
+        db
+          .selectFrom("optouts")
+          .select(["pseud_norm", "active"])
+          .where("request_id", "=", row?.id ?? "")
+          .execute();
+      // Unconfirmed, it is no opt-out yet.
+      expect(await optouts()).toEqual([]);
+      expect((await confirmRemoval(email)).status).toBe(200);
       // No seeded work has this pseud, so there is an opt-out and nothing to hide.
-      expect(optouts).toEqual([{ pseud_norm: "moon child", active: true }]);
+      expect(await optouts()).toEqual([{ pseud_norm: "moon child", active: true }]);
     });
 
     it("answers a work the archive doesn't hold with its own page, storing nothing", async () => {

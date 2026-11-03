@@ -26,7 +26,7 @@ type WaitlistContext = Context<{ Bindings: Bindings; Variables: SecurityVariable
 const MAX_CONFIRMATIONS = 3;
 
 /** A new confirmation token: 32 random bytes, base64url, so it goes in a link as it is. */
-const newToken = () =>
+export const newToken = () =>
   btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
     .replaceAll("+", "-")
     .replaceAll("/", "_")

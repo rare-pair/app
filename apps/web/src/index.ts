@@ -18,6 +18,7 @@ import { jumpToChapter, showChapter } from "./reader";
 import { sameOriginOnly, showReportForm, submitReport } from "./report";
 import { aboutPage, notFoundPage, privacyPage, termsPage } from "./pages";
 import { showRemoveForm, submitRemove } from "./remove";
+import { confirmRemove, showRemoveConfirm } from "./remove-confirm";
 import { pageState } from "./page-state";
 import { SETTINGS_SCRIPT, SETTINGS_SCRIPT_PATH } from "./reader-settings";
 import { UPLOAD_SCRIPT, UPLOAD_SCRIPT_PATH } from "./upload-script";
@@ -61,6 +62,7 @@ app.post("/works/:id/report", sameOriginOnly);
 app.post("/works/:id/position", sameOriginOnly);
 app.post("/works/:id/warnings", sameOriginOnly);
 app.post("/remove", sameOriginOnly);
+app.post("/remove/confirm", sameOriginOnly);
 app.post("/dmca", sameOriginOnly);
 // The session, once, for every page; routes read c.var.session and never mount it
 // again. Static files skip it, and the lookup's database connection with it. Then
@@ -104,6 +106,8 @@ app.get("/uploads/:id", showUploadStatus);
 app.get("/me/uploads", requireSignIn, showMyUploads);
 app.get("/remove", showRemoveForm);
 app.post("/remove", submitRemove);
+app.get("/remove/confirm", showRemoveConfirm);
+app.post("/remove/confirm", confirmRemove);
 app.get("/dmca", showDmcaForm);
 app.post("/dmca", submitDmca);
 

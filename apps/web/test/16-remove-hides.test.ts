@@ -2,9 +2,18 @@ import { createDb } from "@archive/db";
 import { putFragments, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { BASE, fetchW, freshIp, REMOVE_TOKEN, TURNSTILE, withoutNonce } from "./helpers";
+import {
+  BASE,
+  confirmRemoval,
+  fetchW,
+  freshIp,
+  REMOVE_TOKEN,
+  TURNSTILE,
+  withoutNonce,
+} from "./helpers";
 
-// X2 (#62). One database serves every test file in the run, so this file keeps to AO3 work
+// X2 (#62), reworked for X3b (#487): a request hides only once its emailed link is pressed,
+// so each case posts, then confirms (`confirmRemoval`). One database serves every test file in the run, so this file keeps to AO3 work
 // IDs 40000 to 40099, finds its requests by its own `example.test` contact emails, and names
 // every title and tag with an "x2" marker. Everything here is synthetic.
 const HERE = 40001; // asked for by its address on this site
@@ -14,7 +23,7 @@ const HIDDEN_BY_MODERATOR = 40004;
 const REMOVED = 40005;
 const CHAPTERED = 40006; // asked for by an address with a path after the id
 const UNKNOWN = 40099;
-const RECEIVED = "Your request was received; a moderator will review it and email you.";
+const RECEIVED = "Check your email: we've sent a link to the address you gave.";
 
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 
@@ -95,7 +104,7 @@ async function expectHiddenEverywhere(id: number) {
 }
 
 describe("16-removal-and-opt-out", () => {
-  it("Remove request by the work's URL here hides it at once", async () => {
+  it("Remove request by the work's URL here hides it once confirmed", async () => {
     expect(await searchHas(HERE)).toBe(true);
     expect(await tagListingHas(HERE)).toBe(true);
     expect((await fetchW(`/works/${HERE}`)).status).toBe(200);
@@ -105,23 +114,36 @@ describe("16-removal-and-opt-out", () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toContain(RECEIVED);
 
+    // Stored and emailed, and nothing is hidden yet.
     const work = await stateOf(HERE);
     const [row, ...rest] = await requestsFrom(email);
     expect(rest).toEqual([]);
     expect(row?.kind).toBe("remove_work");
     expect(row?.status).toBe("pending");
     expect(row?.work_id).toBe(work.id);
+    expect(row?.confirmed_at).toBeNull();
+    expect(work.status).toBe("live");
+    expect(await linksOf(row?.id ?? "")).toEqual([]);
+    expect((await fetchW(`/works/${HERE}`)).status).toBe(200);
+    expect(await searchHas(HERE)).toBe(true);
+
+    const confirmed = await confirmRemoval(email);
+    expect(confirmed.status).toBe(200);
+    const [after] = await requestsFrom(email);
+    expect(after?.confirmed_at).not.toBeNull();
     expect(await linksOf(row?.id ?? "")).toEqual([{ request_id: row?.id, work_id: work.id }]);
     await expectHiddenEverywhere(HERE);
   });
 
-  describe("Remove request by AO3 URL hides it at once", () => {
+  describe("Remove request by AO3 URL hides it once confirmed", () => {
     it("hides the work asked for by its address at the original archive", async () => {
       const email = fresh("ao3");
       const res = await post({ email, work: `archiveofourown.org/works/${AO3}` });
       expect(res.status).toBe(200);
       expect(await res.text()).toContain(RECEIVED);
       expect((await requestsFrom(email))[0]?.kind).toBe("remove_work");
+      expect((await stateOf(AO3)).status).toBe("live");
+      await confirmRemoval(email);
       await expectHiddenEverywhere(AO3);
     });
 
@@ -133,6 +155,7 @@ describe("16-removal-and-opt-out", () => {
       });
       expect(res.status).toBe(200);
       expect((await requestsFrom(email))[0]?.kind).toBe("remove_work");
+      await confirmRemoval(email);
       await expectHiddenEverywhere(CHAPTERED);
     });
   });
@@ -191,6 +214,7 @@ describe("16-removal-and-opt-out", () => {
       await post({ email, work: `${BASE}/works/${HIDDEN_BY_MODERATOR}` });
       const emailRemoved = fresh("kept-removed");
       await post({ email: emailRemoved, work: `${BASE}/works/${REMOVED}` });
+      for (const e of [email, emailRemoved]) expect((await confirmRemoval(e)).status).toBe(200);
       expect(await stateOf(HIDDEN_BY_MODERATOR)).toMatchObject({
         status: "hidden",
         hidden_cause: "moderator",
@@ -213,6 +237,7 @@ describe("16-removal-and-opt-out", () => {
     await seed(id);
     expect((await fetchW(`/works/${id}`)).status).toBe(200);
     await post({ email, work: `${BASE}/works/${id}` });
+    await confirmRemoval(email);
     await expectHiddenEverywhere(id);
   });
 });
