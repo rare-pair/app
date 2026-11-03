@@ -375,6 +375,8 @@ describe("18-moderation", () => {
     for (const page of met) {
       expect(scriptTags(page.html), page.path).toHaveLength(0);
       expect(page.html, page.path).toContain('<main id="main">');
+      expect(page.html.match(/<h1\b/g), page.path).toHaveLength(1);
+      expect(/<a\b[^>]*>/.exec(page.html)?.[0], page.path).toBe('<a class="skip" href="#main">');
     }
   });
 });

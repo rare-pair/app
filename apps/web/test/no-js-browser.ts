@@ -207,6 +207,7 @@ export class NoJsBrowser {
       path = resolve(path, location);
       res = await this.send(path);
     }
+    expect(res.status >= 300 && res.status < 400, `${firstPath} redirected too often`).toBe(false);
     return { res, html: await res.text(), path };
   }
 }
