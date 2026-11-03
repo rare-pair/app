@@ -281,7 +281,10 @@ Chapter text isn't indexed.
    with an atomic `UPDATE uploads SET status='processing', lease_until=…` that
    only matches when the upload is `pending` or its lease has expired. All
    output goes under `works/<ao3_work_id>/<upload_id>/`, so a retry overwrites
-   its own files and never touches another run's.
+   its own files and never touches another run's. The running job renews its lease
+   every 15 seconds (the lease is 60) and checks it still holds the upload before each
+   stage and each R2 write. A job that finds it lost stops, logs it and writes or
+   deletes nothing more; the fenced write in the Postgres transaction has the last word.
 2. **Unzip with limits.** Read the object from R2 (25 MB or less) and check
    the zip's file index before decompressing anything:
    - at most 2,000 entries

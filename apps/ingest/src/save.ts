@@ -8,7 +8,7 @@ import {
 } from "@archive/db";
 import type { ParsedWork } from "@archive/epub";
 import { sql, type Kysely, type Transaction } from "kysely";
-import type { Lease } from "./lease";
+import { LeaseLost, type Lease } from "./lease";
 import { decideVersion, sameSet, type VersionDecision, type VersionFacts } from "./versioning";
 
 /**
@@ -120,9 +120,6 @@ export class WorkRemoved extends Error {}
  */
 export class AccountBanned extends Error {}
 
-/** The job no longer holds its upload: another job has taken it over, and owns the row. */
-export class LeaseLost extends Error {}
-
 /**
  * The work changed between this job's read of it and its write: another job's save committed
  * first. The transaction rolls back, and the save reads the work again and decides again.
@@ -175,7 +172,12 @@ export async function saveWork(
   } catch (error) {
     // The work was removed meanwhile, or earlier: what this job wrote, or what a failed clean-up
     // of an earlier attempt left, goes (ARCHITECTURE, EPUB processor, step 8).
-    if (error instanceof WorkRemoved) await discardUploadFiles(deps, lease, ao3WorkId);
+    if (error instanceof WorkRemoved) {
+      // Only while the upload is still this job's: after a takeover these files are the new
+      // job's, and `LeaseLost` replaces the error (#526).
+      await lease.keeper?.renew();
+      await discardUploadFiles(deps, lease, ao3WorkId);
+    }
     throw error;
   }
 }
@@ -194,10 +196,17 @@ async function saveFiles(
   let current = await readCurrent(deps, ao3WorkId);
   const facts = factsOf(work);
   const prefix = `works/${ao3WorkId}/${lease.id}/`;
-  const chapters = await putFiles(deps.bucket, ao3WorkId, prefix, work, images);
+  // Before each write, the job checks it still holds the upload. A check leaves a window of one
+  // write in flight, so the fence in the transaction has the last word.
+  const held = () => lease.keeper?.check() ?? Promise.resolve();
+  const chapters = await putFiles(deps.bucket, ao3WorkId, prefix, work, images, held);
+  await held();
   await deps.bucket.put(originalKey(lease.id), bytes, {
     httpMetadata: { contentType: "application/epub+zip" },
   });
+  // Stop renewing before the transaction: a renewal would change the token under its fence.
+  await lease.keeper?.renew();
+  await lease.keeper?.stop();
   for (let attempt = 1; ; attempt++) {
     try {
       const decision = current === null ? null : decideVersion(current.facts, facts);
@@ -241,14 +250,17 @@ async function putFiles(
   prefix: string,
   work: ParsedWork,
   images: WorkImages,
+  beforePut: () => Promise<void> = async () => {},
 ): Promise<Chapters> {
   const chapters = work.chapters.map((c) => ({ ...c, key: `${prefix}${c.n}.html` }));
   await inPool(chapters, async (c) => {
+    await beforePut();
     await bucket.put(c.key, c.html, {
       httpMetadata: { contentType: "text/html; charset=utf-8" },
     });
   });
   await inPool([...images], async ([key, image]) => {
+    await beforePut();
     await bucket.put(`works/${ao3WorkId}/img/${key}`, image.bytes, {
       httpMetadata: { contentType: image.mediaType },
     });
