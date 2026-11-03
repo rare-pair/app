@@ -222,6 +222,6 @@ describe("RACE: an upload that loses to a removal", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ uploadId: id });
     expect(lines[0]?.deleted).toBeGreaterThanOrEqual(2);
-    expect(JSON.stringify(lines[0])).not.toContain("41250");
+    expect(Object.keys(lines[0] ?? {}).sort()).toEqual(["deleted", "event", "uploadId"]);
   });
 });

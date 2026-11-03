@@ -465,9 +465,11 @@ Chapter text isn't indexed.
    while the job ran is never versioned. Its upload is then `work_removed` too,
    and the job deletes the R2 files it had written: its `originals/` file, and
    the work's `works/<ao3_work_id>/` folder (only the upload's own fragments, if
-   the work was restored in the meantime), since the removal's purge may have run before those writes. The
-   same clean-up runs when a redelivery finds the work removed, so a clean-up
-   that failed is repeated. A removal that purges the current version's
+   the work was restored in the meantime; its images then stay for the sweep),
+   since the removal's purge may have run before those writes. The same
+   clean-up runs when a redelivery reaches the save and finds the work removed,
+   so a clean-up that failed is repeated (not on the last attempt, nor when the
+   takedown list now ends the upload earlier). A removal that purges the current version's
    fragments while the job reads them is the same refusal.
    A `hold` adds the version and chapters and leaves the work, its byline and
    tags alone (the version keeps its own columns, `tags`, `authors` and
@@ -533,7 +535,7 @@ banned, checked before the file is read and again, with a key-share lock on the
 account's row, in the save's transaction. A save that took that lock first
 finishes, and its upload counts as finished. A ban the save's check catches
 leaves the R2 files the job had already written, `originals/` included (a
-`work_removed` refusal deletes them; the ban's does not yet). Step 2 lists which problem gives which of the first three.
+`work_removed` refusal deletes them; the ban's refusal leaves them). Step 2 lists which problem gives which of the first three.
 `not_ao3` covers any file without an AO3 preface "Posted originally" line,
 including one whose AO3 work URL is only in the OPF (step 4). `opted_out`
 covers the opt-out list and the takedown list of moderator-removed works.
