@@ -140,7 +140,16 @@ describe("16-removal-and-opt-out", () => {
   describe("Remove request for an AO3 work not in the archive stores nothing", () => {
     it("answers with its own page, storing and hiding nothing", async () => {
       const email = fresh("unknown");
-      const linksBefore = await db.selectFrom("request_works").select("work_id").execute();
+      // Only this file's works: other files run alongside and link their own.
+      const linksOfThisFile = () =>
+        db
+          .selectFrom("request_works")
+          .innerJoin("works", "works.id", "request_works.work_id")
+          .select("request_works.work_id")
+          .where("works.ao3_work_id", ">=", 40000)
+          .where("works.ao3_work_id", "<", 40100)
+          .execute();
+      const linksBefore = await linksOfThisFile();
       const res = await post({ email, work: `archiveofourown.org/works/${UNKNOWN}` });
       expect(res.status).toBe(200);
       expect(res.headers.get("cache-control")).toBe("no-store");
@@ -149,7 +158,7 @@ describe("16-removal-and-opt-out", () => {
       expect(html).toContain('href="/remove"');
       expect(html).not.toContain(RECEIVED);
       expect(await requestsFrom(email)).toEqual([]);
-      expect(await db.selectFrom("request_works").select("work_id").execute()).toEqual(linksBefore);
+      expect(await linksOfThisFile()).toEqual(linksBefore);
       expect(withoutNonce(res.headers.get("content-security-policy"))).toBe(TURNSTILE);
     });
   });
