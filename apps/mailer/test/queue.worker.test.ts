@@ -304,3 +304,29 @@ describe("mailer failures", () => {
     expect(sent!.text).toContain("https://rarepair.fans/login/confirm?token=xInjected%20line");
   });
 });
+
+describe("16-removal-and-opt-out", () => {
+  it("A removal confirmation email goes through Resend with its link", async () => {
+    const calls = stubResend(accepted);
+    const link = "https://rarepair.fans/remove/confirm?token=req-1";
+
+    const result = await consume([
+      { kind: "removal-confirm", to: "requester1@example.test", url: link },
+      // The wrong page for the kind is never sent.
+      {
+        kind: "removal-confirm",
+        to: "requester2@example.test",
+        url: "https://rarepair.fans/login/confirm?token=req-2",
+      },
+    ]);
+
+    expect(calls).toHaveLength(1);
+    // SAFETY: each email the mailer renders carries these fields.
+    const sent = calls[0]!.emails as { to: string; text: string }[];
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.to).toBe("requester1@example.test");
+    expect(sent[0]!.text).toContain(link);
+    expect(result.explicitAcks).toHaveLength(2);
+    expect(result.retryMessages).toEqual([]);
+  });
+});

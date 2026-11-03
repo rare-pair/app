@@ -80,6 +80,46 @@ describe("the email queue's message contract", () => {
   });
 });
 
+describe("16-removal-and-opt-out: the removal confirmation email", () => {
+  const removal = (url: string) => ({ kind: "removal-confirm", to: TO, url });
+
+  it("Removal confirmation email links to /remove/confirm with a token", () => {
+    const url = "https://rarepair.fans/remove/confirm?token=abc_DEF-123";
+    expect(parseMessage(removal(url))).toEqual({ kind: "removal-confirm", to: TO, url });
+  });
+
+  it.each([
+    ["the wait list path", "https://rarepair.fans/waitlist/confirm?token=abc"],
+    ["the sign-in path", "https://rarepair.fans/login/confirm?token=abc"],
+    ["the form", "https://rarepair.fans/remove?token=abc"],
+    ["another host", "https://evil.example/remove/confirm?token=abc"],
+    ["a fragment", "https://rarepair.fans/remove/confirm?token=abc#x"],
+    ["no token", "https://rarepair.fans/remove/confirm"],
+    ["another parameter too", "https://rarepair.fans/remove/confirm?token=abc&work=1"],
+  ])("Removal confirmation email with %s is refused", (_, url) => {
+    expect(parseMessage(removal(url))).toBeNull();
+  });
+
+  it("Other kinds linking to /remove/confirm are refused", () => {
+    const url = "https://rarepair.fans/remove/confirm?token=abc";
+    expect(parseMessage(signIn(url))).toBeNull();
+    expect(parseMessage(waitlist(url))).toBeNull();
+  });
+
+  it("Removal confirmation email says what the link does and names no work", () => {
+    const url = "https://rarepair.fans/remove/confirm?token=abc";
+    const email = render({ kind: "removal-confirm", to: TO, url }, FROM);
+    expect(email.to).toBe(TO);
+    expect(email.subject).toMatch(/confirm/i);
+    expect(email.subject).toMatch(/removal/i);
+    expect(email.text).toContain(url);
+    expect(email.text).toMatch(/7 days/);
+    expect(email.text).toMatch(/once/i);
+    expect(email.text).toMatch(/ignore this email/i);
+    expect(email.text).not.toMatch(/\/works\//);
+  });
+});
+
 describe("rendering the wait list confirmation email", () => {
   it("says what the link does, how long it lasts and what else will come", () => {
     const url = "https://rarepair.fans/waitlist/confirm?token=abc";
