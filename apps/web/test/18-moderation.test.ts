@@ -176,6 +176,7 @@ describe("18 moderation", () => {
           statement: "mod1-removal-statement",
           ip_hash: "mod1-ip-hash",
           created_at: "2001-07-01T00:00:00Z",
+          confirmed_at: "2001-07-01T00:05:00Z",
         },
         {
           kind: "opt_out",
@@ -184,6 +185,7 @@ describe("18 moderation", () => {
           statement: "mod1-opt-out-statement",
           ip_hash: "mod1-ip-hash",
           created_at: "2001-07-02T00:00:00Z",
+          confirmed_at: "2001-07-02T00:05:00Z",
         },
       ])
       .execute();
@@ -203,6 +205,37 @@ describe("18 moderation", () => {
       "mod1-opt-out@example.test",
       "mod1-opt-out-statement",
     ]);
+  });
+
+  it("Requests queue marks a request still waiting for its emailed confirmation", async () => {
+    await db
+      .insertInto("requests")
+      .values([
+        {
+          kind: "remove_work",
+          work_id: workId,
+          contact_email: "mod1-unconfirmed@example.test",
+          statement: "mod1-unconfirmed-statement",
+          ip_hash: "mod1-ip-hash",
+          created_at: "2001-07-03T00:00:00Z",
+          confirm_token_hash: "mod1-unconfirmed-hash",
+          confirm_sent_at: "2001-07-03T00:00:00Z",
+        },
+        {
+          kind: "remove_work",
+          work_id: workId,
+          contact_email: "mod1-confirmed@example.test",
+          statement: "mod1-confirmed-statement",
+          ip_hash: "mod1-ip-hash",
+          created_at: "2001-07-04T00:00:00Z",
+          confirmed_at: "2001-07-04T00:05:00Z",
+        },
+      ])
+      .execute();
+    const html = await (await get("/admin/requests", moderator)).text();
+    // Still listed, as pending, and marked in its Kind cell; a confirmed one carries no mark.
+    expect(rowWith(html, "mod1-unconfirmed-statement")[1]).toBe("remove_work (unconfirmed)");
+    expect(rowWith(html, "mod1-confirmed-statement")[1]).toBe("remove_work");
   });
 
   it("Items created at the same time are listed in id order", async () => {

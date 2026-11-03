@@ -23,6 +23,13 @@ export const TAKEDOWN_COLUMNS = [
   "Statements",
   "Incomplete",
 ];
+/**
+ * " (unconfirmed)" for a request still waiting for its requester's emailed confirmation (X3b,
+ * #487), else nothing. It stays in the queue, pending, but has hidden nothing.
+ */
+export const unconfirmedMark = (confirmedAt: Date | null) =>
+  confirmedAt === null ? " (unconfirmed)" : "";
+
 export const REQUEST_COLUMNS = ["Created", "Kind", "Work or pseud", "Contact email", "Statement"];
 export const WORK_COLUMNS = ["Created", "Work", "Reason"];
 

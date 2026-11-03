@@ -95,7 +95,14 @@ const addTakedown = (id: string, workId: string) =>
     })
     .execute();
 
-const addRequest = (id: string, workId: string | null, kind: "remove_work" | "opt_out") =>
+// Confirmed by default (X3b, #487): an unconfirmed request hid nothing, which these cases'
+// reject and restore rules depend on.
+const addRequest = (
+  id: string,
+  workId: string | null,
+  kind: "remove_work" | "opt_out",
+  confirmed = true,
+) =>
   db
     .insertInto("requests")
     .values({
@@ -107,6 +114,7 @@ const addRequest = (id: string, workId: string | null, kind: "remove_work" | "op
       statement: `${id}-statement`,
       ip_hash: "mod2-ip-hash",
       created_at: "2001-06-01T00:00:00Z",
+      confirmed_at: confirmed ? "2001-06-01T00:05:00Z" : null,
     })
     .execute();
 
@@ -184,6 +192,16 @@ describe("18 moderation detail pages", () => {
       const html = await (await get(`/admin/${queue}`, moderator)).text();
       expect(html, queue).toContain(`<a href="/admin/${queue}/${id}">`);
     }
+  });
+
+  it("A request's detail page says whether its emailed confirmation is still waited for", async () => {
+    const workId = await seed(40750);
+    await addRequest("mod2-unconfirmed-request", workId, "remove_work", false);
+    await addRequest("mod2-confirmed-request", workId, "remove_work");
+    const unconfirmed = await (await get("/admin/requests/mod2-unconfirmed-request", moderator)).text();
+    const confirmed = await (await get("/admin/requests/mod2-confirmed-request", moderator)).text();
+    expect(unconfirmed).toContain("pending (unconfirmed)");
+    expect(confirmed).not.toContain("unconfirmed");
   });
 
   it("An unknown item is not found", async () => {

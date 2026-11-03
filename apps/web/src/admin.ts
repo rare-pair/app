@@ -12,6 +12,7 @@ import {
   REPORT_COLUMNS,
   REQUEST_COLUMNS,
   TAKEDOWN_COLUMNS,
+  unconfirmedMark,
   WORK_COLUMNS,
   type Row,
 } from "./admin-pages";
@@ -172,6 +173,7 @@ export async function showRequests(c: AdminContext) {
       "requests.pseud_norm",
       "requests.contact_email",
       "requests.statement",
+      "requests.confirmed_at",
       "works.title",
       "works.ao3_work_id",
     ])
@@ -184,7 +186,7 @@ export async function showRequests(c: AdminContext) {
     href: itemHref("requests", r.id),
     cells: [
       iso(r.created_at),
-      r.kind,
+      `${r.kind}${unconfirmedMark(r.confirmed_at)}`,
       r.title === null || r.ao3_work_id === null
         ? (r.pseud_norm ?? "")
         : workCell(r.title, r.ao3_work_id),

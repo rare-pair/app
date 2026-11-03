@@ -11,6 +11,7 @@ import {
   removeConfirmPage,
   resultPage,
   safeFrom,
+  unconfirmedMark,
   workActions,
   workStatusText,
 } from "./admin-pages";
@@ -138,6 +139,7 @@ adminItems.get("/requests/:id{[A-Za-z0-9_-]+}", async (c) => {
       "requests.pseud_norm",
       "requests.contact_email",
       "requests.statement",
+      "requests.confirmed_at",
       "works.title",
       "works.ao3_work_id",
       "works.status as work_status",
@@ -159,7 +161,7 @@ adminItems.get("/requests/:id{[A-Za-z0-9_-]+}", async (c) => {
       "Request",
       [
         ["Created", iso(row.created_at)],
-        ["Status", row.status],
+        ["Status", `${row.status}${unconfirmedMark(row.confirmed_at)}`],
         ["Kind", row.kind],
         ...about,
         ["Contact email", row.contact_email],
