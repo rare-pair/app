@@ -20,8 +20,9 @@ const CONTENT = `https://${CONTENT_HOST}/`;
 /**
  * Turnstile's script, standing in: every widget is solved at once with Cloudflare's dummy
  * token under the widget's action, which test/stand-ins.ts's siteverify passes. As the real
- * script does, it adds the token to the widget's form as `cf-turnstile-response`, and
- * `turnstile.getResponse()` and `reset()` work.
+ * script does, it adds the token to the widget's form as `cf-turnstile-response` and calls
+ * the widget's `data-callback` with it, and `turnstile.getResponse()` and `reset()` work. It
+ * draws no frame.
  */
 const TURNSTILE_STUB = /* js */ `
 const tokens = [];
@@ -34,6 +35,9 @@ const solve = () => {
     input.value = ${JSON.stringify(`${DUMMY_TOKEN}#`)} + (widget.dataset.action || "");
     widget.append(input);
     tokens.push(input.value);
+    // As the real widget does once solved: call the page's data-callback with the token.
+    const callback = window[widget.dataset.callback || ""];
+    if (typeof callback === "function") callback(input.value);
   }
 };
 // The script loads async, so it may run before the widgets are parsed: wait for them.

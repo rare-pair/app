@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+import { unstable_readConfig } from "wrangler";
 import type { Inventory } from "./seed";
 import { freshIp, type ContextOptions, type Site } from "./site";
 
@@ -23,14 +25,27 @@ export type InventoryPage = {
   prepare?: (site: Site) => Promise<ContextOptions>;
 };
 
+/** SEARCH_IP_LIMIT's window, as wrangler.jsonc sets it. */
+function searchPeriodSeconds(): number {
+  const { ratelimits } = unstable_readConfig(
+    { config: fileURLToPath(new URL("../../wrangler.jsonc", import.meta.url)) },
+    { hideWarnings: true },
+  );
+  const period = ratelimits.find((r: { name: string }) => r.name === "SEARCH_IP_LIMIT")?.simple
+    .period;
+  if (period === undefined) throw new Error("wrangler.jsonc has no SEARCH_IP_LIMIT");
+  return period;
+}
+
 /**
  * Puts a new client over the search limit: searches from Node until the Worker answers 429,
  * so the browser's search from that address, made at once, is refused in the same window.
  */
 async function overSearchLimit(site: Site): Promise<ContextOptions> {
-  // The local limiter's windows are fixed and aligned to the clock (a minute for search):
-  // start with 10 seconds of the window left at least, so the browser's search lands in it.
-  const left = 60_000 - (Date.now() % 60_000);
+  // The local limiter's windows are fixed and aligned to the clock: start with 10 seconds of
+  // the window left at least, so the browser's search lands in it.
+  const windowMs = searchPeriodSeconds() * 1000;
+  const left = windowMs - (Date.now() % windowMs);
   if (left < 10_000) await new Promise((resolve) => setTimeout(resolve, left + 100));
   const ip = freshIp();
   for (let i = 0; i < 100; i += 1) {
@@ -98,8 +113,8 @@ export const OPEN_PAGES: InventoryPage[] = [
 
 /**
  * The pages before launch (PRELAUNCH on): the coming-soon page and the wait list's links,
- * which spec 21 doesn't list, and pages that stay open, whose footers show closed links
- * disabled.
+ * which spec 21 doesn't list, and the pages that stay open (prelaunch.ts), whose closed links
+ * are shown disabled.
  */
 export const PRELAUNCH_PAGES: InventoryPage[] = [
   { name: "coming soon", path: () => "/", as: "anonymous" },
@@ -110,5 +125,15 @@ export const PRELAUNCH_PAGES: InventoryPage[] = [
     as: "anonymous",
   },
   { name: "sign in, before launch", path: () => "/login", as: "anonymous" },
+  {
+    name: "confirm sign-in, before launch",
+    path: () => `/login/confirm?token=${TOKEN}`,
+    as: "anonymous",
+  },
+  { name: "accept terms, before launch", path: () => "/welcome/terms", as: "new account" },
   { name: "about, before launch", path: () => "/about", as: "anonymous" },
+  { name: "terms, before launch", path: () => "/terms", as: "anonymous" },
+  { name: "privacy, before launch", path: () => "/privacy", as: "anonymous" },
+  { name: "admin, before launch", path: () => "/admin", as: "moderator" },
+  { name: "admin reports, before launch", path: () => "/admin/reports", as: "moderator" },
 ];

@@ -6,7 +6,7 @@ export type TabWalk = {
   stops: string[];
   /** Controls a keyboard user should reach that Tab never focused. */
   unreached: string[];
-  /** Focused elements with no visible focus ring. */
+  /** Focused elements with no focus ring in the accent colour, 2 px or wider. */
   withoutRing: string[];
   /** Stops that came before an element earlier in the page. */
   outOfOrder: string[];
@@ -21,7 +21,7 @@ const CONTROLS =
 
 /** The page's controls, held in the page, and their names, in page order. */
 type Controls = {
-  handle: JSHandle<{ els: HTMLElement[]; stopOf: (el: Element) => Element }>;
+  handle: JSHandle<{ els: HTMLElement[]; stopOf: (el: Element) => Element; accent: string }>;
   names: string[];
 };
 
@@ -52,7 +52,13 @@ async function controlsOf(page: Page): Promise<Controls> {
       }
       return stopOf(el) === el;
     });
-    return { els, stopOf };
+    // The page's accent colour (--accent), as computed colours are written.
+    const probe = document.createElement("span");
+    probe.style.color = "var(--accent)";
+    document.body.append(probe);
+    const accent = getComputedStyle(probe).color;
+    probe.remove();
+    return { els, stopOf, accent };
   }, CONTROLS);
   const names = await handle.evaluate(({ els }) =>
     els.map((el) => {
@@ -72,18 +78,19 @@ async function controlsOf(page: Page): Promise<Controls> {
  * Which control has focus: its index among `controls`, -1 for an element that isn't one, or
  * null when focus is on no element of the page (the body, or the browser's own UI). A radio
  * stands for its group. `tag` names an element that isn't a control. `ring` is whether it
- * shows a focus ring: an outline 2 px or wider, in a colour that isn't transparent.
+ * shows spec 21's focus ring: an outline 2 px or wider, in the page's accent colour.
  */
 const focused = (controls: Controls) =>
-  controls.handle.evaluate(({ els, stopOf }) => {
+  controls.handle.evaluate(({ els, stopOf, accent }) => {
     const active = document.activeElement;
     if (active === null || active === document.body) return { index: null, tag: "", ring: false };
     const stop = stopOf(active);
     const index = els.findIndex((el) => el === stop);
     const style = getComputedStyle(active);
-    const clear = style.outlineColor === "transparent" || /,\s*0\)$/.test(style.outlineColor);
     const ring =
-      style.outlineStyle !== "none" && Number.parseFloat(style.outlineWidth) >= 2 && !clear;
+      style.outlineStyle !== "none" &&
+      Number.parseFloat(style.outlineWidth) >= 2 &&
+      style.outlineColor === accent;
     return { index, tag: active.tagName.toLowerCase(), ring };
   });
 

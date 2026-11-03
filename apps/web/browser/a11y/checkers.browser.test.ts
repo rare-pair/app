@@ -60,8 +60,10 @@ describe("checkers: axe", () => {
   });
 });
 
-// A focus ring on every control, as the site gives one (src/styles.ts).
-const RING = "<style>:focus-visible { outline: 2px solid #0b5cad; outline-offset: 2px }</style>";
+// A focus ring on every control in the accent colour, as the site gives one (src/styles.ts).
+const RING =
+  "<style>:root { --accent: #0b5cad } " +
+  ":focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }</style>";
 
 describe("checkers: keyboard", () => {
   it("passes a page whose every control the Tab key reaches, with a ring", async () => {
@@ -89,6 +91,11 @@ describe("checkers: keyboard", () => {
 
   it("fails a ring drawn in a transparent colour", async () => {
     await content(`<a href="#one" style="outline: 2px solid transparent">One</a>`, RING);
+    expect(formatWalk(await tabWalk(page))).toContain('no focus ring: a "One"');
+  });
+
+  it("fails a ring that isn't in the accent colour", async () => {
+    await content(`<a href="#one" style="outline: 2px solid #888888">One</a>`, RING);
     expect(formatWalk(await tabWalk(page))).toContain('no focus ring: a "One"');
   });
 

@@ -155,6 +155,23 @@ describe("21 accessibility and no-JS: Every action reachable by keyboard", () =>
         expect(page.url()).toBe(`${SITE}/`);
       });
 
+      it("a checkbox: Space ticks it", async () => {
+        await open("anonymous", "/dmca");
+        await tabTo(page, "input good_faith");
+        await page.keyboard.press("Space");
+        expect(await page.locator('input[name="good_faith"]').isChecked()).toBe(true);
+      });
+
+      it("a file field: Space opens the file chooser", async () => {
+        await open("reader", "/upload");
+        await tabTo(page, "input file");
+        const [chooser] = await Promise.all([
+          page.waitForEvent("filechooser"),
+          page.keyboard.press("Space"),
+        ]);
+        expect(chooser.isMultiple()).toBe(true);
+      });
+
       it("a moderator's button: approve a work to check", async () => {
         const toCheck = running.seeded.toCheck;
         await open("moderator", `/admin/works/${toCheck}`);
