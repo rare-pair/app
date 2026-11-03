@@ -47,10 +47,14 @@ export async function blockedReporterIds(
     .where("user_id", "in", candidates)
     .where("ip_address", "is not", null)
     .execute();
+  const addresses = [...new Set(sessions.flatMap((s) => (s.ip_address ? [s.ip_address] : [])))];
+  const hashes = new Map(
+    await Promise.all(addresses.map(async (a) => [a, await ipHash(key, a)] as const)),
+  );
   const matched = new Set<string>();
   for (const session of sessions) {
-    if (session.ip_address === null || session.ip_address === "") continue;
-    if (blocked.has(await ipHash(key, session.ip_address))) matched.add(session.user_id);
+    const hash = session.ip_address === null ? undefined : hashes.get(session.ip_address);
+    if (hash !== undefined && blocked.has(hash)) matched.add(session.user_id);
   }
   return [...matched];
 }

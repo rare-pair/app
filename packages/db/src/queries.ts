@@ -727,7 +727,8 @@ export async function listRecentLiveWorks(
  * account counts once however often it reports. A reporter whose account email matches a
  * blocked requester (any case) never counts, nor does one in `ignore`: the accounts the
  * caller found to match a block by IP hash, which needs the `IP_HASH_KEY` secret and so
- * can't be done here (web's blocked-reporters.ts). The one place this rule lives.
+ * can't be done here (web's blocked-reporters.ts, which `submitReport` calls). This is
+ * the one place the count is made.
  */
 const countedReporters = (workId: string, ignore: string[]) => sql<number>`(
   select count(distinct reports.reporter_id) from reports
