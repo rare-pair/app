@@ -911,7 +911,7 @@ epub, under the normal versioning rules.
   restore bring back only works the request's own `request_works` rows name, still hidden for a
   removal request, and not one that another pending removal request or another active opt-out
   naming one of its authors still covers. Each logs one `reject` per request, with the restored
-  works' AO3 work IDs in its note and no row per work (a request already decided gets a `restore`
+  works' AO3 work IDs in its note (led by "Opt-out reversed." or "Bulk restore from <request id>.") and no row per work (a request already decided gets a `restore`
   row per work instead). The explicit Restore of a work is a moderator's deliberate act and checks
   none of this. Each later action calls the same helper, `logModerationAction`, when
   it is built. The row's `moderator_id` has no foreign key to `user`, so
