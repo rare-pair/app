@@ -177,7 +177,7 @@ adminItems.get("/requests/:id{[A-Za-z0-9_-]+}", async (c) => {
         ["Contact email", row.contact_email],
         ["Statement", row.statement],
       ],
-      `${row.ao3_work_id === null ? "" : workActions(row.ao3_work_id, self)}\n${row.status === "pending" ? decideForms("requests", id, row.kind === "remove_work") : ""}`,
+      `${row.ao3_work_id === null ? "" : workActions(row.ao3_work_id, self)}\n${row.status === "pending" ? decideForms("requests", id, row.kind === "remove_work" && row.ao3_work_id !== null) : ""}`,
     ),
   );
 });

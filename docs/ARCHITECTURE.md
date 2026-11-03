@@ -146,9 +146,10 @@ reports      (id, work_id, reporter_id, kind, body, status, created_at)  -- repo
 takedowns    (id, work_id, requester, basis, status, resolved_by, created_at,
               signature, infringing_material, good_faith, accuracy_authority,
               incomplete)  -- a DMCA notice: basis is the copyrighted work, requester the contact
-                           -- information; incomplete when a 512(c)(3)(A) element is missing
+                           -- information; incomplete when a 512(c)(3)(A) element is missing;
+                           -- status: pending, rejected, or removed (approved, which puts the work on the takedown list)
 requests     (id, kind, work_id NULL, pseud_norm NULL, contact_email, statement,
-              status, ip_hash, created_at)        -- kind: remove_work | opt_out
+              status, ip_hash, created_at)        -- kind: remove_work | opt_out; status: pending, rejected, approved
 request_works (request_id, work_id)  -- written whenever a request hides a work, so a reversed
               request restores exactly those
 optouts      (id, pseud_norm, ao3_user NULL, request_id, active, created_at)  -- checked at ingest
