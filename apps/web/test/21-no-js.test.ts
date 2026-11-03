@@ -233,7 +233,7 @@ const ENTRIES = (): Entry[] => [
       "Reader settings",
       'class="chapter-nav"',
       'class="chapter-title"',
-      '<article class="chapter">',
+      '<article class="chapter"',
       'class="chapter-nav"',
     ],
   },
@@ -242,7 +242,7 @@ const ENTRIES = (): Entry[] => [
     path: CHAPTER,
     who: "reader",
     scripts: ["reader-settings", "reading-position"],
-    order: ['class="reader-bar"', "<h1", 'class="chapter-nav"', '<article class="chapter">'],
+    order: ['class="reader-bar"', "<h1", 'class="chapter-nav"', '<article class="chapter"'],
   },
   {
     name: "imperfect chapter",
@@ -253,7 +253,7 @@ const ENTRIES = (): Entry[] => [
       "<h1",
       'class="review-notice"',
       'class="chapter-nav"',
-      '<article class="chapter">',
+      '<article class="chapter"',
     ],
   },
   {
@@ -264,7 +264,7 @@ const ENTRIES = (): Entry[] => [
       'class="reader-bar"',
       "<h1",
       'class="chapter-title"',
-      '<article class="chapter">',
+      '<article class="chapter"',
       'class="chapter-title"',
     ],
   },
@@ -431,7 +431,7 @@ describe("21-accessibility-and-no-js", () => {
       const nonce = nonceOf(res.headers.get("content-security-policy"));
       expect(nonce, where).not.toBeNull();
       // No handler attribute, no javascript: link, no style: only nonced script elements.
-      expect(html, where).not.toMatch(/\son[a-z]+\s*=/i);
+      expect(html, where).not.toMatch(/<[a-z][^>]*\son[a-z]+\s*=/i);
       expect(html, where).not.toMatch(/href\s*=\s*["']?\s*javascript:/i);
       for (const tag of scriptTags(html)) {
         expect(attr(tag, "nonce"), `${where}: ${tag}`).toBe(nonce);
@@ -478,7 +478,7 @@ describe("21-accessibility-and-no-js", () => {
       // Headings go down one level at a time, chapter text apart.
       const levels = [
         ...html
-          .replace(/<article class="chapter">[\s\S]*?<\/article>/g, "")
+          .replace(/<article class="chapter"[^>]*>[\s\S]*?<\/article>/g, "")
           .matchAll(/<h([1-6])\b/g),
       ].map((m) => Number(m[1]));
       expect(levels[0], where).toBe(1);

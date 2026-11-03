@@ -58,7 +58,7 @@ describe("21-accessibility-and-no-js (before launch)", () => {
       const { res, html } = await open(entry.path);
       const nonce = nonceOf(res.headers.get("content-security-policy"));
       expect(nonce, entry.name).not.toBeNull();
-      expect(html, entry.name).not.toMatch(/\son[a-z]+\s*=/i);
+      expect(html, entry.name).not.toMatch(/<[a-z][^>]*\son[a-z]+\s*=/i);
       for (const tag of scriptTags(html)) expect(attr(tag, "nonce"), entry.name).toBe(nonce);
       if (entry.path !== "/") expect(scriptTags(html), entry.name).toHaveLength(0);
     }
