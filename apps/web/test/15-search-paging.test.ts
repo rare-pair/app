@@ -2,7 +2,7 @@ import { createDb } from "@archive/db";
 import { seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { fetchW } from "./helpers";
+import { fetchW, freshIp } from "./helpers";
 
 // Work IDs 33100-33199 and the made-up words below are this file's alone: one database
 // serves every test file in the project, and a search sees whatever matches.
@@ -19,7 +19,8 @@ const relHref = (html: string, rel: string) => {
   return raw === undefined ? null : raw.replaceAll("&amp;", "&");
 };
 
-const get = (path: string) => fetchW(path);
+// A new address each time: the search is limited per client IP, and requests with none share a key.
+const get = (path: string) => fetchW(path, { headers: { "cf-connecting-ip": freshIp() } });
 
 const WORD = "pagequillen";
 const FIRST = 33101;

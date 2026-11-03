@@ -86,3 +86,17 @@ export const removeReceivedPage = () =>
     `${DRAFT}
 <p>Your request was received; a moderator will review it and email you.</p>`,
   );
+
+/**
+ * After a request for a work the archive doesn't hold: nothing was stored. It is the one
+ * answer that differs from `removeReceivedPage`, and says so, since there is nothing for a
+ * moderator to review. It points to the opt-out, which removes a pseud's works whether or
+ * not they have been uploaded yet.
+ */
+export const removeNotHeldPage = () =>
+  layout(
+    "Not in the archive",
+    `${DRAFT}
+<p>That work isn't in the archive, so there is nothing to remove, and no request was stored.</p>
+<p>To keep a pseud's works out of the archive, <a href="/remove">ask for the pseud to be removed</a> instead.</p>`,
+  );

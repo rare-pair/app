@@ -18,6 +18,11 @@ export const DMCA_IP_LIMIT = 5;
 export const UPLOAD_USER_LIMIT = 20;
 export const UPLOAD_IP_LIMIT = 40;
 
+// GET /search: per signed-in user and per client IP, over the same window. Placeholder first
+// values for the operator to confirm before launch.
+export const SEARCH_IP_LIMIT = 30;
+export const SEARCH_USER_LIMIT = 60;
+
 // POST /remove: per client IP, and per contact email once Turnstile is solved. First values,
 // to be revisited before launch.
 export const REMOVE_IP_LIMIT = 5;
