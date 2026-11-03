@@ -37,7 +37,7 @@ const formPost = (fields: Record<string, string>): RequestInit => ({
 });
 
 /** Waits up to 10 seconds for the newest sign-in email to `email`, and returns its link. */
-async function signInLink(site: Site, email: string): Promise<string> {
+export async function signInLink(site: Site, email: string): Promise<string> {
   const deadline = Date.now() + 10_000;
   for (;;) {
     const sent = (await site.emails()).filter((m) => m.kind === "sign-in" && m.to === email);

@@ -45,6 +45,8 @@ function wcagSuite(title: string, pages: InventoryPage[], prelaunch: boolean, fi
         note(entry.name, "needs review", report.incomplete);
         note(entry.name, "best practice", report.bestPractice);
         expect(formatResults(report.violations)).toBe("");
+        // Nothing off the site but the stand-ins: the page was checked as it would load.
+        expect(site.offSite).toEqual([]);
       } finally {
         await page.close();
       }

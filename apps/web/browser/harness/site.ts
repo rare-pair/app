@@ -13,6 +13,24 @@ const HOST = new URL(SITE).host;
 // Stood in for in the browser, never fetched: Turnstile's script, and the image host.
 const TURNSTILE_SCRIPT = "https://challenges.cloudflare.com/turnstile/v0/api.js";
 const CONTENT = "https://content.rarepair.fans/";
+/**
+ * Turnstile's script, standing in: every widget is solved at once with Cloudflare's dummy
+ * token under the widget's action, which test/stand-ins.ts's siteverify passes. As the real
+ * script does, it adds the token to the widget's form as `cf-turnstile-response`, and
+ * `turnstile.getResponse()` and `reset()` work.
+ */
+const TURNSTILE_STUB = /* js */ `
+const tokens = [];
+for (const widget of document.querySelectorAll(".cf-turnstile")) {
+  const input = document.createElement("input");
+  input.type = "hidden";
+  input.name = "cf-turnstile-response";
+  input.value = "XXXX.DUMMY.TOKEN.XXXX#" + (widget.dataset.action || "");
+  widget.append(input);
+  tokens.push(input.value);
+}
+window.turnstile = { getResponse: () => tokens[0], reset: () => {} };
+`;
 // A transparent 1x1 PNG, for every image on the content host.
 const PIXEL = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
@@ -60,7 +78,7 @@ export type Site = {
   browser: Browser;
   /**
    * A new browser context on the site, with the stand-ins for third parties: Turnstile's
-   * script is an empty one and every content-host image a 1x1 PNG. Any other request off
+   * script solves every widget at once, and every content-host image is a 1x1 PNG. Any other request off
    * the site is refused and recorded in `offSite`.
    */
   newContext: (options?: ContextOptions) => Promise<BrowserContext>;
@@ -140,7 +158,7 @@ export async function startSite({
       async (route) => {
         const url = route.request().url();
         if (url.startsWith(TURNSTILE_SCRIPT)) {
-          await route.fulfill({ contentType: "text/javascript", body: "" });
+          await route.fulfill({ contentType: "text/javascript", body: TURNSTILE_STUB });
         } else if (url.startsWith(CONTENT)) {
           await route.fulfill({ contentType: "image/png", body: PIXEL });
         } else {
