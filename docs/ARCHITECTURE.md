@@ -647,7 +647,9 @@ can be snapshotted.
   a cached template with the nonce swapped in, or cache only the fragment.
   A signed-out chapter page is cached at the edge for 60 s, and the cached copy
   is served before the work's status is checked (the warnings screen check
-  still comes first), so a hide can take up to 60 s to show.
+  still comes first). The status is read before the page is cached, so a hide
+  can show up to 60 s after the page was cached, which can run slightly past 60 s
+  from the hide itself.
 - **Warnings screen.** A work rated Mature or Explicit, or carrying archive
   warnings, or marked "Choose Not To Use Archive Warnings", or with no rating
   at all, shows an interstitial with its rating and warnings the first time a
@@ -862,9 +864,10 @@ epub, under the normal versioning rules.
     a removal request", "Temporarily hidden after reader reports" or
     "Temporarily hidden by a moderator". Nothing else about the work is shown,
     and it is left out of search, listings and the home page. A chapter page
-    cached before the hide can stay readable (not the 451) for up to 60 s in
-    each data centre. A hide does not purge it, unlike removal (see *Removal
-    really removes* below). This applies to every hide cause.
+    cached before the hide can stay readable (not the 451) for up to 60 s after
+    it was cached, in each data centre, which can run slightly past 60 s from the
+    hide. A hide does not purge it, unlike removal (see *Removal really removes*
+    below). This applies to every hide cause.
   - **Held** (a `held_for_review` version, never public): 404 to the public.
     The work keeps serving its current version. The held version is visible
     to its uploader in My uploads and to moderators.
