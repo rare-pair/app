@@ -17,6 +17,7 @@ import m0014 from "./0014_moderation_actions_drop_moderator_fk";
 import m0015 from "./0015_sweep_state";
 import m0017 from "./0017_upload_account_banned";
 import m0016 from "./0016_backfill_versions";
+import m0018 from "./0018_request_works";
 
 export const migrations: ReadonlyArray<{ name: string; sql: string }> = [
   { name: "0001_better_auth", sql: m0001 },
@@ -36,4 +37,5 @@ export const migrations: ReadonlyArray<{ name: string; sql: string }> = [
   { name: "0015_sweep_state", sql: m0015 },
   { name: "0017_upload_account_banned", sql: m0017 },
   { name: "0016_backfill_versions", sql: m0016 },
+  { name: "0018_request_works", sql: m0018 },
 ];

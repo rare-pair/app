@@ -80,6 +80,7 @@ export type {
   ReportTable,
   TakedownTable,
   RequestTable,
+  RequestWorkTable,
   OptoutTable,
   RequesterBlockTable,
   ModerationActionTable,

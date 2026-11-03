@@ -314,6 +314,12 @@ export interface OptoutTable {
 }
 
 /** Matches a later request by email or by IP hash, and a report by its account's email. */
+/** A work a removal request hid: written only when that request's own hide changed it. */
+export interface RequestWorkTable {
+  request_id: string;
+  work_id: string;
+}
+
 export interface RequesterBlockTable {
   id: Generated<string>;
   /** As given. Match with `lower()` on both sides. */
@@ -382,6 +388,7 @@ export interface Database {
   reports: ReportTable;
   takedowns: TakedownTable;
   requests: RequestTable;
+  request_works: RequestWorkTable;
   optouts: OptoutTable;
   requester_blocks: RequesterBlockTable;
   moderation_actions: ModerationActionTable;
