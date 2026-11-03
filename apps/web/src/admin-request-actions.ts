@@ -263,9 +263,10 @@ adminRequestActions.post("/requests/:id{[A-Za-z0-9_-]+}/block", async (c) => {
       .executeTakeFirst();
     if (!request) return null;
     const ip = request.ip_hash === unknownIpHash ? null : request.ip_hash;
-    const email = request.contact_email.toLowerCase();
+    // Lowered by Postgres on both sides, as the matching does, not by JavaScript.
+    const email = sql<string>`lower(${request.contact_email})`;
     // One block at a time per email, so two moderators blocking the same requester insert one.
-    await sql`select pg_advisory_xact_lock(hashtext(${"requester_block:" + email}))`.execute(trx);
+    await sql`select pg_advisory_xact_lock(hashtext('requester_block:' || ${email}))`.execute(trx);
     const same = await trx
       .selectFrom("requester_blocks")
       .select("id")
@@ -290,7 +291,7 @@ adminRequestActions.post("/requests/:id{[A-Za-z0-9_-]+}/block", async (c) => {
   return c.html(
     resultPage(
       blocked
-        ? "Requester blocked. Their later requests are stored and queued but hide nothing."
+        ? "Requester blocked. Their requests confirmed from now on, including ones already made, are stored and queued but hide nothing, and approving an opt-out of theirs is what applies it. Works already hidden stay hidden."
         : "This requester is blocked already: nothing changed.",
       self,
     ),
