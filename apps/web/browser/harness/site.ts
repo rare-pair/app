@@ -25,15 +25,20 @@ const CONTENT = `https://${CONTENT_HOST}/`;
  */
 const TURNSTILE_STUB = /* js */ `
 const tokens = [];
-for (const widget of document.querySelectorAll(".cf-turnstile")) {
-  const input = document.createElement("input");
-  input.type = "hidden";
-  input.name = "cf-turnstile-response";
-  input.value = ${JSON.stringify(`${DUMMY_TOKEN}#`)} + (widget.dataset.action || "");
-  widget.append(input);
-  tokens.push(input.value);
-}
 window.turnstile = { getResponse: () => tokens[0], reset: () => {} };
+const solve = () => {
+  for (const widget of document.querySelectorAll(".cf-turnstile")) {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "cf-turnstile-response";
+    input.value = ${JSON.stringify(`${DUMMY_TOKEN}#`)} + (widget.dataset.action || "");
+    widget.append(input);
+    tokens.push(input.value);
+  }
+};
+// The script loads async, so it may run before the widgets are parsed: wait for them.
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", solve);
+else solve();
 `;
 // A transparent 1x1 PNG, for every image on the content host.
 const PIXEL = Buffer.from(
@@ -131,7 +136,20 @@ export async function startSite({
 }: SiteOptions = {}): Promise<Site> {
   const t = await createTestDb({ maxConnections: 64 });
   let worker: Awaited<ReturnType<typeof startWorker>> | undefined;
-  let browser: Browser;
+  let browser: Browser | undefined;
+  /** Stops whatever has started, each part even if another fails to stop. */
+  const stop = async () => {
+    try {
+      await browser?.close();
+    } finally {
+      try {
+        await worker?.mf.dispose();
+      } finally {
+        await t.close();
+      }
+    }
+  };
+  let parts;
   try {
     worker = await startWorker({
       bundle: inject("workerBundle"),
@@ -139,18 +157,21 @@ export async function startSite({
       prelaunch,
     });
     browser = await launchChromium(worker.port);
+    parts = {
+      mf: worker.mf,
+      chromium: browser,
+      bucket: await worker.mf.getR2Bucket("BUCKET"),
+      emailSink: await worker.mf.getWorker("email-sink"),
+    };
   } catch (error) {
-    await worker?.mf.dispose();
-    await t.close();
+    await stop();
     throw error;
   }
-  const { mf } = worker;
-  const bucket = await mf.getR2Bucket("BUCKET");
-  const emailSink = await mf.getWorker("email-sink");
+  const { mf, chromium: running, bucket, emailSink } = parts;
   const offSite: string[] = [];
 
   async function newContext({ ip = freshIp() }: ContextOptions = {}) {
-    const context = await browser.newContext({
+    const context = await running.newContext({
       viewport,
       // Miniflare's certificate is self-signed.
       ignoreHTTPSErrors: true,
@@ -187,10 +208,6 @@ export async function startSite({
       const bodies = (await res.json()) as unknown[];
       return bodies.map(parseMessage).filter((m): m is EmailMessage => m !== null);
     },
-    async close() {
-      await browser.close();
-      await mf.dispose();
-      await t.close();
-    },
+    close: stop,
   };
 }

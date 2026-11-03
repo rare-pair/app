@@ -28,6 +28,10 @@ export type InventoryPage = {
  * so the browser's search from that address, made at once, is refused in the same window.
  */
 async function overSearchLimit(site: Site): Promise<ContextOptions> {
+  // The local limiter's windows are fixed and aligned to the clock (a minute for search):
+  // start with 10 seconds of the window left at least, so the browser's search lands in it.
+  const left = 60_000 - (Date.now() % 60_000);
+  if (left < 10_000) await new Promise((resolve) => setTimeout(resolve, left + 100));
   const ip = freshIp();
   for (let i = 0; i < 100; i += 1) {
     const res = await site.fetch("/search?q=q1b", { headers: { "cf-connecting-ip": ip } });

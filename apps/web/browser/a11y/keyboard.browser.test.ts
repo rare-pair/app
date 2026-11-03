@@ -20,7 +20,23 @@ async function pressToLoad(page: Page, key = "Enter") {
 
 /** Whether focus is inside the page's <main>. */
 const focusInMain = (page: Page) =>
-  page.evaluate(() => document.activeElement?.closest("main") !== null);
+  page.evaluate(() => (document.activeElement?.closest("main") ?? null) !== null);
+
+/**
+ * Chooses another option of the focused <select> by typing its label, as a keyboard user can
+ * on every platform (arrow keys open the list on macOS instead), and returns its value.
+ */
+async function chooseAnother(page: Page): Promise<string> {
+  const other = await page.evaluate(() => {
+    const select = document.activeElement;
+    if (!(select instanceof HTMLSelectElement)) throw new Error("no select has focus");
+    const option = [...select.options].find((o) => o.value !== select.value);
+    if (option === undefined) throw new Error("the select has one option");
+    return { value: option.value, label: option.label };
+  });
+  await page.keyboard.type(other.label);
+  return other.value;
+}
 
 /** Every page reached and walked by Tab: nothing missed, in order, with rings, skip link first. */
 const walksClean = async (page: Page) => {
@@ -81,21 +97,20 @@ describe("21 accessibility and no-JS: Every action reachable by keyboard", () =>
       it("a select and a button: jump to a chapter", async () => {
         await open("anonymous", `/works/${running.seeded.work}/chapters/1`);
         await tabTo(page, "select n");
-        await page.keyboard.press("ArrowDown");
+        const n = await chooseAnother(page);
         await tabTo(page, 'button "Go"');
         await pressToLoad(page);
-        expect(page.url()).toBe(`${SITE}/works/${running.seeded.work}/chapters/2`);
+        expect(page.url()).toBe(`${SITE}/works/${running.seeded.work}/chapters/${n}`);
       });
 
       it("reader settings: change one and save", async () => {
         await open("anonymous", "/settings/reader");
-        const before = await page.locator('select[name="theme"]').inputValue();
         await tabTo(page, "select theme");
-        await page.keyboard.press("ArrowDown");
+        const theme = await chooseAnother(page);
         await tabTo(page, 'button "Save settings"');
         await pressToLoad(page);
         await page.goto(`${SITE}/settings/reader`);
-        expect(await page.locator('select[name="theme"]').inputValue()).not.toBe(before);
+        expect(await page.locator('select[name="theme"]').inputValue()).toBe(theme);
       });
 
       it("the warnings screen: Continue goes on to the work's text", async () => {

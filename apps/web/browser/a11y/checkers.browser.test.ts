@@ -86,6 +86,16 @@ describe("checkers: keyboard", () => {
     expect(formatWalk(await tabWalk(page))).toContain('no focus ring: a "One"');
   });
 
+  it("fails a ring drawn in a transparent colour", async () => {
+    await content(`<a href="#one" style="outline: 2px solid transparent">One</a>`, RING);
+    expect(formatWalk(await tabWalk(page))).toContain('no focus ring: a "One"');
+  });
+
+  it("fails a stop that isn't a listed control, if it has no ring", async () => {
+    await content(`<div contenteditable style="outline: none">Edit me</div>`, RING);
+    expect(formatWalk(await tabWalk(page))).toContain("no focus ring: other div");
+  });
+
   it("fails a tab order that jumps back up the page", async () => {
     await content(`<a href="#one">One</a><a href="#two" tabindex="1">Two</a>`, RING);
     expect(formatWalk(await tabWalk(page))).toContain('out of page order: a "One"');

@@ -33,12 +33,16 @@ type Controls = {
  */
 async function controlsOf(page: Page): Promise<Controls> {
   const handle = await page.evaluateHandle((selector) => {
-    // The element standing for el's tab stop: the first radio of its group (same name, same
-    // form) for a radio, el itself for anything else.
+    // The element standing for el's tab stop: the first enabled radio of its group (same
+    // name, same form) for a radio, el itself for anything else.
     const stopOf = (el: Element) =>
       el instanceof HTMLInputElement && el.type === "radio"
         ? ([...document.querySelectorAll("input[type=radio]")].find(
-            (r) => r instanceof HTMLInputElement && r.name === el.name && r.form === el.form,
+            (r) =>
+              r instanceof HTMLInputElement &&
+              !r.disabled &&
+              r.name === el.name &&
+              r.form === el.form,
           ) ?? el)
         : el;
     const els = [...document.querySelectorAll<HTMLElement>(selector)].filter((el) => {
@@ -67,17 +71,20 @@ async function controlsOf(page: Page): Promise<Controls> {
 /**
  * Which control has focus: its index among `controls`, -1 for an element that isn't one, or
  * null when focus is on no element of the page (the body, or the browser's own UI). A radio
- * stands for its group. `ring` is whether it shows a focus ring: an outline 2 px or wider.
+ * stands for its group. `tag` names an element that isn't a control. `ring` is whether it
+ * shows a focus ring: an outline 2 px or wider, in a colour that isn't transparent.
  */
 const focused = (controls: Controls) =>
   controls.handle.evaluate(({ els, stopOf }) => {
     const active = document.activeElement;
-    if (active === null || active === document.body) return { index: null, ring: false };
+    if (active === null || active === document.body) return { index: null, tag: "", ring: false };
     const stop = stopOf(active);
     const index = els.findIndex((el) => el === stop);
     const style = getComputedStyle(active);
-    const ring = style.outlineStyle !== "none" && Number.parseFloat(style.outlineWidth) >= 2;
-    return { index, ring };
+    const clear = style.outlineColor === "transparent" || /,\s*0\)$/.test(style.outlineColor);
+    const ring =
+      style.outlineStyle !== "none" && Number.parseFloat(style.outlineWidth) >= 2 && !clear;
+    return { index, tag: active.tagName.toLowerCase(), ring };
   });
 
 /**
@@ -92,12 +99,18 @@ export async function tabWalk(page: Page): Promise<TabWalk> {
   const outOfOrder: string[] = [];
   let last = -1;
   try {
-    // Every control once, and a few presses over, in case focus passes elsewhere first.
-    for (let press = 0; press < controls.names.length + 5; press += 1) {
+    // Every control once, with room for as many stops again on elements that aren't
+    // controls (a scrollable box Chromium makes focusable, say).
+    for (let press = 0; press < controls.names.length * 2 + 5; press += 1) {
       await page.keyboard.press("Tab");
-      const { index, ring } = await focused(controls);
+      const { index, tag, ring } = await focused(controls);
       if (index === null || reached.has(index)) break;
-      if (index === -1) continue;
+      if (index === -1) {
+        // Not a control, but focus stopped there, so it must show where focus is too.
+        stops.push(`other ${tag}`);
+        if (!ring) withoutRing.push(`other ${tag}`);
+        continue;
+      }
       const name = controls.names[index] ?? "";
       stops.push(name);
       reached.add(index);
@@ -133,7 +146,7 @@ export async function tabTo(page: Page, name: string): Promise<void> {
   try {
     const target = controls.names.indexOf(name);
     if (target === -1) throw new Error(`no control named ${name} on ${page.url()}`);
-    for (let press = 0; press < controls.names.length + 5; press += 1) {
+    for (let press = 0; press < controls.names.length * 2 + 5; press += 1) {
       await page.keyboard.press("Tab");
       const { index } = await focused(controls);
       if (index === target) return;
