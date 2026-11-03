@@ -48,18 +48,23 @@ async function hideForRequest(trx: Trx, requestId: string, id: string) {
  * email is under 7 days old. A second press with the same token waits on the row lock, finds
  * the hash gone and matches nothing. Never a select then an update.
  *
- * A work's row is locked before the claim, as a moderator's reject locks it before its own
- * update (admin-items.ts), so the two never wait on each other in opposite orders; and so a
- * reject's check for another request still waiting reads this one once it commits. X6 (#67)
+ * The request's row is locked, then its work's, then the claim: requests before works, as a
+ * moderator's reject and the bulk restore lock them (admin-items.ts, admin-request-actions.ts),
+ * so none waits on another in the opposite order; and so a reject's check for another request
+ * still waiting reads this one once it commits. An opt-out's matching works are locked as the
+ * hides reach them, in id order, after its request row. X6 (#67)
  * conditions the hide of both kinds, and the opt-out row, on the requester not being blocked.
  */
 async function confirmRequest(trx: Trx, hash: string): Promise<boolean> {
-  // A plain read of the row the token names, only to know which work to lock. The claim below
-  // decides; this changes nothing.
+  // The row the token names, locked first, and its work after it: the order a moderator's
+  // reject and the bulk restore take (requests, then works; admin-request-actions.ts). The
+  // claim below still decides; a row that isn't there, or is decided meanwhile, matches
+  // nothing in it.
   const named = await trx
     .selectFrom("requests")
     .select("work_id")
     .where("confirm_token_hash", "=", hash)
+    .forUpdate()
     .executeTakeFirst();
   if (named?.work_id) {
     await trx

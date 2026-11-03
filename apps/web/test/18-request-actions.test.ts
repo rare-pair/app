@@ -2,6 +2,7 @@ import { createDb, normalizePseud } from "@archive/db";
 import { seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { hashToken } from "../src/waitlist";
 import { BASE, fetchW, signIn } from "./helpers";
 
 // One database serves every test file in the run. This file keeps to AO3 work IDs 40300 to
@@ -314,6 +315,40 @@ describe("16 removal and opt-out", () => {
       expect(res.status).toBe(409);
       expect(await statusOf("x3b-unconf-optout")).toBe("pending");
       expect(await logRows(["x3b-unconf-optout"])).toEqual([]);
+    });
+
+    it("A confirm and a bulk restore over the same requests and work don't deadlock", async () => {
+      for (const n of [0, 1, 2, 3, 4, 5]) {
+        const work = await seed(40730 + n, "removal_request");
+        const email = `x3b-race-${n}@example.test`;
+        // R2 hid the work and is confirmed; R is for the same work, unconfirmed, with a link.
+        await addRequest(`x3b-race-hid-${n}`, { work, hid: [work], email });
+        await addRequest(`x3b-race-wait-${n}`, { work, email, unconfirmed: true });
+        const token = `${"r".repeat(42)}${n}`;
+        await db
+          .updateTable("requests")
+          .set({
+            confirm_token_hash: await hashToken(token),
+            confirm_sent_at: new Date(),
+          })
+          .where("id", "=", `x3b-race-wait-${n}`)
+          .execute();
+        const [restored, confirmed] = await Promise.all([
+          post(`/admin/requests/x3b-race-hid-${n}/restore-related`, moderator),
+          fetchW("/remove/confirm", {
+            method: "POST",
+            headers: {
+              origin: BASE,
+              "sec-fetch-site": "same-origin",
+              "content-type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({ token }).toString(),
+          }),
+        ]);
+        // Neither side is aborted by the database: no 500.
+        expect(restored.status, `restore ${n}`).toBe(200);
+        expect([200, 400], `confirm ${n}`).toContain(confirmed.status);
+      }
     });
 
     it("A confirmed request still shows Approve and works", async () => {
