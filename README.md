@@ -12,7 +12,7 @@ From the repository root, after `npm ci`:
 
 ### The browser suites
 
-`npm run test:browser` bundles the web Worker as `wrangler deploy` would, runs it in Miniflare on a fresh PGlite database, and drives headless Chromium against it. Chromium visits `https://rarepair.fans`, which it resolves to the local Worker, so the Worker's same-origin checks, `__Secure-` cookies and CSP hold as in production. Turnstile and the content host are stood in for inside the browser, and any other request off the site is refused. Today they check spec 21's WCAG 2.2 AA and keyboard cases (`apps/web/browser/a11y/`).
+`npm run test:browser` bundles the web Worker as `wrangler deploy` would, runs it in Miniflare on a fresh PGlite database, and drives headless Chromium against it. Chromium visits `https://rarepair.fans`, which it resolves to the local Worker, so the Worker's same-origin checks, its `__Secure-` session cookie (accounts sign in through the real form and link) and its CSP apply as in production. Turnstile and the content host are stood in for inside the browser, and any other request off the site is refused; the Turnstile stand-in draws no frame, so the CSP's `frame-src` goes unexercised. Today they check spec 21's WCAG 2.2 AA and keyboard cases (`apps/web/browser/a11y/`).
 
 **Getting the browser.** `npm ci` downloads no browser. Install Playwright's Chromium once per checkout, and again whenever the `playwright` version in `apps/web/package.json` changes:
 

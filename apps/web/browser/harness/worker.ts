@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { convertV4MiniflareOptions, Miniflare } from "miniflare";
-import { unstable_getMiniflareWorkerOptions } from "wrangler";
+import { unstable_getMiniflareWorkerOptions, unstable_readConfig } from "wrangler";
 import { outbound, SECRETS, sink } from "../../test/stand-ins";
 
 /** apps/web, where wrangler.jsonc is. */
@@ -20,10 +20,17 @@ const WEB = join(dirname(fileURLToPath(import.meta.url)), "../..");
 export async function bundleWorker(): Promise<string> {
   const outdir = await mkdtemp(join(tmpdir(), "rarepair-web-"));
   const wrangler = createRequire(import.meta.url).resolve("wrangler/package.json");
+  // No Cloudflare credentials reach the child, so it can never deploy, and no telemetry.
+  const env = {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(([name]) => !name.startsWith("CLOUDFLARE_")),
+    ),
+    WRANGLER_SEND_METRICS: "false",
+  };
   await promisify(execFile)(
     process.execPath,
     [join(dirname(wrangler), "bin/wrangler.js"), "deploy", "--dry-run", "--outdir", outdir],
-    { cwd: WEB },
+    { cwd: WEB, env },
   );
   return outdir;
 }
@@ -52,11 +59,15 @@ export async function startWorker({
   databaseUrl: string;
   prelaunch: boolean;
 }): Promise<RunningWorker> {
+  const configPath = join(WEB, "wrangler.jsonc");
   // The bundle is one module, so wrangler's rules for finding others are not needed (and
   // Miniflare refuses to convert them).
-  const { modulesRules: _, ...config } = unstable_getMiniflareWorkerOptions(
-    join(WEB, "wrangler.jsonc"),
-  ).workerOptions;
+  const { modulesRules: _, ...config } =
+    unstable_getMiniflareWorkerOptions(configPath).workerOptions;
+  // The Worker's plain bindings are wrangler.jsonc's vars and the throwaway secrets, nothing
+  // else: wrangler's own bindings would also bring a developer's .dev.vars, .env or exported
+  // secrets.
+  const { vars } = unstable_readConfig({ config: configPath }, { hideWarnings: true });
   // wrangler gives the options in Miniflare 4's shape, as the vitest plugin takes them.
   const mf = new Miniflare(
     convertV4MiniflareOptions({
@@ -77,8 +88,7 @@ export async function startWorker({
           hyperdrives: { HYPERDRIVE: databaseUrl },
           outboundService: outbound,
           bindings: {
-            // SAFETY: wrangler.jsonc's vars, which wrangler gives as a plain object.
-            ...(config.bindings as Record<string, string>),
+            ...vars,
             ...SECRETS,
             PRELAUNCH: prelaunch ? "on" : "off",
           },

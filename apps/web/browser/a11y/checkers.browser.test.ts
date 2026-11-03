@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import type { Browser, Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hasSidewaysScroll } from "../harness/layout";
@@ -99,6 +100,17 @@ describe("checkers: keyboard", () => {
   it("fails a tab order that jumps back up the page", async () => {
     await content(`<a href="#one">One</a><a href="#two" tabindex="1">Two</a>`, RING);
     expect(formatWalk(await tabWalk(page))).toContain('out of page order: a "One"');
+  });
+});
+
+describe("harness: the Worker's runtime", () => {
+  it("runs the miniflare (so the workerd) that wrangler deploys and tests with", () => {
+    const require = createRequire(import.meta.url);
+    // SAFETY: package.json files, read for one string field.
+    const wrangler = require("wrangler/package.json") as { dependencies: { miniflare: string } };
+    // SAFETY: as above.
+    const ours = require("../../package.json") as { devDependencies: { miniflare: string } };
+    expect(ours.devDependencies.miniflare).toBe(wrangler.dependencies.miniflare);
   });
 });
 

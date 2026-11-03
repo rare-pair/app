@@ -34,7 +34,8 @@ export async function openVisitors(site: Site, prefix: string): Promise<Visitors
  * (or, for an entry with `prepare`, of a new context with the options it returns), and waits
  * for it to load. Returns the page, the status it answered with, and `errors`: every script
  * error and console error the page has had (a CSP refusal is one), which goes on filling
- * while the page is open. Close the page when done.
+ * while the page is open. Code a test runs through `page.evaluate` is outside the page's CSP
+ * and its errors are not collected. Close the page when done.
  */
 export async function visit(
   site: Site,
@@ -42,13 +43,12 @@ export async function visit(
   entry: InventoryPage,
   seeded: Inventory,
 ): Promise<{ page: Page; status: number; errors: string[] }> {
-  let context = contexts[entry.as];
-  if (entry.prepare !== undefined) {
-    const own = await site.newContext(await entry.prepare(site));
-    context = own;
-    own.on("page", (page) => page.once("close", () => void own.close()));
-  }
-  const page = await context.newPage();
+  const own =
+    entry.prepare === undefined ? undefined : await site.newContext(await entry.prepare(site));
+  const page = await (own ?? contexts[entry.as]).newPage();
+  // A context of the page's own closes with the page (and not with any other page in it,
+  // such as the blank one axe opens and closes).
+  if (own !== undefined) page.once("close", () => void own.close());
   const url = new URL(entry.path(seeded), SITE).toString();
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
