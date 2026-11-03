@@ -72,8 +72,8 @@ export default {
     if (!isImage && !isOriginal) return notFound();
 
     // Only a plain GET reads or fills the cache. The key is the bare URL string, not the
-    // Request, so no request header can pick a different entry and a purge by URL (the
-    // one removal sends, ARCHITECTURE, Surge controls) names exactly this key. Range and
+    // Request, so no request header can pick a different entry, and the purge removal
+    // sends (by URL for originals, by prefix for images) names exactly this key. Range and
     // conditional requests bypass it: the cache would answer them with a 206 or a 304.
     const cacheable =
       request.method === "GET" && !BYPASS_HEADERS.some((h) => request.headers.has(h));

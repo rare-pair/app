@@ -1122,10 +1122,11 @@ markup: its inline `style` attributes become stylesheet rules, because
   URL, in the data centre that served it (no replication, no tiered cache), so a
   repeat request there skips R2. It never caches `HEAD`, error responses or
   `Range` and conditional requests, and it adds no negative cache. Removal's purge
-  by URL (the image URL and both `originals/` forms) is meant to clear these
-  entries, and the key is exactly that URL, but Cloudflare's documentation does not
-  confirm that a purge by URL or prefix reaches Cache API entries in every data
-  centre: this is unverified on the live zone, and an operator checks it before
+  by URL (both `originals/` forms) and by prefix (a work's `img/` prefix) is meant
+  to clear these entries, and each key is exactly the URL that purge names, but
+  Cloudflare's documentation does not confirm that a purge by URL or prefix reaches
+  Cache API entries in every data centre: this is unverified on the live zone
+  (the prefix purge for images included), and an operator checks it before
   launch. If it fails, a removed work's images and downloads stay cached for up
   to a year. A request that read R2 before the removal's delete can also store its
   response after the purge. Browser caches are untouched: they keep an
