@@ -1,9 +1,9 @@
 // The removal request form, `/remove` (ARCHITECTURE, Author requests & takedowns): anyone
 // can ask for a work or a pseud to be removed, signed in or not, behind Turnstile. This
 // file takes the request in and stores it with a hashed network address. A request for a
-// work hides the work at once (X2, #62), and one for a work the archive doesn't hold stores
-// nothing and has its own page. What a stored request then does belongs to the tickets after
-// it: the opt-out list (X3, #63) and blocking a requester (X6, #67). The limits (X5, #64)
+// work hides the work at once (X2, #62), and one for a pseud opts it out and hides every work
+// by it (X3, #63). One for a work the archive doesn't hold stores nothing and has its own
+// page. Blocking a requester (X6, #67) belongs to the ticket after. The limits (X5, #64)
 // are here: per IP before the body is read, per email once Turnstile has passed. Nothing
 // here looks the requester up.
 
@@ -63,6 +63,18 @@ const workIdOf = (address: string) => workId(WORK_ADDRESS.exec(address)?.[1]);
 /** A form value as typed: trimmed, and with the NUL a form is never sent and Postgres can't hold. */
 const field = (form: URLSearchParams, name: RemoveField) =>
   (form.get(name) ?? "").replaceAll("\u0000", "").trim();
+
+/**
+ * Hides a work for a stored request, and links it to the request only when this hide changed
+ * it: `hideWork` touches a live work only, so one hidden or removed already is left as it is
+ * and gets no link. X6 (#67) conditions the hides of both branches, and the opt-out row, on
+ * the requester not being blocked.
+ */
+async function hideForRequest(trx: Parameters<typeof hideWork>[0], requestId: string, id: string) {
+  if (await hideWork(trx, id, "removal_request")) {
+    await trx.insertInto("request_works").values({ request_id: requestId, work_id: id }).execute();
+  }
+}
 
 /**
  * `POST /remove`, behind `sameOriginOnly` (index.ts): reads the body, checks Turnstile under
@@ -167,21 +179,33 @@ export async function submitRemove(c: RemoveContext) {
           .values({ ...base, kind: "remove_work", work_id: work.id })
           .returning("id")
           .executeTakeFirstOrThrow();
-        // X6 (#67) conditions this hide on the requester not being blocked. It hides only a
-        // live work, so one hidden or removed already is left as it is and gets no link.
-        if (await hideWork(trx, work.id, "removal_request")) {
-          await trx
-            .insertInto("request_works")
-            .values({ request_id: request.id, work_id: work.id })
-            .execute();
-        }
+        await hideForRequest(trx, request.id, work.id);
       });
     } else {
-      // X3 (#63) adds the optouts row and hides the pseud's works.
-      await db
-        .insertInto("requests")
-        .values({ ...base, kind: "opt_out", pseud_norm: pseudNorm })
-        .execute();
+      // The request, the opt-out row and every hide commit together, so a reversal sees
+      // each work this request hid.
+      await db.transaction().execute(async (trx) => {
+        const request = await trx
+          .insertInto("requests")
+          .values({ ...base, kind: "opt_out", pseud_norm: pseudNorm })
+          .returning("id")
+          .executeTakeFirstOrThrow();
+        // X6 (#67) conditions this block, the active row and the hides, on the requester not
+        // being blocked.
+        await trx
+          .insertInto("optouts")
+          .values({ pseud_norm: pseudNorm, request_id: request.id, active: true })
+          .execute();
+        // A stored pseud is as written, so it is matched here by the rule the opt-out list
+        // uses, not in SQL. This reads every author row: it grows with the archive.
+        const authors = await trx.selectFrom("work_authors").select(["work_id", "pseud"]).execute();
+        const matching = new Set<string>();
+        for (const author of authors) {
+          if (normalizePseud(author.pseud) === pseudNorm) matching.add(author.work_id);
+        }
+        // In id order, so two overlapping requests lock the same works in the same order.
+        for (const matched of [...matching].sort()) await hideForRequest(trx, request.id, matched);
+      });
     }
   } finally {
     c.executionCtx.waitUntil(db.destroy());

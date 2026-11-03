@@ -33,6 +33,10 @@ export type Bindings = {
   UPLOAD_USER_LIMIT: RateLimit;
   /** `POST /uploads` requests per client IP (src/rate-limit.ts). */
   UPLOAD_IP_LIMIT: RateLimit;
+  /** `GET /search` requests per signed-in user (src/rate-limit.ts). */
+  SEARCH_USER_LIMIT: RateLimit;
+  /** `GET /search` requests per client IP (src/rate-limit.ts). */
+  SEARCH_IP_LIMIT: RateLimit;
   /** `POST /remove` requests per client IP (src/rate-limit.ts). */
   REMOVE_IP_LIMIT: RateLimit;
   /** `POST /remove` requests per contact email address (src/rate-limit.ts). */

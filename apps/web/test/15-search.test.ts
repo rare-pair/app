@@ -2,7 +2,10 @@ import { createDb } from "@archive/db";
 import { seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { fetchW, nonceOf } from "./helpers";
+import { fetchW as fetchAnon, freshIp, nonceOf } from "./helpers";
+
+// A new address each time: the search is limited per client IP, and requests with none share a key.
+const fetchW = (input: string) => fetchAnon(input, { headers: { "cf-connecting-ip": freshIp() } });
 
 // Work IDs 33000-33099 and the made-up words below are this file's alone: one database
 // serves every test file in the project, and a search sees whatever matches.
