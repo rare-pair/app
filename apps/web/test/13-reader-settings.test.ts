@@ -290,7 +290,7 @@ describe("13-reader-settings-and-position", () => {
         const at = html.indexOf(tag?.[0] ?? "");
         const form = html.indexOf('<form class="reader-settings"');
         expect(at).toBeGreaterThan(html.indexOf("</form>", form));
-        expect(at).toBeLessThan(html.indexOf('<article class="chapter">'));
+        expect(at).toBeLessThan(html.indexOf('<article class="chapter"'));
       } else {
         expect(tag?.[3]).toBe("defer");
       }

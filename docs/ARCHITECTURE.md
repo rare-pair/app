@@ -466,7 +466,14 @@ Chapter text isn't indexed.
    ID is unusable or that has no chapters is refused earlier, as
    `parse_failed`.) The transaction checks the status again, so a work removed
    while the job ran is never versioned. Its upload is then `work_removed` too,
-   though the R2 files the job had already written stay in the bucket.
+   and the job deletes the R2 files it had written: its `originals/` file, and
+   the work's `works/<ao3_work_id>/` folder (only the upload's own fragments, if
+   the work was restored in the meantime; its images then stay for the sweep),
+   since the removal's purge may have run before those writes. The same
+   clean-up runs when a redelivery reaches the save and finds the work removed,
+   so a clean-up that failed is repeated (not on the last attempt, nor when the
+   takedown list now ends the upload earlier). A removal that purges the current version's
+   fragments while the job reads them is the same refusal.
    A `hold` adds the version and chapters and leaves the work, its byline and
    tags alone (the version keeps its own columns, `tags`, `authors` and
    `hold_reason`); the upload is `held_for_review`. A `duplicate` adds no
@@ -530,8 +537,8 @@ it on one written after the ban), and ingest sets it on a job whose uploader is
 banned, checked before the file is read and again, with a key-share lock on the
 account's row, in the save's transaction. A save that took that lock first
 finishes, and its upload counts as finished. A ban the save's check catches
-leaves the R2 files the job had already written, `originals/` included, as a
-`work_removed` refusal does. Step 2 lists which problem gives which of the first three.
+leaves the R2 files the job had already written, `originals/` included (a
+`work_removed` refusal deletes them; the ban's refusal leaves them). Step 2 lists which problem gives which of the first three.
 `not_ao3` covers any file without an AO3 preface "Posted originally" line,
 including one whose AO3 work URL is only in the OPF (step 4). `opted_out`
 covers the opt-out list and the takedown list of moderator-removed works.
@@ -648,6 +655,11 @@ can be snapshotted.
   serves every reader. Pages
   for signed-out readers can get a short edge cache, apart from the nonce: use
   a cached template with the nonce swapped in, or cache only the fragment.
+  A signed-out chapter page is cached at the edge for 60 s, and the cached copy
+  is served before the work's status is checked (the warnings screen check
+  still comes first). The status is read before the page is cached, so a hide
+  can show up to 60 s after the page was cached, which can run slightly past 60 s
+  from the hide itself.
 - **Warnings screen.** A work rated Mature or Explicit, or carrying archive
   warnings, or marked "Choose Not To Use Archive Warnings", or with no rating
   at all, shows an interstitial with its rating and warnings the first time a
@@ -861,7 +873,11 @@ epub, under the normal versioning rules.
     line that names the cause (`works.hidden_cause`): "Temporarily hidden after
     a removal request", "Temporarily hidden after reader reports" or
     "Temporarily hidden by a moderator". Nothing else about the work is shown,
-    and it is left out of search, listings and the home page.
+    and it is left out of search, listings and the home page. A chapter page
+    cached before the hide can stay readable (not the 451) for up to 60 s after
+    it was cached, in each data centre, which can run slightly past 60 s from the
+    hide. A hide does not purge it, unlike removal (see *Removal really removes*
+    below). This applies to every hide cause.
   - **Held** (a `held_for_review` version, never public): 404 to the public.
     The work keeps serving its current version. The held version is visible
     to its uploader in My uploads and to moderators.

@@ -30,11 +30,15 @@ const R2_BATCH = 1000;
  * (apps/web, remove-objects.ts): what a backfill that raced the removal put back. Every key is
  * listed before any is deleted. Deleting a key already gone is no error, so a repeat is safe.
  */
-export async function clearRemovedWork(bucket: SaveBucket, ao3WorkId: number): Promise<void> {
+export const clearRemovedWork = (bucket: SaveBucket, ao3WorkId: number): Promise<number> =>
+  clearPrefix(bucket, `works/${ao3WorkId}/`);
+
+/** Deletes every key under `prefix`, and returns how many there were. */
+async function clearPrefix(bucket: SaveBucket, prefix: string): Promise<number> {
   const keys: string[] = [];
   let cursor: string | undefined;
   for (;;) {
-    const page = await bucket.list({ prefix: `works/${ao3WorkId}/`, cursor, limit: R2_BATCH });
+    const page = await bucket.list({ prefix, cursor, limit: R2_BATCH });
     keys.push(...page.objects.map((o) => o.key));
     if (!page.truncated) break;
     cursor = page.cursor;
@@ -42,6 +46,49 @@ export async function clearRemovedWork(bucket: SaveBucket, ao3WorkId: number): P
   for (let i = 0; i < keys.length; i += R2_BATCH) {
     await bucket.delete(keys.slice(i, i + R2_BATCH));
   }
+  return keys.length;
+}
+
+/** Where the raw file of upload `uploadId` is kept. */
+const originalKey = (uploadId: string) => `originals/${uploadId}.epub`;
+
+/**
+ * Whether the work is removed now. `now()` keeps Hyperdrive from answering from its cache: a
+ * stale `live` would leave behind what a job put back after a removal, and a stale `removed`
+ * would delete a restored work's files.
+ */
+async function isRemovedNow(db: Kysely<Database>, ao3WorkId: number): Promise<boolean> {
+  const row = await db
+    .selectFrom("works")
+    .select(["status", sql<Date>`now()`.as("read_at")])
+    .where("ao3_work_id", "=", ao3WorkId)
+    .executeTakeFirst();
+  return row !== undefined && row.status === "removed";
+}
+
+/**
+ * Deletes what an upload that lost to a removal wrote, since the removal's purge may have run
+ * before the writes: its `originals/` file (the purge never finds it: the upload has no
+ * `work_id`), and the work's `works/` folder, or only the upload's own prefix in it if the work
+ * was restored meanwhile. Deleting
+ * a key already gone is no error, so a repeat is safe. Only for `WorkRemoved`: a job that lost
+ * its lease shares these keys with the job that took over.
+ */
+async function discardUploadFiles(
+  deps: { db: Kysely<Database>; bucket: SaveBucket },
+  lease: Lease,
+  ao3WorkId: number,
+): Promise<void> {
+  const original = originalKey(lease.id);
+  const found = await deps.bucket.list({ prefix: original, limit: 1 });
+  let deleted = found.objects.length;
+  await deps.bucket.delete([original]);
+  // A work restored meanwhile keeps its folder, but not this upload's own fragments, which no
+  // version row points at.
+  deleted += (await isRemovedNow(deps.db, ao3WorkId))
+    ? await clearRemovedWork(deps.bucket, ao3WorkId)
+    : await clearPrefix(deps.bucket, `works/${ao3WorkId}/${lease.id}/`);
+  console.log({ event: "ingest.lost_to_removal", uploadId: lease.id, deleted });
 }
 
 /**
@@ -111,7 +158,8 @@ type Chapters = (ParsedWork["chapters"][number] & { key: string })[];
  * stores no version (`duplicate`). Every outcome writes the files; a duplicate's fragments,
  * which no version points at, are left for the periodic sweep (apps/sweep). A failure before or
  * inside the transaction leaves no rows, only R2 objects: under keys a retry overwrites when it
- * is worth one, and left for the cleanup rules (#177) when the file is refused.
+ * is worth one, and left for the cleanup rules (#177) when the file is refused. A save refused
+ * as `WorkRemoved` deletes the files it wrote (`discardUploadFiles`), never on `LeaseLost`.
  */
 export async function saveWork(
   deps: { db: Kysely<Database>; bucket: SaveBucket },
@@ -122,13 +170,32 @@ export async function saveWork(
 ): Promise<void> {
   const ao3WorkId = workIdOf(work);
   if (work.chapters.length === 0) throw new SaveRejected("no_chapters");
+  try {
+    await saveFiles(deps, lease, work, bytes, images, ao3WorkId);
+  } catch (error) {
+    // The work was removed meanwhile, or earlier: what this job wrote, or what a failed clean-up
+    // of an earlier attempt left, goes (ARCHITECTURE, EPUB processor, step 8).
+    if (error instanceof WorkRemoved) await discardUploadFiles(deps, lease, ao3WorkId);
+    throw error;
+  }
+}
+
+/** `saveWork` without the clean-up: the reads, the writes and the transaction. */
+async function saveFiles(
+  deps: { db: Kysely<Database>; bucket: SaveBucket },
+  lease: Lease,
+  work: ParsedWork,
+  bytes: Uint8Array,
+  images: WorkImages,
+  ao3WorkId: number,
+): Promise<void> {
   // Read before the writes below and never inside the transaction: the current version's text
   // comes from R2, which is slow, and a row lock must not be held across it.
   let current = await readCurrent(deps, ao3WorkId);
   const facts = factsOf(work);
   const prefix = `works/${ao3WorkId}/${lease.id}/`;
   const chapters = await putFiles(deps.bucket, ao3WorkId, prefix, work, images);
-  await deps.bucket.put(`originals/${lease.id}.epub`, bytes, {
+  await deps.bucket.put(originalKey(lease.id), bytes, {
     httpMetadata: { contentType: "application/epub+zip" },
   });
   for (let attempt = 1; ; attempt++) {
@@ -365,7 +432,11 @@ async function readCurrent(
   const texts: { n: number; text: string }[] = [];
   await inPool(chapters, async (c) => {
     const object = await deps.bucket.get(c.r2_key);
-    if (object === null) throw new Error("a current chapter fragment is missing");
+    if (object === null) {
+      // A removal purges the fragments after it commits: the work's removal, not a fault.
+      if (await isRemovedNow(deps.db, ao3WorkId)) throw new WorkRemoved();
+      throw new Error("a current chapter fragment is missing");
+    }
     texts.push({ n: c.n, text: await object.text() });
   });
   return {
