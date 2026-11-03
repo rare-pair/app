@@ -79,6 +79,29 @@ describe("Tag types are announced without colour", () => {
     );
   });
 
+  it("A tag name with markup or non-ASCII text is escaped beside its label", async () => {
+    await seedWork(db, {
+      ao3WorkId: 41004,
+      tags: [
+        { type: "fandom", name: "A11y Escape Fandom" },
+        { type: "character", name: `A11y <b>"Zoë" & 'Ño'</b>` },
+      ],
+    });
+
+    const html = await htmlOf("/tags/fandom/a11y%20escape%20fandom");
+
+    const tags = lineOf(cardOf(html, 41004), "card-tags") ?? "";
+    expect(tags).toContain(
+      `${hidden("Character")}A11y &lt;b&gt;&quot;Zoë&quot; &amp; &#39;Ño&#39;&lt;/b&gt;</a>`,
+    );
+    expect(tags).not.toContain("<b>");
+    const listing = await htmlOf(
+      `/tags/character/${encodeURIComponent(`a11y <b>"zoë" & 'ño'</b>`)}`,
+    );
+    expect(listing).toContain("(character)</h1>");
+    expect(listing).not.toContain("<b>");
+  });
+
   it("A tag shown without a link is labelled too", async () => {
     await seedWork(db, {
       ao3WorkId: 41003,

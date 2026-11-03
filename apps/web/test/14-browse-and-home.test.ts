@@ -442,7 +442,9 @@ describe("14-browse-and-home tag listing URLs", () => {
     expect(card).toContain(
       '<div class="card-summary"><div><div class="summary-heading"><strong>Not a card</strong></div></div></div>',
     );
-    expect(card).not.toMatch(/<li|<h2 class="[^c]/);
+    expect(card).not.toMatch(/<li\b/);
+    expect(card.match(/<h[1-6]\b/g)).toHaveLength(1);
+    expect(card).toContain('<h2 class="card-title">');
     const css = await stylesheetOf(html);
     const summaryRules = rulesFor(css, "card-summary");
     expect(summaryRules).toMatch(/contain:\s*content/);
