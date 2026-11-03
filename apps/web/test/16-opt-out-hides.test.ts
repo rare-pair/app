@@ -20,6 +20,7 @@ const REPORTED = 40108;
 const EARLIER_REQUEST = 40109;
 const REMOVED = 40110;
 const SECOND = 40111; // for the second opt-out
+const TWICE = 40112; // two authors that both match the pseud
 const FRESH = 40120; // for the confirmation page
 const RECEIVED = "Your request was received; a moderator will review it and email you.";
 
@@ -55,6 +56,7 @@ beforeAll(async () => {
   await seed(EARLIER_REQUEST, PSEUD, { status: "hidden", hiddenCause: "removal_request" });
   await seed(REMOVED, PSEUD, { status: "removed" });
   await seed(SECOND, OTHER_PSEUD);
+  await seed(TWICE, [PSEUD, "X3  moon child"]);
   await seed(FRESH, "x3 Fresh Pseud");
 });
 afterAll(() => db.destroy());
@@ -120,7 +122,7 @@ describe("16-removal-and-opt-out", () => {
     expect(optout?.pseud_norm).toBe("x3 moon child");
     expect(optout?.active).toBe(true);
 
-    for (const id of [W1, W2, W3, CO_AUTHORED]) {
+    for (const id of [W1, W2, W3, CO_AUTHORED, TWICE]) {
       expect(await stateOf(id), String(id)).toMatchObject({
         status: "hidden",
         hidden_cause: "removal_request",
@@ -131,7 +133,7 @@ describe("16-removal-and-opt-out", () => {
 
     const linked = (await linksOf(optOutId)).map((l) => l.work_id).sort();
     const expected = await Promise.all(
-      [W1, W2, W3, CO_AUTHORED].map(async (id) => (await stateOf(id)).id),
+      [W1, W2, W3, CO_AUTHORED, TWICE].map(async (id) => (await stateOf(id)).id),
     );
     expect(linked).toEqual(expected.sort());
   });
@@ -178,6 +180,8 @@ describe("16-removal-and-opt-out", () => {
     expect(rest).toEqual([]);
     expect(optout?.active).toBe(true);
     expect((await stateOf(SECOND)).status).toBe("live");
+    // The first request still owns every link and its opt-out row.
+    expect((await linksOf(optOutId)).length).toBe(5);
     expect((await optoutsOf(optOutId)).length).toBe(1);
   });
 

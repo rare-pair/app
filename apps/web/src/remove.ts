@@ -67,8 +67,8 @@ const field = (form: URLSearchParams, name: RemoveField) =>
 /**
  * Hides a work for a stored request, and links it to the request only when this hide changed
  * it: `hideWork` touches a live work only, so one hidden or removed already is left as it is
- * and gets no link. X6 (#67) conditions both branches of the form on the requester not being
- * blocked, here.
+ * and gets no link. X6 (#67) conditions the hides of both branches, and the opt-out row, on
+ * the requester not being blocked.
  */
 async function hideForRequest(trx: Parameters<typeof hideWork>[0], requestId: string, id: string) {
   if (await hideWork(trx, id, "removal_request")) {
@@ -203,7 +203,7 @@ export async function submitRemove(c: RemoveContext) {
         for (const author of authors) {
           if (normalizePseud(author.pseud) === pseudNorm) matching.add(author.work_id);
         }
-        for (const id of matching) await hideForRequest(trx, request.id, id);
+        for (const matched of matching) await hideForRequest(trx, request.id, matched);
       });
     }
   } finally {
