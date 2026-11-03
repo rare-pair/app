@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import type { Browser, Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { hasSidewaysScroll } from "../harness/layout";
+import { hasSidewaysScroll, sidewaysOffenders } from "../harness/layout";
 import { launchChromium, viewportFromEnv } from "../harness/site";
 import { checkAxe, formatResults } from "./axe";
 import { formatWalk, tabWalk } from "./keyboard";
@@ -114,9 +114,13 @@ describe("harness: the Worker's runtime", () => {
   it("runs the miniflare (so the workerd) that wrangler deploys and tests with", () => {
     const require = createRequire(import.meta.url);
     // SAFETY: package.json files, read for one string field.
-    const wrangler = require("wrangler/package.json") as { dependencies: { miniflare: string } };
+    const wrangler = require("wrangler/package.json") as {
+      dependencies: { miniflare: string };
+    };
     // SAFETY: as above.
-    const ours = require("../../package.json") as { devDependencies: { miniflare: string } };
+    const ours = require("../../package.json") as {
+      devDependencies: { miniflare: string };
+    };
     expect(ours.devDependencies.miniflare).toBe(wrangler.dependencies.miniflare);
   });
 });
@@ -130,13 +134,32 @@ describe("harness: a narrow viewport", () => {
   });
 
   it("finds a page that scrolls sideways at 360 px, and one that doesn't", async () => {
-    const narrow = await browser.newContext({ viewport: viewportFromEnv("360x640") });
+    const narrow = await browser.newContext({
+      viewport: viewportFromEnv("360x640"),
+    });
     const small = await narrow.newPage();
     try {
       await small.setContent(`<div style="width: 500px">Too wide</div>`);
       expect(await hasSidewaysScroll(small)).toBe(true);
       await small.setContent(`<p>Wraps to fit</p>`);
       expect(await hasSidewaysScroll(small)).toBe(false);
+    } finally {
+      await narrow.close();
+    }
+  });
+
+  it("names the element that is too wide, and nothing for a page that fits", async () => {
+    const narrow = await browser.newContext({
+      viewport: viewportFromEnv("360x640"),
+    });
+    const small = await narrow.newPage();
+    try {
+      await small.setContent(
+        `<p>Fits</p><div class="wide" style="width: 500px">Too wide</div><a style="position: absolute; left: 400px">Skip</a>`,
+      );
+      expect(await sidewaysOffenders(small)).toEqual(["div.wide (500px wide, right edge 508)"]);
+      await small.setContent(`<p>Wraps to fit</p>`);
+      expect(await sidewaysOffenders(small)).toEqual([]);
     } finally {
       await narrow.close();
     }
