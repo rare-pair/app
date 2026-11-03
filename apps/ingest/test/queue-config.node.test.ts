@@ -60,8 +60,8 @@ describe("ingest lease", () => {
   });
 
   it("renews the lease more than once within it", () => {
-    // So one failed renewal does not lose a job its upload.
-    expect(LEASE_RENEW_SECONDS * 2).toBeLessThan(LEASE_SECONDS);
+    // So two renewals can fail in a row without losing a job its upload.
+    expect(LEASE_RENEW_SECONDS * 3).toBeLessThan(LEASE_SECONDS);
   });
 });
 
