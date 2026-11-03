@@ -252,7 +252,9 @@ decoration in a minimal design. They're bold text with labels spelled out.
      updated
 
   Line 2 is never truncated. On a phone, the warnings wrap onto as many lines
-  as they need.
+  as they need. On a card, a summary's links show as plain text, so none takes
+  keyboard focus inside the clamped part, and its headings show as bold text,
+  so a card adds no heading of its own to the page's outline.
 - **Tag list.** A comma-separated inline list in small type. Every tag is a link.
   The type (relationship, character, freeform) is shown by its position and a
   visually hidden label, not by colour.

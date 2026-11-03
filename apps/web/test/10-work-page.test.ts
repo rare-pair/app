@@ -311,9 +311,9 @@ describe("10-work-page, its links", () => {
     const links = [...html.matchAll(/<a href="([^"]*)">Download original epub<\/a>/g)];
     expect(links).toHaveLength(1);
     // The content Worker's one form for an original: one plain path segment
-    // (apps/content). The segment itself waits on #119.
+    // (apps/content), named `<upload id>.epub` as apps/ingest stores it.
     expect(links[0]?.[1]).toMatch(
-      /^https:\/\/content\.rarepair\.fans\/originals\/[A-Za-z0-9_-][A-Za-z0-9._-]*$/,
+      /^https:\/\/content\.rarepair\.fans\/originals\/[A-Za-z0-9_-][A-Za-z0-9._-]*\.epub$/,
     );
   });
 
@@ -321,7 +321,7 @@ describe("10-work-page, its links", () => {
     const { html } = await page(`/works/${BACKFILLED}`);
     const links = [...html.matchAll(/<a href="([^"]*)">Download original epub<\/a>/g)];
     expect(links.map((l) => l[1])).toEqual([
-      `https://content.rarepair.fans/originals/${backfilledFrom}`,
+      `https://content.rarepair.fans/originals/${backfilledFrom}.epub`,
     ]);
   });
 
