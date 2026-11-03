@@ -724,13 +724,43 @@ export async function listRecentLiveWorks(
 /**
  * How many distinct accounts have an open report that counts toward hiding the
  * work, as a SQL expression. A `wrong_version` report never counts, and an
- * account counts once however often it reports. The one place this rule
- * lives: a later rule (a blocked requester's accounts) changes it here.
+ * account counts once however often it reports. A reporter whose account email matches a
+ * blocked requester (any case) never counts, nor does one in `ignore`: the accounts the
+ * caller found to match a block by IP hash, which needs the `IP_HASH_KEY` secret and so
+ * can't be done here (web's blocked-reporters.ts). The one place this rule lives.
  */
-const countedReporters = (workId: string) => sql<number>`(
+const countedReporters = (workId: string, ignore: string[]) => sql<number>`(
   select count(distinct reports.reporter_id) from reports
   where reports.work_id = ${workId} and reports.status = 'open' and reports.kind <> 'wrong_version'
+    and reports.reporter_id <> all(${ignore}::text[])
+    and not exists (
+      select 1 from requester_blocks b join "user" u on lower(b.contact_email) = lower(u.email)
+      where u.id = reports.reporter_id
+    )
 )`;
+
+/**
+ * Whether a moderator has blocked this requester: a block names the contact email (any
+ * case) or the IP hash. Pass `ipHash: null` for a request with no known address (web's
+ * fixed `unknown` marker), which matches nothing, so blocking one never blocks all of them.
+ */
+export async function isRequesterBlocked(
+  db: Kysely<Database>,
+  who: { email: string; ipHash: string | null },
+): Promise<boolean> {
+  const row = await db
+    .selectFrom("requester_blocks")
+    .select("id")
+    .where((eb) =>
+      eb.or([
+        eb(sql<string>`lower(contact_email)`, "=", sql<string>`lower(${who.email})`),
+        ...(who.ipHash === null ? [] : [eb("ip_hash", "=", who.ipHash)]),
+      ]),
+    )
+    .limit(1)
+    .executeTakeFirst();
+  return row !== undefined;
+}
 
 /**
  * Hides a `live` work with its cause, in one UPDATE that sets the status and
@@ -741,7 +771,7 @@ const countedReporters = (workId: string) => sql<number>`(
  * moderator already hid is left too: that hide returns false.
  *
  * With `minReporters`, the work is hidden only when that many accounts have
- * counted reports (see `countedReporters`). The count sits inside the UPDATE,
+ * counted reports (see `countedReporters`; `ignoreReporters` are account ids it skips). The count sits inside the UPDATE,
  * not in a read before it: reads may come from Hyperdrive's cache and miss the
  * report just stored, but writes never do.
  *
@@ -754,7 +784,7 @@ export async function hideWork(
   db: Kysely<Database>,
   workId: string,
   cause: HiddenCause,
-  options: { minReporters?: number; actor?: string } = {},
+  options: { minReporters?: number; ignoreReporters?: string[]; actor?: string } = {},
 ): Promise<boolean> {
   // The log row needs a transaction; the automatic hide is one UPDATE and needs none.
   const hide = async (trx: Kysely<Database>): Promise<boolean> => {
@@ -770,7 +800,7 @@ export async function hideWork(
       );
     }
     if (options.minReporters !== undefined) {
-      update = update.where(sql<boolean>`${countedReporters(workId)} >= ${options.minReporters}`);
+      update = update.where(sql<boolean>`${countedReporters(workId, options.ignoreReporters ?? [])} >= ${options.minReporters}`);
     }
     const result = await update.executeTakeFirst();
     if (result.numUpdatedRows === 0n) return false;
