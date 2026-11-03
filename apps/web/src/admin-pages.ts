@@ -138,12 +138,42 @@ export function removeConfirmPage(title: string, ao3WorkId: number, from: string
 }
 
 /** A form that rejects a takedown or a request, by the row's own id. */
-export const rejectForm = (queue: "takedowns" | "requests", id: string) =>
-  `<form method="post" action="${escapeHtml(`/admin/${queue}/${encodeURIComponent(id)}/reject`)}"><button type="submit">Reject</button></form>`;
+export const rejectForm = (queue: "takedowns" | "requests", id: string, label = "Reject") =>
+  `<form method="post" action="${escapeHtml(`/admin/${queue}/${encodeURIComponent(id)}/reject`)}"><button type="submit">${escapeHtml(label)}</button></form>`;
 
-/** A form that starts an approve of a takedown or a request, which removes its work; the next page asks to confirm. */
-export const approveForm = (queue: "takedowns" | "requests", id: string) =>
-  `<form method="post" action="${escapeHtml(`/admin/${queue}/${encodeURIComponent(id)}/approve`)}"><button type="submit">Approve and remove work</button></form>`;
+/**
+ * A form that starts an approve of a takedown or a request, which removes its work; the next
+ * page asks to confirm. `label` is for an approve that removes nothing (confirming an opt-out).
+ */
+export const approveForm = (
+  queue: "takedowns" | "requests",
+  id: string,
+  label = "Approve and remove work",
+) =>
+  `<form method="post" action="${escapeHtml(`/admin/${queue}/${encodeURIComponent(id)}/approve`)}"><button type="submit">${escapeHtml(label)}</button></form>`;
+
+/** A form that restores the works this request and its related removal requests hid. */
+export const restoreRelatedForm = (id: string) =>
+  `<form method="post" action="${escapeHtml(`/admin/requests/${encodeURIComponent(id)}/restore-related`)}"><button type="submit">Restore related works (rejects their pending requests)</button></form>`;
+
+export const RELATED_COLUMNS = ["Created", "Kind", "Work or pseud", "Status"];
+
+/**
+ * The other requests from the same contact email or IP, as a table under the request's own
+ * fields, each row linking to its page; nothing but a line saying so when there are none.
+ * `more` says the list is cut at QUEUE_LIMIT.
+ */
+export function relatedTable(rows: Row[], more: boolean) {
+  if (rows.length === 0) return "<p>No other requests from the same contact email or IP.</p>";
+  const head = RELATED_COLUMNS.map((name) => `<th scope="col">${escapeHtml(name)}</th>`).join("");
+  return `<table>
+<caption>Requests from the same contact email or IP, oldest first</caption>
+<thead><tr>${head}</tr></thead>
+<tbody>
+${rows.map(rowHtml).join("\n")}
+</tbody>
+</table>${more ? `\n<p>Showing the oldest ${QUEUE_LIMIT}.</p>` : ""}`;
+}
 
 /** The step before an approve, which removes the work for good: names the work and posts the approve again with `confirm`. */
 export function approveConfirmPage(

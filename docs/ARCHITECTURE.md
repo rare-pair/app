@@ -899,8 +899,21 @@ epub, under the normal versioning rules.
   confirm, runs the removal (a `remove` row on the work, when its status changed), then marks
   the item and logs `approve` on it: a request becomes `approved`, a takedown `removed`
   (which puts its AO3 work ID on the takedown list). Only a `pending` item can be approved,
-  and a request about a pseud is not approved here; another pending request for the work stays
-  pending. A failed cache purge still marks the item, and Remove on the work retries it. Each later action calls the same helper, `logModerationAction`, when
+  and another pending request for the work stays pending. A failed cache purge still marks
+  the item, and Remove on the work retries it. Approving an opt-out only confirms it: it is marked
+  `approved` and logged `approve`, its `optouts` row stays active and its works stay hidden, and
+  nothing is removed, so there is no confirm step. Rejecting an opt-out, pending or `approved`,
+  reverses it: the request becomes `rejected` and its row goes inactive, so new uploads by
+  the pseud are accepted again. A request's page lists the other requests from the same contact
+  email (any case) or IP hash, and "Restore related works" restores in bulk: it rejects the
+  pending `remove_work` requests among that page's request and its relatives, then restores
+  their works, in one transaction. Rejecting a removal request, reversing an opt-out and a bulk
+  restore bring back only works the request's own `request_works` rows name, still hidden for a
+  removal request, and not one that another pending removal request or another active opt-out
+  naming one of its authors still covers. Each logs one `reject` per request, with the restored
+  works' AO3 work IDs in its note (led by "Opt-out reversed." or "Bulk restore from <request id>.") and no row per work (a request already decided gets a `restore`
+  row per work instead). The explicit Restore of a work is a moderator's deliberate act and checks
+  none of this. Each later action calls the same helper, `logModerationAction`, when
   it is built. The row's `moderator_id` has no foreign key to `user`, so
   deleting an account keeps its log rows, with the id as it was. Anyone
   without the moderator or admin role, signed out included, gets 404 for every
