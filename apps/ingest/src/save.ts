@@ -9,6 +9,8 @@ import {
 import type { ParsedWork } from "@archive/epub";
 import { sql, type Kysely, type Transaction } from "kysely";
 import { LeaseLost, type Lease } from "./lease";
+import { isDataErrorState, sqlState } from "./sql-state";
+import { MAX_INT4, parseWorkId } from "./work-id";
 import { decideVersion, sameSet, type VersionDecision, type VersionFacts } from "./versioning";
 
 /**
@@ -126,7 +128,6 @@ export class AccountBanned extends Error {}
  */
 class Stale extends Error {}
 
-const MAX_INT4 = 2_147_483_647;
 /** R2 writes in flight at once: a Worker limits its simultaneous subrequests. */
 const PUT_POOL = 6;
 /** Rows per INSERT, so a long work stays far under Postgres's 65,535 bind parameters. */
@@ -397,7 +398,7 @@ async function replaceCurrent(
 // oxlint-disable-next-line deslop/no-unknown-parameters -- a caught value is unknown by contract
 function throwSaveError(error: unknown): never {
   const state = sqlState(error);
-  if (state !== null && /^(21|22|23|54)/.test(state)) {
+  if (isDataErrorState(state)) {
     throw new SaveRejected(`save_rejected_${state}`);
   }
   throw error;
@@ -714,10 +715,8 @@ const authorKey = (a: { pseud: string; user: string | null }) => JSON.stringify(
 
 /** The AO3 work ID as the `works` key, an int4. A file whose ID doesn't fit is refused. */
 function workIdOf(work: ParsedWork): number {
-  const id = Number(work.ao3WorkId);
-  if (!/^[1-9]\d{0,9}$/.test(work.ao3WorkId) || id > MAX_INT4) {
-    throw new SaveRejected("bad_work_id");
-  }
+  const id = parseWorkId(work.ao3WorkId);
+  if (id === null) throw new SaveRejected("bad_work_id");
   return id;
 }
 
@@ -789,14 +788,6 @@ async function inPool<T>(items: T[], fn: (item: T) => Promise<void>): Promise<vo
     }
   };
   await Promise.all(Array.from({ length: Math.min(PUT_POOL, items.length) }, worker));
-}
-
-/** A Postgres error's SQLSTATE, or null. pg's errors carry it as `code`. */
-// oxlint-disable-next-line deslop/no-unknown-parameters -- a caught value is unknown by contract
-function sqlState(error: unknown): string | null {
-  if (!(error instanceof Error) || !("code" in error)) return null;
-  const code = String(error.code);
-  return /^[0-9A-Z]{5}$/.test(code) ? code : null;
 }
 
 function sum(values: number[]): number {

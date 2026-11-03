@@ -2,7 +2,7 @@ import type { Database } from "@archive/db";
 import { EpubError, LIMITS, type ParsedWork } from "@archive/epub";
 import { sql, type Kysely } from "kysely";
 import type { JobDeps } from "./job";
-import { onRejectList } from "./lists";
+import { ListCheckRejected, onRejectList } from "./lists";
 import type { BackfillMessage } from "./message";
 import {
   clearRemovedWork,
@@ -79,7 +79,13 @@ export async function runBackfill(deps: BackfillDeps, message: BackfillMessage):
   }
   if (work.ao3WorkId !== String(row.ao3_work_id)) return "work_mismatch";
   // Before anything is written: what an opt-out now blocks is not published again.
-  if (await onRejectList(deps.db, work)) return "opted_out";
+  try {
+    if (await onRejectList(deps.db, work)) return "opted_out";
+  } catch (error) {
+    // The file stays as it was, as for a processor refusal above.
+    if (error instanceof ListCheckRejected) return error.code;
+    throw error;
+  }
   try {
     return await saveBackfill(
       deps,
