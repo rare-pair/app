@@ -78,11 +78,70 @@ ${escapeHtml(values.statement ?? "")}</textarea>
 
 /**
  * After a request that passed its checks. It says nothing of the work, of whether anything
- * was hidden, or of who asked, so it reads the same however the request was handled.
+ * was hidden, or of who asked, so it reads the same however the request was handled. It
+ * sends the requester to their inbox: nothing happens until they confirm.
  */
 export const removeReceivedPage = () =>
   layout(
-    "Request received",
+    "Check your email",
     `${DRAFT}
-<p>Your request was received; a moderator will review it and email you.</p>`,
+<p>Check your email: we've sent a link to the address you gave. Open it and press the button to confirm your request. The link works once, for 7 days, and nothing happens until you confirm.</p>`,
+  );
+
+/**
+ * The emailed link's page: only a button that posts the token. Opening the link changes
+ * nothing, so a mail scanner's prefetch can't confirm a request. No script, so it works
+ * with JavaScript off. The token is the one thing the page echoes, escaped. It says nothing
+ * of the work.
+ */
+export const requestConfirmPage = (token: string) =>
+  layout(
+    "Confirm your request",
+    `${DRAFT}
+<form method="post" action="/remove/confirm">
+<input type="hidden" name="token" value="${escapeHtml(token)}">
+<p>Press the button to confirm your request.</p>
+<button type="submit">Confirm</button>
+</form>`,
+  );
+
+/**
+ * After a confirmation that matched. It reads the same whatever the work's status and
+ * whether anything was hidden, and never shows the address.
+ */
+export const removeConfirmedPage = () =>
+  layout(
+    "Request confirmed",
+    `${DRAFT}
+<p>Your request is confirmed. A moderator will review it and email you.</p>`,
+  );
+
+/** A used, expired or unknown confirmation link, or none at all. */
+export const removeLinkRefusedPage = () =>
+  layout(
+    "That link doesn't work",
+    `${DRAFT}
+<p>That confirmation link has already been used or has expired, or it was never valid. Links work once, for 7 days. You can <a href="/remove">send the request again</a> to get a new one.</p>`,
+  );
+
+/** The confirmation email couldn't be queued, and the request was not kept. */
+export const removeUnavailablePage = () =>
+  layout(
+    "Something went wrong",
+    `${DRAFT}
+<p>We couldn't send your confirmation email just now, so your request was not kept. Please <a href="/remove">try again</a> in a minute.</p>`,
+  );
+
+/**
+ * After a request for a work the archive doesn't hold: nothing was stored. It is the one
+ * answer that differs from `removeReceivedPage`, and says so, since there is nothing for a
+ * moderator to review. It points to the opt-out, which removes a pseud's works whether or
+ * not they have been uploaded yet.
+ */
+export const removeNotHeldPage = () =>
+  layout(
+    "Not in the archive",
+    `${DRAFT}
+<p>That work isn't in the archive, so there is nothing to remove, and no request was stored.</p>
+<p>To keep a pseud's works out of the archive, <a href="/remove">ask for the pseud to be removed</a> instead.</p>`,
   );

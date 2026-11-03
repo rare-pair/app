@@ -48,6 +48,9 @@ const expected = {
     statement: { type: "text", nullable: false },
     status: { type: "text", nullable: false },
     ip_hash: { type: "text", nullable: false },
+    confirm_token_hash: { type: "text", nullable: true },
+    confirm_sent_at: { type: "timestamptz", nullable: true },
+    confirmed_at: { type: "timestamptz", nullable: true },
     created_at: { type: "timestamptz", nullable: false },
   },
   optouts: {

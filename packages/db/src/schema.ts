@@ -299,6 +299,12 @@ export interface RequestTable {
   status: Generated<string>;
   /** Never the raw IP. */
   ip_hash: string;
+  /** SHA-256 hex of the emailed confirmation token; null once confirmed (or for an old request). */
+  confirm_token_hash: string | null;
+  /** When the confirmation email was queued: the link lasts 7 days from it. */
+  confirm_sent_at: Timestamp | null;
+  /** When the requester confirmed. Null until then: nothing is hidden before it. */
+  confirmed_at: Timestamp | null;
   created_at: CreatedTimestamp;
 }
 
@@ -311,6 +317,12 @@ export interface OptoutTable {
   request_id: string;
   active: boolean;
   created_at: CreatedTimestamp;
+}
+
+/** A work a removal request hid: written only when that request's own hide changed it. */
+export interface RequestWorkTable {
+  request_id: string;
+  work_id: string;
 }
 
 /** Matches a later request by email or by IP hash, and a report by its account's email. */
@@ -382,6 +394,7 @@ export interface Database {
   reports: ReportTable;
   takedowns: TakedownTable;
   requests: RequestTable;
+  request_works: RequestWorkTable;
   optouts: OptoutTable;
   requester_blocks: RequesterBlockTable;
   moderation_actions: ModerationActionTable;

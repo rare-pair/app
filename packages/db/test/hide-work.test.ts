@@ -83,6 +83,49 @@ describe("hideWork", () => {
   });
 });
 
+describe("hideWork with blocked requesters", () => {
+  const emailOf = (id: string) => `${id}@example.test`;
+
+  it("Reports matching a blocked requester do not count toward hiding", async () => {
+    const { workId } = await seedWork(t.db);
+    const [u, k, u3] = [await addUser(), await addUser(), await addUser()];
+    const mod = await addUser();
+    // A block by email, in another case than the account's.
+    await t.db
+      .insertInto("requester_blocks")
+      .values({ contact_email: emailOf(k).toUpperCase(), created_by: mod })
+      .execute();
+    await report(workId, u);
+    await report(workId, k);
+    await report(workId, u3);
+    expect(await hideWork(t.db, workId, "reports", { minReporters: 3 })).toBe(false);
+    expect((await state(workId)).status).toBe("live");
+    const stored = await t.db
+      .selectFrom("reports")
+      .select("status")
+      .where("reporter_id", "=", k)
+      .execute();
+    expect(stored).toEqual([{ status: "open" }]);
+    await report(workId, await addUser());
+    expect(await hideWork(t.db, workId, "reports", { minReporters: 3 })).toBe(true);
+  });
+
+  it("Does not count the reporters it is told to ignore", async () => {
+    const { workId } = await seedWork(t.db);
+    const [u, k, u3] = [await addUser(), await addUser(), await addUser()];
+    await report(workId, u);
+    await report(workId, k);
+    await report(workId, u3);
+    const ignoreReporters = [k];
+    expect(await hideWork(t.db, workId, "reports", { minReporters: 3, ignoreReporters })).toBe(
+      false,
+    );
+    expect(await hideWork(t.db, workId, "reports", { minReporters: 3, ignoreReporters: [] })).toBe(
+      true,
+    );
+  });
+});
+
 describe("hideWork by a moderator", () => {
   it("Switches the cause of a hidden work to moderator", async () => {
     const { workId } = await seedWork(t.db, { status: "hidden", hiddenCause: "reports" });

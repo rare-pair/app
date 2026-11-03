@@ -104,11 +104,14 @@ Reading never requires an account (ARCHITECTURE, *Auth*).
    give a contact email and a short statement. Turnstile runs alongside, so
    this needs JavaScript; with it off, the page says so and gives the
    moderators' contact address.
-3. Every requester sees the same confirmation: "Your request was received; a
-   moderator will review it and email you." Nothing on the page depends on
-   whether the work was hidden, so it never reveals that a requester is
-   blocked. (An unblocked request still hides the work at once; the work page
-   shows that, not the confirmation.)
+3. Every requester sees the same page: "Check your email: we've sent a link to
+   the address you gave. Open it and press the button to confirm your request.
+   The link works once, for 7 days, and nothing happens until you confirm."
+   Nothing on the page depends on whether the work was hidden, so it never
+   reveals that a requester is blocked. The link opens a page with one button;
+   pressing it confirms the request, and only then is the work hidden (the
+   work page shows that, not the confirmation). A used, expired or unknown
+   link gets one page that says so.
    A form missing a contact email, or a work or pseud, comes back with a 400
    and the errors marked. If they gave an AO3 URL for a work that isn't in
    the archive, nothing is stored, and the page says so and suggests opting
@@ -165,7 +168,7 @@ without it. Elsewhere the
 | Accept terms | `/welcome/terms` | new accounts, once | Terms summary, link to `/terms`, Accept button (POST form); every other signed-in page redirects here until accepted | — |
 | Upload | `/upload` | signed in | `<noscript>` message: uploading needs JavaScript | Turnstile, then direct-to-R2 upload with progress, one or more files |
 | My uploads | `/me/uploads` | signed in | Status list; with JS it updates in place, without JS a `<meta http-equiv="refresh">` inside `<noscript>` reloads it while anything is processing | Updates in place |
-| Remove my work / opt out | `/remove` (`?work=:id` prefills) | all | `<noscript>` message with the moderators' contact address | Request form with Turnstile, then a confirmation page that is the same for every requester |
+| Remove my work / opt out | `/remove` (`?work=:id` prefills) | all | `<noscript>` message with the moderators' contact address | Request form with Turnstile, then a "check your email" page that is the same for every requester. The emailed link is `/remove/confirm?token=` (a button page, then a confirmed page, or one page for a used, expired or unknown link) |
 | Report | `/works/:id/report` | signed in (others are redirected to sign in, carrying `next`) | Form, then a confirmation page | — |
 | DMCA notice | `/dmca` | all | Statutory notice form | — |
 | Moderation queues | `/admin/{reports,takedowns,requests,works}` | moderator (404 for anyone else) | Tables with detail pages; `/admin/works` is *Works to check* | — |
