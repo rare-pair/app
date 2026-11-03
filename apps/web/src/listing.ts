@@ -16,7 +16,8 @@ import {
 import type { Context } from "hono";
 import type { Bindings } from "./env";
 import { escapeHtml, layout } from "./pages";
-import { TAG_LABELS, tagHref } from "./tag-links";
+import { tidySummary, withoutLinks } from "./summary";
+import { TAG_LABELS, TAG_NAMES, tagHref } from "./tag-links";
 
 const WORDS = new Intl.NumberFormat("en-US");
 
@@ -143,7 +144,8 @@ export async function showTagListing(c: Context<{ Bindings: Bindings }>) {
     const canonical = `<link rel="canonical" href="${listingHref(type, nameNorm, paramsOf(query, page, tagNorm))}">`;
     return c.html(
       layout(
-        heading,
+        // The name, then its type, so two pages with one name read differently.
+        `${heading} (${TAG_NAMES[type].toLowerCase()})`,
         `${filterForm(listingHref(type, name, []), query)}\n${list}\n${pager(href, page, last)}`,
         canonical,
       ),
@@ -236,14 +238,17 @@ const hasContent = (html: string) =>
   /<img\b/.test(html) ||
   /[^\s\p{Cf}]/u.test(html.replace(/<[^<>]*>/g, "").replace(BLANK_ENTITY, ""));
 
-// A tag that folds to nothing has no listing, so it is shown without a link.
+// The type is announced by a hidden label, inside the link so it is part of the
+// link's name (FRONTEND-DISCOVERY, Tag list). A tag that folds to nothing has no
+// listing, so it is shown without a link.
 const tagLinks = (tags: ListedWork["tags"]) =>
   tags
-    .map((t) =>
-      t.name_norm === ""
-        ? escapeHtml(t.name)
-        : `<a href="${tagHref(t.type, t.name_norm)}">${escapeHtml(t.name)}</a>`,
-    )
+    .map((t) => {
+      const label = `<span class="visually-hidden">${TAG_NAMES[t.type]}: </span>`;
+      return t.name_norm === ""
+        ? `${label}${escapeHtml(t.name)}`
+        : `<a href="${tagHref(t.type, t.name_norm)}">${label}${escapeHtml(t.name)}</a>`;
+    })
     .join(", ");
 
 /** How many relationships, and how many characters, a card names before "+n more". */
@@ -269,12 +274,13 @@ const cardTags = (
     .join(" · ");
 
 /**
- * The summary as the sanitizer left it, whole: the stylesheet clamps it to three
- * lines. The server can't tell how many lines it takes, so "more" always follows.
+ * The summary whole: the stylesheet clamps it to three lines. The server can't
+ * tell how many lines it takes, so "more" always follows. Its links are text, since
+ * a link in the clamped-away part would still take keyboard focus.
  */
 const summary = (html: string | null, href: string, title: string) =>
   html && hasContent(html)
-    ? `<div class="card-summary">${html}</div>\n<p class="card-more"><a href="${href}" aria-label="more of ${escapeHtml(title)}">more</a></p>`
+    ? `<div class="card-summary">${withoutLinks(tidySummary(html))}</div>\n<p class="card-more"><a href="${href}" aria-label="more of ${escapeHtml(title)}">more</a></p>`
     : "";
 
 /** Words, chapters as posted/total ("?" when the total is unknown), completion, last updated. */

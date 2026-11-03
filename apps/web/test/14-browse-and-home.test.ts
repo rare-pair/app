@@ -255,13 +255,14 @@ describe("14-browse-and-home", () => {
     const html = await htmlOf("/tags/fandom/tags%20order%20fandom");
 
     const line = lineOf(cardOf(html, 30050), "card-tags") ?? "";
+    // Each tag's type is read out first (A11Y); the labels are visually hidden.
     expect(textOf(line)).toBe(
-      "Tags Order Ann/Bea, Tags Order Ann & Bea · Tags Order Ann, Tags Order Bea · 21 other tags",
+      "Relationship: Tags Order Ann/Bea, Relationship: Tags Order Ann & Bea · Character: Tags Order Ann, Character: Tags Order Bea · 21 other tags",
     );
     expect(line).toContain('<a href="/tags/relationship/tags%20order%20ann%2Fbea">');
     expect(line).toContain('<a href="/tags/character/tags%20order%20ann">');
     expect(textOf(lineOf(cardOf(html, 30051), "card-tags") ?? "")).toBe(
-      "Tags R1/X, Tags R2/X, Tags R3/X, +2 more · Tags C1, Tags C2, Tags C3, +1 more · 1 other tag",
+      "Relationship: Tags R1/X, Relationship: Tags R2/X, Relationship: Tags R3/X, +2 more · Character: Tags C1, Character: Tags C2, Character: Tags C3, +1 more · 1 other tag",
     );
     // A tag that folds to nothing has no listing to link to.
     await seedWork(db, {
@@ -272,7 +273,9 @@ describe("14-browse-and-home", () => {
       ],
     });
     const again = await htmlOf("/tags/fandom/tags%20order%20fandom");
-    expect(lineOf(cardOf(again, 30052), "card-tags")).toBe("???");
+    expect(lineOf(cardOf(again, 30052), "card-tags")).toBe(
+      '<span class="visually-hidden">Character: </span>???',
+    );
     // Tags are in small type (FRONTEND-DISCOVERY, Tag list).
     expect(rulesFor(await stylesheetOf(html), "card-tags")).toMatch(/font-size:\s*var\(--text-1\)/);
   });
@@ -352,10 +355,10 @@ describe("14-browse-and-home tag listing URLs", () => {
     const slash = await htmlOf("/tags/relationship/url%20kirk%2Fspock");
     const and = await htmlOf("/tags/relationship/url%20kirk%26spock");
 
-    expect(slash).toContain("<h1>Url Kirk/Spock</h1>");
+    expect(slash).toContain("<h1>Url Kirk/Spock (relationship)</h1>");
     expect(cardOf(slash, 30080)).not.toBe("");
     expect(cardOf(slash, 30081)).toBe("");
-    expect(and).toContain("<h1>Url Kirk &amp; Spock</h1>");
+    expect(and).toContain("<h1>Url Kirk &amp; Spock (relationship)</h1>");
     expect(cardOf(and, 30081)).not.toBe("");
     expect(cardOf(and, 30080)).toBe("");
   });
@@ -373,7 +376,7 @@ describe("14-browse-and-home tag listing URLs", () => {
 
     const html = await htmlOf("/tags/fandom/url%20heading");
 
-    expect(html.match(/<h1>([^<]*)<\/h1>/g)).toEqual(["<h1>Url  Heading!</h1>"]);
+    expect(html.match(/<h1>([^<]*)<\/h1>/g)).toEqual(["<h1>Url  Heading! (fandom)</h1>"]);
     expect(html).not.toContain("URL HEADING");
   });
 
@@ -433,7 +436,15 @@ describe("14-browse-and-home tag listing URLs", () => {
     expect(html).toContain(
       `<li><article class="work-card">\n<h2 class="card-title"><a href="/works/30110">`,
     );
-    expect(lineOf(cardOf(html, 30110), "card-summary")).toBe(summary);
+    // The heading is bold text, the item a div and the link its text (A11Y); all inside
+    // the card summary, which `lineOf` can't read once a div sits inside it.
+    const card = cardOf(html, 30110);
+    expect(card).toContain(
+      '<div class="card-summary"><div><div class="summary-heading"><strong>Not a card</strong></div></div></div>',
+    );
+    expect(card).not.toMatch(/<li\b/);
+    expect(card.match(/<h[1-6]\b/g)).toHaveLength(1);
+    expect(card).toContain('<h2 class="card-title">');
     const css = await stylesheetOf(html);
     const summaryRules = rulesFor(css, "card-summary");
     expect(summaryRules).toMatch(/contain:\s*content/);
@@ -590,7 +601,7 @@ describe("14-browse-and-home listing pages", () => {
     expect(first).toContain(`<a rel="next" href="${PAGED}?page=2">`);
     // The heading is the tag's, whatever the page, sort or filter shows.
     for (const html of [...pages, await htmlOf(`${PAGED}?sort=words&rating=Explicit`)]) {
-      expect(html.match(/<h1>[^<]*<\/h1>/g)).toEqual(["<h1>Paged Listing Fandom</h1>"]);
+      expect(html.match(/<h1>[^<]*<\/h1>/g)).toEqual(["<h1>Paged Listing Fandom (fandom)</h1>"]);
     }
   });
 
@@ -813,7 +824,7 @@ describe("14-browse-and-home listing form", () => {
       again.get("rating")?.value,
       again.get("complete")?.value,
     ]).toEqual(["words", "Explicit", "yes"]);
-    expect(html.match(/<h1>[^<]*<\/h1>/g)).toEqual(["<h1>Sorted Listing Fandom</h1>"]);
+    expect(html.match(/<h1>[^<]*<\/h1>/g)).toEqual(["<h1>Sorted Listing Fandom (fandom)</h1>"]);
     expect(html).not.toMatch(/<script|<style|style=/i);
 
     // A tag, submitted with its type; then a choice nothing matches, which can be undone.
