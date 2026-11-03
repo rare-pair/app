@@ -49,7 +49,7 @@ async function ingestByline(pseuds: string[]) {
 }
 
 describe("21-opt-out-hardening: a blank preface byline", () => {
-  it("checks the OPF creator when every preface pseud is blank", async () => {
+  it("Opt-out checks the OPF creator when the preface byline is blank", async () => {
     const t = token();
     await addOptOut(`ghost${t}`);
     const workId = 41500;
@@ -61,7 +61,7 @@ describe("21-opt-out-hardening: a blank preface byline", () => {
     expect(await workExists(workId)).toBe(false);
   });
 
-  it("checks an OPF creator the preface byline doesn't name", async () => {
+  it("Opt-out checks an OPF creator the preface byline doesn't name", async () => {
     const t = token();
     await addOptOut(`ghost${t}`);
 
@@ -69,7 +69,7 @@ describe("21-opt-out-hardening: a blank preface byline", () => {
     expectOptedOut(await ingestUpload(epub));
   });
 
-  it("checks each name of a byline with no profile links", async () => {
+  it("Opt-out checks every name of a byline with no profile links", async () => {
     const t = token();
     await addOptOut(`pepper${t}`);
 
@@ -148,7 +148,7 @@ describe("21-opt-out-hardening: an empty or ambiguous byline goes live, flagged"
 });
 
 describe("21-opt-out-hardening: a hostile value in the file", () => {
-  it("A byline of 70,000 pseuds is checked in one query", async () => {
+  it("A long byline is checked in one query", async () => {
     const t = token();
     await addOptOut(`last${t}`);
     // A real file can't carry this many: the processor's node budget stops it first.

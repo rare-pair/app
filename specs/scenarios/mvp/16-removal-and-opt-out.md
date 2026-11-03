@@ -154,6 +154,42 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Author identity), § Data 
 - WHEN an upload whose byline pseud is `Moon_Child` is ingested
 - THEN it is not rejected with `opted_out`, because punctuation is kept in `pseud_norm`
 
+### Opt-out checks the OPF creator when the preface byline is blank
+- GIVEN an active opt-out for pseud P
+- AND an upload whose preface byline names nobody (a link whose text is a space or a zero-width character) and whose OPF `dc:creator` is P
+- WHEN the upload is ingested
+- THEN it is rejected with `opted_out`
+
+### Opt-out checks an OPF creator the preface byline doesn't name
+- GIVEN an active opt-out for pseud P
+- AND an upload whose preface byline names Q and whose OPF `dc:creator` entries are Q and P
+- WHEN the upload is ingested
+- THEN it is rejected with `opted_out`
+
+### Opt-out checks every name of a byline with no profile links
+- GIVEN an active opt-out for pseud P
+- AND an upload whose byline has no profile links and reads "Q and P"
+- WHEN the upload is ingested
+- THEN it is rejected with `opted_out`
+
+### A file the lists refuse is recorded, not retried
+- GIVEN an upload whose byline holds a value the opt-out table can't take (a NUL byte)
+- WHEN the upload is ingested
+- THEN it ends `parse_failed` with a fixed error code at the process stage, and is acknowledged
+- AND nothing is saved
+- AND a failure to read the lists at all is still retried
+
+### A long byline is checked in one query
+- GIVEN an active opt-out for the last of 70,000 pseuds in a byline
+- WHEN the upload is ingested
+- THEN it is rejected with `opted_out`
+
+### An AO3 work ID that is not a work key is refused
+- GIVEN an upload whose AO3 work ID is `0`, has a leading zero (`041520`) or is past int4
+- WHEN the upload is ingested
+- THEN it ends `parse_failed` with `bad_work_id`
+- AND a takedown of work 41520 does not reject the file with the ID `041520`
+
 ### Moderator approves an opt-out
 - GIVEN a pending opt-out request for P that its requester has confirmed
 - WHEN a moderator approves it

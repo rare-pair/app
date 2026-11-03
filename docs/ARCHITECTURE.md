@@ -212,7 +212,8 @@ and punctuation beside them still fold away, so "Kirk / Spock" matches
 case-folded, with leading and trailing whitespace trimmed and inner runs of
 whitespace collapsed to one space. Unlike `name_norm`, punctuation is kept, so
 `a_b` and `a b` are different pseuds. The same rule is applied to the opt-out
-request and to every byline at ingest.
+request and to every byline at ingest (a pseud with nothing left after the
+rule's whitespace and invisible-character removal is blank, and names nobody).
 
 ## Ingestion pipeline
 
@@ -336,7 +337,23 @@ Chapter text isn't indexed.
      from their headed blocks.
    - Unknown labels are kept in a `raw_meta` JSON column, so we never lose
      data the parser doesn't understand yet.
-   - Then check the opt-out and takedown lists. A match rejects the file with
+   - **Whose byline is checked.** Every name the file gives: the preface's named
+     authors (a link with nothing visible in it, such as a space or a
+     zero-width character, names nobody) and every OPF `dc:creator` the
+     preface doesn't already name, so a blank or partial preface byline never
+     hides the author. A byline with no profile links is cut at ", " and
+     " and "; each piece is checked. So is a `dc:creator` that holds several
+     names, whole and cut. Cutting is a guess: nothing says "Salt and Pepper"
+     isn't one pseud, so a cut byline gets the `byline_ambiguous` review
+     reason, and a file with no name anywhere gets `byline_missing`. Both go
+     live like any upload, new work or update, with the notice and a place in
+     *Works to check* (step 5); neither is a hold. The "Anonymous" an
+     unlinked byline gives is a placeholder, not a pseud: it is not checked and
+     not flagged, but a profile link whose user is "Anonymous" is a name. A
+     name the opt-out table refuses to hold (a NUL byte, say) ends the upload
+     `parse_failed`, recorded; a list that can't be read at all is retried.
+   - Then check the opt-out and takedown lists, before anything is written. A
+     match rejects the file with
      `opted_out`. The takedown list holds the AO3 work IDs of works a
      moderator removed after a DMCA notice; a notice no moderator has acted on
      isn't on it, so it doesn't block uploads.
@@ -357,7 +374,9 @@ Chapter text isn't indexed.
    one-chapter-per-file split, a chapter count that disagrees with `Stats:`,
    content outside the chapters, a manifest item it couldn't read, a missing
    rating (`missing_rating`) or title, a title or work ID that differs between
-   preface and OPF (`work_id_mismatch`), and so on. They are stored on the version (`work_versions.review_reasons`).
+   preface and OPF (`work_id_mismatch`), a byline that is empty
+   (`byline_missing`) or can only be cut into names by a guess
+   (`byline_ambiguous`), and so on. They are stored on the version (`work_versions.review_reasons`).
    A version with review reasons still goes **live**, with a notice on the work
    and reader pages: "Chapters may be imperfect; a moderator will check." The
    work also lands in the moderators' *Works to check* queue, and approving it
