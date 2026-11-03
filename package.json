@@ -9,6 +9,7 @@
   "scripts": {
     "test": "npm run test --workspaces --if-present && npm run test:scripts",
     "test:scripts": "node --test scripts/*.test.mjs",
+    "test:browser": "npm run test:browser -w @archive/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
