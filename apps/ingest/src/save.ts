@@ -205,9 +205,11 @@ async function saveFiles(
     httpMetadata: { contentType: "application/epub+zip" },
   });
   // Stop renewing before the transaction: a renewal would change the token under its fence.
-  await lease.keeper?.renew();
   await lease.keeper?.stop();
   for (let attempt = 1; ; attempt++) {
+    // By hand, since the timer is off: the lease is whole for the transaction, and again after
+    // each retry's slow reads.
+    await lease.keeper?.renew();
     try {
       const decision = current === null ? null : decideVersion(current.facts, facts);
       await deps.db

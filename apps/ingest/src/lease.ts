@@ -184,6 +184,7 @@ export class LeaseKeeper {
     }
     if (renewed) {
       this.renewedAt = Date.now();
+      this.unsure = false;
     } else if (this.unsure) {
       // Not proof of a takeover: a plain failure, so the message is retried, not dropped.
       throw new Error("lease renewal outcome unknown");
