@@ -97,6 +97,9 @@ an unofficial stopgap.
     challenge pages, must not apply to `content.rarepair.fans`: turn them off,
     or skip that host with a rule. Turnstile and the web Worker's rate limits do
     that job instead.
+  - The content Worker keeps no per-request log (invocation logs are off), so no
+    reader address is stored next to a work id in its URLs. Only errors and
+    metrics are kept.
 
 ## Data model (first cut)
 
@@ -1103,8 +1106,10 @@ markup: its inline `style` attributes become stylesheet rules, because
   `Cache-Control: public, max-age=31536000, immutable`. Chapter fragments are
   cached inside the web Worker (see Reading). Work and tag listings
   get a short cache with stale-while-revalidate.
-- Observability: Workers Logs and traces are on from day one. Track queue
-  depth, ingest failure rate and search p95 on a dashboard.
+- Observability: Workers Logs and traces are on from day one, except that the
+  content Worker's per-request invocation logs are off (its URLs carry the AO3
+  work id); its errors and metrics stay on. Track queue depth, ingest failure
+  rate and search p95 on a dashboard.
 
 ## MVP vs later
 
