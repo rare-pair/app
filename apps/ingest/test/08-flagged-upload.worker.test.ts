@@ -16,13 +16,11 @@ const chapterFiles = (count: number): SpineFile[] =>
   });
 
 /** An epub of `count` chapters whose Stats line says `stats`. */
-const epubOf = (workId: number, count: number, stats: string) =>
-  ao3Epub({
-    workId,
-    stats,
-    files: chapterFiles(count),
-    navPoints: chapterFiles(count).map((f, i) => ({ label: `${i + 1}. Chapter`, src: f.name })),
-  });
+function epubOf(workId: number, count: number, stats: string) {
+  const files = chapterFiles(count);
+  const navPoints = files.map((f, i) => ({ label: `${i + 1}. Chapter`, src: f.name }));
+  return ao3Epub({ workId, stats, files, navPoints });
+}
 
 describe("08-versioning-and-dedupe: flagged upload", () => {
   it("Flagged newer upload replaces and shows the notice", async () => {

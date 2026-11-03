@@ -12,7 +12,14 @@ function patchEntry(epub: Uint8Array, name: string, edit: (text: string) => stri
   const patched: Record<string, string | Uint8Array> = {};
   for (const [path, data] of Object.entries(entries)) {
     if (path === "mimetype") continue; // zipEntries writes it again, first
-    patched[path] = path === name ? edit(strFromU8(data)) : data;
+    if (path !== name) {
+      patched[path] = data;
+      continue;
+    }
+    const before = strFromU8(data);
+    const after = edit(before);
+    if (after === before) throw new Error(`patchEntry: edit changed nothing in ${name}`);
+    patched[path] = after;
   }
   return zipEntries(patched);
 }
@@ -159,6 +166,7 @@ describe("06-ao3-preface-and-chapters: review reasons", () => {
     const version = await ingestedLive(c.epub(c.workId), c.workId);
 
     expect(version.review_reasons).toEqual([expect.stringMatching(new RegExp(`^${c.reason}`))]);
+    expect(version.chapterNumbers).toEqual([1, 2, 3]);
     expect(version.hold_reason).toBeNull();
     expect(version.checked_at).toBeNull();
   });
