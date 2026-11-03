@@ -386,6 +386,85 @@ describe("17 reports and DMCA", () => {
     expect(await logFor("xr2-td-purge")).toHaveLength(1);
   });
 
+  it("Removing a work from its admin page marks its pending takedowns removed", async () => {
+    const ao3 = W + 25;
+    await seedWithObjects(ao3, { status: "live" });
+    const wid = await workId(ao3);
+    await addTakedown("xr2-td-wp-a", wid);
+    await addTakedown("xr2-td-wp-b", wid);
+    await post(`/admin/works/${ao3}/remove`, moderator, { confirm: "yes" });
+    expect(await workStatus(ao3)).toBe("removed");
+    for (const id of ["xr2-td-wp-a", "xr2-td-wp-b"]) {
+      expect(await statusOf("takedowns", id), id).toBe("removed");
+      const row = await db
+        .selectFrom("takedowns")
+        .select("resolved_by")
+        .where("id", "=", id)
+        .executeTakeFirstOrThrow();
+      expect(row.resolved_by, id).not.toBeNull();
+      expect(await logFor(id), id).toEqual([
+        { action: "approve", target_kind: "takedown", note: null },
+      ]);
+    }
+  });
+
+  it("Remove work on a takedown's page marks that takedown removed", async () => {
+    const ao3 = W + 26;
+    await seedWithObjects(ao3, { status: "live" });
+    await addTakedown("xr2-td-tp", await workId(ao3));
+    await post(`/admin/works/${ao3}/remove`, moderator, {
+      confirm: "yes",
+      from: "/admin/takedowns/xr2-td-tp",
+    });
+    expect(await statusOf("takedowns", "xr2-td-tp")).toBe("removed");
+    expect(await logFor("xr2-td-tp")).toHaveLength(1);
+  });
+
+  it("A removal that changes nothing leaves a pending takedown pending", async () => {
+    const ao3 = W + 27;
+    await seedWithObjects(ao3, { status: "live" });
+    const wid = await workId(ao3);
+    await db.updateTable("works").set({ status: "processing" }).where("id", "=", wid).execute();
+    await addTakedown("xr2-td-still", wid);
+    await post(`/admin/works/${ao3}/remove`, moderator, { confirm: "yes" });
+    expect(await statusOf("takedowns", "xr2-td-still")).toBe("pending");
+  });
+
+  it("Approving a takedown also marks the work's other pending takedowns", async () => {
+    const ao3 = W + 28;
+    await seedWithObjects(ao3, { status: "live" });
+    const wid = await workId(ao3);
+    await addTakedown("xr2-td-first", wid);
+    await addTakedown("xr2-td-second", wid);
+    await post("/admin/takedowns/xr2-td-first/approve", moderator, { confirm: "yes" });
+    expect(await statusOf("takedowns", "xr2-td-second")).toBe("removed");
+    expect(await logFor("xr2-td-first")).toHaveLength(1);
+    expect(await logFor("xr2-td-second")).toHaveLength(1);
+  });
+
+  it("The confirm page of an incomplete takedown says so, and approving is allowed", async () => {
+    const ao3 = W + 29;
+    await seedWithObjects(ao3, { status: "live" });
+    const wid = await workId(ao3);
+    await addTakedown("xr2-td-complete", wid);
+    await addTakedown("xr2-td-incomplete", wid);
+    await db
+      .updateTable("takedowns")
+      .set({ incomplete: true })
+      .where("id", "=", "xr2-td-incomplete")
+      .execute();
+    const complete = await post("/admin/takedowns/xr2-td-complete/approve", moderator);
+    expect(await complete.text()).not.toContain("incomplete");
+    const ask = await post("/admin/takedowns/xr2-td-incomplete/approve", moderator);
+    const html = await ask.text();
+    expect(html).toContain("This notice is incomplete");
+    expect(html).toContain('name="confirm"');
+    expect(await statusOf("takedowns", "xr2-td-incomplete")).toBe("pending");
+    await post("/admin/takedowns/xr2-td-incomplete/approve", moderator, { confirm: "yes" });
+    expect(await workStatus(ao3)).toBe("removed");
+    expect(await statusOf("takedowns", "xr2-td-incomplete")).toBe("removed");
+  });
+
   it("A hidden work is removed by a takedown approval", async () => {
     const ao3 = W + 21;
     await seedWithObjects(ao3, { status: "hidden", hiddenCause: "reports" });

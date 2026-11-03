@@ -852,9 +852,10 @@ epub, under the normal versioning rules.
   queue and does **not** hide the work by itself (unlike `/remove`): a
   moderator decides whether to hide or remove it. While no moderator has acted
   on it, the notice doesn't block re-uploads of the work either. Once a
-  moderator removes the work, its AO3 work ID goes on the takedown list, and
+  moderator removes the work, by Approve or by Remove on the work or the notice's page, every
+  pending notice on it is marked `removed` and its AO3 work ID goes on the takedown list, and
   later uploads of it are rejected `opted_out` (EPUB processor, step 4). A
-  notice missing statutory elements is still queued, marked incomplete. The
+  notice missing statutory elements is still queued, marked incomplete (the Approve confirm page says so; approving is still allowed). The
   form has no Turnstile, so it works without JavaScript; a rate limit per IP
   is its only abuse control. The counter-notice process and
   repeat-infringer policy are part of the lawyer review.

@@ -151,10 +151,14 @@ export function approveConfirmPage(
   id: string,
   title: string,
   ao3WorkId: number,
+  incomplete = false,
 ) {
+  const warning = incomplete
+    ? "\n<p>This notice is incomplete: it lacks a required element. You can still approve it.</p>"
+    : "";
   return layout(
     "Approve and remove work",
-    `${nav}
+    `${nav}${warning}
 <p>Approve this ${queue === "takedowns" ? "takedown" : "request"} and remove ${escapeHtml(title)} (${ao3WorkId})? Its pages answer 410 and its files are deleted. This can't be undone.</p>
 <form method="post" action="${escapeHtml(`/admin/${queue}/${encodeURIComponent(id)}/approve`)}"><input type="hidden" name="confirm" value="yes"><button type="submit">Approve and remove work for good</button></form>`,
   );

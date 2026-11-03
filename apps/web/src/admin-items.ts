@@ -233,8 +233,33 @@ adminItems.post("/works/:id/remove", async (c) => {
   }
   const removed = await removeWorkEverywhere(removeDeps(c.env, c.var.db), work.id, c.var.userId);
   if (!removed) return c.notFound();
+  if (removed.outcome !== "processing") await markTakedownsRemoved(c, work.id);
   return removedPage(c, removed, from);
 });
+
+/**
+ * After a work is removed for good, by any path: marks every pending takedown on it `removed`,
+ * which puts its AO3 work ID on the takedown list, and logs each as an approve. Safe to repeat.
+ */
+async function markTakedownsRemoved(c: Context<AdminEnv>, workId: string) {
+  await c.var.db.transaction().execute(async (trx) => {
+    const marked = await trx
+      .updateTable("takedowns")
+      .set({ status: TAKEDOWN_APPROVED, resolved_by: c.var.userId })
+      .where("work_id", "=", workId)
+      .where("status", "=", "pending")
+      .returning("id")
+      .execute();
+    for (const { id } of marked) {
+      await logModerationAction(trx, {
+        moderatorId: c.var.userId,
+        action: "approve",
+        targetKind: "takedown",
+        targetId: id,
+      });
+    }
+  });
+}
 
 /** The page for what a removal did. A failed purge is a 502: the removal stands, and a repeat remove retries it. */
 function removedPage(c: Context<AdminEnv>, removed: RemoveResult, from: string | null) {
@@ -375,16 +400,24 @@ adminItems.post("/takedowns/:id{[A-Za-z0-9_-]+}/approve", async (c) => {
   const item = await c.var.db
     .selectFrom("takedowns")
     .innerJoin("works", "works.id", "takedowns.work_id")
-    .select(["takedowns.status", "works.id as work_id", "works.title", "works.ao3_work_id"])
+    .select([
+      "takedowns.status",
+      "takedowns.incomplete",
+      "works.id as work_id",
+      "works.title",
+      "works.ao3_work_id",
+    ])
     .where("takedowns.id", "=", id)
     .executeTakeFirst();
   if (!item) return c.notFound();
   if (item.status !== "pending") return decidedOrMissing(c, "takedowns", id);
-  return approveRemoval(c, "takedowns", id, {
-    workId: item.work_id,
-    title: item.title,
-    ao3WorkId: item.ao3_work_id,
-  });
+  return approveRemoval(
+    c,
+    "takedowns",
+    id,
+    { workId: item.work_id, title: item.title, ao3WorkId: item.ao3_work_id },
+    item.incomplete,
+  );
 });
 
 /**
@@ -398,11 +431,12 @@ async function approveRemoval(
   queue: "requests" | "takedowns",
   id: string,
   work: { workId: string; title: string; ao3WorkId: number },
+  incomplete = false,
 ) {
   const form = await readForm(c.req.raw, MAX_FORM);
   const self = `/admin/${queue}/${encodeURIComponent(id)}`;
   if (form?.get("confirm") !== "yes") {
-    return c.html(approveConfirmPage(queue, id, work.title, work.ao3WorkId));
+    return c.html(approveConfirmPage(queue, id, work.title, work.ao3WorkId, incomplete));
   }
   const removed = await removeWorkEverywhere(
     removeDeps(c.env, c.var.db),
@@ -439,6 +473,7 @@ async function approveRemoval(
     });
     return true;
   });
+  await markTakedownsRemoved(c, work.workId);
   // Someone decided the item after the pending check: the removal has happened (and is safe
   // to repeat), but this approve did not mark or log, and must not say it did.
   if (!decided) {
