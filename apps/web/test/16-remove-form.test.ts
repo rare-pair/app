@@ -376,7 +376,7 @@ describe("16-removal-and-opt-out", () => {
       expect(row?.ip_hash).toBe(await ipHash(env.IP_HASH_KEY, null));
     });
 
-    it("stores a pseud's opt-out request under its normalized pseud, hiding nothing", async () => {
+    it("stores a pseud's opt-out request under its normalized pseud, with an opt-out row", async () => {
       const email = "x1-pseud@example.test";
       const res = await post({ email, pseud: "  Moon   CHILD ", statement: "" });
       expect(res.status).toBe(200);
@@ -390,10 +390,11 @@ describe("16-removal-and-opt-out", () => {
       expect(row?.ip_hash).toMatch(/^[0-9a-f]{64}$/);
       const optouts = await db
         .selectFrom("optouts")
-        .select("id")
+        .select(["pseud_norm", "active"])
         .where("request_id", "=", row?.id ?? "")
         .execute();
-      expect(optouts).toEqual([]);
+      // No seeded work has this pseud, so there is an opt-out and nothing to hide.
+      expect(optouts).toEqual([{ pseud_norm: "moon child", active: true }]);
     });
 
     it("answers a work the archive doesn't hold with its own page, storing nothing", async () => {
