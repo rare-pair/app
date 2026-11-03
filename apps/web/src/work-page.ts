@@ -10,6 +10,7 @@ import { escapeHtml, layout } from "./pages";
 import { continueHref, loadPosition, type Position } from "./position";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
+import { tidySummary } from "./summary";
 import { TAG_LABELS, tagHref, type LinkedType } from "./tag-links";
 import { withheldResponse } from "./withheld";
 
@@ -71,7 +72,7 @@ export function workPage(live: LiveWork, position: Position | null = null): stri
     work.title,
     `<p class="authors">by ${byline}</p>
 <p class="rating-warnings">${ratingLine}</p>
-${block("p", "fandoms", fandoms.map(tagLink).join(", "))}${block("section", "summary", work.summary_html ?? "")}${block("p", "tags", listed.map(tagLink).join(", "))}<p class="stats">${stats.join(" · ")}</p>
+${block("p", "fandoms", fandoms.map(tagLink).join(", "))}${block("section", "summary", tidySummary(work.summary_html ?? ""))}${block("p", "tags", listed.map(tagLink).join(", "))}<p class="stats">${stats.join(" · ")}</p>
 ${needsCheck ? `<p class="review-notice">Chapters may be imperfect; a moderator will check.</p>\n` : ""}${continueLink(live, position)}<ol class="chapters">${chapters.map((ch) => `<li><a href="${base}/chapters/${ch.n}">${escapeHtml(ch.title)}</a></li>`).join("")}</ol>
 <p class="full"><a href="${base}/full">Read the entire work on one page</a></p>
 <p class="download"><a href="${originalUrl(version.original_upload_id)}">Download original epub</a></p>

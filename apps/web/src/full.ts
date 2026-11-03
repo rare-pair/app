@@ -171,7 +171,7 @@ export async function showFull(c: ReaderContext) {
   // unescaped. The chapter headings' ids stay stable: links may point at them. The
   // markup between two fragments goes out as one part.
   const heading = (ch: { n: number; title: string }) =>
-    `<h2 class="chapter-title" id="chapter-${ch.n}">${escapeHtml(chapterTitle(ch))}</h2>\n<article class="chapter">`;
+    `<h2 class="chapter-title" id="chapter-${ch.n}">${escapeHtml(chapterTitle(ch))}</h2>\n<article class="chapter" aria-labelledby="chapter-${ch.n}">`;
   const parts: Part[] = [`${before}${reviewNotice(version)}${heading(head)}`, first];
   // Each later chapter keeps only its key and the bucket for the life of the stream.
   for (const ch of rest) {

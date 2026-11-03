@@ -22,7 +22,11 @@ const articleOf = (html: string) =>
 
 /** Every chapter article's markup, in page order. */
 const articlesOf = (html: string) =>
-  [...html.matchAll(/<article class="chapter">([\s\S]*?)<\/article>/g)].map(([, inner]) => inner);
+  [
+    ...html.matchAll(
+      /<article class="chapter"(?: aria-labelledby="chapter-[0-9]+")?>([\s\S]*?)<\/article>/g,
+    ),
+  ].map(([, inner]) => inner);
 
 /** Seeds a work with two chapters and puts its fragments in R2. */
 async function seedTwoChapters(ao3WorkId: number, rating = "General Audiences") {

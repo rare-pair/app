@@ -136,7 +136,11 @@ const htmlOf = async (path: string) => {
 
 /** Every chapter article's markup, in page order. */
 const articlesOf = (html: string) =>
-  [...html.matchAll(/<article class="chapter">([\s\S]*?)<\/article>/g)].map(([, a = ""]) => a);
+  [
+    ...html.matchAll(
+      /<article class="chapter" aria-labelledby="chapter-[0-9]+">([\s\S]*?)<\/article>/g,
+    ),
+  ].map(([, a = ""]) => a);
 
 /** A response body's chunks as they arrive, into `into`, which keeps them if it fails. */
 const readChunks = async (res: Response, into: Uint8Array[] = []) => {
@@ -168,7 +172,7 @@ describe("11-reader-and-csp", () => {
     // Each under its own heading, escaped, with a stable anchor; no title is its number.
     const headings = [
       ...html.matchAll(
-        /<h2 class="chapter-title" id="chapter-(\d+)">([^<]*)<\/h2>\n<article class="chapter">/g,
+        /<h2 class="chapter-title" id="chapter-(\d+)">([^<]*)<\/h2>\n<article class="chapter" aria-labelledby="chapter-\1">/g,
       ),
     ].map(([, n, title]) => [n, title]);
     expect(headings).toEqual([
@@ -252,7 +256,7 @@ describe("entire work", () => {
       expect(res.headers.get("cache-control"), id).toBe("no-store");
       const html = await res.text();
       expect(html, id).toContain("<h1>Page not found</h1>");
-      expect(html, id).not.toContain('<article class="chapter">');
+      expect(html, id).not.toContain('<article class="chapter"');
     }
   });
 
