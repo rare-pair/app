@@ -30,11 +30,15 @@ const R2_BATCH = 1000;
  * (apps/web, remove-objects.ts): what a backfill that raced the removal put back. Every key is
  * listed before any is deleted. Deleting a key already gone is no error, so a repeat is safe.
  */
-export async function clearRemovedWork(bucket: SaveBucket, ao3WorkId: number): Promise<number> {
+export const clearRemovedWork = (bucket: SaveBucket, ao3WorkId: number): Promise<number> =>
+  clearPrefix(bucket, `works/${ao3WorkId}/`);
+
+/** Deletes every key under `prefix`, and returns how many there were. */
+async function clearPrefix(bucket: SaveBucket, prefix: string): Promise<number> {
   const keys: string[] = [];
   let cursor: string | undefined;
   for (;;) {
-    const page = await bucket.list({ prefix: `works/${ao3WorkId}/`, cursor, limit: R2_BATCH });
+    const page = await bucket.list({ prefix, cursor, limit: R2_BATCH });
     keys.push(...page.objects.map((o) => o.key));
     if (!page.truncated) break;
     cursor = page.cursor;
@@ -65,7 +69,8 @@ async function isRemovedNow(db: Kysely<Database>, ao3WorkId: number): Promise<bo
 /**
  * Deletes what an upload that lost to a removal wrote, since the removal's purge may have run
  * before the writes: its `originals/` file (the purge never finds it: the upload has no
- * `work_id`), and, unless the work was restored meanwhile, the work's `works/` folder. Deleting
+ * `work_id`), and the work's `works/` folder, or only the upload's own prefix in it if the work
+ * was restored meanwhile. Deleting
  * a key already gone is no error, so a repeat is safe. Only for `WorkRemoved`: a job that lost
  * its lease shares these keys with the job that took over.
  */
@@ -78,9 +83,11 @@ async function discardUploadFiles(
   const found = await deps.bucket.list({ prefix: original, limit: 1 });
   let deleted = found.objects.length;
   await deps.bucket.delete([original]);
-  if (await isRemovedNow(deps.db, ao3WorkId)) {
-    deleted += await clearRemovedWork(deps.bucket, ao3WorkId);
-  }
+  // A work restored meanwhile keeps its folder, but not this upload's own fragments, which no
+  // version row points at.
+  deleted += (await isRemovedNow(deps.db, ao3WorkId))
+    ? await clearRemovedWork(deps.bucket, ao3WorkId)
+    : await clearPrefix(deps.bucket, `works/${ao3WorkId}/${lease.id}/`);
   console.log({ event: "ingest.lost_to_removal", uploadId: lease.id, deleted });
 }
 

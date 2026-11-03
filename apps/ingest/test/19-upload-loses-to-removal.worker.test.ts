@@ -140,7 +140,8 @@ describe("RACE: an upload that loses to a removal", () => {
 
     expect((await uploadRow(id)).status).toBe("work_removed");
     expect(await bucketKeys(`originals/${id}`)).toEqual([]);
-    // The seeded work's own files survive; the upload's own were written under its id.
+    // The upload's own fragments go; the seeded work's own files survive.
+    expect(await bucketKeys(`works/41220/${id}/`)).toEqual([]);
     expect(folderBefore.length).toBeGreaterThan(0);
     for (const key of folderBefore) expect(await env.BUCKET.head(key)).not.toBeNull();
   });
