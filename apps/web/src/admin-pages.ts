@@ -139,7 +139,7 @@ export function removeConfirmPage(title: string, ao3WorkId: number, from: string
   return layout(
     "Remove work",
     `${nav}
-<p>Remove ${escapeHtml(title)} (${ao3WorkId})? Its pages answer 410 and its files are deleted. This can't be undone.</p>
+<p>Remove ${escapeHtml(title)} (${ao3WorkId})? Its pages answer 410 and its files are deleted. Any pending copyright notice on it is marked removed, and its AO3 work ID goes on the takedown list. This can't be undone.</p>
 <form method="post" action="/admin/works/${ao3WorkId}/remove">${fromInput(from)}<input type="hidden" name="confirm" value="yes"><button type="submit">Remove work for good</button></form>`,
   );
 }
@@ -147,6 +147,29 @@ export function removeConfirmPage(title: string, ao3WorkId: number, from: string
 /** A form that rejects a takedown or a request, by the row's own id. */
 export const rejectForm = (queue: "takedowns" | "requests", id: string) =>
   `<form method="post" action="${escapeHtml(`/admin/${queue}/${encodeURIComponent(id)}/reject`)}"><button type="submit">Reject</button></form>`;
+
+/** A form that starts an approve of a takedown or a request, which removes its work; the next page asks to confirm. */
+export const approveForm = (queue: "takedowns" | "requests", id: string) =>
+  `<form method="post" action="${escapeHtml(`/admin/${queue}/${encodeURIComponent(id)}/approve`)}"><button type="submit">Approve and remove work</button></form>`;
+
+/** The step before an approve, which removes the work for good: names the work and posts the approve again with `confirm`. */
+export function approveConfirmPage(
+  queue: "takedowns" | "requests",
+  id: string,
+  title: string,
+  ao3WorkId: number,
+  incomplete = false,
+) {
+  const warning = incomplete
+    ? "\n<p>This notice is incomplete: it lacks a required element. You can still approve it.</p>"
+    : "";
+  return layout(
+    "Approve and remove work",
+    `${nav}${warning}
+<p>Approve this ${queue === "takedowns" ? "takedown" : "request"} and remove ${escapeHtml(title)} (${ao3WorkId})? Its pages answer 410 and its files are deleted. This can't be undone.</p>
+<form method="post" action="${escapeHtml(`/admin/${queue}/${encodeURIComponent(id)}/approve`)}"><input type="hidden" name="confirm" value="yes"><button type="submit">Approve and remove work for good</button></form>`,
+  );
+}
 
 /**
  * What an action did, said from what its write returned: a re-read could come from
