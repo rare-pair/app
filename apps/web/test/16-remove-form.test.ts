@@ -21,14 +21,21 @@ import {
 } from "./helpers";
 
 // One database serves every test file in the run, so this file keeps to AO3 work IDs
-// 12600 to 12699 and finds its requests by its own `example.test` contact emails.
-// Everything here is synthetic.
+// 12600 to 12699 and 40020 to 40022 and 40099 (X2's block: its hide moved the cases that
+// store a request off work W), and finds its requests by its own `example.test` contact
+// emails. Everything here is synthetic.
+// Work W is the subject of no stored request, so it stays live for the refusals' checks.
 const W = 12600;
 /** No work has it. */
-const UNKNOWN = 12699;
+const UNKNOWN = 40099;
 /** Hidden by a moderator already. */
-const HIDDEN = 12601;
+const HIDDEN = 40022;
+/** Asked for by the cases that only need a stored request: the first hides it. */
+const S = 40021;
+/** Live until its own test asks for it to be removed. */
+const HASHED = 40020;
 const WORK_URL = `${BASE}/works/${W}`;
+const S_URL = `${BASE}/works/${S}`;
 const RECEIVED = "Your request was received; a moderator will review it and email you.";
 
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
@@ -45,6 +52,8 @@ beforeAll(async () => {
 });
 beforeAll(async () => {
   await seedWork(db, { ao3WorkId: HIDDEN, status: "hidden", hiddenCause: "moderator" });
+  await seedWork(db, { ao3WorkId: S });
+  await seedWork(db, { ao3WorkId: HASHED });
 });
 afterAll(() => db.destroy());
 
@@ -244,10 +253,10 @@ describe("16-removal-and-opt-out", () => {
     });
 
     it.each([
-      `https://www.archiveofourown.org/works/${W}/chapters/9`,
-      `http://rarepair.fans/works/${W}?x=1`,
-      `RAREPAIR.FANS/works/${W}#top`,
-      `  ${WORK_URL}  `,
+      `https://www.archiveofourown.org/works/${S}/chapters/9`,
+      `http://rarepair.fans/works/${S}?x=1`,
+      `RAREPAIR.FANS/works/${S}#top`,
+      `  ${S_URL}  `,
     ])("accepts %s as a work address", async (work) => {
       const email = `x1-good-work-${crypto.randomUUID().slice(0, 8)}@example.test`;
       const res = await post({ email, work, statement: "x1 good work" });
@@ -309,7 +318,10 @@ describe("16-removal-and-opt-out", () => {
     it("stores a removal's row with the keyed hash of the IP and no part of the address", async () => {
       const email = "x1-hashed@example.test";
       const ip = "198.51.100.23";
-      const res = await post({ email, work: WORK_URL, statement: "x1 statement" }, { ip });
+      const res = await post(
+        { email, work: `${BASE}/works/${HASHED}`, statement: "x1 statement" },
+        { ip },
+      );
       expect(res.status).toBe(200);
       expect(res.headers.get("cache-control")).toBe("no-store");
       const html = await res.text();
@@ -331,21 +343,21 @@ describe("16-removal-and-opt-out", () => {
       const work = await db
         .selectFrom("works")
         .select("id")
-        .where("ao3_work_id", "=", W)
+        .where("ao3_work_id", "=", HASHED)
         .executeTakeFirstOrThrow();
       expect(row?.work_id).toBe(work.id);
-      // Nothing is hidden by it.
+      // X2 (#62): the request hides the work, and the reply above doesn't say so.
       const after = await db
         .selectFrom("works")
-        .select("status")
-        .where("ao3_work_id", "=", W)
+        .select(["status", "hidden_cause"])
+        .where("ao3_work_id", "=", HASHED)
         .executeTakeFirstOrThrow();
-      expect(after.status).toBe("live");
+      expect(after).toEqual({ status: "hidden", hidden_cause: "removal_request" });
     });
 
     it("stores the same hash for the same IP and another for another", async () => {
       const ip = "198.51.100.24";
-      const fields = { work: `archiveofourown.org/works/${W}`, statement: "x1 statement" };
+      const fields = { work: `archiveofourown.org/works/${S}`, statement: "x1 statement" };
       await post({ ...fields, email: "x1-same-a@example.test" }, { ip });
       await post({ ...fields, email: "x1-same-b@example.test" }, { ip });
       await post({ ...fields, email: "x1-other@example.test" }, { ip: "198.51.100.25" });
@@ -358,7 +370,7 @@ describe("16-removal-and-opt-out", () => {
 
     it("stores the hash of the unknown marker when the request has no address", async () => {
       const email = "x1-no-ip@example.test";
-      const res = await post({ email, work: WORK_URL, statement: "x1" }, { ip: null });
+      const res = await post({ email, work: S_URL, statement: "x1" }, { ip: null });
       expect(res.status).toBe(200);
       const [row] = await requestsFrom(email);
       expect(row?.ip_hash).toBe(await ipHash(env.IP_HASH_KEY, null));
@@ -384,12 +396,14 @@ describe("16-removal-and-opt-out", () => {
       expect(optouts).toEqual([]);
     });
 
-    it("answers a work the archive doesn't hold with the same page, storing nothing for now", async () => {
-      // X2 (#62) gives this its own page; until then it reads the same as any request.
+    it("answers a work the archive doesn't hold with its own page, storing nothing", async () => {
+      // X2 (#62) gave this its own page: it is not the one a stored request gets.
       const email = "x1-unknown-work@example.test";
       const res = await post({ email, work: `${BASE}/works/${UNKNOWN}`, statement: "x1" });
       expect(res.status).toBe(200);
-      expect(await res.text()).toContain(RECEIVED);
+      const html = await res.text();
+      expect(html).toContain("isn't in the archive");
+      expect(html).not.toContain(RECEIVED);
       expect(await requestsFrom(email)).toEqual([]);
     });
 
@@ -411,7 +425,7 @@ describe("16-removal-and-opt-out", () => {
 
     it("takes the work, and not the pseud, when both are given", async () => {
       const email = "x1-both@example.test";
-      await post({ email, work: WORK_URL, pseud: "Someone", statement: "x1" });
+      await post({ email, work: S_URL, pseud: "Someone", statement: "x1" });
       const [row] = await requestsFrom(email);
       expect(row?.kind).toBe("remove_work");
       expect(row?.pseud_norm).toBeNull();
@@ -480,7 +494,7 @@ describe("16-removal-and-opt-out", () => {
       expect(await statusOfW()).toBe("live");
 
       // Another IP is not held up with it.
-      expect((await post({ email, work: WORK_URL, statement: "x5" })).status).toBe(200);
+      expect((await post({ email, work: S_URL, statement: "x5" })).status).toBe(200);
       expect(await requestsFrom(email)).toHaveLength(1);
     });
 

@@ -1,12 +1,13 @@
 // The removal request form, `/remove` (ARCHITECTURE, Author requests & takedowns): anyone
 // can ask for a work or a pseud to be removed, signed in or not, behind Turnstile. This
-// file takes the request in and stores it with a hashed network address. What a stored
-// request then does belongs to the tickets after it: hiding the work at once and the
-// "not in the archive" answer (X2, #62), the opt-out list (X3, #63) and blocking a
-// requester (X6, #67). The limits (X5, #64) are here: per IP before the body is read, per
-// email once Turnstile has passed. Nothing here hides a work or looks the requester up.
+// file takes the request in and stores it with a hashed network address. A request for a
+// work hides the work at once (X2, #62), and one for a work the archive doesn't hold stores
+// nothing and has its own page. What a stored request then does belongs to the tickets after
+// it: the opt-out list (X3, #63) and blocking a requester (X6, #67). The limits (X5, #64)
+// are here: per IP before the body is read, per email once Turnstile has passed. Nothing
+// here looks the requester up.
 
-import { createDb, normalizePseud } from "@archive/db";
+import { createDb, hideWork, normalizePseud } from "@archive/db";
 import type { Context } from "hono";
 // The mailer's own rule, so an address is accepted only if the mailer would send to it.
 import { isSendableAddress } from "../../mailer/src/message";
@@ -20,6 +21,7 @@ import {
   MAX_STATEMENT,
   MAX_WORK,
   removePage,
+  removeNotHeldPage,
   removeReceivedPage,
   type RemoveField,
   type RemoveForm,
@@ -146,9 +148,6 @@ export async function submitRemove(c: RemoveContext) {
   try {
     const base = { contact_email: email, statement: values.statement, ip_hash };
     if (typedWork !== "") {
-      // X2 (#62) widens this: it hides the work at once and answers a work the archive
-      // doesn't hold with its own page. Until then a work of any status is stored, so a
-      // request for one already hidden is not lost, and one the archive doesn't hold is not.
       const work =
         id === null
           ? undefined
@@ -157,12 +156,26 @@ export async function submitRemove(c: RemoveContext) {
               .select("id")
               .where("ao3_work_id", "=", id)
               .executeTakeFirst();
-      if (work !== undefined) {
-        await db
+      // A work the archive doesn't hold stores nothing and gets its own page.
+      if (work === undefined) return c.html(removeNotHeldPage(), 200, NO_STORE);
+      // A work of any status is stored, so a request for one already hidden or removed is
+      // not lost, and its answer is the same. The request, the hide and the link commit
+      // together, or a reversal would miss a work.
+      await db.transaction().execute(async (trx) => {
+        const request = await trx
           .insertInto("requests")
           .values({ ...base, kind: "remove_work", work_id: work.id })
-          .execute();
-      }
+          .returning("id")
+          .executeTakeFirstOrThrow();
+        // X6 (#67) conditions this hide on the requester not being blocked. It hides only a
+        // live work, so one hidden or removed already is left as it is and gets no link.
+        if (await hideWork(trx, work.id, "removal_request")) {
+          await trx
+            .insertInto("request_works")
+            .values({ request_id: request.id, work_id: work.id })
+            .execute();
+        }
+      });
     } else {
       // X3 (#63) adds the optouts row and hides the pseud's works.
       await db

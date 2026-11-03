@@ -149,6 +149,8 @@ takedowns    (id, work_id, requester, basis, status, resolved_by, created_at,
                            -- information; incomplete when a 512(c)(3)(A) element is missing
 requests     (id, kind, work_id NULL, pseud_norm NULL, contact_email, statement,
               status, ip_hash, created_at)        -- kind: remove_work | opt_out
+request_works (request_id, work_id)  -- written whenever a request hides a work, so a reversed
+              request restores exactly those
 optouts      (id, pseud_norm, ao3_user NULL, request_id, active, created_at)  -- checked at ingest
 requester_blocks (id, contact_email NULL, ip_hash NULL, created_by, created_at)
 moderation_actions (id, moderator_id, action, target_kind, target_id, note NULL,
