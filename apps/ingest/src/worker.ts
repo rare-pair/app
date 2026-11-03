@@ -19,7 +19,7 @@ type JobBucket = JobDeps["bucket"] & SaveBucket;
  * The job's steps a test may replace, to fail one stage or to watch it. `bucket` wraps the
  * real bucket, to fail or watch a write.
  */
-export type Steps = Pick<JobDeps, "process" | "save"> & {
+export type Steps = Pick<JobDeps, "process" | "save" | "timing"> & {
   bucket: (real: R2Bucket) => JobBucket;
 };
 
@@ -63,6 +63,7 @@ export function ingestWorker(steps: Partial<Steps> = {}) {
         db,
         bucket,
         process: steps.process ?? processForStorage,
+        timing: steps.timing,
         save:
           steps.save ??
           ((lease, work, bytes, images) => saveWork({ db, bucket }, lease, work, bytes, images)),
