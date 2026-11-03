@@ -34,6 +34,8 @@ Explorers run on `sonnet`: their job is finding and summarizing, and the enginee
 
 Assess before you pick. Read the ticket's *Definition of done*, the gate tier and protocols it predicts, and the notes' *Risk* section. When two rows fit, take the higher. Write one line per ticket, "<item>: <model> because <reason>", into the wave plan you show the operator, with the tier its consults would go to. Say so when that's `fable`: on some plans Fable bills to usage credits.
 
+The model the operator saw in the plan is the one you launch. If the notes change your mind, write the new line, with what in the notes changed it, into `wave.md` before the launch, and tell the operator in your next update. In wave 6 the plan had four Opus builders, but seven launched, because three were moved up at launch without saying so.
+
 ## Escalation
 
 You follow `/escalate` like every agent. Your part in it for the others:
@@ -65,7 +67,7 @@ The scratchpad lasts for this session.
 1. `git fetch`. Explorers read code as it is on `origin/main`, which is what each engineer's worktree starts from.
 2. Find the frontier: open items in `docs/project-tracking.md` whose `Depends on:` items have all merged, not merely closed. A blocker counts when its ledger status is `merged` or `done` (the board's own Ready test) and a PR that closed its issue merged (`gh issue view <n> --json closedByPullRequestsReferences`). An issue closed without a merged PR still blocks. Narrow it to what the arguments name.
 3. Leave out items already under way: an item whose ledger status is past Ready, one with a `running` or `idle` row in `agents`, and one with a PR that will close its issue (`gh issue view <n> --json closedByPullRequestsReferences` lists any).
-4. Show the operator the proposed wave: each item, its issue, its predicted gate tier, and the model line from *Models*. Flag any two items likely to touch the same files (the root `package.json`, a shared type), since their worktrees will conflict at merge.
+4. Show the operator the proposed wave: each item, its issue, its predicted gate tier, and the model line from *Models*. Flag any two items likely to touch the same files (the root `package.json`, a shared type, `packages/db/migrations/index.ts`, `apps/web/src/index.ts`, an admin page), since their worktrees will conflict at merge. Order such items one after the other in the plan (§4, *Shared files*).
 
 **Stop here until the operator names the items to start.** `docs/process.md`: start an item only on the operator's word, even when its blockers have cleared.
 
@@ -96,7 +98,13 @@ Then settle the item's model and launch its engineer.
 
 ## 4. Build
 
-Launch one `engineer` per item, as soon as its notes are settled: a fresh agent, never a fork and never one reused from another ticket. Run at most four engineers at once, unless the operator sets another limit; the rest wait, in the order of the wave plan, and launch as running ones reach `ready`, `stopped` or `failed`. An engineer you send back to work counts against the limit again until it reports, and takes the next free slot ahead of a new launch. Its definition puts it in its own worktree. Pass `model` from *Models* on each call. The brief:
+Launch one `engineer` per item, as soon as its notes are settled: a fresh agent, never a fork and never one reused from another ticket. Run at most four engineers at once, unless the operator sets another limit; the rest wait, in the order of the wave plan, and launch as running ones reach `ready`, `stopped` or `failed`. An engineer you send back to work counts against the limit again until it reports, and takes the next free slot ahead of a new launch. Its definition puts it in its own worktree. Pass `model` from *Models* on each call.
+
+**Count before every launch,** including a send-back. List the engineers that are working now from `wave.md`: running, or sent work and not yet reported. Check the total, and each per-workspace limit the operator set (such as at most three in `apps/web`), with the new one added. Don't trust a count kept in your head. If either limit would be passed, the launch waits. Wave 6 went over the `apps/web` limit twice because a send-back wasn't counted.
+
+**Shared files.** Two items that edit the same file go one after the other: the second launches after the first merges. Typical files are the migration list, the web router, an admin page and a shared stylesheet. Run them together only when keeping them apart would leave a slot idle with nothing else to launch, and then expect a send-back at merge. In wave 6, 7 of 20 PRs were sent back for conflicts in exactly these files, and each send-back costs a builder round trip and a new merge-main run.
+
+The brief:
 
 ```
 Item <ITEM>, issue #<n>: <title>.
@@ -106,9 +114,13 @@ Read first: <scratch>/shared/conventions.md, <scratch>/<ITEM>/notes.md.
 Your model tier: <model>. Consult at: <next tier up, or "the operator" on the top tier>.
 Write your final report to <scratch>/<ITEM>/report.md as well as returning it.
 Ledger: https://claude.ai/artifact/TxUtdLCvqUiySs749b8sMn, your row is agents/<row id>, which exists already (<ITEM>-builder, or <ITEM>-builder-2 for the first relaunch).
+Test data: AO3 work ids <first>-<last> are yours. Use no other fixed ids in tests you add.
+Migration: <its number, or "none">.
 ```
 
 Write each agent's id, model, branch and start time into `wave.md`, and its row onto the ledger (§6), before you launch it: an engineer's brief names a row that has to exist.
+
+**Give each engineer its own block of test ids.** Pick a block of 100 that no test on `origin/main` and no open PR uses. Search for the numbers with `git grep` on `origin/main` and on each open branch. Record the block next to the agent in `wave.md`, the same way migration numbers are assigned. In wave 6, MOD3a's tests reused XR1a's ids. The two files passed alone and failed together, and that cost a failed merge-main run and a send-back.
 
 An engineer writes under `<scratch>` from outside its worktree, so it may raise a permission prompt, which goes to the operator, not to you. Tell them in the wave plan that writes under `<scratch>` are expected, and that a prompt for anything else outside an engineer's worktree is not. Its report also comes back as text, so a declined write loses nothing.
 
@@ -147,6 +159,8 @@ Review rework on an open PR goes to the same engineer with `SendMessage`, so it 
 ## 6. Keep the ledger
 
 The ledger, its row ids and its statuses are in `docs/process.md`, *The ledger*. Write it through ArtifactData, with times from `date -u`, and put the writes of one moment in one `batch`.
+
+Every time you write is one you read, never one you estimate or type from memory. For a merge, that is GitHub's: `gh pr view <n> --json mergedAt`, read after the merge and copied as it is, for both the item's `mergedAt` and the engineer row's `finishedAt`. For anything else, use `date -u`, read when the thing happened, or as soon as you hear of it. If you only find out later, write the time you read and say so in the `note`; don't guess an earlier one. In wave 6, hand-typed merge times left 28 mismatches for the end-of-wave check.
 
 - **At each launch:** an `agents` row with `item`, `model`, `lane`, `status: "running"` and `startedAt`. Its kind follows the agent type: `explorer`, `builder` for an engineer, `consultant`, or `gate` for the haiku agent that brings `main` in (§5, `ready`, step 3). Name it `<ITEM> explorer`, `<ITEM> engineer`, `<ITEM> consult <n>` or `<ITEM> merge main`. The haiku agent is a mechanical step, so it isn't chosen from the model table (§3). Its id is `<ITEM>-gate` (with `-<n>` for a second), its `lane` is the item's, its `pr` array holds the PR number, and its row becomes `finished` with `finishedAt` when it reports, whatever the outcome, or `failed` if it crashed; a consultant's `note` holds its question in a line. At an engineer's launch, also set the item's `status` to `building` and its `model`.
 - **Keep each running or idle row's `step` current:** it is the stage the ledger page shows on the agent's card. Write it at launch (`Exploring`, `Building`, `Consulting`, `Merging main`). An engineer then updates its own row's `step` and `note` (`engineer.md`, *Your ledger row*): its brief gives the ledger URL and its row's doc id. Explorers and consultants have no ledger tool, so you keep theirs. Beyond the writes below, update an engineer's row yourself only if it says a ledger write was refused, then from its PR on GitHub when you check (a draft opened, ladder fix commits, the Copilot review posting). Both of you pin `if_version`, and the engineer writes only `step` and `note`: on a conflict, re-read every document the refused write named and send it again, since a batch refused for one stale pin writes none of its entries. At a launch, or when you send an idle engineer work, set the row's `step` yourself (`Building`, or `Rework: <what>`), so the card never keeps a stale stage. At its report, the engineer's last `step` is `Ready: waiting to merge` for `ready`, `Waiting on the orchestrator: consult` for `needs-consult` and `Waiting on the operator: <what>` for `stopped`; for `failed` it writes none and you set the row `failed`. The stages, in the order of an item's flow, are `Exploring`, `Consulting`, `Building`, `Gating: /gate pr`, `Draft PR #<n>: merge gate` (CI, `/gate` §1–§5 and `/simplify`, before the rounds), `Merge gate: /code-review round <i> of <k>` (`<k>` is the number of rounds the PR's risk tier gets in `/gate` §6: 3 for tier 3, 1 for tier 1 or 2, and a tier 0 PR has none, so it shows no round stage; the engineer works `<k>` out from its own diff when it starts the gate; the one round on a critical Copilot fix is `Rework: <what>`), `Waiting on Copilot`, `Ready: waiting to merge`, `Rework: <what>` (a Copilot or ladder fix, a conflict, a failing check), `Waiting on the orchestrator: consult` (a `needs-consult` stop), `Waiting on the operator: <what>` (a `stopped` one) and `Merging main`. The `note` says what the stage holds.
