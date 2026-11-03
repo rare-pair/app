@@ -4,6 +4,7 @@
 
 import { createDb, hideWork, isBanned } from "@archive/db";
 import type { Context, MiddlewareHandler } from "hono";
+import { blockedReporterIds } from "./blocked-reporters";
 import type { Bindings } from "./env";
 import { readForm } from "./login";
 import { escapeHtml, forbiddenPage, layout } from "./pages";
@@ -203,7 +204,15 @@ export async function submitReport(c: ReportContext) {
       .execute();
     // The count is inside the hiding UPDATE: a read could come from Hyperdrive's
     // cache and miss the report just stored.
-    await hideWork(db, work.id, "reports", { minReporters: REPORTERS_TO_HIDE });
+    // Accounts that match a blocked requester by IP hash don't count; by email, the count
+    // itself skips them (blocked-reporters.ts).
+    const ignoreReporters = await blockedReporterIds(
+      db,
+      c.env.IP_HASH_KEY,
+      work.id,
+      session.user.id,
+    );
+    await hideWork(db, work.id, "reports", { minReporters: REPORTERS_TO_HIDE, ignoreReporters });
     return c.html(reportedPage(reason), 200, NO_STORE);
   } finally {
     c.executionCtx.waitUntil(db.destroy());

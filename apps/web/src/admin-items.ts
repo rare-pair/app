@@ -8,6 +8,7 @@ import type { AdminEnv } from "./admin";
 import {
   approveConfirmPage,
   approveForm,
+  blockRequesterForm,
   itemPage,
   QUEUE_LIMIT,
   rejectForm,
@@ -27,6 +28,7 @@ import {
   restoredNote,
 } from "./admin-request-actions";
 import { readForm } from "./login";
+import { applyOptOut } from "./remove-confirm";
 import { removeDeps, removeWorkEverywhere, type RemoveResult } from "./remove-work";
 import { isSameOrigin } from "./signin";
 
@@ -85,6 +87,8 @@ function requestForms(
     forms.push(confirmed ? decideForms("requests", id) : rejectForm("requests", id));
   }
   if (request.kind === "remove_work" || hasRelated) forms.push(restoreRelatedForm(id));
+  // For a request of any status: a moderator who sees a spree can block the requester after.
+  forms.push(blockRequesterForm(id));
   return forms.join("\n");
 }
 
@@ -496,33 +500,45 @@ adminItems.post("/requests/:id{[A-Za-z0-9_-]+}/approve", async (c) => {
 });
 
 /**
- * Confirming an opt-out marks it `approved` and logs `approve`. Nothing else changes: its
- * `optouts` row stays active and its works stay hidden (both were done when it was made),
- * and nothing is removed, so there is no confirm step; rejecting it reverses it.
+ * Confirming an opt-out marks it `approved` and logs `approve`. A requester's own confirmation
+ * already added its active `optouts` row and hid the works (remove-confirm.ts), so then
+ * nothing else changes and nothing is removed, so there is no confirm step; rejecting it
+ * reverses it. A blocked requester's confirmation did neither: with no `optouts` row for the
+ * request, approving it applies the opt-out now, with the same code, request row locked first.
  */
 async function confirmOptOut(c: Context<AdminEnv>, id: string) {
-  const confirmed = await c.var.db.transaction().execute(async (trx) => {
+  const outcome = await c.var.db.transaction().execute(async (trx) => {
     const marked = await trx
       .updateTable("requests")
       .set({ status: REQUEST_APPROVED })
       .where("id", "=", id)
       .where("kind", "=", "opt_out")
       .where("status", "=", "pending")
-      .returning("id")
+      .returning(["id", "pseud_norm"])
       .executeTakeFirst();
-    if (!marked) return false;
+    if (!marked) return null;
+    const existing = await trx
+      .selectFrom("optouts")
+      .select("id")
+      .where("request_id", "=", id)
+      .executeTakeFirst();
+    const pseud = marked.pseud_norm;
+    const applies = existing === undefined && pseud !== null;
+    if (applies) await applyOptOut(trx, { id, pseud_norm: pseud });
     await logModerationAction(trx, {
       moderatorId: c.var.userId,
       action: "approve",
       targetKind: "request",
       targetId: id,
     });
-    return true;
+    return { applied: applies };
   });
-  if (!confirmed) return decidedOrMissing(c, "requests", id);
+  if (!outcome) return decidedOrMissing(c, "requests", id);
   return c.html(
     resultPage(
-      "Confirmed. The opt-out stays active and the works stay hidden.",
+      outcome.applied
+        ? "Confirmed. The opt-out is now active and the works by the pseud are hidden."
+        : "Confirmed. The opt-out stays active and the works stay hidden.",
       `/admin/requests/${encodeURIComponent(id)}`,
     ),
   );

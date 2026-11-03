@@ -7,6 +7,7 @@ export {
   getLiveWork,
   getWorkAvailability,
   hideWork,
+  isRequesterBlocked,
   restoreWork,
   makeVersionCurrent,
   listLiveWorksByTag,

@@ -163,6 +163,10 @@ export const approveForm = (
 export const restoreRelatedForm = (id: string) =>
   `<form method="post" action="${escapeHtml(`/admin/requests/${encodeURIComponent(id)}/restore-related`)}"><button type="submit">Restore related works (rejects their pending requests)</button></form>`;
 
+/** A form that blocks the request's requester by contact email and IP hash. */
+export const blockRequesterForm = (id: string) =>
+  `<form method="post" action="${escapeHtml(`/admin/requests/${encodeURIComponent(id)}/block`)}"><button type="submit">Block requester</button></form>`;
+
 export const RELATED_COLUMNS = ["Created", "Kind", "Work or pseud", "Status"];
 
 /**
