@@ -444,7 +444,7 @@ async function approveRemoval(
   if (!decided) {
     return c.html(
       resultPage(
-        "The work is removed, but the item was decided by someone else first, so it is unchanged.",
+        `The work is removed, but the item was decided by someone else first, so it is unchanged.${removed.caches === "failed" ? " Clearing the caches failed: use Remove on the work to retry." : ""}`,
         self,
       ),
       removed.caches === "failed" ? 502 : 200,
