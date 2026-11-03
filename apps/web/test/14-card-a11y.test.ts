@@ -23,7 +23,9 @@ const cardOf = (html: string, ao3WorkId: number) =>
   html
     .split(/<li><article class="work-card">/)
     .slice(1)
-    .map((card) => card.slice(0, card.indexOf("</article></li>")))
+    .map((card) =>
+      card.includes("</article></li>") ? card.slice(0, card.indexOf("</article></li>")) : "",
+    )
     .find((card) => card.includes(`href="/works/${ao3WorkId}"`)) ?? "";
 
 const lineOf = (card: string, className: string) =>
