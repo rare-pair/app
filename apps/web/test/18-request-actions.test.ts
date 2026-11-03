@@ -193,7 +193,9 @@ describe("18 moderation", () => {
     expect(rows.map((r) => [r.action, r.target_kind, r.moderator_id])).toEqual(
       ids.map(() => ["reject", "request", moderatorId]),
     );
-    expect(rows.map((r) => r.note).sort()).toEqual(ao3.map((n) => `Restored works: ${n}`).sort());
+    expect(rows.map((r) => r.note).sort((a, b) => String(a).localeCompare(String(b)))).toEqual(
+      ao3.map((n) => `Restored works: ${n}`).sort((a, b) => String(a).localeCompare(String(b))),
+    );
     expect(await logRows(["mod5-bulk-unrelated"])).toEqual([]);
   });
 
