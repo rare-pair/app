@@ -71,9 +71,11 @@ export async function showSearch(c: Context<{ Bindings: Bindings; Variables: Ses
   const filters = filtersOf(c.req.query("fandom"), c.req.query("rating"));
   // A missing or blank query shows the form and no results, whatever the filters.
   if (q.trim() === "") return c.html(layout("Search", searchForm(q, filters)));
-  // Counted before the database is opened, so a refused search costs no connection, and a bare
-  // form (above) costs none of the budget. The user first, so one user over their limit can't
-  // spend the budget of an address others share. A signed-out search is keyed on its IP only.
+  // Counted before the search opens its own database connection, so a refused search runs no
+  // query (the session lookup, for a request with a cookie, runs earlier, in the middleware).
+  // A bare form (above) costs none of the budget. The user first, so one user over their limit
+  // can't spend the budget of an address others share; a search under it still spends the
+  // address's. A signed-out search is keyed on its IP only.
   const user = c.var.session?.user;
   const clientIp = c.req.header("cf-connecting-ip") ?? null;
   if (

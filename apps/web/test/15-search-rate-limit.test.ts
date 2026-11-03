@@ -78,6 +78,15 @@ describe("19-surge-controls", () => {
     expect((await search({ cookie: quiet, "cf-connecting-ip": ip })).status).toBe(200);
   });
 
+  it("A signed-in search spends the budget of its address too", async () => {
+    await windowHeadroom(SEARCH_WINDOW_SECONDS);
+    const ip = freshIp();
+    const cookie = await newUser("search-shared-ip");
+    await spend(SEARCH_IP_LIMIT, () => ({ cookie, "cf-connecting-ip": ip }));
+
+    await expectTooManyRequests(await search({ "cf-connecting-ip": ip }));
+  });
+
   it("A blank query shows the form and spends no budget", async () => {
     await windowHeadroom(SEARCH_WINDOW_SECONDS);
     const ip = freshIp();
