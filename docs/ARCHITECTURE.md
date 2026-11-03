@@ -97,9 +97,9 @@ an unofficial stopgap.
     challenge pages, must not apply to `content.rarepair.fans`: turn them off,
     or skip that host with a rule. Turnstile and the web Worker's rate limits do
     that job instead.
-  - The content Worker keeps no per-request log (invocation logs are off), so no
-    reader address is stored next to a work id in its URLs. Only errors and
-    metrics are kept.
+  - The content Worker keeps no per-request log (invocation logs are off), so its
+    logs hold no reader address next to a work id. Errors and metrics are kept;
+    traces stay on and may record the request URL.
 
 ## Data model (first cut)
 

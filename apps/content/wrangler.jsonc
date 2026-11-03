@@ -12,7 +12,7 @@
   // Invocation logs are off: a content URL carries the AO3 work id (#124). Errors and metrics stay.
   "observability": {
     "enabled": true,
-    "logs": { "invocation_logs": false },
+    "logs": { "enabled": true, "invocation_logs": false },
     "traces": { "enabled": true },
   },
 }
