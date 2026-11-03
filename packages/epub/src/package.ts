@@ -1,4 +1,5 @@
 import { XMLParser, XMLValidator } from "fast-xml-parser";
+import { decodeEntities } from "./entities";
 import { MAX_DEPTH, nodeBudget, type NodeBudget } from "./dom";
 import { EpubError } from "./errors";
 import { LIMITS } from "./unzip";
@@ -154,7 +155,9 @@ function parseNav(bytes: Uint8Array, budget: NodeBudget): OrderedNode[] {
         { cause: e },
       );
     }
-    throw new EpubError("not_epub", "nav document is not valid XML", { cause: e });
+    throw new EpubError("not_epub", "nav document is not valid XML", {
+      cause: e,
+    });
   }
 }
 
@@ -312,7 +315,10 @@ function readNavDocument(nav: OrderedNode[], navPath: string): NavPoint[] {
       // `#id` alone targets the nav document itself, which may be in the spine.
       if (target && !target.path && target.anchor) target.path = navPath;
       if (a && target && target.path)
-        found.push({ label: orderedText(a).replace(/\s+/g, " ").trim(), ...target });
+        found.push({
+          label: orderedText(a).replace(/\s+/g, " ").trim(),
+          ...target,
+        });
       visit(kids(li).find((n) => tagOf(n) === "ol"));
     }
   };
@@ -389,7 +395,9 @@ export function readPackage(
     opfPath,
     metadata: {
       titles: texts("title"),
-      creators: texts("creator"),
+      // The XML parser leaves numeric references (`&#x200B;`) undecoded: an author's name is
+      // checked against the opt-outs, so it must be the characters the file means.
+      creators: texts("creator").map(decodeEntities),
       languages: texts("language"),
       identifiers: texts("identifier"),
       sources: texts("source"),
