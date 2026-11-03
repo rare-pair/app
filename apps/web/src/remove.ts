@@ -65,6 +65,18 @@ const field = (form: URLSearchParams, name: RemoveField) =>
   (form.get(name) ?? "").replaceAll("\u0000", "").trim();
 
 /**
+ * Hides a work for a stored request, and links it to the request only when this hide changed
+ * it: `hideWork` touches a live work only, so one hidden or removed already is left as it is
+ * and gets no link. X6 (#67) conditions both branches of the form on the requester not being
+ * blocked, here.
+ */
+async function hideForRequest(trx: Parameters<typeof hideWork>[0], requestId: string, id: string) {
+  if (await hideWork(trx, id, "removal_request")) {
+    await trx.insertInto("request_works").values({ request_id: requestId, work_id: id }).execute();
+  }
+}
+
+/**
  * `POST /remove`, behind `sameOriginOnly` (index.ts): reads the body, checks Turnstile under
  * the form's own action, then the fields, and stores a pending request with the hashed
  * address. Every refusal shows the form again with what was typed and is sent `no-store`,
@@ -167,14 +179,7 @@ export async function submitRemove(c: RemoveContext) {
           .values({ ...base, kind: "remove_work", work_id: work.id })
           .returning("id")
           .executeTakeFirstOrThrow();
-        // X6 (#67) conditions this hide on the requester not being blocked. It hides only a
-        // live work, so one hidden or removed already is left as it is and gets no link.
-        if (await hideWork(trx, work.id, "removal_request")) {
-          await trx
-            .insertInto("request_works")
-            .values({ request_id: request.id, work_id: work.id })
-            .execute();
-        }
+        await hideForRequest(trx, request.id, work.id);
       });
     } else {
       // The request, the opt-out row and every hide commit together, so a reversal sees
@@ -198,16 +203,7 @@ export async function submitRemove(c: RemoveContext) {
         for (const author of authors) {
           if (normalizePseud(author.pseud) === pseudNorm) matching.add(author.work_id);
         }
-        // It hides only a live work, so one hidden or removed already is left as it is and
-        // gets no link.
-        for (const id of matching) {
-          if (await hideWork(trx, id, "removal_request")) {
-            await trx
-              .insertInto("request_works")
-              .values({ request_id: request.id, work_id: id })
-              .execute();
-          }
-        }
+        for (const id of matching) await hideForRequest(trx, request.id, id);
       });
     }
   } finally {
