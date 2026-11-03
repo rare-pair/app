@@ -10,6 +10,7 @@ import { Hono } from "hono";
 import { sql, type Kysely } from "kysely";
 import type { AdminEnv } from "./admin";
 import { resultPage } from "./admin-pages";
+import { ipHash } from "./ip-hash";
 
 export const adminRequestActions = new Hono<AdminEnv>();
 
@@ -240,4 +241,59 @@ adminRequestActions.post("/requests/:id{[A-Za-z0-9_-]+}/restore-related", async 
     );
   }
   return c.html(resultPage(parts.join(" "), self));
+});
+
+/**
+ * Blocks the request's requester: one `requester_blocks` row with the request's contact email
+ * and IP hash, so their later requests only queue and reports from their accounts do not count
+ * (X6, #67). A request with no address (the `unknown` marker) blocks the email only, as a
+ * block on the marker would block every such request. A block the same already exists for logs
+ * nothing, like any action that changes nothing. The log has no note: a note never holds an email.
+ */
+adminRequestActions.post("/requests/:id{[A-Za-z0-9_-]+}/block", async (c) => {
+  const id = c.req.param("id");
+  const self = `/admin/requests/${encodeURIComponent(id)}`;
+  const unknownIpHash = await ipHash(c.env.IP_HASH_KEY, null);
+  // Inside the transaction only `trx` is used: `c.var.db` has one connection, which it holds.
+  const blocked = await c.var.db.transaction().execute(async (trx) => {
+    const request = await trx
+      .selectFrom("requests")
+      .select(["contact_email", "ip_hash"])
+      .where("id", "=", id)
+      .executeTakeFirst();
+    if (!request) return null;
+    const ip = request.ip_hash === unknownIpHash ? null : request.ip_hash;
+    // Lowered by Postgres on both sides, as the matching does, not by JavaScript.
+    const email = sql<string>`lower(${request.contact_email})`;
+    // One block at a time per email, so two moderators blocking the same requester insert one.
+    await sql`select pg_advisory_xact_lock(hashtext('requester_block:' || ${email}))`.execute(trx);
+    const same = await trx
+      .selectFrom("requester_blocks")
+      .select("id")
+      .where(sql<string>`lower(contact_email)`, "=", email)
+      .where((eb) => (ip === null ? eb("ip_hash", "is", null) : eb("ip_hash", "=", ip)))
+      .limit(1)
+      .executeTakeFirst();
+    if (same) return false;
+    await trx
+      .insertInto("requester_blocks")
+      .values({ contact_email: request.contact_email, ip_hash: ip, created_by: c.var.userId })
+      .execute();
+    await logModerationAction(trx, {
+      moderatorId: c.var.userId,
+      action: "block",
+      targetKind: "request",
+      targetId: id,
+    });
+    return true;
+  });
+  if (blocked === null) return c.notFound();
+  return c.html(
+    resultPage(
+      blocked
+        ? "Requester blocked. Their requests confirmed from now on, including ones already made, are stored and queued but hide nothing, and approving an opt-out of theirs is what applies it. Works already hidden stay hidden."
+        : "This requester is blocked already: nothing changed.",
+      self,
+    ),
+  );
 });

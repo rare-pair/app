@@ -4,12 +4,14 @@
 // and does what the request asks, in one transaction: hides the work, or adds the active
 // opt-out and hides every live work by the pseud, and writes the `request_works` rows.
 // Everything that changes anything is in `confirmRequest`, so blocking a requester (X6, #67)
-// has one place to condition it. Nothing here logs.
+// has one place to condition it: a blocked requester's request is confirmed and stored but
+// does nothing until a moderator approves it (admin-items.ts `confirmOptOut`). Nothing here logs.
 
-import { createDb, hideWork, normalizePseud } from "@archive/db";
+import { createDb, hideWork, isRequesterBlocked, normalizePseud } from "@archive/db";
 import type { Context } from "hono";
 import { sql } from "kysely";
 import type { Bindings } from "./env";
+import { ipHash } from "./ip-hash";
 import { readForm } from "./login";
 import { removeConfirmedPage, requestConfirmPage, removeLinkRefusedPage } from "./remove-pages";
 import type { SecurityVariables } from "./security";
@@ -41,6 +43,28 @@ async function hideForRequest(trx: Trx, requestId: string, id: string) {
 }
 
 /**
+ * The opt-out a request asks for, in `trx`: the active `optouts` row, and every live work by
+ * the pseud hidden for the request, with its `request_works` link. Used when a requester
+ * confirms, and when a moderator approves the opt-out of a blocked requester. The caller
+ * has locked the request's row.
+ */
+export async function applyOptOut(trx: Trx, request: { id: string; pseud_norm: string }) {
+  await trx
+    .insertInto("optouts")
+    .values({ pseud_norm: request.pseud_norm, request_id: request.id, active: true })
+    .execute();
+  // A stored pseud is as written, so it is matched here by the rule the opt-out list uses, not
+  // in SQL. This reads every author row: it grows with the archive.
+  const authors = await trx.selectFrom("work_authors").select(["work_id", "pseud"]).execute();
+  const matching = new Set<string>();
+  for (const author of authors) {
+    if (normalizePseud(author.pseud) === request.pseud_norm) matching.add(author.work_id);
+  }
+  // In id order, so two overlapping requests lock the same works in the same order.
+  for (const matched of [...matching].sort()) await hideForRequest(trx, request.id, matched);
+}
+
+/**
  * Confirms the request the token belongs to, and carries it out, in `trx`. Returns false, with
  * nothing written, when the token matches no request that can still be confirmed: the claim
  * is one UPDATE that sets `confirmed_at` and clears the hash only where the hash matches, the
@@ -52,10 +76,19 @@ async function hideForRequest(trx: Trx, requestId: string, id: string) {
  * moderator's reject and the bulk restore lock them (admin-items.ts, admin-request-actions.ts),
  * so none waits on another in the opposite order; and so a reject's check for another request
  * still waiting reads this one once it commits. An opt-out's matching works are locked as the
- * hides reach them, in id order, after its request row. X6 (#67)
- * conditions the hide of both kinds, and the opt-out row, on the requester not being blocked.
+ * hides reach them, in id order, after its request row.
+ *
+ * A request from a blocked requester (X6, #67: a block names the contact email or the IP hash,
+ * checked now, so a request made before the block and confirmed after it is blocked too) is
+ * claimed like any other, so the link is spent and the page is the same, but it hides nothing
+ * and writes no opt-out: it waits in the moderators' queue. `unknownIpHash` is the stored hash
+ * of a request with no address, which never counts as a match.
  */
-async function confirmRequest(trx: Trx, hash: string): Promise<boolean> {
+export async function confirmRequest(
+  trx: Trx,
+  hash: string,
+  unknownIpHash: string,
+): Promise<boolean> {
   // The row the token names, locked first, and its work after it: the order a moderator's
   // reject and the bulk restore take (requests, then works; admin-request-actions.ts). The
   // claim below still decides; a row that isn't there, or is decided meanwhile, matches
@@ -81,28 +114,21 @@ async function confirmRequest(trx: Trx, hash: string): Promise<boolean> {
     .where("confirmed_at", "is", null)
     .where("status", "=", "pending")
     .where("confirm_sent_at", ">", sql<Date>`now() - interval '7 days'`)
-    .returning(["id", "kind", "work_id", "pseud_norm"])
+    .returning(["id", "kind", "work_id", "pseud_norm", "contact_email", "ip_hash"])
     .executeTakeFirst();
   if (claimed === undefined) return false;
+  const blocked = await isRequesterBlocked(trx, {
+    email: claimed.contact_email,
+    ipHash: claimed.ip_hash === unknownIpHash ? null : claimed.ip_hash,
+  });
+  if (blocked) return true;
 
   if (claimed.kind === "remove_work") {
     if (claimed.work_id !== null) await hideForRequest(trx, claimed.id, claimed.work_id);
     return true;
   }
   if (claimed.pseud_norm === null) return true;
-  await trx
-    .insertInto("optouts")
-    .values({ pseud_norm: claimed.pseud_norm, request_id: claimed.id, active: true })
-    .execute();
-  // A stored pseud is as written, so it is matched here by the rule the opt-out list uses, not
-  // in SQL. This reads every author row: it grows with the archive.
-  const authors = await trx.selectFrom("work_authors").select(["work_id", "pseud"]).execute();
-  const matching = new Set<string>();
-  for (const author of authors) {
-    if (normalizePseud(author.pseud) === claimed.pseud_norm) matching.add(author.work_id);
-  }
-  // In id order, so two overlapping requests lock the same works in the same order.
-  for (const matched of [...matching].sort()) await hideForRequest(trx, claimed.id, matched);
+  await applyOptOut(trx, { id: claimed.id, pseud_norm: claimed.pseud_norm });
   return true;
 }
 
@@ -129,8 +155,11 @@ export async function confirmRemove(c: ConfirmContext) {
   const hash = await hashToken(token);
   // Its queries run one after another inside one transaction, so one connection.
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
+  const unknownIpHash = await ipHash(c.env.IP_HASH_KEY, null);
   try {
-    const confirmed = await db.transaction().execute((trx) => confirmRequest(trx, hash));
+    const confirmed = await db
+      .transaction()
+      .execute((trx) => confirmRequest(trx, hash, unknownIpHash));
     return confirmed ? c.html(removeConfirmedPage(), 200, NO_STORE) : refused(c);
   } finally {
     c.executionCtx.waitUntil(db.destroy());
