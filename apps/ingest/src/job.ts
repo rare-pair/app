@@ -2,9 +2,19 @@ import { isUploaderBanned, type Database } from "@archive/db";
 import { EpubError, LIMITS, type ParsedWork } from "@archive/epub";
 import type { Kysely } from "kysely";
 import { MAX_RETRIES } from "./config";
-import { claimLease, endLease, type Lease, type Outcome, type Stage } from "./lease";
+import {
+  claimLease,
+  endLease,
+  LEASE_TIMING,
+  LeaseKeeper,
+  LeaseLost,
+  type Lease,
+  type LeaseTiming,
+  type Outcome,
+  type Stage,
+} from "./lease";
 import { onRejectList } from "./lists";
-import { AccountBanned, LeaseLost, SaveRejected, WorkRemoved, type WorkImages } from "./save";
+import { AccountBanned, SaveRejected, WorkRemoved, type WorkImages } from "./save";
 
 /** What a job needs from outside: the request's Kysely, the bucket and the two steps. */
 export interface JobDeps {
@@ -22,6 +32,8 @@ export interface JobDeps {
    * `LeaseLost` when another job has taken the upload over.
    */
   save: (upload: Lease, work: ParsedWork, bytes: Uint8Array, images?: WorkImages) => Promise<void>;
+  /** The lease's length and renewal interval, when not the production ones. */
+  timing?: LeaseTiming;
 }
 
 /** What the queue does with the message: `ack` it, or `retry` it. */
@@ -34,16 +46,26 @@ export type Verdict = "ack" | "retry";
  * `parse_failed` and retried, so the queue dead-letters it.
  */
 export async function runJob(deps: JobDeps, uploadId: string, attempt: number): Promise<Verdict> {
-  const lease = await claimLease(deps.db, uploadId);
+  const timing = deps.timing ?? LEASE_TIMING;
+  const lease = await claimLease(deps.db, uploadId, timing.seconds);
   // Another job holds it, or it is done: this delivery has nothing to do.
   if (lease === null) return "ack";
+  // Renewed for as long as the job runs, so a long one is not taken for dead (#215).
+  const keeper = new LeaseKeeper(deps.db, lease, timing);
+  lease.keeper = keeper;
+  keeper.start();
   let stage: Stage = "read";
   let outcome: Outcome | null;
   try {
     outcome = await run(deps, lease, (next) => (stage = next));
   } catch (error) {
+    // Waited for, so no renewal changes the token under the ending write below.
+    await keeper.stop();
     // The job that took the upload over records the outcome: this one writes nothing.
-    if (error instanceof LeaseLost) return "ack";
+    if (error instanceof LeaseLost) {
+      console.warn({ event: "ingest.lease_lost", uploadId, stage });
+      return "ack";
+    }
     const final = attempt > MAX_RETRIES;
     await endLease(
       deps.db,
@@ -57,6 +79,7 @@ export async function runJob(deps: JobDeps, uploadId: string, attempt: number): 
     );
     return "retry";
   }
+  await keeper.stop();
   // Outside the job's try: if this write fails, it is not recorded as the job's own failure.
   // The message is retried and the rejection found again, unless this was the last attempt
   // (#214).
@@ -94,6 +117,8 @@ async function run(
     return { status: "too_large", failure: { stage: "read", error: "too_large" } };
   }
   const bytes = new Uint8Array(await object.arrayBuffer());
+  // Still the job's before the slow step? Throws `LeaseLost` if another job took it over.
+  await lease.keeper?.renew();
   enter("process");
   let work: ParsedWork;
   const images: WorkImages = new Map();
@@ -108,6 +133,7 @@ async function run(
   if (await onRejectList(deps.db, work)) {
     return { status: "opted_out", failure: { stage: "process", error: "opted_out" } };
   }
+  await lease.keeper?.renew();
   enter("save");
   try {
     // A saved upload has its final status already (`live`, `held_for_review` or `duplicate`):

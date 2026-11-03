@@ -10,3 +10,6 @@ export const MAX_RETRIES = 3;
 
 /** How long a job holds its upload. Under `retry_delay`, so a retry finds a dead job's lease expired. */
 export const LEASE_SECONDS = 60;
+
+/** How often a running job renews its lease: a quarter of it, so two renewals can fail in a row. */
+export const LEASE_RENEW_SECONDS = 15;

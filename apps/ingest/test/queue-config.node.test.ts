@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { BACKFILL_QUEUE, INGEST_QUEUE, LEASE_SECONDS, MAX_RETRIES } from "../src/config";
+import {
+  BACKFILL_QUEUE,
+  INGEST_QUEUE,
+  LEASE_RENEW_SECONDS,
+  LEASE_SECONDS,
+  MAX_RETRIES,
+} from "../src/config";
 
 // The queue's batching, concurrency, retries and dead-letter queue are Cloudflare's to enforce,
 // from wrangler.jsonc: no local run shows them. This checks the config that deploys.
@@ -51,6 +57,11 @@ describe("ingest lease", () => {
     // So a retry of a job that died holding its lease finds the lease expired.
     expect(consumer().retry_delay).toBe(120);
     expect(LEASE_SECONDS).toBeLessThan(120);
+  });
+
+  it("renews the lease more than once within it", () => {
+    // So two renewals can fail in a row without losing a job its upload.
+    expect(LEASE_RENEW_SECONDS * 3).toBeLessThan(LEASE_SECONDS);
   });
 });
 
