@@ -4,7 +4,7 @@ import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { env } from "cloudflare:workers";
 import { inspect } from "node:util";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { EmailMessage } from "../../mailer/src/message";
+import { parseMessage, type EmailMessage } from "../../mailer/src/message";
 import app from "../src/index";
 import {
   BASE,
@@ -125,8 +125,8 @@ async function requestFor(name: string, ao3WorkId: number) {
 /** How many removal emails have gone to the address. */
 const emailCount = async (email: string) =>
   (await deliveredEmails())
-    .map((m) => m as EmailMessage)
-    .filter((m) => m.to === email && m.kind === "removal-confirm").length;
+    .map(parseMessage)
+    .filter((m) => m?.to === email && m.kind === "removal-confirm").length;
 
 describe("16-removal-and-opt-out", () => {
   describe("Removal request sends one confirmation email and hides nothing", () => {
@@ -233,7 +233,11 @@ describe("16-removal-and-opt-out", () => {
     });
 
     it("a link with no token, or one never issued, gets the refused page without a lookup", async () => {
-      for (const url of ["/remove/confirm", "/remove/confirm?token=short", `/remove/confirm?token=${"a".repeat(44)}`]) {
+      for (const url of [
+        "/remove/confirm",
+        "/remove/confirm?token=short",
+        `/remove/confirm?token=${"a".repeat(44)}`,
+      ]) {
         const res = await fetchW(url);
         expect(res.status, url).toBe(400);
         expect(await res.text(), url).toContain("already been used or has expired");
@@ -341,7 +345,7 @@ describe("16-removal-and-opt-out", () => {
     it("two presses at once confirm it once", async () => {
       const { email, token } = await requestFor("race", RACE);
       const answers = await Promise.all([postConfirmRemoval(token), postConfirmRemoval(token)]);
-      expect(answers.map((r) => r.status).sort()).toEqual([200, 400]);
+      expect(answers.map((r) => r.status).sort((a, b) => a - b)).toEqual([200, 400]);
       const [row] = await requestsFrom(email);
       expect(await linksOf(row?.id ?? "")).toHaveLength(1);
       expect(await stateOf(RACE)).toBe("hidden");

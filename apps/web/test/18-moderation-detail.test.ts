@@ -198,7 +198,9 @@ describe("18 moderation detail pages", () => {
     const workId = await seed(40750);
     await addRequest("mod2-unconfirmed-request", workId, "remove_work", false);
     await addRequest("mod2-confirmed-request", workId, "remove_work");
-    const unconfirmed = await (await get("/admin/requests/mod2-unconfirmed-request", moderator)).text();
+    const unconfirmed = await (
+      await get("/admin/requests/mod2-unconfirmed-request", moderator)
+    ).text();
     const confirmed = await (await get("/admin/requests/mod2-confirmed-request", moderator)).text();
     expect(unconfirmed).toContain("pending (unconfirmed)");
     expect(confirmed).not.toContain("unconfirmed");

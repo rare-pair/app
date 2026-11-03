@@ -11,11 +11,7 @@ import type { Context } from "hono";
 import { sql } from "kysely";
 import type { Bindings } from "./env";
 import { readForm } from "./login";
-import {
-  removeConfirmedPage,
-  removeConfirmPage,
-  removeLinkRefusedPage,
-} from "./remove-pages";
+import { removeConfirmedPage, removeConfirmPage, removeLinkRefusedPage } from "./remove-pages";
 import type { SecurityVariables } from "./security";
 import { hashToken } from "./waitlist";
 
