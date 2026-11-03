@@ -1,6 +1,7 @@
 import type { Browser, Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { launchChromium } from "../harness/site";
+import { hasSidewaysScroll } from "../harness/layout";
+import { launchChromium, viewportFromEnv } from "../harness/site";
 import { checkAxe, formatResults } from "./axe";
 import { formatWalk, tabWalk } from "./keyboard";
 
@@ -88,5 +89,27 @@ describe("checkers: keyboard", () => {
   it("fails a tab order that jumps back up the page", async () => {
     await content(`<a href="#one">One</a><a href="#two" tabindex="1">Two</a>`, RING);
     expect(formatWalk(await tabWalk(page))).toContain('out of page order: a "One"');
+  });
+});
+
+// What Q1c (#510) needs to run the inventory at 360 px: one option, and the check.
+describe("harness: a narrow viewport", () => {
+  it("BROWSER_VIEWPORT names the window, and a typo fails rather than runs at the default", () => {
+    expect(viewportFromEnv("360x640")).toEqual({ width: 360, height: 640 });
+    expect(viewportFromEnv(undefined)).toEqual({ width: 1280, height: 800 });
+    expect(() => viewportFromEnv("360")).toThrow(/BROWSER_VIEWPORT/);
+  });
+
+  it("finds a page that scrolls sideways at 360 px, and one that doesn't", async () => {
+    const narrow = await browser.newContext({ viewport: viewportFromEnv("360x640") });
+    const small = await narrow.newPage();
+    try {
+      await small.setContent(`<div style="width: 500px">Too wide</div>`);
+      expect(await hasSidewaysScroll(small)).toBe(true);
+      await small.setContent(`<p>Wraps to fit</p>`);
+      expect(await hasSidewaysScroll(small)).toBe(false);
+    } finally {
+      await narrow.close();
+    }
   });
 });
