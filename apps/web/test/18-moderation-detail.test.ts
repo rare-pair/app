@@ -95,8 +95,9 @@ const addTakedown = (id: string, workId: string) =>
     })
     .execute();
 
-const addRequest = (id: string, workId: string | null, kind: "remove_work" | "opt_out") =>
-  db
+/** A request as `/remove` stores it: for a work, with the `request_works` row of the hide it made. */
+const addRequest = async (id: string, workId: string | null, kind: "remove_work" | "opt_out") => {
+  await db
     .insertInto("requests")
     .values({
       id,
@@ -109,6 +110,10 @@ const addRequest = (id: string, workId: string | null, kind: "remove_work" | "op
       created_at: "2001-06-01T00:00:00Z",
     })
     .execute();
+  if (workId !== null) {
+    await db.insertInto("request_works").values({ request_id: id, work_id: workId }).execute();
+  }
+};
 
 const statusOf = async (table: "reports" | "takedowns" | "requests", id: string) =>
   (await db.selectFrom(table).select("status").where("id", "=", id).executeTakeFirstOrThrow())
@@ -156,7 +161,7 @@ describe("18 moderation detail pages", () => {
         "/admin/requests/mod2-detail-optout",
         ["mod2-detail-optout-pseud", "mod2-detail-optout@example.test"],
         [reject("requests", "mod2-detail-optout")],
-        ["/hide", "/restore"],
+        ["/admin/works/"],
       ],
     ] as const) {
       const res = await get(path, moderator);

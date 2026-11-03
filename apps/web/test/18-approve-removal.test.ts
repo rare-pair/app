@@ -189,8 +189,9 @@ describe("16 removal and opt-out", () => {
     await seedWithObjects(ao3, { status: "live" });
     await addRequest("xr2-optout", null, "opt_out");
     const res = await post("/admin/requests/xr2-optout/approve", moderator, { confirm: "yes" });
-    expect(res.status).toBe(404);
-    expect(await statusOf("requests", "xr2-optout")).toBe("pending");
+    // MOD5 (#69) confirms an opt-out here: it is marked approved and nothing is removed.
+    expect(res.status).toBe(200);
+    expect(await statusOf("requests", "xr2-optout")).toBe("approved");
     expect(await workStatus(ao3)).toBe("live");
   });
 
@@ -298,7 +299,7 @@ describe("16 removal and opt-out", () => {
     expect(await bucketKeys(keys)).toEqual(keys);
   });
 
-  it("A pending item's page offers Approve, a request about a pseud does not", async () => {
+  it("A pending item's page offers Approve, an opt-out's offers Confirm opt-out", async () => {
     const ao3 = W + 9;
     await seedWithObjects(ao3);
     const wid = await workId(ao3);
@@ -312,7 +313,10 @@ describe("16 removal and opt-out", () => {
     expect(await html("/admin/takedowns/xr2-td-page")).toContain(
       'action="/admin/takedowns/xr2-td-page/approve"',
     );
-    expect(await html("/admin/requests/xr2-optout-page")).not.toContain("/approve");
+    // An opt-out's approve confirms it (MOD5): it is not the approve that removes a work.
+    const optOutPage = await html("/admin/requests/xr2-optout-page");
+    expect(optOutPage).toContain("Confirm opt-out");
+    expect(optOutPage).not.toContain("Approve and remove work");
   });
 });
 
