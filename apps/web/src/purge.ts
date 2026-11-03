@@ -51,8 +51,9 @@ export async function purgeWorkCaches(
     throw new PurgeError("cache purge failed: no zone id");
   }
   const url = `https://api.cloudflare.com/client/v4/zones/${credentials.zoneId}/purge_cache`;
-  // Both forms of each download URL until #119 settles the key: ingest stores
-  // originals/<id>.epub, and the work page links originals/<id>.
+  // Both forms of each download URL: ingest stores originals/<id>.epub, and the
+  // work page links that form. The bare originals/<id> stays purged until #119
+  // settles the key.
   const files = target.uploadIds.flatMap((id) => [`${originalUrl(id)}.epub`, originalUrl(id)]);
   /** Sends one request: nothing when it was accepted, or what failed. */
   const send = async (step: string, body: PurgeBody) => {
