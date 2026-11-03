@@ -159,8 +159,8 @@ export async function submitRemove(c: RemoveContext) {
       // A work the archive doesn't hold stores nothing and gets its own page.
       if (work === undefined) return c.html(removeNotHeldPage(), 200, NO_STORE);
       // A work of any status is stored, so a request for one already hidden or removed is
-      // not lost, and its answer is the same.
-      // The request, the hide and the link commit together, or a reversal would miss a work.
+      // not lost, and its answer is the same. The request, the hide and the link commit
+      // together, or a reversal would miss a work.
       await db.transaction().execute(async (trx) => {
         const request = await trx
           .insertInto("requests")
