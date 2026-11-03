@@ -2,6 +2,7 @@ import type { Browser, Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { launchChromium } from "../harness/site";
 import { checkAxe, formatResults } from "./axe";
+import { formatWalk, tabWalk } from "./keyboard";
 
 // The checkers themselves, on pages written here: each must fail what it is there to catch,
 // or a pass on the site's pages shows nothing.
@@ -54,5 +55,38 @@ describe("checkers: axe", () => {
     );
     const { violations } = await checkAxe(page);
     expect(violations.map((v) => v.id)).toContain("target-size");
+  });
+});
+
+// A focus ring on every control, as the site gives one (src/styles.ts).
+const RING = "<style>:focus-visible { outline: 2px solid #0b5cad; outline-offset: 2px }</style>";
+
+describe("checkers: keyboard", () => {
+  it("passes a page whose every control the Tab key reaches, with a ring", async () => {
+    await content(
+      `<a href="#one">One</a><form><input name="q" aria-label="Query">` +
+        `<label><input type="radio" name="r" value="a"> A</label>` +
+        `<label><input type="radio" name="r" value="b"> B</label>` +
+        `<button>Go</button></form>`,
+      RING,
+    );
+    const walk = await tabWalk(page);
+    expect(formatWalk(walk)).toBe("");
+    expect(walk.stops).toEqual(['a "One"', "input q", "radio r", 'button "Go"']);
+  });
+
+  it("fails a control the Tab key skips", async () => {
+    await content(`<a href="#one">One</a><button tabindex="-1">Skipped</button>`, RING);
+    expect(formatWalk(await tabWalk(page))).toContain('not reached by Tab: button "Skipped"');
+  });
+
+  it("fails a control focused with no visible ring", async () => {
+    await content(`<a href="#one" style="outline: none">One</a>`, RING);
+    expect(formatWalk(await tabWalk(page))).toContain('no focus ring: a "One"');
+  });
+
+  it("fails a tab order that jumps back up the page", async () => {
+    await content(`<a href="#one">One</a><a href="#two" tabindex="1">Two</a>`, RING);
+    expect(formatWalk(await tabWalk(page))).toContain('out of page order: a "One"');
   });
 });
