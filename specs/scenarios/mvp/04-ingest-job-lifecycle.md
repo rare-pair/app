@@ -31,6 +31,18 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 - WHEN two consumers receive its message at the same time
 - THEN exactly one lease update succeeds
 
+### A long job keeps its lease
+- GIVEN a job that runs for longer than the lease
+- WHEN a second consumer receives the upload's message after the first lease would have expired
+- THEN the running job has renewed its lease, so the second delivery does no work
+- AND the first job still ends the upload `live`
+
+### A job that has lost its lease stops before writing
+- GIVEN a running job whose upload another job has taken over
+- WHEN the job reaches its next stage or its next R2 write
+- THEN it writes nothing more, deletes nothing, and logs `ingest.lease_lost` with the upload id and stage
+- AND its message is acked, and the row stays as the other job left it
+
 ### Retry overwrites only its own output
 - GIVEN a job for upload A that wrote some output to R2 and then failed
 - WHEN the job for upload A is retried

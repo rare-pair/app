@@ -37,7 +37,9 @@ export interface PurgeOptions {
  * kind per request: one tag request, one prefix request, and one download request per
  * 100 URLs (two URLs an upload; none for a work with no uploads). Whether the zone
  * cache holds the content host's responses at all is the operator's to settle: no
- * purge reaches a browser's cache, or apps/content's own cache if it ever has one.
+ * purge reaches a browser's cache. apps/content keeps its own Cache API entries under
+ * these same URLs; that a purge clears them is unverified on the live zone (ARCHITECTURE,
+ * Surge controls, Edge cache).
  */
 export async function purgeWorkCaches(
   credentials: PurgeCredentials,
