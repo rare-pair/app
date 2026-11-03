@@ -154,7 +154,7 @@ export const approveForm = (
 
 /** A form that restores the works this request and its related removal requests hid. */
 export const restoreRelatedForm = (id: string) =>
-  `<form method="post" action="${escapeHtml(`/admin/requests/${encodeURIComponent(id)}/restore-related`)}"><button type="submit">Restore related works</button></form>`;
+  `<form method="post" action="${escapeHtml(`/admin/requests/${encodeURIComponent(id)}/restore-related`)}"><button type="submit">Restore related works (rejects their pending requests)</button></form>`;
 
 export const RELATED_COLUMNS = ["Created", "Kind", "Work or pseud", "Status"];
 

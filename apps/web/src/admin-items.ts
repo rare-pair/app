@@ -57,11 +57,7 @@ const decideForms = (
 ) => `${rejectForm(queue, id, labels.reject)}\n${approveForm(queue, id, labels.approve)}`;
 
 /** The actions on a request's page: decide it by what it is, and restore the works of the spree it belongs to. */
-function requestForms(
-  id: string,
-  request: { kind: string; status: string },
-  hasRelatedRemovals: boolean,
-) {
+function requestForms(id: string, request: { kind: string; status: string }, hasRelated: boolean) {
   const forms: string[] = [];
   if (request.kind === "opt_out") {
     // Rejecting an opt-out reverses it, pending or approved.
@@ -78,7 +74,7 @@ function requestForms(
   } else if (request.status === "pending") {
     forms.push(decideForms("requests", id));
   }
-  if (request.kind === "remove_work" || hasRelatedRemovals) forms.push(restoreRelatedForm(id));
+  if (request.kind === "remove_work" || hasRelated) forms.push(restoreRelatedForm(id));
   return forms.join("\n");
 }
 
@@ -239,7 +235,7 @@ adminItems.get("/requests/:id{[A-Za-z0-9_-]+}", async (c) => {
       `${row.ao3_work_id === null ? "" : workActions(row.ao3_work_id, self)}\n${requestForms(
         id,
         row,
-        related.some((r) => r.kind === "remove_work"),
+        related.length > 0,
       )}\n${relatedTable(
         related.slice(0, QUEUE_LIMIT).map((r) => ({
           cells: [

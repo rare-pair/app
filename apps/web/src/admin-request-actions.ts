@@ -113,13 +113,13 @@ export async function restoreOwnWorks(
   actor?: string,
 ) {
   const restored: LockedWork[] = [];
-  let covered = 0;
+  const covered: string[] = [];
   const candidates = works
     .filter((w) => w.status === "hidden" && w.hiddenCause === "removal_request" && !done.has(w.id))
     .sort((a, b) => (a.id < b.id ? -1 : 1));
   for (const work of candidates) {
     if (await coveredByOptOut(trx, work.id, requestId)) {
-      covered++;
+      covered.push(work.id);
       continue;
     }
     const lifted = await restoreWork(trx, work.id, {
@@ -130,7 +130,7 @@ export async function restoreOwnWorks(
     if (lifted) {
       restored.push(work);
       done.add(work.id);
-    } else covered++;
+    } else covered.push(work.id);
   }
   return { restored, covered };
 }
@@ -189,7 +189,7 @@ adminRequestActions.post("/requests/:id{[A-Za-z0-9_-]+}/restore-related", async 
       .execute();
     const wasPending = new Set(rejected.map((r) => r.id));
     const done = new Set<string>();
-    let covered = 0;
+    const covered = new Set<string>();
     for (const requestId of batch) {
       const pending = wasPending.has(requestId);
       const result = await restoreOwnWorks(
@@ -199,7 +199,7 @@ adminRequestActions.post("/requests/:id{[A-Za-z0-9_-]+}/restore-related", async 
         done,
         pending ? undefined : c.var.userId,
       );
-      covered += result.covered;
+      for (const workId of result.covered) covered.add(workId);
       if (pending) {
         await logModerationAction(trx, {
           moderatorId: c.var.userId,
@@ -210,7 +210,8 @@ adminRequestActions.post("/requests/:id{[A-Za-z0-9_-]+}/restore-related", async 
         });
       }
     }
-    return { restored: done.size, covered, rejected: wasPending.size };
+    const stuck = [...covered].filter((workId) => !done.has(workId)).length;
+    return { restored: done.size, covered: stuck, rejected: wasPending.size };
   });
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
   const parts = [
