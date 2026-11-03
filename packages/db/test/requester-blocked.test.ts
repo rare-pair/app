@@ -23,9 +23,9 @@ describe("isRequesterBlocked", () => {
       .insertInto("requester_blocks")
       .values({ contact_email: "Blocked.One@Example.test", created_by: moderator })
       .execute();
-    expect(await isRequesterBlocked(t.db, { email: "blocked.one@example.test", ipHash: null })).toBe(
-      true,
-    );
+    expect(
+      await isRequesterBlocked(t.db, { email: "blocked.one@example.test", ipHash: null }),
+    ).toBe(true);
     expect(await isRequesterBlocked(t.db, { email: "other.one@example.test", ipHash: null })).toBe(
       false,
     );

@@ -800,7 +800,9 @@ export async function hideWork(
       );
     }
     if (options.minReporters !== undefined) {
-      update = update.where(sql<boolean>`${countedReporters(workId, options.ignoreReporters ?? [])} >= ${options.minReporters}`);
+      update = update.where(
+        sql<boolean>`${countedReporters(workId, options.ignoreReporters ?? [])} >= ${options.minReporters}`,
+      );
     }
     const result = await update.executeTakeFirst();
     if (result.numUpdatedRows === 0n) return false;
