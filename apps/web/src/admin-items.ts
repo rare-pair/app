@@ -369,7 +369,7 @@ adminItems.post("/takedowns/:id{[A-Za-z0-9_-]+}/reject", async (c) => {
   return c.html(resultPage("Rejected.", `/admin/takedowns/${encodeURIComponent(id)}`));
 });
 
-/** Approving a removal request removes its work, then marks the request `approved`; it asks to confirm first. */
+/** Approving a removal request removes its work, then marks the request `approved` (and, like any removal, the work's pending takedowns `removed`); it asks to confirm first. */
 adminItems.post("/requests/:id{[A-Za-z0-9_-]+}/approve", async (c) => {
   const id = c.req.param("id");
   const item = await c.var.db
@@ -422,7 +422,7 @@ adminItems.post("/takedowns/:id{[A-Za-z0-9_-]+}/approve", async (c) => {
 
 /**
  * The steps both approves share, for an item found pending: ask to confirm, remove the
- * work, then mark the item and log `approve`. The removal comes first: a crash between
+ * work, then mark the item and log `approve`, then mark the work's other pending takedowns. The removal comes first: a crash between
  * leaves a removed work and a pending item, which approving again completes; marking
  * first could leave an approved item over a live work.
  */

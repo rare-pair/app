@@ -465,6 +465,21 @@ describe("17 reports and DMCA", () => {
     expect(await statusOf("takedowns", "xr2-td-incomplete")).toBe("removed");
   });
 
+  it("A repeat Remove marks a notice filed after the first, and leaves a rejected one alone", async () => {
+    const ao3 = W + 30;
+    await seedWithObjects(ao3, { status: "live" });
+    const wid = await workId(ao3);
+    await addTakedown("xr2-td-rej", wid);
+    await post("/admin/takedowns/xr2-td-rej/reject", moderator);
+    await post(`/admin/works/${ao3}/remove`, moderator, { confirm: "yes" });
+    await addTakedown("xr2-td-late", wid);
+    await post(`/admin/works/${ao3}/remove`, moderator, { confirm: "yes" });
+    await post(`/admin/works/${ao3}/remove`, moderator, { confirm: "yes" });
+    expect(await statusOf("takedowns", "xr2-td-rej")).toBe("rejected");
+    expect(await statusOf("takedowns", "xr2-td-late")).toBe("removed");
+    expect(await logFor("xr2-td-late")).toHaveLength(1);
+  });
+
   it("A hidden work is removed by a takedown approval", async () => {
     const ao3 = W + 21;
     await seedWithObjects(ao3, { status: "hidden", hiddenCause: "reports" });

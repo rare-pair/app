@@ -132,7 +132,7 @@ export function removeConfirmPage(title: string, ao3WorkId: number, from: string
   return layout(
     "Remove work",
     `${nav}
-<p>Remove ${escapeHtml(title)} (${ao3WorkId})? Its pages answer 410 and its files are deleted. This can't be undone.</p>
+<p>Remove ${escapeHtml(title)} (${ao3WorkId})? Its pages answer 410 and its files are deleted. Any pending copyright notice on it is marked removed, and its AO3 work ID goes on the takedown list. This can't be undone.</p>
 <form method="post" action="/admin/works/${ao3WorkId}/remove">${fromInput(from)}<input type="hidden" name="confirm" value="yes"><button type="submit">Remove work for good</button></form>`,
   );
 }
