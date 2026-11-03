@@ -68,7 +68,7 @@ Collections, with the fields `docs/ledger/page.html` reads:
   - status is `running`, `idle`, `finished` or `failed`. An agent that may still be sent more work, such as a builder whose PR is open, is `idle`; it's `finished` once that can't happen (its PR merged, or the item closed).
 - **`questions`**: one per open design question, with id `Q<n>`, title, state (`open` or `closed`), proceeding and note.
 - **`reviews`**: the operator's task list, with title, detail, ref, url, order and state (`open` or `done`).
-- **`followups`**: one per follow-up issue (adjacent problems and audit findings, not work items), with issue, title, note, status (`open`, `review`, `running` or `closed`), workspace, waitsOn[] and pr[].
+- **`followups`**: one per follow-up issue (adjacent problems and audit findings, not work items), with issue, title, note, status (`open`, `review`, `running` or `closed`), workspace, waitsOn[] and pr[]. A triage adds severity (`launch-blocker`, `high`, `medium` or `low`), lane (a `lanes` id, or `docs`), size (`XS`, `S`, `M` or `L`), needsOperator (true when it waits on the operator's decision) and duplicateOf (an issue number). The page sorts by severity and filters on all of them; a follow-up with no severity shows as not triaged.
 - **`log`**: one document per day, `log/<YYYY-MM-DD>`, with `day` and `entries[{at, text}]`. Entries are appended to it, never one document per event.
 
 The document `meta/state` holds `main` (short sha) and `updatedAt`, which the page header shows.
