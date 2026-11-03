@@ -100,6 +100,11 @@ an unofficial stopgap.
   - The content Worker keeps no per-request log (invocation logs are off), so its
     logs hold no reader address next to a work id. Errors and metrics are kept;
     traces stay on and may record the request URL.
+  - The content Worker sits in front of the CDN cache, so it keeps its own: a plain
+    `GET` for an image or an original is answered from the data centre's cache
+    (`caches.default`, keyed by the bare URL) without an R2 read, and a miss reads R2
+    and stores the 200. `HEAD`, errors (404, 405, 503), `Range` and conditional
+    requests never read or fill it. See *Surge controls*, Edge cache.
 
 ## Data model (first cut)
 
@@ -1112,7 +1117,19 @@ markup: its inline `style` attributes become stylesheet rules, because
   stay bounded. Hyperdrive pools connections, and Neon autoscales compute.
 - Edge cache: images and original downloads on `content.rarepair.fans` never change
   once written, since each version has its own prefix, so they're cached with
-  `Cache-Control: public, max-age=31536000, immutable`. Chapter fragments are
+  `Cache-Control: public, max-age=31536000, immutable`. The content Worker also
+  stores each 200 in the Workers Cache API (`caches.default`) under the bare request
+  URL, in the data centre that served it (no replication, no tiered cache), so a
+  repeat request there skips R2. It never caches `HEAD`, error responses or
+  `Range` and conditional requests, and it adds no negative cache. Removal's purge
+  by URL (the image URL and both `originals/` forms) is meant to clear these
+  entries, and the key is exactly that URL, but Cloudflare's documentation does not
+  confirm that a purge by URL or prefix reaches Cache API entries in every data
+  centre: this is unverified on the live zone, and an operator checks it before
+  launch. If it fails, a removed work's images and downloads stay cached for up
+  to a year. A request that read R2 before the removal's delete can also store its
+  response after the purge. Browser caches are untouched: they keep an
+  `immutable` response after removal (#471, open). Chapter fragments are
   cached inside the web Worker (see Reading). Work and tag listings
   get a short cache with stale-while-revalidate.
 - Observability: Workers Logs and traces are on from day one, except that the

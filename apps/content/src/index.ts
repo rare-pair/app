@@ -28,10 +28,37 @@ function respond(body: BodyInit | null, status: number, headers: Record<string, 
   return new Response(body, { status, headers: h });
 }
 
+// Requests the cache would answer differently from the Worker (206, 304): they skip it.
+const BYPASS_HEADERS = ["range", "if-none-match", "if-modified-since", "if-match", "if-range"];
+
+/** Logs the kind of error only: never its message, and never the URL, which names the work. */
+// oxlint-disable-next-line deslop/no-unknown-parameters -- it takes whatever a catch caught, and reads only its name
+const logFailure = (what: string, error: unknown) =>
+  console.error(`Edge cache ${what}: ${error instanceof Error ? error.name : "unknown"}`);
+
+/** The cached 200 under `url`, or undefined: a cache that fails is a miss. */
+async function matchEntry(url: string) {
+  try {
+    return await caches.default.match(url);
+  } catch (error) {
+    logFailure("read", error);
+    return undefined;
+  }
+}
+
+/** Stores a 200 under `url`. A failed put never fails the request. */
+async function putEntry(url: string, response: Response) {
+  try {
+    await caches.default.put(url, response);
+  } catch (error) {
+    logFailure("write", error);
+  }
+}
+
 const notFound = () => respond(null, 404, { "Cache-Control": "no-store" });
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (request.method !== "GET" && request.method !== "HEAD") {
       return respond(null, 405, { Allow: "GET, HEAD", "Cache-Control": "no-store" });
     }
@@ -43,6 +70,17 @@ export default {
     const isImage = IMAGE.test(path);
     const isOriginal = ORIGINAL.test(path);
     if (!isImage && !isOriginal) return notFound();
+
+    // Only a plain GET reads or fills the cache. The key is the bare URL string, not the
+    // Request, so no request header can pick a different entry and a purge by URL (the
+    // one removal sends, ARCHITECTURE, Surge controls) names exactly this key. Range and
+    // conditional requests bypass it: the cache would answer them with a 206 or a 304.
+    const cacheable =
+      request.method === "GET" && !BYPASS_HEADERS.some((h) => request.headers.has(h));
+    if (cacheable) {
+      const hit = await matchEntry(request.url);
+      if (hit) return hit;
+    }
 
     // A failed read still goes out through respond(), empty and uncached.
     let object: R2ObjectBody | null;
@@ -56,11 +94,13 @@ export default {
     // Stored disposition is never echoed. An original's type is fixed; an image keeps
     // its stored type only when it is one of the four that ingest writes.
     const stored = object.httpMetadata?.contentType ?? "";
-    return respond(object.body, 200, {
+    const response = respond(object.body, 200, {
       "Cache-Control": IMMUTABLE,
       ...(isOriginal
         ? { "Content-Type": "application/epub+zip", "Content-Disposition": "attachment" }
         : { "Content-Type": IMAGE_TYPES.has(stored) ? stored : "application/octet-stream" }),
     });
+    if (cacheable) ctx.waitUntil(putEntry(request.url, response.clone()));
+    return response;
   },
 } satisfies ExportedHandler<Env>;
