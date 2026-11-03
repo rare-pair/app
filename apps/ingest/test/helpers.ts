@@ -271,6 +271,20 @@ export const beforePut =
     },
   });
 
+/** The bucket step: the real bucket, running `hook` with each key after its `put` has landed. */
+export const afterPut =
+  (hook: (key: string) => Promise<void>): NonNullable<Steps["bucket"]> =>
+  (real) => ({
+    get: real.get.bind(real),
+    delete: real.delete.bind(real),
+    list: real.list.bind(real),
+    put: async (key, value, options) => {
+      const out = await real.put(key, value, options);
+      await hook(key);
+      return out;
+    },
+  });
+
 /** The bucket step: the real bucket, with a `put` of `key` that fails as R2 down would. */
 export const failingPut = (key: string) =>
   beforePut(async (k) => {
