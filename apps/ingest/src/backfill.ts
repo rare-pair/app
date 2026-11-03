@@ -24,7 +24,8 @@ export interface BackfillDeps {
  * now (ARCHITECTURE, EPUB processor, step 8), while that version is still the one the message
  * names. Returns what became of it, for the log: `backfilled`, or why the current version was
  * left as it is (`no_work`, `removed`, `not_current`, `original_missing`, `too_large`,
- * `work_mismatch`, `opted_out`, or an `EpubError`'s or `SaveRejected`'s code: the processor's
+ * `work_mismatch`, `opted_out`, `optout_check_rejected_<sqlstate>` (the opt-out table refused a value
+ * in the file), or an `EpubError`'s or `SaveRejected`'s code: the processor's
  * verdict on the original as it now stands). Each is final, so the message is acked: a short
  * fixed code, never text from the file. Throws on a failure worth retrying, such as R2 or
  * Postgres being down.

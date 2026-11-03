@@ -64,6 +64,8 @@ export function resolveByline(
     // A profile link already named it: a pseud like "Salt and Pepper" is then not a list.
     if (named.has(sameKey(creator))) continue;
     const names = splitNames(creator);
+    // Every piece already named ("A and B" beside links to A and B): nothing new, nothing guessed.
+    if (names.length > 1 && names.every((name) => named.has(sameKey(name)))) continue;
     add(creator);
     if (names.length > 1) {
       creatorAmbiguous = true;

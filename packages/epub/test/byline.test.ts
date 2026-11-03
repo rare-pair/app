@@ -116,6 +116,14 @@ describe("Byline hardening (#258, #276)", () => {
     expect(work.reviewReasons).toContain(BYLINE_AMBIGUOUS);
   });
 
+  it("An OPF creator whose every name the byline links adds nothing and is not flagged", async () => {
+    const work = await processEpub(
+      ao3Epub({ bylineHtml: `${link("alice")}, ${link("bob")}`, creators: ["alice and bob"] }),
+    );
+    expect(work.authors.map((a) => a.pseud)).toEqual(["alice", "bob"]);
+    expect(work.reviewReasons).toEqual([]);
+  });
+
   it("The review codes carry no byline text", async () => {
     const work = await processEpub(ao3Epub({ bylineHtml: "Salt and Pepper", creators: [] }));
     expect(work.reviewReasons.join(" ")).not.toMatch(/salt|pepper/i);
