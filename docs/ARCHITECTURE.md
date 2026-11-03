@@ -464,8 +464,8 @@ Chapter text isn't indexed.
    `parse_failed`.) The transaction checks the status again, so a work removed
    while the job ran is never versioned. Its upload is then `work_removed` too,
    and the job deletes the R2 files it had written: its `originals/` file, and
-   the work's `works/<ao3_work_id>/` folder (unless the work was restored in the
-   meantime), since the removal's purge may have run before those writes. The
+   the work's `works/<ao3_work_id>/` folder (only the upload's own fragments, if
+   the work was restored in the meantime), since the removal's purge may have run before those writes. The
    same clean-up runs when a redelivery finds the work removed, so a clean-up
    that failed is repeated. A removal that purges the current version's
    fragments while the job reads them is the same refusal.
