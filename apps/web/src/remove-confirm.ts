@@ -11,7 +11,7 @@ import type { Context } from "hono";
 import { sql } from "kysely";
 import type { Bindings } from "./env";
 import { readForm } from "./login";
-import { removeConfirmedPage, removeConfirmPage, removeLinkRefusedPage } from "./remove-pages";
+import { removeConfirmedPage, requestConfirmPage, removeLinkRefusedPage } from "./remove-pages";
 import type { SecurityVariables } from "./security";
 import { hashToken } from "./waitlist";
 
@@ -108,7 +108,7 @@ async function confirmRequest(trx: Trx, hash: string): Promise<boolean> {
 export function showRemoveConfirm(c: ConfirmContext) {
   const token = c.req.query("token") ?? "";
   if (!ISSUED_TOKEN.test(token)) return refused(c);
-  return c.html(removeConfirmPage(token), 200, NO_STORE);
+  return c.html(requestConfirmPage(token), 200, NO_STORE);
 }
 
 /**

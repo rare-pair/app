@@ -23,7 +23,8 @@ const REMOVED = 40110;
 const SECOND = 40111; // for the second opt-out
 const TWICE = 40112; // two authors that both match the pseud
 const FRESH = 40120; // for the confirmation page
-const RECEIVED = "Check your email: we've sent a link to the address you gave.";
+const RECEIVED =
+  "Check your email: we've sent a link to the address you gave. Open it and press the button to confirm your request. The link works once, for 7 days, and nothing happens until you confirm.";
 
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 

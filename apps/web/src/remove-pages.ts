@@ -94,7 +94,7 @@ export const removeReceivedPage = () =>
  * with JavaScript off. The token is the one thing the page echoes, escaped. It says nothing
  * of the work.
  */
-export const removeConfirmPage = (token: string) =>
+export const requestConfirmPage = (token: string) =>
   layout(
     "Confirm your request",
     `${DRAFT}

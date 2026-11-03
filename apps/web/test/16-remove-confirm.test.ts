@@ -36,17 +36,24 @@ const FAILS = 40709;
 const OPT_LIVE = 40710; // by the pseud the opt-out cases use
 const OPT_BY_ANOTHER = 40711;
 const MOD_LIVE = 40712;
+const SAME_LIVE = 40713;
+const OPT_FAILS = 40714; // by the pseud the failing opt-out names
+// 40750 is 18-moderation-detail.test.ts's, 40799 is held by no work.
 const PSEUD = "x3b Opted Pseud";
 
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 
 beforeAll(async () => {
-  for (const id of [LIVE, EXPIRES, REJECTED, ONCE, RACE, SCANNED, FAILS, MOD_LIVE]) {
+  for (const id of [LIVE, EXPIRES, REJECTED, ONCE, RACE, SCANNED, FAILS, MOD_LIVE, SAME_LIVE]) {
     await seedWork(db, { ao3WorkId: id });
   }
   await seedWork(db, { ao3WorkId: HIDDEN, status: "hidden", hiddenCause: "moderator" });
   await seedWork(db, { ao3WorkId: REMOVED, status: "removed" });
   await seedWork(db, { ao3WorkId: OPT_LIVE, authors: [{ pseud: PSEUD, ao3_user: null }] });
+  await seedWork(db, {
+    ao3WorkId: OPT_FAILS,
+    authors: [{ pseud: "x3b Failing Pseud", ao3_user: null }],
+  });
   await seedWork(db, {
     ao3WorkId: OPT_BY_ANOTHER,
     authors: [{ pseud: "x3b Someone Else", ao3_user: null }],
@@ -213,6 +220,23 @@ describe("16-removal-and-opt-out", () => {
     });
   });
 
+  it("an opt-out whose email can't be queued stores nothing and activates nothing", async () => {
+    const email = fresh("opt-unqueued");
+    const queue: Queue<EmailMessage> = {
+      send: async () => {
+        throw new Error("queue refused");
+      },
+      sendBatch: async () => {
+        throw new Error("queue refused the batch");
+      },
+      metrics: async () => ({ backlogCount: 0, backlogBytes: 0 }),
+    };
+    const { res } = await submit({ email, pseud: "x3b Failing Pseud" }, { EMAIL: queue });
+    expect(res.status).toBe(503);
+    expect(await requestsFrom(email)).toEqual([]);
+    expect(await stateOf(OPT_FAILS)).toBe("live");
+  });
+
   describe("Confirmation link opens a page with a button and changes nothing", () => {
     it("a scanner's GET of the link shows the button and leaves the request unconfirmed", async () => {
       const { email, token } = await requestFor("scanned", SCANNED);
@@ -252,7 +276,13 @@ describe("16-removal-and-opt-out", () => {
       const res = await postConfirmRemoval(token);
       expect(res.status).toBe(200);
       expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(res.headers.get("referrer-policy")).toBe("strict-origin");
       expect(res.headers.get("set-cookie")).toBeNull();
+      // A refused press is kept out of caches the same way.
+      const refused = await postConfirmRemoval(token);
+      expect(refused.status).toBe(400);
+      expect(refused.headers.get("cache-control")).toBe("no-store");
+      expect(refused.headers.get("referrer-policy")).toBe("strict-origin");
       const [row] = await requestsFrom(email);
       expect(row?.confirmed_at).toBeInstanceOf(Date);
       // The hash is cleared, so the link works once.
@@ -373,7 +403,9 @@ describe("16-removal-and-opt-out", () => {
 
   describe("The submit and the confirm answers are the same whatever the work's status", () => {
     it("reads the same for a live, a hidden and a removed work, at submit and at confirm", async () => {
-      const ids = [LIVE, HIDDEN, REMOVED];
+      // Its own live work: LIVE is hidden by an earlier case of this file.
+      const ids = [SAME_LIVE, HIDDEN, REMOVED];
+      expect(await stateOf(SAME_LIVE)).toBe("live");
       const submitted: string[] = [];
       const confirmed: string[] = [];
       const links: string[] = [];

@@ -37,7 +37,8 @@ const S = 40021;
 const HASHED = 40020;
 const WORK_URL = `${BASE}/works/${W}`;
 const S_URL = `${BASE}/works/${S}`;
-const RECEIVED = "Check your email: we've sent a link to the address you gave.";
+const RECEIVED =
+  "Check your email: we've sent a link to the address you gave. Open it and press the button to confirm your request. The link works once, for 7 days, and nothing happens until you confirm.";
 
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 
