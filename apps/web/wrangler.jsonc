@@ -109,7 +109,8 @@
     },
     { "name": "UPLOAD_IP_LIMIT", "namespace_id": "1011", "simple": { "limit": 40, "period": 60 } },
     // GET /search, per signed-in user and per client IP. Counted once the query is known to be
-    // non-blank and before the search queries the database, so a refused search runs no query;
+    // non-blank and before the search queries the database, so a refused search runs no query
+    // of its own (a request with a cookie has had its session looked up by then);
     // each results page spends one, the bare form none. A signed-out search is keyed on its IP
     // only. Placeholder first values (user 60, IP 30), for the operator to confirm before
     // launch: a shared office or school IP may want a higher IP limit. Approximate and per

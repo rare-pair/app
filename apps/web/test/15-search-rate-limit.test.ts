@@ -7,7 +7,7 @@ import { BASE, consoleDuring, fetchW, freshIp, signIn, windowHeadroom } from "./
 import { SEARCH_IP_LIMIT, SEARCH_USER_LIMIT } from "./limits";
 
 // SR2's cases: `GET /search` is limited per signed-in user and per client IP, counted before
-// the database is opened. A query nothing matches keeps each spent search cheap.
+// the search queries the database. A query nothing matches keeps each spent search cheap.
 
 const QUERY = "zzqrlimitprobe";
 
