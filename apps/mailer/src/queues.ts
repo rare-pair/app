@@ -6,7 +6,7 @@ export const BULK_QUEUE = "email-bulk";
 function kindsOn(queue: string): readonly EmailMessage["kind"][] {
   switch (queue) {
     case "email":
-      return ["sign-in", "waitlist-confirm"];
+      return ["sign-in", "waitlist-confirm", "removal-confirm"];
     case BULK_QUEUE:
       return ["waitlist-launch"];
     default:

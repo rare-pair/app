@@ -1,14 +1,16 @@
 // The removal request form, `/remove` (ARCHITECTURE, Author requests & takedowns): anyone
 // can ask for a work or a pseud to be removed, signed in or not, behind Turnstile. This
-// file takes the request in and stores it with a hashed network address. A request for a
-// work hides the work at once (X2, #62), and one for a pseud opts it out and hides every work
-// by it (X3, #63). One for a work the archive doesn't hold stores nothing and has its own
-// page. Blocking a requester (X6, #67) belongs to the ticket after. The limits (X5, #64)
-// are here: per IP before the body is read, per email once Turnstile has passed. Nothing
-// here looks the requester up.
+// file takes the request in and stores it, unconfirmed, with a hashed network address and a
+// hashed confirmation token, and queues one email with the link (X3b, #487). It hides
+// nothing: a request for a work hides it (X2, #62), and one for a pseud opts it out and hides
+// every work by it (X3, #63), only once the link is pressed (remove-confirm.ts). One for a
+// work the archive doesn't hold stores nothing, sends nothing and has its own page. The
+// limits (X5, #64) are here: per IP before the body is read, per email once Turnstile has
+// passed. Nothing here looks the requester up.
 
-import { createDb, hideWork, normalizePseud } from "@archive/db";
+import { createDb, normalizePseud } from "@archive/db";
 import type { Context } from "hono";
+import { sql } from "kysely";
 // The mailer's own rule, so an address is accepted only if the mailer would send to it.
 import { isSendableAddress } from "../../mailer/src/message";
 import type { Bindings } from "./env";
@@ -23,12 +25,14 @@ import {
   removePage,
   removeNotHeldPage,
   removeReceivedPage,
+  removeUnavailablePage,
   type RemoveField,
   type RemoveForm,
 } from "./remove-pages";
 import type { SecurityVariables } from "./security";
 import { SITE } from "./signin";
 import { TURNSTILE_ACTIONS, verifyTurnstile } from "./turnstile";
+import { hashToken, newToken } from "./waitlist";
 
 type RemoveContext = Context<{ Bindings: Bindings; Variables: SecurityVariables }>;
 
@@ -65,21 +69,10 @@ const field = (form: URLSearchParams, name: RemoveField) =>
   (form.get(name) ?? "").replaceAll("\u0000", "").trim();
 
 /**
- * Hides a work for a stored request, and links it to the request only when this hide changed
- * it: `hideWork` touches a live work only, so one hidden or removed already is left as it is
- * and gets no link. X6 (#67) conditions the hides of both branches, and the opt-out row, on
- * the requester not being blocked.
- */
-async function hideForRequest(trx: Parameters<typeof hideWork>[0], requestId: string, id: string) {
-  if (await hideWork(trx, id, "removal_request")) {
-    await trx.insertInto("request_works").values({ request_id: requestId, work_id: id }).execute();
-  }
-}
-
-/**
  * `POST /remove`, behind `sameOriginOnly` (index.ts): reads the body, checks Turnstile under
- * the form's own action, then the fields, and stores a pending request with the hashed
- * address. Every refusal shows the form again with what was typed and is sent `no-store`,
+ * the form's own action, then the fields, and stores a pending, unconfirmed request with the
+ * hashed address, then queues its confirmation email; if that can't be queued the request is
+ * deleted and the answer is the 503 page. Every refusal shows the form again with what was typed and is sent `no-store`,
  * except a rate limit's 429, which is the shared plain page.
  * A work and a pseud together is a request for the work, since one request has one kind.
  * The reply to a stored request says nothing of what became of it.
@@ -155,10 +148,19 @@ export async function submitRemove(c: RemoveContext) {
   }
 
   const ip_hash = await ipHash(c.env.IP_HASH_KEY, clientIp);
-  // Its queries run one after another, so one connection.
+  const token = newToken();
+  const confirm_token_hash = await hashToken(token);
+  // Its queries run one after another, then the email: one connection.
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
   try {
-    const base = { contact_email: email, statement: values.statement, ip_hash };
+    const base = {
+      contact_email: email,
+      statement: values.statement,
+      ip_hash,
+      confirm_token_hash,
+      confirm_sent_at: sql<Date>`now()`,
+    };
+    let request: { id: string };
     if (typedWork !== "") {
       const work =
         id === null
@@ -168,44 +170,38 @@ export async function submitRemove(c: RemoveContext) {
               .select("id")
               .where("ao3_work_id", "=", id)
               .executeTakeFirst();
-      // A work the archive doesn't hold stores nothing and gets its own page.
+      // A work the archive doesn't hold stores nothing, sends nothing and gets its own page.
       if (work === undefined) return c.html(removeNotHeldPage(), 200, NO_STORE);
       // A work of any status is stored, so a request for one already hidden or removed is
-      // not lost, and its answer is the same. The request, the hide and the link commit
-      // together, or a reversal would miss a work.
-      await db.transaction().execute(async (trx) => {
-        const request = await trx
-          .insertInto("requests")
-          .values({ ...base, kind: "remove_work", work_id: work.id })
-          .returning("id")
-          .executeTakeFirstOrThrow();
-        await hideForRequest(trx, request.id, work.id);
-      });
+      // not lost, and its answer is the same. Nothing is hidden until it is confirmed.
+      request = await db
+        .insertInto("requests")
+        .values({ ...base, kind: "remove_work", work_id: work.id })
+        .returning("id")
+        .executeTakeFirstOrThrow();
     } else {
-      // The request, the opt-out row and every hide commit together, so a reversal sees
-      // each work this request hid.
-      await db.transaction().execute(async (trx) => {
-        const request = await trx
-          .insertInto("requests")
-          .values({ ...base, kind: "opt_out", pseud_norm: pseudNorm })
-          .returning("id")
-          .executeTakeFirstOrThrow();
-        // X6 (#67) conditions this block, the active row and the hides, on the requester not
-        // being blocked.
-        await trx
-          .insertInto("optouts")
-          .values({ pseud_norm: pseudNorm, request_id: request.id, active: true })
-          .execute();
-        // A stored pseud is as written, so it is matched here by the rule the opt-out list
-        // uses, not in SQL. This reads every author row: it grows with the archive.
-        const authors = await trx.selectFrom("work_authors").select(["work_id", "pseud"]).execute();
-        const matching = new Set<string>();
-        for (const author of authors) {
-          if (normalizePseud(author.pseud) === pseudNorm) matching.add(author.work_id);
-        }
-        // In id order, so two overlapping requests lock the same works in the same order.
-        for (const matched of [...matching].sort()) await hideForRequest(trx, request.id, matched);
-      });
+      request = await db
+        .insertInto("requests")
+        .values({ ...base, kind: "opt_out", pseud_norm: pseudNorm })
+        .returning("id")
+        .executeTakeFirstOrThrow();
+    }
+    // No transaction is held across the send: the row is written, then deleted if the email
+    // can't be queued, so no request is kept that its requester was never told of.
+    try {
+      const url = `${SITE}/remove/confirm?token=${token}`;
+      await c.env.EMAIL.send({ kind: "removal-confirm", to: email, url });
+    } catch (error) {
+      // Its kind only: a queue error can name the address.
+      const kind = error instanceof Error ? error.name : "unknown";
+      console.error(`${c.req.method} ${c.req.path}: email not queued: ${kind}`);
+      // If this fails too, onError answers 500: the page below would be untrue.
+      await db
+        .deleteFrom("requests")
+        .where("id", "=", request.id)
+        .where("confirm_token_hash", "=", confirm_token_hash)
+        .execute();
+      return c.html(removeUnavailablePage(), 503, NO_STORE);
     }
   } finally {
     c.executionCtx.waitUntil(db.destroy());

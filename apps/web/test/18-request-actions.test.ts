@@ -2,6 +2,7 @@ import { createDb, normalizePseud } from "@archive/db";
 import { seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { hashToken } from "../src/waitlist";
 import { BASE, fetchW, signIn } from "./helpers";
 
 // One database serves every test file in the run. This file keeps to AO3 work IDs 40300 to
@@ -73,6 +74,8 @@ interface RequestOptions {
   status?: string;
   optOutActive?: boolean;
   created?: string;
+  /** Waiting for its requester's emailed confirmation (X3b, #487). Confirmed unless true. */
+  unconfirmed?: boolean;
 }
 
 /** A request as `/remove` stores it, written straight to the tables. */
@@ -90,6 +93,7 @@ async function addRequest(id: string, o: RequestOptions) {
       ip_hash: o.ip ?? `mod5-ip-${id}`,
       status: o.status ?? "pending",
       created_at: o.created ?? "2001-06-01T00:00:00Z",
+      confirmed_at: o.unconfirmed === true ? null : "2001-06-01T00:05:00Z",
     })
     .execute();
   if (optOut) {
@@ -274,6 +278,99 @@ describe("18 moderation", () => {
 });
 
 describe("16 removal and opt-out", () => {
+  describe("Approve needs a confirmed request", () => {
+    it("An unconfirmed removal request has no Approve form and a POST approve is refused", async () => {
+      const work = await seed(40722);
+      await addRequest("x3b-unconf-removal", { work, unconfirmed: true });
+      const page = await (await get("/admin/requests/x3b-unconf-removal", moderator)).text();
+      expect(page).toContain("pending (unconfirmed)");
+      expect(page).not.toContain("/admin/requests/x3b-unconf-removal/approve");
+      // Reject stays: a moderator can still turn it down.
+      expect(page).toContain("/admin/requests/x3b-unconf-removal/reject");
+      for (const body of [undefined, "confirm=yes"]) {
+        const res = await fetchW("/admin/requests/x3b-unconf-removal/approve", {
+          method: "POST",
+          headers: {
+            cookie: moderator,
+            origin: BASE,
+            "sec-fetch-site": "same-origin",
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body,
+        });
+        expect(res.status).toBe(409);
+        expect(await res.text()).toContain("not confirmed");
+      }
+      expect(await statusOf("x3b-unconf-removal")).toBe("pending");
+      expect((await state(40722)).status).toBe("live");
+      expect(await logRows(["x3b-unconf-removal"])).toEqual([]);
+    });
+
+    it("An unconfirmed opt-out has no Confirm form and a POST approve is refused", async () => {
+      await addRequest("x3b-unconf-optout", { pseud: "x3b-unconf-pseud", unconfirmed: true });
+      const page = await (await get("/admin/requests/x3b-unconf-optout", moderator)).text();
+      expect(page).not.toContain("/admin/requests/x3b-unconf-optout/approve");
+      expect(page).toContain("/admin/requests/x3b-unconf-optout/reject");
+      const res = await post("/admin/requests/x3b-unconf-optout/approve", moderator);
+      expect(res.status).toBe(409);
+      expect(await statusOf("x3b-unconf-optout")).toBe("pending");
+      expect(await logRows(["x3b-unconf-optout"])).toEqual([]);
+    });
+
+    it("A confirm and a bulk restore over the same requests and work don't deadlock", async () => {
+      for (const n of [0, 1, 2, 3, 4, 5]) {
+        const work = await seed(40730 + n, "removal_request");
+        const email = `x3b-race-${n}@example.test`;
+        // R2 hid the work and is confirmed; R is for the same work, unconfirmed, with a link.
+        await addRequest(`x3b-race-hid-${n}`, { work, hid: [work], email });
+        await addRequest(`x3b-race-wait-${n}`, { work, email, unconfirmed: true });
+        const token = `${"r".repeat(42)}${n}`;
+        await db
+          .updateTable("requests")
+          .set({
+            confirm_token_hash: await hashToken(token),
+            confirm_sent_at: new Date(),
+          })
+          .where("id", "=", `x3b-race-wait-${n}`)
+          .execute();
+        const [restored, confirmed] = await Promise.all([
+          post(`/admin/requests/x3b-race-hid-${n}/restore-related`, moderator),
+          fetchW("/remove/confirm", {
+            method: "POST",
+            headers: {
+              origin: BASE,
+              "sec-fetch-site": "same-origin",
+              "content-type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({ token }).toString(),
+          }),
+        ]);
+        // Neither side is aborted by the database: no 500.
+        expect(restored.status, `restore ${n}`).toBe(200);
+        expect([200, 400], `confirm ${n}`).toContain(confirmed.status);
+      }
+    });
+
+    it("A confirmed request still shows Approve and works", async () => {
+      const work = await seed(40723);
+      await addRequest("x3b-conf-removal", { work });
+      const page = await (await get("/admin/requests/x3b-conf-removal", moderator)).text();
+      expect(page).toContain("/admin/requests/x3b-conf-removal/approve");
+    });
+
+    it("The related-requests table marks an unconfirmed request", async () => {
+      const email = "x3b-related@example.test";
+      await addRequest("x3b-rel-a", { email });
+      await addRequest("x3b-rel-unconfirmed", { email, unconfirmed: true });
+      await addRequest("x3b-rel-confirmed", { email });
+      const html = await (await get("/admin/requests/x3b-rel-a", moderator)).text();
+      const row = (id: string) =>
+        html.slice(html.indexOf(`/admin/requests/${id}`)).split("</tr>")[0]!;
+      expect(row("x3b-rel-unconfirmed")).toContain("(unconfirmed)");
+      expect(row("x3b-rel-confirmed")).not.toContain("unconfirmed");
+    });
+  });
+
   it("Moderator confirms an opt-out", async () => {
     const works = [await seed(40320, "removal_request"), await seed(40321, "removal_request")];
     await addRequest("mod5-confirm", { pseud: "mod5-confirm-pseud", hid: works });

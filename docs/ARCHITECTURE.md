@@ -20,7 +20,7 @@ an unofficial stopgap.
 | Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend |
 | Accepted files | AO3-native epub exports only. FanFicFare support comes later |
 | New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) |
-| Author identity | No work claims and no author verification while AO3 is down. Removal and opt-out are requests anyone can make, without proving who they are |
+| Author identity | No work claims and no author verification while AO3 is down. Removal and opt-out are requests anyone can make, without proving who they are, and they take effect once the requester confirms control of the contact email |
 | Search scope | Metadata only: title, author, tags, summary |
 | Chapter rendering | Inline in app pages behind a strict CSP, with no iframe |
 | Wait list | Before launch, `/` is a coming-soon page with a double opt-in wait list. Each confirmed address is sent one launch email, from the same mail subdomain as sign-in, spread over hours on its own queue. The list is deleted after the launch send |
@@ -149,7 +149,10 @@ takedowns    (id, work_id, requester, basis, status, resolved_by, created_at,
                            -- information; incomplete when a 512(c)(3)(A) element is missing;
                            -- status: pending, rejected, or removed (approved, which puts the work on the takedown list)
 requests     (id, kind, work_id NULL, pseud_norm NULL, contact_email, statement,
-              status, ip_hash, created_at)        -- kind: remove_work | opt_out; status: pending, rejected, approved
+              status, ip_hash, confirm_token_hash NULL, confirm_sent_at NULL,
+              confirmed_at NULL, created_at)      -- kind: remove_work | opt_out; status: pending, rejected, approved; a request
+              -- hides nothing until confirmed_at is set by the emailed link (the token is
+              -- kept only as a hash, cleared on confirm); rows from before that count as confirmed
 request_works (request_id, work_id)  -- written whenever a request hides a work, so a reversed
               request restores exactly those
 optouts      (id, pseud_norm, ao3_user NULL, request_id, active, created_at)  -- checked at ingest
@@ -751,7 +754,7 @@ can be snapshotted.
   - **Failures:** a message that fails on both providers is retried by the
     queue, then moved to a dead-letter queue, never dropped silently. Queued
     messages hold an address and a link (a sign-in link expires after 15
-    minutes, a wait list confirmation link after 7 days), so the dead-letter
+    minutes, a wait list or removal confirmation link after 7 days), so the dead-letter
     queue keeps them for one day at most, and
     nothing prints its contents to logs.
   - The mailer sends with Resend's batch API, to stay under its
@@ -760,7 +763,8 @@ can be snapshotted.
   - Mail goes from a dedicated subdomain with SPF, DKIM and DMARC, warmed up
     before launch. The wait list's confirmation emails do that warm-up, and
     the launch email goes from the same subdomain (Wait list).
-  - **Two queues.** `email` carries sign-in and wait list confirmation emails.
+  - **Two queues.** `email` carries sign-in, wait list confirmation and removal
+    confirmation emails (Author requests & takedowns).
     `email-bulk` carries only the launch email, and its consumer sends at a
     configured rate that leaves room under Resend's per-second limit, so a
     launch send never delays a sign-in link.
@@ -781,23 +785,43 @@ are part of the MVP, not extras.
 **No claims while AO3 is down.** AO3 is the only place that could vouch for who
 wrote a work, and it's offline. Rather than accept weak proof, we don't offer
 work claims, author accounts or author self-service at all. Authors don't need
-an account. Whoever asks gets the same thing: a work hidden or an opt-out
+an account. Whoever asks, and confirms their email, gets the same thing: a work hidden or an opt-out
 applied. Authors update a work the same way anyone does, by uploading a newer
 epub, under the normal versioning rules.
 
 - **Remove my work.** A public form at `/remove` asks for the work's URL here
   or its AO3 URL, a contact email and a short statement. No sign-in, but
-  Turnstile is required. The work is hidden **at once** and a moderator
-  reviews the request. We err on the side of the person asking. If the AO3 URL
-  given isn't a work in the archive, nothing is stored: the confirmation says
-  the work isn't here and suggests opting out the pseud instead, which also
-  covers future uploads.
-- **Opt out.** The same form, given a pseud instead of a work. It hides every
-  existing work by that pseud at once, and the opt-out list is checked again
-  at ingest for new uploads. A moderator confirms it. A mistaken opt-out can be
-  reversed.
-- **Abuse of instant hiding.** Since nobody has to prove who they are, anyone
-  can hide any work for a while. Limits: requests are rate-limited per email
+  Turnstile is required. The request is stored unconfirmed and one email with
+  a single-use link goes to the contact address; the work is hidden when the
+  requester **confirms it from that link**, and a moderator reviews the
+  request. We err on the side of the person asking. If the AO3 URL
+  given isn't a work in the archive, nothing is stored and no email is sent:
+  the page says the work isn't here and suggests opting out the pseud
+  instead, which also covers future uploads.
+- **Opt out.** The same form, given a pseud instead of a work. Once the
+  requester confirms it from the emailed link, it hides every existing work by
+  that pseud and becomes an active opt-out, which is checked again at ingest
+  for new uploads; until then no opt-out row is active and ingest sees
+  nothing. A moderator approves it. A mistaken opt-out can be reversed.
+- **The confirmation link.** It is a token of 32 random bytes, stored only as a
+  hash and cleared when used. Opening it shows a button and changes nothing, so
+  a mail scanner can't confirm; pressing it (a same-origin POST) is one
+  transaction that locks the work first, claims the request and does the hide
+  and the `request_works` rows. It works once and for 7 days from the email, and
+  not for a request a moderator rejected. A used, expired or unknown link gets
+  one page saying so. The submit page, the email and the confirmed page read the
+  same whatever the work's status, and the email names neither the work nor
+  the statement. If the email can't be queued the request is deleted and the page asks
+  for a retry. There is no resend: asking again makes a new request with its own
+  link, under the same rate limits. An unconfirmed request stays pending in the
+  moderators' queue, marked unconfirmed (also in the related-requests table), and holds no
+  hide, so it doesn't keep another request's hide from being lifted. Approve, for a removal
+  request or an opt-out, is offered and works only for a confirmed request; an unconfirmed
+  one can only be rejected, and a POST approve is refused with the item unchanged.
+- **Abuse of instant hiding.** Nobody has to prove who they are, but a
+  request hides nothing until its contact address is confirmed, so someone
+  can't hide a work by typing another person's address. Anyone with an inbox
+  can still hide any work for a while. Limits: requests are rate-limited per email
   and per IP (429 with `Retry-After`). A hidden work says why it is hidden,
   not a 404 (see below). Moderators can see every request from the same email
   or IP together, restore in bulk, and block a requester. We accept this risk:
@@ -849,7 +873,7 @@ epub, under the normal versioning rules.
   a designated agent registered with the US Copyright Office, a public takedown
   form, a counter-notice process and a repeat-infringer policy. Get a lawyer to
   review this before launch. A notice from `/dmca` lands in the takedowns
-  queue and does **not** hide the work by itself (unlike `/remove`): a
+  queue and does **not** hide the work by itself: a
   moderator decides whether to hide or remove it. While no moderator has acted
   on it, the notice doesn't block re-uploads of the work either. Once a
   moderator removes the work, by Approve or by Remove on the work or the notice's page, every
@@ -1050,7 +1074,9 @@ markup: its inline `style` attributes become stylesheet rules, because
   a 503 when Turnstile can't be reached and a 413 for a body too large; the form
   may hold what was typed, so each is sent `Cache-Control: no-store`), and
   so does a form missing required fields (such as `/remove` without a contact
-  email, or without a work or pseud). A sign-in POST from any other origin (a
+  email, or without a work or pseud). `POST /remove` answers 503 too when its
+  confirmation email can't be queued, and a used, expired or unknown removal
+  confirmation link (`/remove/confirm`) gets a **400** page. A sign-in POST from any other origin (a
   bad `Origin` / `Sec-Fetch-Site`, as in Auth) gets **403**. An upload request
   declaring more than 25 MB for any file, or asking for more than 10 files, gets **413**. A used, expired or unknown magic link is
   **redirected to `/login`** with a plain message. A signed-out request to a

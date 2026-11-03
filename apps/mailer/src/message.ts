@@ -14,6 +14,17 @@ export interface WaitlistConfirmEmail {
 }
 
 /**
+ * The removal request's confirmation email (ARCHITECTURE, Author requests & takedowns). The
+ * link confirms a removal request or opt-out; the message names neither the work nor the
+ * statement.
+ */
+export interface RemovalConfirmEmail {
+  kind: "removal-confirm";
+  to: string;
+  url: string;
+}
+
+/**
  * The wait list's launch email, on the email-bulk queue only. `url` is the one-click
  * unsubscribe link holding the address's token (ARCHITECTURE, Wait list).
  */
@@ -23,16 +34,22 @@ export interface WaitlistLaunchEmail {
   url: string;
 }
 
-export type EmailMessage = SignInEmail | WaitlistConfirmEmail | WaitlistLaunchEmail;
+export type EmailMessage =
+  | SignInEmail
+  | WaitlistConfirmEmail
+  | RemovalConfirmEmail
+  | WaitlistLaunchEmail;
 
 const SITE = "https://rarepair.fans";
 const MAX_URL = 2048;
 
 // Each kind links to one page on the site, and to nothing else: a sign-in link to GET
-// /login/confirm (ARCHITECTURE, Auth and Hosts), a wait list link to GET /waitlist/confirm.
+// /login/confirm (ARCHITECTURE, Auth and Hosts), a wait list link to GET /waitlist/confirm,
+// a removal confirmation link to GET /remove/confirm.
 const LINK_PATHS: Record<EmailMessage["kind"], string> = {
   "sign-in": "/login/confirm",
   "waitlist-confirm": "/waitlist/confirm",
+  "removal-confirm": "/remove/confirm",
   "waitlist-launch": "/waitlist/unsubscribe",
 };
 
@@ -58,7 +75,14 @@ export function parseMessage(body: unknown): EmailMessage | null {
   // SAFETY: body is a non-null object, so reading named properties off it is safe; each value
   // is checked below.
   const { kind, to, url } = body as Record<string, unknown>;
-  if (kind !== "sign-in" && kind !== "waitlist-confirm" && kind !== "waitlist-launch") return null;
+  if (
+    kind !== "sign-in" &&
+    kind !== "waitlist-confirm" &&
+    kind !== "removal-confirm" &&
+    kind !== "waitlist-launch"
+  ) {
+    return null;
+  }
   if (typeof to !== "string" || !isSendableAddress(to)) return null;
   if (typeof url !== "string" || url.length > MAX_URL) return null;
   // The kind's own page on the site, with no user info to disguise the host and no fragment.

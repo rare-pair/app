@@ -299,6 +299,12 @@ export interface RequestTable {
   status: Generated<string>;
   /** Never the raw IP. */
   ip_hash: string;
+  /** SHA-256 hex of the emailed confirmation token; null once confirmed (or for an old request). */
+  confirm_token_hash: string | null;
+  /** When the confirmation email was queued: the link lasts 7 days from it. */
+  confirm_sent_at: Timestamp | null;
+  /** When the requester confirmed. Null until then: nothing is hidden before it. */
+  confirmed_at: Timestamp | null;
   created_at: CreatedTimestamp;
 }
 

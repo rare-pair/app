@@ -81,6 +81,36 @@ export async function emailsTo(to: string, { atLeast = 1 } = {}): Promise<EmailM
   }
 }
 
+/**
+ * The confirmation link the removal form emailed to `to`: waits for the one message and
+ * returns its token. `nth` picks among several (0 is the first), for an address that asked twice.
+ */
+export async function removalTokenFor(to: string, nth = 0): Promise<string> {
+  const mine = (await emailsTo(to, { atLeast: nth + 1 })).filter(
+    (m) => m.kind === "removal-confirm",
+  );
+  const link = URL.parse(mine[nth]?.url ?? "");
+  expect(link?.pathname).toBe("/remove/confirm");
+  return link?.searchParams.get("token") ?? "";
+}
+
+/** The browser's press of the confirm button: a same-origin form POST of the token. */
+export const postConfirmRemoval = (token: string) =>
+  fetchW("/remove/confirm", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      origin: BASE,
+      "sec-fetch-site": "same-origin",
+    },
+    body: new URLSearchParams({ token }).toString(),
+  });
+
+/** Opens the emailed link and presses the button, for `to`'s first removal email. */
+export async function confirmRemoval(to: string, nth = 0): Promise<Response> {
+  return postConfirmRemoval(await removalTokenFor(to, nth));
+}
+
 // The tokens vitest.config.ts's siteverify stand-in passes, one for each form: the dummy
 // token as solved under that form's action. The other forms refuse it.
 export const LOGIN_TOKEN = "XXXX.DUMMY.TOKEN.XXXX#login";

@@ -18,6 +18,7 @@ import m0015 from "./0015_sweep_state";
 import m0017 from "./0017_upload_account_banned";
 import m0016 from "./0016_backfill_versions";
 import m0018 from "./0018_request_works";
+import m0019 from "./0019_request_confirmation";
 
 export const migrations: ReadonlyArray<{ name: string; sql: string }> = [
   { name: "0001_better_auth", sql: m0001 },
@@ -38,4 +39,5 @@ export const migrations: ReadonlyArray<{ name: string; sql: string }> = [
   { name: "0017_upload_account_banned", sql: m0017 },
   { name: "0016_backfill_versions", sql: m0016 },
   { name: "0018_request_works", sql: m0018 },
+  { name: "0019_request_confirmation", sql: m0019 },
 ];

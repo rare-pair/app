@@ -73,8 +73,8 @@ The breakdown was cut on 2026-10-30, from `main` at `ee0b9c7`: 72 items covering
 | Removal & moderation | X4 | Report a work | R1, A2, D3 | [#46](https://github.com/rare-pair/app/issues/46) |
 | Removal & moderation | MOD3 | Works to check queue and its actions | MOD4, I4, X4, R4 | [#47](https://github.com/rare-pair/app/issues/47) |
 | Removal & moderation | X1 | Remove-my-work form and request intake | A1, D3, R1 | [#61](https://github.com/rare-pair/app/issues/61) |
-| Removal & moderation | X2 | A removal request hides the work at once | X1, R3, B3, SR1 | [#62](https://github.com/rare-pair/app/issues/62) |
-| Removal & moderation | X3 | An opt-out hides every work by the pseud | X2 | [#63](https://github.com/rare-pair/app/issues/63) |
+| Removal & moderation | X2 | A removal request hides the work, once its requester confirms it | X1, R3, B3, SR1 | [#62](https://github.com/rare-pair/app/issues/62) |
+| Removal & moderation | X3 | An opt-out hides every work by the pseud, once its requester confirms it | X2 | [#63](https://github.com/rare-pair/app/issues/63) |
 | Removal & moderation | X5 | Removal request rate limits | X1, A3 | [#64](https://github.com/rare-pair/app/issues/64) |
 | Removal & moderation | X7 | Reports from three accounts hide a work | X4, R3 | [#65](https://github.com/rare-pair/app/issues/65) |
 | Removal & moderation | MOD2 | Queue detail pages; hide and restore | MOD1, R3 | [#66](https://github.com/rare-pair/app/issues/66) |

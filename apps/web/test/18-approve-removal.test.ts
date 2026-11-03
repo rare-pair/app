@@ -106,6 +106,8 @@ async function addRequest(id: string, work: string | null, kind: "remove_work" |
       contact_email: `${id}@example.test`,
       statement: `${id}-statement`,
       ip_hash: "xr2-ip-hash",
+      // Approve is for a confirmed request (X3b, #487).
+      confirmed_at: "2001-06-01T00:05:00Z",
     })
     .execute();
 }
