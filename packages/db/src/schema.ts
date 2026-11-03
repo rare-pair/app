@@ -313,13 +313,13 @@ export interface OptoutTable {
   created_at: CreatedTimestamp;
 }
 
-/** Matches a later request by email or by IP hash, and a report by its account's email. */
 /** A work a removal request hid: written only when that request's own hide changed it. */
 export interface RequestWorkTable {
   request_id: string;
   work_id: string;
 }
 
+/** Matches a later request by email or by IP hash, and a report by its account's email. */
 export interface RequesterBlockTable {
   id: Generated<string>;
   /** As given. Match with `lower()` on both sides. */
