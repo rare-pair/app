@@ -114,7 +114,11 @@ export async function startSite({
 }: SiteOptions = {}): Promise<Site> {
   const t = await createTestDb({ maxConnections: 64 });
   const worker = await startWorker({ databaseUrl: t.connectionString, prelaunch });
-  const browser = await launchChromium(worker.port);
+  const browser = await launchChromium(worker.port).catch(async (error: unknown) => {
+    await worker.dispose();
+    await t.close();
+    throw error;
+  });
   const db = createDb({ connectionString: t.connectionString, max: 1 });
   const bucket = await worker.mf.getR2Bucket("BUCKET");
   const emailSink = await worker.mf.getWorker("email-sink");

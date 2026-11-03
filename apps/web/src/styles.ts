@@ -111,7 +111,8 @@ h2 {
 }
 
 .banner a,
-footer a {
+footer a,
+.chapters a {
   display: inline-block;
   min-height: 24px;
   line-height: 24px;

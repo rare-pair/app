@@ -37,6 +37,16 @@ describe("checkers: axe", () => {
     expect(formatResults((await checkAxe(page)).violations)).toBe("");
   });
 
+  it("reports best-practice rules apart, without failing on them", async () => {
+    await page.setContent(
+      `<!doctype html><html lang="en"><head><title>Checker</title></head>` +
+        `<body><h1>Checker</h1><p>No main landmark.</p></body></html>`,
+    );
+    const { violations, bestPractice } = await checkAxe(page);
+    expect(formatResults(violations)).toBe("");
+    expect(bestPractice.map((r) => r.id)).toContain("landmark-one-main");
+  });
+
   it("runs target-size (WCAG 2.2, 2.5.8), which axe leaves off by default", async () => {
     await content(
       `<p><button style="width:10px;height:10px;padding:0;border:0">a</button>` +
