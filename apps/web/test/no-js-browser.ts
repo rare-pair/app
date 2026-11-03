@@ -31,6 +31,7 @@ export type Form = {
   /** The action as written, or the empty string when the form has none. */
   action: string;
   id: string | null;
+  className: string | null;
   hidden: boolean;
   /** Every field a browser would send untouched, in order: no unchecked box or button. */
   fields: Field[];
@@ -63,12 +64,15 @@ export function forms(html: string): Form[] {
     }
     for (const [, tag, text] of inner!.matchAll(/<textarea\b([^>]*)>([\s\S]*?)<\/textarea>/gi)) {
       const name = attr(tag!, "name");
-      if (name !== null) fields.push({ name, value: decode(text!), type: "textarea" });
+      // A parser drops the one line break right after <textarea>.
+      const value = decode(text!.replace(/^\r?\n/, ""));
+      if (name !== null) fields.push({ name, value, type: "textarea" });
     }
     return {
       method: (attr(attributes!, "method") ?? "get").toLowerCase() === "post" ? "post" : "get",
       action: attr(attributes!, "action") ?? "",
       id: attr(attributes!, "id"),
+      className: attr(attributes!, "class"),
       hidden: attr(attributes!, "hidden") !== null,
       fields,
       html: inner!,
@@ -102,23 +106,16 @@ export const h1Text = (html: string) =>
  * Asserts that each needle is in `html` and that they come in the order given: the order
  * a reader meets them with CSS off. `where` names the page in a failure.
  */
-export function expectInOrder(html: string, needles: (string | RegExp)[], where = "") {
+export function expectInOrder(html: string, needles: string[], where = "") {
   let from = 0;
   let previous = "the start";
   for (const needle of needles) {
     const rest = html.slice(from);
-    const found =
-      typeof needle === "string" ? { at: rest.indexOf(needle), size: needle.length } : find(rest, needle);
-    const label = String(needle);
-    expect(found.at, `${where}: ${label} should come after ${previous}`).toBeGreaterThanOrEqual(0);
-    from += found.at + found.size;
-    previous = label;
+    const at = rest.indexOf(needle);
+    expect(at, `${where}: ${needle} should come after ${previous}`).toBeGreaterThanOrEqual(0);
+    from += at + needle.length;
+    previous = needle;
   }
-}
-
-function find(text: string, pattern: RegExp) {
-  const match = pattern.exec(text);
-  return match === null ? { at: -1, size: 0 } : { at: match.index, size: match[0].length };
 }
 
 export type Page = {
@@ -156,8 +153,8 @@ export class NoJsBrowser {
 
   private async send(path: string, init: RequestInit = {}) {
     this.visited.push(path);
-    const headers: Record<string, string> = { ...(init.headers as Record<string, string>) };
-    if (this.cookies.size > 0) headers.cookie = this.header();
+    const headers = new Headers(init.headers);
+    if (this.cookies.size > 0) headers.set("cookie", this.header());
     const res = await fetchW(path, { ...init, headers });
     for (const setCookie of res.headers.getSetCookie()) this.keep(setCookie);
     return res;

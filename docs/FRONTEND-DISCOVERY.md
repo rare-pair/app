@@ -159,7 +159,7 @@ without it. Elsewhere the
 | Search results | `/search?q=…` | all | GET form, paged results, filter form | — |
 | Fandom / tag listing | `/tags/:slug` | all | Paged works, sort and filter as a GET form | — |
 | Work page | `/works/:id` | all | Full metadata, chapter list, links; the "may be imperfect" notice when it applies | — |
-| Warnings screen | `/works/:id/warnings` | all | Shown on first entry to any reading page of a warned or Not Rated work, then remembered for the session; Continue link to the page asked for, plus a turn-off checkbox when signed in (saved to the account) | — |
+| Warnings screen | `/works/:id/warnings` | all | Shown on first entry to any reading page of a warned or Not Rated work, then remembered for the session; Continue button (a POST form) to the page asked for, plus a turn-off checkbox when signed in (saved to the account) | — |
 | Chapter reader | `/works/:id/chapters/:n` | all | Chapter, nav, settings link; the "may be imperfect" notice when it applies | Settings without reload, saves position |
 | Entire work | `/works/:id/full` | all | All chapters on one page; the "may be imperfect" notice when it applies | Saves position |
 | Reader settings | `/settings/reader` | all | POST form sets a cookie, then redirects back; signed-in readers also get the warnings on/off choice, saved to their account | Applied live from the reader |
