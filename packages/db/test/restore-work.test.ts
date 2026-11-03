@@ -55,6 +55,7 @@ describe("restoreWork", () => {
         contact_email: "restore-pending@example.test",
         statement: "restore-pending",
         ip_hash: "restore-ip-hash",
+        confirmed_at: new Date(),
       })
       .execute();
     expect(await restoreWork(t.db, workId, { noPendingRequests: true })).toBe(false);
@@ -62,6 +63,24 @@ describe("restoreWork", () => {
       .updateTable("requests")
       .set({ status: "rejected" })
       .where("work_id", "=", workId)
+      .execute();
+    expect(await restoreWork(t.db, workId, { noPendingRequests: true })).toBe(true);
+  });
+
+  it("With noPendingRequests, an unconfirmed pending request does not keep it hidden", async () => {
+    const { workId } = await seedWork(t.db, { status: "hidden", hiddenCause: "removal_request" });
+    // Waiting for the requester's emailed confirmation: it hid nothing.
+    await t.db
+      .insertInto("requests")
+      .values({
+        kind: "remove_work",
+        work_id: workId,
+        contact_email: "restore-unconfirmed@example.test",
+        statement: "restore-unconfirmed",
+        ip_hash: "restore-ip-hash",
+        confirm_token_hash: "restore-unconfirmed-hash",
+        confirm_sent_at: new Date(),
+      })
       .execute();
     expect(await restoreWork(t.db, workId, { noPendingRequests: true })).toBe(true);
   });

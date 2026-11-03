@@ -794,7 +794,7 @@ export async function hideWork(
  * reporter count and the next report doesn't hide it again. True when it
  * restored it. With `cause`, only a work hidden for that cause comes back (a
  * rejected removal request lifts its own hide, not a moderator's). With
- * `noPendingRequests`, it stays hidden while any request for it is pending. A live or
+ * `noPendingRequests`, it stays hidden while any confirmed request for it is pending. A live or
  * removed work is left as it is (a hidden work always has
  * a current version: the schema's check, so it can't come back without one).
  *
@@ -824,7 +824,9 @@ export async function restoreWork(
               .selectFrom("requests")
               .select("requests.id")
               .where("requests.work_id", "=", workId)
-              .where("requests.status", "=", "pending"),
+              .where("requests.status", "=", "pending")
+              // One still waiting for its emailed confirmation hid nothing.
+              .where("requests.confirmed_at", "is not", null),
           ),
         ),
       );
