@@ -56,7 +56,17 @@ async function waitForEntry(key: string) {
   return undefined;
 }
 
-const get = (key: string, init: RequestInit = {}) => worker.fetch(`${ORIGIN}/${key}`, init);
+// A plain GET through the Worker. Its cache write runs after the response, out of the
+// test's reach, so a 200 waits for the entry to land: no later step races a late put.
+async function get(key: string, init: RequestInit = {}) {
+  const res = await worker.fetch(`${ORIGIN}/${key}`, init);
+  const plain = (init.method ?? "GET") === "GET" && !new Headers(init.headers).has("range");
+  if (res.status === 200 && plain) {
+    await res.clone().arrayBuffer();
+    await waitForEntry(key);
+  }
+  return res;
+}
 
 // The Worker's cache outlives a test, and its keys are shared across the file: a test that
 // changes what a key holds first drops the entries it could be answered from.
@@ -121,6 +131,7 @@ describe("09-content-origin", () => {
   it("Original epub is never displayed inline", async () => {
     // Stored metadata is not trusted: an object written with an HTML type and an
     // inline disposition still downloads as an epub attachment.
+    await uncache(ORIGINAL_KEY);
     await E.BUCKET.put(ORIGINAL_KEY, EPUB, {
       httpMetadata: { contentType: "text/html", contentDisposition: "inline" },
     });
