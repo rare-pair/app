@@ -33,6 +33,9 @@ async function expectTooManyRequests(res: Response) {
   expect(res.headers.get("retry-after")).toBe(String(SEARCH_WINDOW_SECONDS));
   expect(res.headers.get("cache-control")).toBe("no-store");
   expect(res.headers.get("referrer-policy")).toBe("strict-origin");
+  // The middleware chain still wraps the refusal.
+  expect(res.headers.get("strict-transport-security")).toBe("max-age=31536000; includeSubDomains");
+  expect(res.headers.get("content-security-policy")).toContain("default-src 'self'");
   expect(res.headers.get("content-type")).toMatch(/^text\/html/);
   const html = await res.text();
   expect(html).toContain("Too many requests");
@@ -130,6 +133,29 @@ describe("19-surge-controls", () => {
     expect((await get()).status).toBe(200);
   });
 
+  it("Throttling recovers after the window for a signed-in user", async () => {
+    const cookie = await newUser("search-recovers");
+    let calls = 0;
+    const recovering: RateLimit = {
+      limit: async () => ({ success: calls++ > 0 }),
+    };
+    const get = async () => {
+      const ctx = createExecutionContext();
+      const res = await app.fetch(
+        new Request(`${BASE}/search?q=${QUERY}`, {
+          headers: { "cf-connecting-ip": freshIp(), cookie },
+        }),
+        { ...env, SEARCH_USER_LIMIT: recovering },
+        ctx,
+      );
+      await waitOnExecutionContext(ctx);
+      return res;
+    };
+
+    await expectTooManyRequests(await get());
+    expect((await get()).status).toBe(200);
+  });
+
   it("A failing rate limiter lets a search through and logs no user, IP, query or key", async () => {
     const cookie = await newUser("search-limiter-down");
     const keys: string[] = [];
@@ -159,7 +185,8 @@ describe("19-surge-controls", () => {
     for (const key of keys) expect(key).toMatch(/^[0-9a-f]{64}$/);
     expect(logged.length).toBeGreaterThan(0);
     const log = logged.join("\n");
-    for (const secret of [ip, QUERY, "search-limiter-down", ...keys]) {
+    const sessionToken = cookie.slice(cookie.indexOf("=") + 1);
+    for (const secret of [ip, QUERY, "search-limiter-down", sessionToken, ...keys]) {
       expect(log).not.toContain(secret);
     }
   });
