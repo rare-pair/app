@@ -10,6 +10,8 @@ import type { Context } from "hono";
 import type { Bindings } from "./env";
 import { PAGE_SIZE, pager, pageOf, RATINGS, select, workList, type Pair } from "./listing";
 import { DRAFT, escapeHtml, layout } from "./pages";
+import { ipKey, isLimited, SEARCH_WINDOW_SECONDS, tooManyRequests, userKey } from "./rate-limit";
+import type { SessionVariables } from "./session";
 
 /** The query is in the URL: a cross-site link on a result must not carry it in the Referer. */
 const REFERRER_POLICY = "strict-origin";
@@ -61,7 +63,7 @@ function searchHref(q: string, { fandom, rating }: Filters, page: number): strin
   return escapeHtml(`/search?${new URLSearchParams(params).toString()}`);
 }
 
-export async function showSearch(c: Context<{ Bindings: Bindings }>) {
+export async function showSearch(c: Context<{ Bindings: Bindings; Variables: SessionVariables }>) {
   // On every response, an error and a 404 too: the URL holds the reader's query.
   c.header("Referrer-Policy", REFERRER_POLICY);
   // Postgres refuses a NUL, so the db reads one as a space; the page shows what was searched.
@@ -69,6 +71,21 @@ export async function showSearch(c: Context<{ Bindings: Bindings }>) {
   const filters = filtersOf(c.req.query("fandom"), c.req.query("rating"));
   // A missing or blank query shows the form and no results, whatever the filters.
   if (q.trim() === "") return c.html(layout("Search", searchForm(q, filters)));
+  // Counted before the database is opened, so a refused search costs no connection, and a bare
+  // form (above) costs none of the budget. The user first, so one user over their limit can't
+  // spend the budget of an address others share. A signed-out search is keyed on its IP only.
+  const user = c.var.session?.user;
+  const clientIp = c.req.header("cf-connecting-ip") ?? null;
+  if (
+    (user !== undefined &&
+      (await isLimited(c.env.SEARCH_USER_LIMIT, await userKey("search", user.id)))) ||
+    (await isLimited(c.env.SEARCH_IP_LIMIT, await ipKey("search", clientIp)))
+  ) {
+    // A bare Response doesn't carry what was set on the context.
+    const limited = tooManyRequests(SEARCH_WINDOW_SECONDS);
+    limited.headers.set("Referrer-Policy", REFERRER_POLICY);
+    return limited;
+  }
   const page = pageOf(c.req.query("page"));
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
   try {
