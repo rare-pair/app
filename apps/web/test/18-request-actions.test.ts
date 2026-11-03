@@ -194,7 +194,9 @@ describe("18 moderation", () => {
       ids.map(() => ["reject", "request", moderatorId]),
     );
     expect(rows.map((r) => r.note).sort((a, b) => String(a).localeCompare(String(b)))).toEqual(
-      ao3.map((n) => `Restored works: ${n}`).sort((a, b) => String(a).localeCompare(String(b))),
+      ao3
+        .map((n) => `Bulk restore from mod5-bulk-2. Restored works: ${n}`)
+        .sort((a, b) => String(a).localeCompare(String(b))),
     );
     expect(await logRows(["mod5-bulk-unrelated"])).toEqual([]);
   });
@@ -327,7 +329,7 @@ describe("16 removal and opt-out", () => {
         action: "reject",
         target_kind: "request",
         target_id: "mod5-rev",
-        note: "Restored works: 40330, 40331, 40332",
+        note: "Opt-out reversed. Restored works: 40330, 40331, 40332",
       },
     ]);
     // A second reverse changes nothing.

@@ -235,7 +235,7 @@ adminItems.get("/requests/:id{[A-Za-z0-9_-]+}", async (c) => {
       `${row.ao3_work_id === null ? "" : workActions(row.ao3_work_id, self)}\n${requestForms(
         id,
         row,
-        related.length > 0,
+        related.length > QUEUE_LIMIT || related.some((r) => r.kind === "remove_work"),
       )}\n${relatedTable(
         related.slice(0, QUEUE_LIMIT).map((r) => ({
           cells: [
@@ -373,6 +373,8 @@ adminItems.post("/requests/:id{[A-Za-z0-9_-]+}/reject", async (c) => {
       .selectFrom("requests")
       .select("kind")
       .where("id", "=", id)
+      // Requests before works, as the bulk restore locks them.
+      .forUpdate()
       .executeTakeFirst();
     if (!asked) return null;
     const optOut = asked.kind === "opt_out";
@@ -400,24 +402,28 @@ adminItems.post("/requests/:id{[A-Za-z0-9_-]+}/reject", async (c) => {
     // The hide a request caused comes off, never a moderator's or the reports', and
     // not while something else covers the work. It is a consequence of the reject, so
     // only the reject is logged, with the works it brought back in its note.
-    const { restored } = await restoreOwnWorks(trx, id, linked, new Set());
+    const { restored, covered } = await restoreOwnWorks(trx, id, linked, new Set());
     await logModerationAction(trx, {
       moderatorId: c.var.userId,
       action: "reject",
       targetKind: "request",
       targetId: id,
-      note: restoredNote(restored),
+      note: restoredNote(restored, optOut ? "Opt-out reversed. " : ""),
     });
-    return { restored: restored.length, optOut };
+    return { restored: restored.length, covered: covered.length, optOut };
   });
   if (!decided) return decidedOrMissing(c, "requests", id);
   const lifted =
     decided.restored === 0
       ? ""
       : ` ${decided.restored} work${decided.restored === 1 ? " is" : "s are"} live again.`;
+  const held =
+    decided.covered === 0
+      ? ""
+      : ` ${decided.covered} work${decided.covered === 1 ? " stays" : "s stay"} hidden: something else still covers ${decided.covered === 1 ? "it" : "them"}.`;
   return c.html(
     resultPage(
-      `Rejected.${decided.optOut ? " The opt-out is no longer active." : ""}${lifted}`,
+      `Rejected.${decided.optOut ? " The opt-out is no longer active." : ""}${lifted}${held}`,
       `/admin/requests/${encodeURIComponent(id)}`,
     ),
   );

@@ -26,7 +26,11 @@ export const relatedRequests = (
     .where("requests.id", "<>", request.id)
     .where((eb) =>
       eb.or([
-        eb(sql<string>`lower(requests.contact_email)`, "=", request.contactEmail.toLowerCase()),
+        eb(
+          sql<string>`lower(requests.contact_email)`,
+          "=",
+          sql<string>`lower(${request.contactEmail})`,
+        ),
         eb("requests.ip_hash", "=", request.ipHash),
       ]),
     );
@@ -135,11 +139,14 @@ export async function restoreOwnWorks(
   return { restored, covered };
 }
 
-/** A log note naming the restored works by AO3 work ID, cut to fit; undefined when none. */
-export function restoredNote(restored: LockedWork[]) {
-  if (restored.length === 0) return undefined;
+/**
+ * A log note naming the restored works by AO3 work ID, cut to fit; undefined when there is
+ * nothing to say. `prefix` says why, such as "Opt-out reversed. ", and counts toward the limit.
+ */
+export function restoredNote(restored: LockedWork[], prefix = "") {
+  if (restored.length === 0) return prefix === "" ? undefined : prefix.trim();
   const ids = restored.map((w) => w.ao3WorkId).sort((a, b) => a - b);
-  let note = "Restored works:";
+  let note = `${prefix}Restored works:`;
   let shown = 0;
   for (const id of ids) {
     const next = `${note}${shown === 0 ? " " : ", "}${id}`;
@@ -177,6 +184,15 @@ adminRequestActions.post("/requests/:id{[A-Za-z0-9_-]+}/restore-related", async 
       ...related.map((r) => r.id),
     ].sort();
     if (batch.length === 0) return { restored: 0, covered: 0, rejected: 0 };
+    // The batch's own rows first, in id order, so overlapping actions queue up here, also
+    // for requests that hid no work and so have no work to lock.
+    await trx
+      .selectFrom("requests")
+      .select("id")
+      .where("id", "in", batch)
+      .orderBy("id")
+      .forUpdate()
+      .execute();
     const linked = await lockLinkedWorks(trx, batch);
     // The pending ones are rejected first, all of them, so none counts as covering a work
     // that another of them hid.
@@ -206,7 +222,7 @@ adminRequestActions.post("/requests/:id{[A-Za-z0-9_-]+}/restore-related", async 
           action: "reject",
           targetKind: "request",
           targetId: requestId,
-          note: restoredNote(result.restored),
+          note: restoredNote(result.restored, `Bulk restore from ${id.slice(0, 40)}. `),
         });
       }
     }
