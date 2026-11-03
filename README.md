@@ -7,7 +7,7 @@ From the repository root, after `npm ci`:
 | Command | Runs |
 |---|---|
 | `npm test` | Every workspace's Vitest suites (Node, and workerd through `@cloudflare/vitest-plugin`), then `scripts/*.test.mjs`. Needs no browser. |
-| `npm run test:browser` | The browser suites in `apps/web/browser/`: headless Chromium against the web Worker. Not part of `npm test`. About 2 minutes. |
+| `npm run test:browser` | The browser suites in `apps/web/browser/`: headless Chromium against the web Worker. Not part of `npm test`. Under a minute. |
 | `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm run build` | The other standing checks. |
 
 ### The browser suites
@@ -27,9 +27,9 @@ Headless runs need only the headless shell, so CI may use `npx playwright instal
 
 **Adding a browser suite.** Put it in its own folder under `apps/web/browser/` (`a11y/` holds the accessibility suites), in a file named `*.browser.test.ts`. The pieces are in `apps/web/browser/harness/`:
 
-- `startSite({ prelaunch, viewport })` (`site.ts`) starts the Worker, its database and Chromium. Each file starts its own in `beforeAll` and calls `site.close()` in `afterAll`; the files run one at a time.
+- `startSite({ prelaunch, viewport })` (`site.ts`) starts the Worker (bundled once per run, `global-setup.ts`), its database and Chromium, on free ports. Each file starts its own in `beforeAll` and calls `site.close()` in `afterAll`; files run side by side. `a11y/inventory-suite.ts` shows the pattern for a suite over the whole inventory.
 - `site.newContext()` opens a signed-out browser context; `signedIn(site, { email, role })` (`sessions.ts`) signs an account in through the Worker and returns a context holding its session. `role` is `reader`, `uploader` or `moderator`; `acceptTerms: false` leaves a new account.
 - `seedReadableWork(site, options)` (`seed.ts`) seeds a work through `@archive/db/seed`, as the workerd tests do, and writes its chapters to the bucket; `seedInventory` seeds what the page inventory needs. `site.db` is the Worker's database, `site.emails()` what it has emailed.
 - `OPEN_PAGES` and `PRELAUNCH_PAGES` (`pages.ts`) list the page inventory; `visit` (`visit.ts`) opens one as its visitor. `hasSidewaysScroll(page)` (`layout.ts`) is the 360 px check.
 
-One database serves a file, so give each file its own AO3 work id block and email addresses. Text in tests is synthetic.
+One database serves a site, so give each site's seeds their own AO3 work id block and email addresses. Text in tests is synthetic.

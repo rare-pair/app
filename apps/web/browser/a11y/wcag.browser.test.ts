@@ -1,9 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { OPEN_PAGES, PRELAUNCH_PAGES, type InventoryPage } from "../harness/pages";
-import { seedInventory, type Inventory } from "../harness/seed";
-import { startSite, type Site } from "../harness/site";
-import { openVisitors, visit, type Visitors } from "../harness/visit";
+import { afterAll, describe, expect } from "vitest";
+import { OPEN_PAGES, PRELAUNCH_PAGES } from "../harness/pages";
 import { checkAxe, formatResults, type AxeResult } from "./axe";
+import { eachPage, useInventorySite } from "./inventory-suite";
 
 // Spec 21's WCAG 2.2 AA case, in a real browser: axe's WCAG 2.2 AA rules on every page of
 // the inventory, in the default light theme, with the archive open and before launch. Rules
@@ -24,37 +22,21 @@ afterAll(() => {
   );
 });
 
-/** A suite that runs axe on each of `pages`, on a site started with `prelaunch`. */
-function wcagSuite(title: string, pages: InventoryPage[], prelaunch: boolean, firstId: number) {
-  describe(title, () => {
-    let site: Site;
-    let visitors: Visitors;
-    let seeded: Inventory;
-    beforeAll(async () => {
-      site = await startSite({ prelaunch });
-      visitors = await openVisitors(site, `q1b-wcag-${firstId}`);
-      seeded = await seedInventory(site, { firstId, uploader: visitors.readerId });
-    });
-    afterAll(() => site.close());
-
-    it.each(pages)("$name", async (entry) => {
-      const { page, status } = await visit(site, visitors, entry, seeded);
-      try {
-        expect(status).toBe(entry.status ?? 200);
+describe("21 accessibility and no-JS: WCAG 2.2 AA", () => {
+  for (const [title, pages, prelaunch, firstId] of [
+    ["the archive open", OPEN_PAGES, false, 40900],
+    ["before launch", PRELAUNCH_PAGES, true, 40910],
+  ] as const) {
+    describe(title, () => {
+      const running = useInventorySite({ prelaunch, firstId, prefix: `q1b-wcag-${firstId}` });
+      eachPage(pages, running, async (page, entry) => {
         const report = await checkAxe(page);
         note(entry.name, "needs review", report.incomplete);
         note(entry.name, "best practice", report.bestPractice);
         expect(formatResults(report.violations)).toBe("");
         // Nothing off the site but the stand-ins: the page was checked as it would load.
-        expect(site.offSite).toEqual([]);
-      } finally {
-        await page.close();
-      }
+        expect(running.site.offSite).toEqual([]);
+      });
     });
-  });
-}
-
-describe("21 accessibility and no-JS: WCAG 2.2 AA", () => {
-  wcagSuite("the archive open", OPEN_PAGES, false, 40900);
-  wcagSuite("before launch", PRELAUNCH_PAGES, true, 40910);
+  }
 });

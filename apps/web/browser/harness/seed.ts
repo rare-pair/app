@@ -1,5 +1,6 @@
-import { insertUpload } from "@archive/db";
+import { insertUpload, normalizeTagName } from "@archive/db";
 import { putFragments, seedWork, type SeedWorkOptions } from "@archive/db/seed";
+import { tagHref } from "../../src/tag-links";
 import type { Site } from "./site";
 
 /**
@@ -37,14 +38,13 @@ export type Inventory = {
   report: string;
   takedown: string;
   request: string;
-  /** Uploads `uploader` made, one per status, newest last. */
-  uploads: string[];
 };
 
 /**
  * Seeds the works and moderation items every page of the inventory needs, with AO3 work ids
  * `firstId` to `firstId + 6` and names starting "q1b-". `uploader` is the user id of the
- * account that sees the uploads on My uploads. Text is synthetic.
+ * account that sees the uploads (one in each of five statuses) on My uploads. Text is
+ * synthetic.
  */
 export async function seedInventory(
   site: Site,
@@ -137,7 +137,6 @@ export async function seedInventory(
     .returning("id")
     .executeTakeFirstOrThrow();
 
-  const uploads: string[] = [];
   for (const status of ["pending", "processing", "live", "held_for_review", "not_epub"] as const) {
     const { id } = await insertUpload(site.db, {
       userId: uploader,
@@ -149,15 +148,7 @@ export async function seedInventory(
       .set({ status, work_id: status === "live" ? work.workId : null })
       .where("id", "=", id)
       .execute();
-    uploads.push(id);
   }
-
-  const tag = await site.db
-    .selectFrom("tags")
-    .select("name_norm")
-    .where("type", "=", "fandom")
-    .where("name", "=", fandom.name)
-    .executeTakeFirstOrThrow();
 
   return {
     work: firstId,
@@ -167,10 +158,9 @@ export async function seedInventory(
     hidden: firstId + 4,
     removed: firstId + 5,
     toCheck: firstId + 6,
-    fandomPath: `/tags/fandom/${encodeURIComponent(tag.name_norm)}`,
+    fandomPath: tagHref("fandom", normalizeTagName("fandom", fandom.name)),
     report: report.id,
     takedown: takedown.id,
     request: request.id,
-    uploads,
   };
 }

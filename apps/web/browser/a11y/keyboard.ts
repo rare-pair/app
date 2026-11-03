@@ -20,7 +20,10 @@ const CONTROLS =
   '[tabindex]:not([tabindex="-1"])';
 
 /** The page's controls, held in the page, and their names, in page order. */
-type Controls = { handle: JSHandle<HTMLElement[]>; names: string[] };
+type Controls = {
+  handle: JSHandle<{ els: HTMLElement[]; stopOf: (el: Element) => Element }>;
+  names: string[];
+};
 
 /**
  * Every control a keyboard user should reach, in page order. A radio group is one control,
@@ -30,20 +33,24 @@ type Controls = { handle: JSHandle<HTMLElement[]>; names: string[] };
  */
 async function controlsOf(page: Page): Promise<Controls> {
   const handle = await page.evaluateHandle((selector) => {
-    const seenGroups = new Set<string>();
-    return [...document.querySelectorAll<HTMLElement>(selector)].filter((el) => {
+    // The element standing for el's tab stop: the first radio of its group (same name, same
+    // form) for a radio, el itself for anything else.
+    const stopOf = (el: Element) =>
+      el instanceof HTMLInputElement && el.type === "radio"
+        ? ([...document.querySelectorAll("input[type=radio]")].find(
+            (r) => r instanceof HTMLInputElement && r.name === el.name && r.form === el.form,
+          ) ?? el)
+        : el;
+    const els = [...document.querySelectorAll<HTMLElement>(selector)].filter((el) => {
       if (el.closest("[inert]") !== null || el.matches(":disabled")) return false;
       if (el.getClientRects().length === 0 || getComputedStyle(el).visibility === "hidden") {
         return false;
       }
-      if (!(el instanceof HTMLInputElement) || el.type !== "radio") return true;
-      const group = `${el.form?.id ?? ""}/${el.name}`;
-      if (seenGroups.has(group)) return false;
-      seenGroups.add(group);
-      return true;
+      return stopOf(el) === el;
     });
+    return { els, stopOf };
   }, CONTROLS);
-  const names = await handle.evaluate((els) =>
+  const names = await handle.evaluate(({ els }) =>
     els.map((el) => {
       if (el instanceof HTMLInputElement) {
         return el.type === "radio" ? `radio ${el.name}` : `input ${el.name}`;
@@ -63,19 +70,11 @@ async function controlsOf(page: Page): Promise<Controls> {
  * stands for its group. `ring` is whether it shows a focus ring: an outline 2 px or wider.
  */
 const focused = (controls: Controls) =>
-  controls.handle.evaluate((els) => {
+  controls.handle.evaluate(({ els, stopOf }) => {
     const active = document.activeElement;
     if (active === null || active === document.body) return { index: null, ring: false };
-    const index = els.findIndex(
-      (el) =>
-        el === active ||
-        (el instanceof HTMLInputElement &&
-          active instanceof HTMLInputElement &&
-          el.type === "radio" &&
-          active.type === "radio" &&
-          el.name === active.name &&
-          el.form === active.form),
-    );
+    const stop = stopOf(active);
+    const index = els.findIndex((el) => el === stop);
     const style = getComputedStyle(active);
     const ring = style.outlineStyle !== "none" && Number.parseFloat(style.outlineWidth) >= 2;
     return { index, ring };

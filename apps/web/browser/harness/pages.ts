@@ -1,4 +1,5 @@
 import type { Inventory } from "./seed";
+import { freshIp, type ContextOptions, type Site } from "./site";
 
 /**
  * Who visits a page: signed out, a signed-in reader (who has uploads), a moderator, or a new
@@ -16,11 +17,25 @@ export type InventoryPage = {
   /** The status it answers with. Default 200. */
   status?: number;
   /**
-   * The client is over the search limit: the page is the too-many-requests answer. A suite
-   * fills the limit for the visitor's address just before it visits.
+   * Sets the page up just before each visit, for a client of its own: the visit opens a new
+   * signed-out context with the options this returns, instead of the visitor's.
    */
-  overSearchLimit?: true;
+  prepare?: (site: Site) => Promise<ContextOptions>;
 };
+
+/**
+ * Puts a new client over the search limit: searches from Node until the Worker answers 429,
+ * so the browser's search from that address, made at once, is refused in the same window.
+ */
+async function overSearchLimit(site: Site): Promise<ContextOptions> {
+  const ip = freshIp();
+  for (let i = 0; i < 100; i += 1) {
+    const res = await site.fetch("/search?q=q1b", { headers: { "cf-connecting-ip": ip } });
+    await res.arrayBuffer();
+    if (res.status === 429) return { ip };
+  }
+  throw new Error("the search limit never answered 429");
+}
 
 // A token in the shape the Worker issues. The confirm pages show their button for any such
 // token on GET and spend nothing: only the POST looks it up.
@@ -72,7 +87,7 @@ export const OPEN_PAGES: InventoryPage[] = [
     path: () => "/search?q=q1b",
     as: "anonymous",
     status: 429,
-    overSearchLimit: true,
+    prepare: overSearchLimit,
   },
   { name: "not found", path: () => "/q1b-no-such-page", as: "anonymous", status: 404 },
 ];

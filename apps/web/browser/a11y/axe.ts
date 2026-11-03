@@ -8,7 +8,7 @@ export type AxeResult = Awaited<ReturnType<AxeBuilder["analyze"]>>["violations"]
  * WCAG 2.2 AA in axe's tags: each version's A and AA rules, since a version's tag holds only
  * the criteria it added (axe-core's API.md). wcag22a has no rules in axe 4.14.
  */
-export const WCAG_22_AA = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
+const WCAG_22_AA = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 export type AxeReport = {
   /** WCAG 2.2 AA rules the page fails: the suite fails on these. */
@@ -19,18 +19,22 @@ export type AxeReport = {
   bestPractice: AxeResult[];
 };
 
+/** Whether a rule is one of WCAG 2.2 AA's, by its tags. */
+const isWcag = (r: AxeResult) => r.tags.some((tag) => WCAG_22_AA.includes(tag));
+
 /**
- * Runs axe on the page as it is: the WCAG 2.2 AA rules, then the best-practice ones apart,
- * so neither changes what the other reports. axe is injected through the page's evaluate,
- * which the site's CSP doesn't govern, so the page under test keeps its own policy.
+ * Runs axe on the page as it is, once, with the WCAG 2.2 AA and best-practice rules, and
+ * sorts the results by rule (axe judges each rule on its own). axe is injected through the
+ * page's evaluate, which the site's CSP doesn't govern, so the page keeps its own policy.
  */
 export async function checkAxe(page: Page): Promise<AxeReport> {
-  const wcag = await new AxeBuilder({ page }).withTags(WCAG_22_AA).analyze();
-  const practice = await new AxeBuilder({ page }).withTags(["best-practice"]).analyze();
+  const results = await new AxeBuilder({ page })
+    .withTags([...WCAG_22_AA, "best-practice"])
+    .analyze();
   return {
-    violations: wcag.violations,
-    incomplete: wcag.incomplete,
-    bestPractice: practice.violations,
+    violations: results.violations.filter(isWcag),
+    incomplete: results.incomplete.filter(isWcag),
+    bestPractice: results.violations.filter((r) => !isWcag(r)),
   };
 }
 

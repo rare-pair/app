@@ -1,5 +1,6 @@
 import type { RequestInit } from "miniflare";
 import type { BrowserContext } from "playwright";
+import { DUMMY_TOKEN } from "../../test/stand-ins";
 import { freshIp, SITE, type ContextOptions, type Site } from "./site";
 
 /**
@@ -17,9 +18,8 @@ export type Account = {
 /** A signed-in browser context, and the account's user id for seeding its own rows. */
 export type SignedIn = { context: BrowserContext; userId: string };
 
-// The siteverify stand-in passes Cloudflare's dummy token solved under the form's action
-// (test/stand-ins.ts).
-const LOGIN_TOKEN = "XXXX.DUMMY.TOKEN.XXXX#login";
+// The siteverify stand-in passes Cloudflare's dummy token solved under the form's action.
+const LOGIN_TOKEN = `${DUMMY_TOKEN}#login`;
 // src/auth.ts's SESSION_COOKIE. Not imported: that module brings Better Auth and the Workers
 // types with it. Were it renamed, signing in would fail here, finding no session cookie.
 const SESSION_COOKIE = "__Secure-better-auth.session_token";

@@ -1,18 +1,22 @@
-import { createDb, type Database } from "@archive/db";
+import type { Database } from "@archive/db";
 import type { FragmentBucket } from "@archive/db/seed";
 import { createTestDb } from "@archive/db/testing";
 import type { Kysely } from "kysely";
 import type { RequestInit, Response } from "miniflare";
 import { chromium, type Browser, type BrowserContext } from "playwright";
+import { inject } from "vitest";
 import { parseMessage, type EmailMessage } from "../../../mailer/src/message";
+import { CONTENT_HOST } from "../../src/content-host";
+import { SITE } from "../../src/signin";
+import { DUMMY_TOKEN } from "../../test/stand-ins";
 import { startWorker } from "./worker";
 
 /** Where the browser visits: the real site's origin, mapped to the local Worker. */
-export const SITE = "https://rarepair.fans";
+export { SITE };
 const HOST = new URL(SITE).host;
 // Stood in for in the browser, never fetched: Turnstile's script, and the image host.
 const TURNSTILE_SCRIPT = "https://challenges.cloudflare.com/turnstile/v0/api.js";
-const CONTENT = "https://content.rarepair.fans/";
+const CONTENT = `https://${CONTENT_HOST}/`;
 /**
  * Turnstile's script, standing in: every widget is solved at once with Cloudflare's dummy
  * token under the widget's action, which test/stand-ins.ts's siteverify passes. As the real
@@ -25,7 +29,7 @@ for (const widget of document.querySelectorAll(".cf-turnstile")) {
   const input = document.createElement("input");
   input.type = "hidden";
   input.name = "cf-turnstile-response";
-  input.value = "XXXX.DUMMY.TOKEN.XXXX#" + (widget.dataset.action || "");
+  input.value = ${JSON.stringify(`${DUMMY_TOKEN}#`)} + (widget.dataset.action || "");
   widget.append(input);
   tokens.push(input.value);
 }
@@ -39,15 +43,12 @@ const PIXEL = Buffer.from(
 
 export type Viewport = { width: number; height: number };
 
-/** The window every suite uses unless it asks for another. */
-export const DESKTOP: Viewport = { width: 1280, height: 800 };
-
 /**
- * The viewport `BROWSER_VIEWPORT` names, as `<width>x<height>` ("360x640"), or `DESKTOP`
+ * The viewport `BROWSER_VIEWPORT` names, as `<width>x<height>` ("360x640"), or 1280 by 800
  * when it is unset. Throws on anything else, so a typo never runs the suite at the default.
  */
 export function viewportFromEnv(value = process.env.BROWSER_VIEWPORT): Viewport {
-  if (value === undefined || value === "") return DESKTOP;
+  if (value === undefined || value === "") return { width: 1280, height: 800 };
   const match = /^(\d+)x(\d+)$/.exec(value);
   if (match === null) throw new Error(`BROWSER_VIEWPORT must look like 360x640, not "${value}"`);
   return { width: Number(match[1]), height: Number(match[2]) };
@@ -74,12 +75,10 @@ export type Site = {
   db: Kysely<Database>;
   /** The Worker's R2 bucket, for seeding fragments. */
   bucket: FragmentBucket;
-  viewport: Viewport;
-  browser: Browser;
   /**
    * A new browser context on the site, with the stand-ins for third parties: Turnstile's
-   * script solves every widget at once, and every content-host image is a 1x1 PNG. Any other request off
-   * the site is refused and recorded in `offSite`.
+   * script solves every widget at once, and every content-host image is a 1x1 PNG. Any other
+   * request off the site is refused and recorded in `offSite`.
    */
   newContext: (options?: ContextOptions) => Promise<BrowserContext>;
   /** Every off-site URL a page asked for that has no stand-in. */
@@ -123,26 +122,31 @@ export async function launchChromium(port?: number): Promise<Browser> {
 }
 
 /**
- * Starts the site: a migrated test database, the web Worker on it in Miniflare, and headless
- * Chromium. Each suite starts its own and closes it in `afterAll`.
+ * Starts the site: a migrated test database, the web Worker on it in Miniflare (from the
+ * run's bundle, global-setup.ts), and headless Chromium. Close it in `afterAll`.
  */
 export async function startSite({
   prelaunch = false,
   viewport = viewportFromEnv(),
 }: SiteOptions = {}): Promise<Site> {
   const t = await createTestDb({ maxConnections: 64 });
-  const worker = await startWorker({ databaseUrl: t.connectionString, prelaunch });
+  let worker: Awaited<ReturnType<typeof startWorker>> | undefined;
   let browser: Browser;
   try {
+    worker = await startWorker({
+      bundle: inject("workerBundle"),
+      databaseUrl: t.connectionString,
+      prelaunch,
+    });
     browser = await launchChromium(worker.port);
   } catch (error) {
-    await worker.dispose();
+    await worker?.mf.dispose();
     await t.close();
     throw error;
   }
-  const db = createDb({ connectionString: t.connectionString, max: 1 });
-  const bucket = await worker.mf.getR2Bucket("BUCKET");
-  const emailSink = await worker.mf.getWorker("email-sink");
+  const { mf } = worker;
+  const bucket = await mf.getR2Bucket("BUCKET");
+  const emailSink = await mf.getWorker("email-sink");
   const offSite: string[] = [];
 
   async function newContext({ ip = freshIp() }: ContextOptions = {}) {
@@ -171,14 +175,12 @@ export async function startSite({
   }
 
   return {
-    db,
+    db: t.db,
     bucket,
-    viewport,
-    browser,
     newContext,
     offSite,
     fetch: (path, init = {}) =>
-      worker.mf.dispatchFetch(new URL(path, SITE).toString(), { redirect: "manual", ...init }),
+      mf.dispatchFetch(new URL(path, SITE).toString(), { redirect: "manual", ...init }),
     async emails() {
       const res = await emailSink.fetch("https://email-sink/");
       // SAFETY: the sink answers with the JSON array of message bodies it was delivered.
@@ -187,8 +189,7 @@ export async function startSite({
     },
     async close() {
       await browser.close();
-      await db.destroy();
-      await worker.dispose();
+      await mf.dispose();
       await t.close();
     },
   };

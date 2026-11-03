@@ -7,7 +7,7 @@ const SITEVERIFY = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 // skips the action check (src/turnstile.ts), and the tests need it on.
 const TURNSTILE_SECRET_KEY = "test-only-turnstile-secret";
 // Cloudflare's published dummy token.
-const DUMMY_TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
+export const DUMMY_TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
 
 /**
  * The Worker's outbound network in tests: siteverify passes the dummy token under
