@@ -1,5 +1,4 @@
 import { normalizePseud, type Database } from "@archive/db";
-import type { ParsedWork } from "@archive/epub";
 import { sql, type Kysely } from "kysely";
 import { isDataErrorState, sqlState } from "./sql-state";
 import { parseWorkId } from "./work-id";
@@ -10,6 +9,16 @@ import { parseWorkId } from "./work-id";
  * writes this value (orchestrator ruling for #34; X8 #68, MOD1 #44).
  */
 export const TAKEDOWN_REMOVED = "removed";
+
+/**
+ * What the lists read of a parsed work (`ParsedWork` has more). Declared here, not imported
+ * from `@archive/epub`, so the Node tests of this module don't compile the processor, which
+ * needs the Workers types.
+ */
+export interface Listed {
+  ao3WorkId: string;
+  authors: readonly { pseud: string; user: string | null }[];
+}
 
 /**
  * The lists refused a value in the file (a NUL byte in a pseud, say): the same file fails the
@@ -29,10 +38,7 @@ export class ListCheckRejected extends Error {
  * the lists can't be read, so a job never saves past an unread list, and
  * `ListCheckRejected` when a list refuses a value in the file.
  */
-export async function onRejectList(
-  db: Kysely<Database>,
-  work: Pick<ParsedWork, "ao3WorkId" | "authors">,
-): Promise<boolean> {
+export async function onRejectList(db: Kysely<Database>, work: Listed): Promise<boolean> {
   // Both are read in every case: each throws if its list can't be.
   const [optedOutAuthor, takenDownWork] = await Promise.all([
     optedOut(db, checkedPseuds(work.authors)).catch(rejectDataError),
@@ -55,7 +61,7 @@ function rejectDataError(error: unknown): never {
  * gives a byline with no profile link, which names nobody. An author with a profile link whose
  * user is "Anonymous" is a user, and stays.
  */
-export function checkedPseuds(authors: ParsedWork["authors"]): string[] {
+export function checkedPseuds(authors: Listed["authors"]): string[] {
   const norms = authors
     .filter((a) => a.user !== null || normalizePseud(a.pseud) !== "anonymous")
     .map((a) => normalizePseud(a.pseud));
