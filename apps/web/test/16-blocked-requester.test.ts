@@ -76,12 +76,12 @@ const block = (by: { email?: string; ip?: string }) =>
     .execute();
 
 const submit = (fields: Record<string, string>, ip: string | null = freshIp()) => {
-  const headers: Record<string, string> = {
+  const headers = new Headers({
     "content-type": "application/x-www-form-urlencoded",
     origin: BASE,
     "sec-fetch-site": "same-origin",
-  };
-  if (ip !== null) headers["cf-connecting-ip"] = ip;
+  });
+  if (ip !== null) headers.set("cf-connecting-ip", ip);
   return fetchW("/remove", {
     method: "POST",
     headers,
@@ -185,10 +185,16 @@ describe("16-removal-and-opt-out", () => {
       const seen = async (res: Response) => ({
         status: res.status,
         headers: [...res.headers]
-          .map(([k, v]) => `${k}: ${k === "content-security-policy" ? withoutNonce(v) : v}`)
-          .filter((line) => !line.startsWith("set-cookie") && !line.startsWith("date"))
+          .flatMap(([k, v]) =>
+            k === "set-cookie" || k === "date"
+              ? []
+              : [`${k}: ${k === "content-security-policy" ? withoutNonce(v) : v}`],
+          )
           .sort(),
-        body: withoutNonce(await res.text()).replace(/value="[A-Za-z0-9_-]{43}"/g, 'value="TOKEN"'),
+        body: (withoutNonce(await res.text()) ?? "").replace(
+          /value="[A-Za-z0-9_-]{43}"/g,
+          'value="TOKEN"',
+        ),
       });
       return [await seen(sent), await seen(opened), await seen(pressed)];
     }

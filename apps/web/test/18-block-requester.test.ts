@@ -46,12 +46,12 @@ afterAll(() => db.destroy());
 const fresh = (name: string) => `x6-${name}-${crypto.randomUUID().slice(0, 8)}@example.test`;
 
 const submit = (fields: Record<string, string>, ip: string | null = freshIp()) => {
-  const headers: Record<string, string> = {
+  const headers = new Headers({
     "content-type": "application/x-www-form-urlencoded",
     origin: BASE,
     "sec-fetch-site": "same-origin",
-  };
-  if (ip !== null) headers["cf-connecting-ip"] = ip;
+  });
+  if (ip !== null) headers.set("cf-connecting-ip", ip);
   return fetchW("/remove", {
     method: "POST",
     headers,
