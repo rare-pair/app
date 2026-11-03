@@ -67,6 +67,8 @@ describe("20-site-chrome-and-legal", () => {
     expect(privacy).toMatch(/confirmation email/i);
     expect(privacy).toMatch(/wait list form/i);
     expect(privacy).toMatch(/user agent/i);
+    expect(privacy).toMatch(/network address/i);
+    expect(privacy).toMatch(/remoteip/i);
   });
 
   it("Footer links to removal", async () => {
