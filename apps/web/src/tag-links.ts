@@ -20,3 +20,10 @@ export const TAG_LABELS: Record<LinkedType, string> = {
   character: "Character",
   freeform: "Additional tag",
 };
+
+/** Every type's name, for a tag listing's heading ("Sherlock Holmes (fandom)"), lower-cased there. */
+export const TAG_NAMES: Record<TagType, string> = {
+  ...TAG_LABELS,
+  rating: "Rating",
+  warning: "Warning",
+};
