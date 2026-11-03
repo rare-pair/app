@@ -413,7 +413,7 @@ async function approveRemoval(
   // Still processing: nothing changed, so the item stays pending.
   if (removed.outcome === "processing") return removedPage(c, removed, self);
   // Inside the transaction only `trx` is used: `c.var.db` has one connection, which it holds.
-  await c.var.db.transaction().execute(async (trx) => {
+  const decided = await c.var.db.transaction().execute(async (trx) => {
     const marked =
       queue === "requests"
         ? await trx
@@ -430,14 +430,26 @@ async function approveRemoval(
             .where("status", "=", "pending")
             .returning("id")
             .executeTakeFirst();
-    if (!marked) return;
+    if (!marked) return false;
     await logModerationAction(trx, {
       moderatorId: c.var.userId,
       action: "approve",
       targetKind: queue === "requests" ? "request" : "takedown",
       targetId: id,
     });
+    return true;
   });
+  // Someone decided the item after the pending check: the removal has happened (and is safe
+  // to repeat), but this approve did not mark or log, and must not say it did.
+  if (!decided) {
+    return c.html(
+      resultPage(
+        "The work is removed, but the item was decided by someone else first, so it is unchanged.",
+        self,
+      ),
+      removed.caches === "failed" ? 502 : 200,
+    );
+  }
   // Marked even when the purge failed: Remove on the work retries it.
   return removedPage(c, removed, self);
 }

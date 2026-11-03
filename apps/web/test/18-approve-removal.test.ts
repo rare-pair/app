@@ -354,6 +354,38 @@ describe("17 reports and DMCA", () => {
     ]);
   });
 
+  it("A takedown on a processing work stays pending", async () => {
+    const ao3 = W + 23;
+    const { keys } = await seedWithObjects(ao3, { status: "live" });
+    const wid = await workId(ao3);
+    await db.updateTable("works").set({ status: "processing" }).where("id", "=", wid).execute();
+    await addTakedown("xr2-td-processing", wid);
+    const res = await post("/admin/takedowns/xr2-td-processing/approve", moderator, {
+      confirm: "yes",
+    });
+    expect(await res.text()).toContain("still processing");
+    expect(await statusOf("takedowns", "xr2-td-processing")).toBe("pending");
+    expect(await bucketKeys(keys)).toEqual(keys);
+    expect(await logFor("xr2-td-processing")).toEqual([]);
+  });
+
+  it("A takedown with a failed purge is still marked, and a second approve changes nothing", async () => {
+    const ao3 = W + 24;
+    await seedWithObjects(ao3, { status: "live" });
+    await addTakedown("xr2-td-purge", await workId(ao3));
+    await failNextPurge(`work-${ao3}`, 500);
+    const res = await post("/admin/takedowns/xr2-td-purge/approve", moderator, {
+      confirm: "yes",
+    });
+    expect(res.status).toBe(502);
+    expect(await statusOf("takedowns", "xr2-td-purge")).toBe("removed");
+    const again = await post("/admin/takedowns/xr2-td-purge/approve", moderator, {
+      confirm: "yes",
+    });
+    expect(await again.text()).toContain("Nothing changed");
+    expect(await logFor("xr2-td-purge")).toHaveLength(1);
+  });
+
   it("A hidden work is removed by a takedown approval", async () => {
     const ao3 = W + 21;
     await seedWithObjects(ao3, { status: "hidden", hiddenCause: "reports" });
