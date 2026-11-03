@@ -1,11 +1,13 @@
 // The detail page of each report, takedown and request under /admin, and the actions on
-// them: hide, restore and remove a work (keyed by its AO3 work ID) and reject an item (keyed by
-// its own id). Mounted in admin.ts, behind `adminGate`.
+// them: hide, restore and remove a work (keyed by its AO3 work ID), and reject or approve an
+// item (keyed by its own id; approving a request or a takedown removes the work). Mounted in admin.ts, behind `adminGate`.
 
 import { hideWork, logModerationAction, restoreWork } from "@archive/db";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import type { AdminEnv } from "./admin";
 import {
+  approveConfirmPage,
+  approveForm,
   itemPage,
   rejectForm,
   removeConfirmPage,
@@ -15,7 +17,7 @@ import {
   workStatusText,
 } from "./admin-pages";
 import { readForm } from "./login";
-import { removeDeps, removeWorkEverywhere } from "./remove-work";
+import { removeDeps, removeWorkEverywhere, type RemoveResult } from "./remove-work";
 import { isSameOrigin } from "./signin";
 
 /** An AO3 work ID is an int4. */
@@ -37,6 +39,16 @@ export const adminSameOrigin: MiddlewareHandler<AdminEnv> = async (c, next) => {
 export const adminItems = new Hono<AdminEnv>();
 
 const iso = (date: Date) => date.toISOString();
+
+/** The forms that decide a pending item: reject, and approve where approving removes a work. */
+const decideForms = (queue: "takedowns" | "requests", id: string, canApprove = true) =>
+  `${rejectForm(queue, id)}${canApprove ? `\n${approveForm(queue, id)}` : ""}`;
+
+/** An approved takedown's `status`: the value the ingest takedown list reads (`TAKEDOWN_REMOVED`, apps/ingest/src/lists.ts). */
+const TAKEDOWN_APPROVED = "removed";
+
+/** An approved removal request's `status`. */
+const REQUEST_APPROVED = "approved";
 
 /** The `from` field of a hide, restore, reject or ban form, if it names a page to go back to (remove reads its form itself, for `confirm`). */
 export async function fromField(request: Request) {
@@ -120,7 +132,7 @@ adminItems.get("/takedowns/:id{[A-Za-z0-9_-]+}", async (c) => {
         ["Work", `${row.title} (${row.ao3_work_id})`],
         ["Work status", workStatusText(row.work_status, row.hidden_cause)],
       ],
-      `${workActions(row.ao3_work_id, self)}\n${row.status === "pending" ? rejectForm("takedowns", id) : ""}`,
+      `${workActions(row.ao3_work_id, self)}\n${row.status === "pending" ? decideForms("takedowns", id) : ""}`,
     ),
   );
 });
@@ -165,7 +177,7 @@ adminItems.get("/requests/:id{[A-Za-z0-9_-]+}", async (c) => {
         ["Contact email", row.contact_email],
         ["Statement", row.statement],
       ],
-      `${row.ao3_work_id === null ? "" : workActions(row.ao3_work_id, self)}\n${row.status === "pending" ? rejectForm("requests", id) : ""}`,
+      `${row.ao3_work_id === null ? "" : workActions(row.ao3_work_id, self)}\n${row.status === "pending" ? decideForms("requests", id, row.kind === "remove_work" && row.ao3_work_id !== null) : ""}`,
     ),
   );
 });
@@ -221,12 +233,41 @@ adminItems.post("/works/:id/remove", async (c) => {
   }
   const removed = await removeWorkEverywhere(removeDeps(c.env, c.var.db), work.id, c.var.userId);
   if (!removed) return c.notFound();
+  if (removed.outcome !== "processing") await markTakedownsRemoved(c, work.id);
+  return removedPage(c, removed, from);
+});
+
+/**
+ * After a work is removed for good, by any path: marks every pending takedown on it `removed`,
+ * which puts its AO3 work ID on the takedown list, and logs each as an approve. Safe to repeat.
+ */
+async function markTakedownsRemoved(c: Context<AdminEnv>, workId: string) {
+  await c.var.db.transaction().execute(async (trx) => {
+    const marked = await trx
+      .updateTable("takedowns")
+      .set({ status: TAKEDOWN_APPROVED, resolved_by: c.var.userId })
+      .where("work_id", "=", workId)
+      .where("status", "=", "pending")
+      .returning("id")
+      .execute();
+    for (const { id } of marked) {
+      await logModerationAction(trx, {
+        moderatorId: c.var.userId,
+        action: "approve",
+        targetKind: "takedown",
+        targetId: id,
+      });
+    }
+  });
+}
+
+/** The page for what a removal did. A failed purge is a 502: the removal stands, and a repeat remove retries it. */
+function removedPage(c: Context<AdminEnv>, removed: RemoveResult, from: string | null) {
   if (removed.outcome === "processing") {
     return c.html(
       resultPage("Nothing changed: the work is still processing. Try again shortly.", from),
     );
   }
-  // The removal stands; only the purge failed, and a repeat remove retries it.
   if (removed.caches === "failed") {
     return c.html(
       resultPage(
@@ -244,7 +285,7 @@ adminItems.post("/works/:id/remove", async (c) => {
       from,
     ),
   );
-});
+}
 
 adminItems.post("/requests/:id{[A-Za-z0-9_-]+}/reject", async (c) => {
   const id = c.req.param("id");
@@ -327,6 +368,126 @@ adminItems.post("/takedowns/:id{[A-Za-z0-9_-]+}/reject", async (c) => {
   if (!rejected) return decidedOrMissing(c, "takedowns", id);
   return c.html(resultPage("Rejected.", `/admin/takedowns/${encodeURIComponent(id)}`));
 });
+
+/** Approving a removal request removes its work, then marks the request `approved` (and, like any removal, the work's pending takedowns `removed`); it asks to confirm first. */
+adminItems.post("/requests/:id{[A-Za-z0-9_-]+}/approve", async (c) => {
+  const id = c.req.param("id");
+  const item = await c.var.db
+    .selectFrom("requests")
+    .leftJoin("works", "works.id", "requests.work_id")
+    .select([
+      "requests.kind",
+      "requests.status",
+      "works.id as work_id",
+      "works.title",
+      "works.ao3_work_id",
+    ])
+    .where("requests.id", "=", id)
+    .executeTakeFirst();
+  // An opt-out names a pseud and is decided elsewhere: to this route it is not a request.
+  if (!item || item.kind !== "remove_work" || item.work_id === null) return c.notFound();
+  if (item.status !== "pending") return decidedOrMissing(c, "requests", id);
+  return approveRemoval(c, "requests", id, {
+    workId: item.work_id,
+    title: item.title ?? "",
+    ao3WorkId: item.ao3_work_id ?? 0,
+  });
+});
+
+/** Approving a takedown removes its work and sets the takedown `removed`, which puts the work's AO3 work ID on the takedown list. */
+adminItems.post("/takedowns/:id{[A-Za-z0-9_-]+}/approve", async (c) => {
+  const id = c.req.param("id");
+  const item = await c.var.db
+    .selectFrom("takedowns")
+    .innerJoin("works", "works.id", "takedowns.work_id")
+    .select([
+      "takedowns.status",
+      "takedowns.incomplete",
+      "works.id as work_id",
+      "works.title",
+      "works.ao3_work_id",
+    ])
+    .where("takedowns.id", "=", id)
+    .executeTakeFirst();
+  if (!item) return c.notFound();
+  if (item.status !== "pending") return decidedOrMissing(c, "takedowns", id);
+  return approveRemoval(
+    c,
+    "takedowns",
+    id,
+    { workId: item.work_id, title: item.title, ao3WorkId: item.ao3_work_id },
+    item.incomplete,
+  );
+});
+
+/**
+ * The steps both approves share, for an item found pending: ask to confirm, remove the
+ * work, then mark the item and log `approve`, then mark the work's other pending takedowns. The removal comes first: a crash between
+ * leaves a removed work and a pending item, which approving again completes; marking
+ * first could leave an approved item over a live work.
+ */
+async function approveRemoval(
+  c: Context<AdminEnv>,
+  queue: "requests" | "takedowns",
+  id: string,
+  work: { workId: string; title: string; ao3WorkId: number },
+  incomplete = false,
+) {
+  const form = await readForm(c.req.raw, MAX_FORM);
+  const self = `/admin/${queue}/${encodeURIComponent(id)}`;
+  if (form?.get("confirm") !== "yes") {
+    return c.html(approveConfirmPage(queue, id, work.title, work.ao3WorkId, incomplete));
+  }
+  const removed = await removeWorkEverywhere(
+    removeDeps(c.env, c.var.db),
+    work.workId,
+    c.var.userId,
+  );
+  if (!removed) return c.notFound();
+  // Still processing: nothing changed, so the item stays pending.
+  if (removed.outcome === "processing") return removedPage(c, removed, self);
+  // Inside the transaction only `trx` is used: `c.var.db` has one connection, which it holds.
+  const decided = await c.var.db.transaction().execute(async (trx) => {
+    const marked =
+      queue === "requests"
+        ? await trx
+            .updateTable("requests")
+            .set({ status: REQUEST_APPROVED })
+            .where("id", "=", id)
+            .where("status", "=", "pending")
+            .returning("id")
+            .executeTakeFirst()
+        : await trx
+            .updateTable("takedowns")
+            .set({ status: TAKEDOWN_APPROVED, resolved_by: c.var.userId })
+            .where("id", "=", id)
+            .where("status", "=", "pending")
+            .returning("id")
+            .executeTakeFirst();
+    if (!marked) return false;
+    await logModerationAction(trx, {
+      moderatorId: c.var.userId,
+      action: "approve",
+      targetKind: queue === "requests" ? "request" : "takedown",
+      targetId: id,
+    });
+    return true;
+  });
+  await markTakedownsRemoved(c, work.workId);
+  // Someone decided the item after the pending check: the removal has happened (and is safe
+  // to repeat), but this approve did not mark or log, and must not say it did.
+  if (!decided) {
+    return c.html(
+      resultPage(
+        `The work is removed, but the item was decided by someone else first, so it is unchanged.${removed.caches === "failed" ? " Clearing the caches failed: use Remove on the work to retry." : ""}`,
+        self,
+      ),
+      removed.caches === "failed" ? 502 : 200,
+    );
+  }
+  // Marked even when the purge failed: Remove on the work retries it.
+  return removedPage(c, removed, self);
+}
 
 /** A reject that changed no row: 404 for an item that isn't there, else it was decided already. */
 async function decidedOrMissing(c: Context<AdminEnv>, table: "requests" | "takedowns", id: string) {

@@ -146,9 +146,10 @@ reports      (id, work_id, reporter_id, kind, body, status, created_at)  -- repo
 takedowns    (id, work_id, requester, basis, status, resolved_by, created_at,
               signature, infringing_material, good_faith, accuracy_authority,
               incomplete)  -- a DMCA notice: basis is the copyrighted work, requester the contact
-                           -- information; incomplete when a 512(c)(3)(A) element is missing
+                           -- information; incomplete when a 512(c)(3)(A) element is missing;
+                           -- status: pending, rejected, or removed (approved, which puts the work on the takedown list)
 requests     (id, kind, work_id NULL, pseud_norm NULL, contact_email, statement,
-              status, ip_hash, created_at)        -- kind: remove_work | opt_out
+              status, ip_hash, created_at)        -- kind: remove_work | opt_out; status: pending, rejected, approved
 request_works (request_id, work_id)  -- written whenever a request hides a work, so a reversed
               request restores exactly those
 optouts      (id, pseud_norm, ao3_user NULL, request_id, active, created_at)  -- checked at ingest
@@ -851,9 +852,10 @@ epub, under the normal versioning rules.
   queue and does **not** hide the work by itself (unlike `/remove`): a
   moderator decides whether to hide or remove it. While no moderator has acted
   on it, the notice doesn't block re-uploads of the work either. Once a
-  moderator removes the work, its AO3 work ID goes on the takedown list, and
+  moderator removes the work, by Approve or by Remove on the work or the notice's page, every
+  pending notice on it is marked `removed` and its AO3 work ID goes on the takedown list, and
   later uploads of it are rejected `opted_out` (EPUB processor, step 4). A
-  notice missing statutory elements is still queued, marked incomplete. The
+  notice missing statutory elements is still queued, marked incomplete (the Approve confirm page says so; approving is still allowed). The
   form has no Turnstile, so it works without JavaScript; a rate limit per IP
   is its only abuse control. The counter-notice process and
   repeat-infringer policy are part of the lawyer review.
@@ -893,7 +895,12 @@ epub, under the normal versioning rules.
   no moderator chose (the reports' automatic hide, a removal request's hide)
   writes none. Hide, restore, remove, approve and make current (logged on the version, and only when
   something changed, and for make current only when the pointer moved), ban, the wrong-version close and the request and takedown rejects write a row
-  today; each later action calls the same helper, `logModerationAction`, when
+  today, and so does approving a removal request or a takedown. That approve asks to
+  confirm, runs the removal (a `remove` row on the work, when its status changed), then marks
+  the item and logs `approve` on it: a request becomes `approved`, a takedown `removed`
+  (which puts its AO3 work ID on the takedown list). Only a `pending` item can be approved,
+  and a request about a pseud is not approved here; another pending request for the work stays
+  pending. A failed cache purge still marks the item, and Remove on the work retries it. Each later action calls the same helper, `logModerationAction`, when
   it is built. The row's `moderator_id` has no foreign key to `user`, so
   deleting an account keeps its log rows, with the id as it was. Anyone
   without the moderator or admin role, signed out included, gets 404 for every
