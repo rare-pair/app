@@ -332,7 +332,9 @@ describe("edge cache (#513)", () => {
     expect(new Uint8Array(await again.arrayBuffer())).toEqual(PNG);
   });
 
-  it("The entry sits under exactly the URL a purge by URL names, and deleting it re-reads R2", async () => {
+  // Proves only that the key is the bare URL (the one a purge by URL names for originals,
+  // and under the prefix purge names for images): not that Cloudflare's purge reaches it.
+  it("The entry sits under exactly the request URL, and deleting it re-reads R2", async () => {
     await seed();
     await E.BUCKET.put(ORIGINAL_KEY + ".epub", EPUB);
     for (const key of [IMAGE_KEY, ORIGINAL_KEY, ORIGINAL_KEY + ".epub"]) {
@@ -411,12 +413,14 @@ describe("edge cache (#513)", () => {
       { range: "bytes=0-3" },
       { "if-none-match": '"x"' },
       { "if-modified-since": "Wed, 01 Jan 2020 00:00:00 GMT" },
+      { "if-match": '"x"' },
+      { "if-range": '"x"' },
     ];
     for (const headers of bypassing) {
       const res = await viaHandler(counted, `${ORIGIN}/${IMAGE_KEY}`, { headers });
       expect(res.res.status, JSON.stringify(headers)).toBe(200);
       expect(res.body, JSON.stringify(headers)).toEqual(PNG);
     }
-    expect(counter.reads).toBe(5);
+    expect(counter.reads).toBe(7);
   });
 });
