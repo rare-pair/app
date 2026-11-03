@@ -837,7 +837,10 @@ epub, under the normal versioning rules.
   email and IP hash) means their later `/remove` requests, and reports from an
   account with that email or IP hash, are still recorded and queued but no
   longer hide anything (an opt-out from them isn't applied until a moderator
-  approves it). Every requester sees the same confirmation (FRONTEND-DISCOVERY,
+  approves it). A block is checked when the requester confirms, not when
+  they submit. A report's account matches an IP hash through the addresses of
+  its sessions, hashed at each report; sessions expire, so an account with
+  none left matches by email only. Every requester sees the same confirmation (FRONTEND-DISCOVERY,
   journey 4), and the page never reveals that a requester is blocked. Banning
   an uploader (an account, `banned_at`) stops it uploading and reporting, and
   stops its in-flight uploads: its `pending` uploads end `account_banned`, and
