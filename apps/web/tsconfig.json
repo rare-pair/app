@@ -13,5 +13,5 @@
     "noEmit": true
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],
-  "exclude": ["test/global-setup.ts"]
+  "exclude": ["test/global-setup.ts", "test/stand-ins.ts"]
 }
