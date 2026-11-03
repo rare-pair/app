@@ -9,10 +9,13 @@
 
 const TOKEN = /<(\/?)(h[1-6]|ul|ol|li)\b[^<>]*>/gi;
 
+/** The `lang` and `dir` of an open tag, which a reader's language and text direction need. */
+const kept = (tag: string) => (tag.match(/ (?:lang|dir)="[^"]*"/gi) ?? []).join("");
+
 /**
  * Headings become bold text in a div, which keeps their emphasis without a place in
- * the page's outline; a list item outside any list becomes a div. The headings'
- * attributes are dropped. Balanced in, balanced out: each open tag and its close
+ * the page's outline; a list item outside any list becomes a div. Both keep their
+ * `lang` and `dir`; their other attributes are dropped. Balanced in, balanced out: each open tag and its close
  * tag are rewritten alike. Linear, and a second pass finds nothing more to change.
  */
 export function tidySummary(html: string): string {
@@ -23,13 +26,13 @@ export function tidySummary(html: string): string {
     const closing = slash === "/";
     const lower = name.toLowerCase();
     if (lower.startsWith("h")) {
-      return closing ? "</strong></div>" : '<div class="summary-heading"><strong>';
+      return closing ? "</strong></div>" : `<div class="summary-heading"${kept(tag)}><strong>`;
     }
     if (lower === "li") {
       if (!closing) {
         const stray = lists === 0;
         items.push(stray);
-        return stray ? "<div>" : tag;
+        return stray ? `<div${kept(tag)}>` : tag;
       }
       return items.pop() ? "</div>" : tag;
     }

@@ -10,9 +10,15 @@ describe("Summary headings and stray list items", () => {
     );
   });
 
-  it("A heading with attributes and inline markup keeps its content", () => {
+  it("A heading with attributes and inline markup keeps its content and its language", () => {
     expect(tidySummary('<h1 lang="fr" title="x">A <em>big</em> one</h1><p>Text</p>')).toBe(
-      '<div class="summary-heading"><strong>A <em>big</em> one</strong></div><p>Text</p>',
+      '<div class="summary-heading" lang="fr"><strong>A <em>big</em> one</strong></div><p>Text</p>',
+    );
+  });
+
+  it("A heading or stray item keeps its text direction and language", () => {
+    expect(tidySummary('<h2 dir="rtl" lang="ar">x</h2><li lang="fr" dir="ltr">y</li>')).toBe(
+      '<div class="summary-heading" dir="rtl" lang="ar"><strong>x</strong></div><div lang="fr" dir="ltr">y</div>',
     );
   });
 
