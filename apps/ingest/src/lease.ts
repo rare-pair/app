@@ -132,6 +132,8 @@ export class LeaseKeeper {
   private timer: ReturnType<typeof setInterval> | null = null;
   private renewing: Promise<void> | null = null;
   private lost = false;
+  /** A renewal failed with the database unreachable: the token may have moved unseen. */
+  private unsure = false;
   private renewedAt = Date.now();
 
   constructor(
@@ -171,7 +173,23 @@ export class LeaseKeeper {
   }
 
   private async renewOnce(): Promise<void> {
-    if (await renewLease(this.db, this.lease, this.timing.seconds)) this.renewedAt = Date.now();
-    else this.lost = true;
+    if (this.lost) return;
+    let renewed: boolean;
+    try {
+      renewed = await renewLease(this.db, this.lease, this.timing.seconds);
+    } catch (error) {
+      // The update may have committed with its answer lost: the token is then unknown.
+      this.unsure = true;
+      throw error;
+    }
+    if (renewed) {
+      this.renewedAt = Date.now();
+    } else if (this.unsure) {
+      // Not proof of a takeover: a plain failure, so the message is retried, not dropped.
+      throw new Error("lease renewal outcome unknown");
+    } else {
+      this.lost = true;
+      if (this.timer !== null) clearInterval(this.timer);
+    }
   }
 }
