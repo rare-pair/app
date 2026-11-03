@@ -893,7 +893,12 @@ epub, under the normal versioning rules.
   no moderator chose (the reports' automatic hide, a removal request's hide)
   writes none. Hide, restore, remove, approve and make current (logged on the version, and only when
   something changed, and for make current only when the pointer moved), ban, the wrong-version close and the request and takedown rejects write a row
-  today; each later action calls the same helper, `logModerationAction`, when
+  today, and so does approving a removal request or a takedown. That approve asks to
+  confirm, runs the removal (a `remove` row on the work, when its status changed), then marks
+  the item and logs `approve` on it: a request becomes `approved`, a takedown `removed`
+  (which puts its AO3 work ID on the takedown list). Only a `pending` item can be approved,
+  and a request about a pseud is not approved here; another pending request for the work stays
+  pending. A failed cache purge still marks the item, and Remove on the work retries it. Each later action calls the same helper, `logModerationAction`, when
   it is built. The row's `moderator_id` has no foreign key to `user`, so
   deleting an account keeps its log rows, with the id as it was. Anyone
   without the moderator or admin role, signed out included, gets 404 for every

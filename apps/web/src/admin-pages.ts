@@ -141,6 +141,25 @@ export function removeConfirmPage(title: string, ao3WorkId: number, from: string
 export const rejectForm = (queue: "takedowns" | "requests", id: string) =>
   `<form method="post" action="${escapeHtml(`/admin/${queue}/${encodeURIComponent(id)}/reject`)}"><button type="submit">Reject</button></form>`;
 
+/** A form that starts an approve of a takedown or a request, which removes its work; the next page asks to confirm. */
+export const approveForm = (queue: "takedowns" | "requests", id: string) =>
+  `<form method="post" action="${escapeHtml(`/admin/${queue}/${encodeURIComponent(id)}/approve`)}"><button type="submit">Approve and remove work</button></form>`;
+
+/** The step before an approve, which removes the work for good: names the work and posts the approve again with `confirm`. */
+export function approveConfirmPage(
+  queue: "takedowns" | "requests",
+  id: string,
+  title: string,
+  ao3WorkId: number,
+) {
+  return layout(
+    "Approve and remove work",
+    `${nav}
+<p>Approve this ${queue === "takedowns" ? "takedown" : "request"} and remove ${escapeHtml(title)} (${ao3WorkId})? Its pages answer 410 and its files are deleted. This can't be undone.</p>
+<form method="post" action="${escapeHtml(`/admin/${queue}/${encodeURIComponent(id)}/approve`)}"><input type="hidden" name="confirm" value="yes"><button type="submit">Approve and remove work for good</button></form>`,
+  );
+}
+
 /**
  * What an action did, said from what its write returned: a re-read could come from
  * Hyperdrive's cache and show the old state. `back` is the page to return to.
