@@ -203,7 +203,8 @@ export async function submitRemove(c: RemoveContext) {
         for (const author of authors) {
           if (normalizePseud(author.pseud) === pseudNorm) matching.add(author.work_id);
         }
-        for (const matched of matching) await hideForRequest(trx, request.id, matched);
+        // In id order, so two overlapping requests lock the same works in the same order.
+        for (const matched of [...matching].sort()) await hideForRequest(trx, request.id, matched);
       });
     }
   } finally {
