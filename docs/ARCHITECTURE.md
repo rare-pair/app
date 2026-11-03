@@ -785,7 +785,7 @@ are part of the MVP, not extras.
 **No claims while AO3 is down.** AO3 is the only place that could vouch for who
 wrote a work, and it's offline. Rather than accept weak proof, we don't offer
 work claims, author accounts or author self-service at all. Authors don't need
-an account. Whoever asks gets the same thing: a work hidden or an opt-out
+an account. Whoever asks, and confirms their email, gets the same thing: a work hidden or an opt-out
 applied. Authors update a work the same way anyone does, by uploading a newer
 epub, under the normal versioning rules.
 
@@ -871,7 +871,7 @@ epub, under the normal versioning rules.
   a designated agent registered with the US Copyright Office, a public takedown
   form, a counter-notice process and a repeat-infringer policy. Get a lawyer to
   review this before launch. A notice from `/dmca` lands in the takedowns
-  queue and does **not** hide the work by itself (unlike `/remove`): a
+  queue and does **not** hide the work by itself: a
   moderator decides whether to hide or remove it. While no moderator has acted
   on it, the notice doesn't block re-uploads of the work either. Once a
   moderator removes the work, by Approve or by Remove on the work or the notice's page, every
@@ -1059,7 +1059,9 @@ markup: its inline `style` attributes become stylesheet rules, because
   a 503 when Turnstile can't be reached and a 413 for a body too large; the form
   may hold what was typed, so each is sent `Cache-Control: no-store`), and
   so does a form missing required fields (such as `/remove` without a contact
-  email, or without a work or pseud). A sign-in POST from any other origin (a
+  email, or without a work or pseud). `POST /remove` answers 503 too when its
+  confirmation email can't be queued, and a used, expired or unknown removal
+  confirmation link (`/remove/confirm`) gets a **400** page. A sign-in POST from any other origin (a
   bad `Origin` / `Sec-Fetch-Site`, as in Auth) gets **403**. An upload request
   declaring more than 25 MB for any file, or asking for more than 10 files, gets **413**. A used, expired or unknown magic link is
   **redirected to `/login`** with a plain message. A signed-out request to a

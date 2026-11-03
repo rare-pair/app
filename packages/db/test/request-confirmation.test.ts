@@ -40,7 +40,7 @@ describe("16-removal-and-opt-out: migration 0019", () => {
   it("A confirmation token hash belongs to one request, and unconfirmed requests may share none", async () => {
     const full = await createTestDb();
     const base = {
-      kind: "opt_out",
+      kind: "opt_out" as const,
       contact_email: "new@example.test",
       statement: "",
       ip_hash: "h",
