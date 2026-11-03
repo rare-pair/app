@@ -20,6 +20,9 @@ export const REMOVE_WINDOW_SECONDS = 60;
 /** The upload limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
 export const UPLOAD_WINDOW_SECONDS = 60;
 
+/** The search limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
+export const SEARCH_WINDOW_SECONDS = 60;
+
 /**
  * A limiter key: a hex SHA-256 of the value under its prefix, so the limiter is never handed
  * the address itself. Unkeyed, so not a secret: an IPv4 key can be reversed by trying every
