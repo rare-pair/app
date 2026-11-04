@@ -131,6 +131,16 @@ describe("Byline hardening (#258, #276)", () => {
     expect(stray.authors.map((a) => a.pseud)).toEqual(["P,", "P"]);
   });
 
+  it("A creator with a hundred thousand spaces inside is read at once", async () => {
+    // The cut pattern backtracks quadratically over a long run of whitespace: this took seconds.
+    const creator = `A${" ".repeat(100_000)}B`;
+    const work = await processEpub(
+      ao3Epub({ bylineHtml: link("ghost", " "), creators: [creator] }),
+    );
+    expect(work.authors).toHaveLength(1);
+    expect(work.reviewReasons).toEqual([]);
+  });
+
   it("The review codes carry no byline text", async () => {
     const work = await processEpub(ao3Epub({ bylineHtml: "Salt and Pepper", creators: [] }));
     expect(work.reviewReasons.join(" ")).not.toMatch(/salt|pepper/i);

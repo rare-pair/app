@@ -8,6 +8,7 @@ import {
   ingestParsed,
   parsedWork,
   seededWork,
+  versionsOf,
 } from "./helpers";
 
 // Each case seeds a work with an AO3 work ID of its own: a takedown stays in the database every
@@ -50,7 +51,13 @@ describe("17-reports-and-dmca", () => {
     const { row } = await ingestParsed(parsedWork({ ao3WorkId: "0" }));
 
     expect(row.status).toBe("parse_failed");
+    expect(row.error_stage).toBe("save");
     expect(row.error).toBe("bad_work_id");
+    expect(row.work_id).toBeNull();
+    // The removed work is as it was: nothing was published over it.
+    const after = await versionsOf(0);
+    expect(after.status).toBe("removed");
+    expect(after.versions).toHaveLength(1);
   });
 
   it("finds no takedown for an AO3 work ID past int4", async () => {

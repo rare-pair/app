@@ -29,7 +29,12 @@ function sameKey(pseud: string): string {
 /** A byline's or creator's text cut into names where AO3 would write a list: ", " and " and ". */
 export function splitNames(text: string): string[] {
   // ", and P" (an Oxford comma) is one separator, not a piece "and P".
-  return text.split(/\s*,\s*(?:and\s+)?|\s+and\s+/).filter((name) => !isBlank(name));
+  // Whitespace is collapsed first: the pattern backtracks quadratically over a long run of it,
+  // and an OPF creator can be megabytes of it.
+  return text
+    .replace(/\s+/g, " ")
+    .split(/\s*,\s*(?:and\s+)?|\s+and\s+/)
+    .filter((name) => !isBlank(name));
 }
 
 /** The authors the opt-out check reads and the review reasons for a byline it can't trust. */

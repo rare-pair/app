@@ -1,6 +1,10 @@
+import { createDb } from "@archive/db";
 import { processEpub } from "@archive/epub";
+import { env } from "cloudflare:workers";
+import type { KyselyPlugin } from "kysely";
 import { describe, expect, it } from "vitest";
 import { ao3Epub } from "../../../packages/epub/test/helpers";
+import { runJob } from "../src/job";
 import {
   addOptOut,
   addTakedown,
@@ -178,6 +182,10 @@ describe("21-opt-out-hardening: a hostile value in the file", () => {
 
     expect(row.status).toBe("parse_failed");
     expect(row.error).toBe("bad_work_id");
+    // The removed work is as it was.
+    const after = await versionsOf(41520);
+    expect(after.status).toBe("removed");
+    expect(after.versions).toHaveLength(1);
   });
 
   it("A takedown of the work with that exact ID still blocks it", async () => {
@@ -185,5 +193,67 @@ describe("21-opt-out-hardening: a hostile value in the file", () => {
     await addTakedown(seeded.workId, "removed");
 
     expectOptedOut(await ingestEpub(41521));
+  });
+});
+
+describe("21-opt-out-hardening: a list that can't be read, and a backfill", () => {
+  it("A list that can't be read is retried with the lease released, and nothing is saved", async () => {
+    const id = await pendingUpload(ao3Epub({ workId: freshAo3WorkId() }));
+    const saved: string[] = [];
+    // A lost connection can't be made to happen to the real database: it fails every query
+    // on the opt-out table, as pg's class 08 errors do.
+    const lostOptOuts: KyselyPlugin = {
+      transformQuery: ({ node }) => {
+        if (JSON.stringify(node).includes('"optouts"')) {
+          throw Object.assign(new Error("connection lost"), { code: "08006" });
+        }
+        return node;
+      },
+      transformResult: ({ result }) => Promise.resolve(result),
+    };
+    const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
+    try {
+      const verdict = await runJob(
+        {
+          db: db.withPlugin(lostOptOuts),
+          bucket: env.BUCKET,
+          process: (bytes) => processEpub(bytes),
+          save: async (upload) => void saved.push(upload.id),
+        },
+        id,
+        1,
+      );
+
+      expect(verdict).toBe("retry");
+    } finally {
+      await db.destroy();
+    }
+    const row = await uploadRow(id);
+    expect(row.status).toBe("pending");
+    expect(row.lease_until).toBeNull();
+    expect(saved).toEqual([]);
+  });
+
+  it("A backfill whose original the lists refuse is acked and leaves the version alone", async () => {
+    const workId = freshAo3WorkId();
+    await ingestReal(ao3Epub({ workId }));
+    const before = await versionsOf(workId);
+    const { handler } = watchedWorker({
+      process: async (bytes) => ({
+        ...(await processEpub(bytes)),
+        authors: [{ pseud: `Moon${String.fromCharCode(0)}Child`, user: null }],
+      }),
+    });
+
+    const result = await deliver([{ work_id: before.workId, version_id: before.current }], {
+      handler,
+      queue: "ingest-backfill",
+    });
+
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    expect(result.retryMessages).toEqual([]);
+    const after = await versionsOf(workId);
+    expect(after.current).toBe(before.current);
+    expect(after.versions).toHaveLength(1);
   });
 });

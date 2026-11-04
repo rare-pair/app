@@ -155,9 +155,7 @@ function parseNav(bytes: Uint8Array, budget: NodeBudget): OrderedNode[] {
         { cause: e },
       );
     }
-    throw new EpubError("not_epub", "nav document is not valid XML", {
-      cause: e,
-    });
+    throw new EpubError("not_epub", "nav document is not valid XML", { cause: e });
   }
 }
 
@@ -315,10 +313,7 @@ function readNavDocument(nav: OrderedNode[], navPath: string): NavPoint[] {
       // `#id` alone targets the nav document itself, which may be in the spine.
       if (target && !target.path && target.anchor) target.path = navPath;
       if (a && target && target.path)
-        found.push({
-          label: orderedText(a).replace(/\s+/g, " ").trim(),
-          ...target,
-        });
+        found.push({ label: orderedText(a).replace(/\s+/g, " ").trim(), ...target });
       visit(kids(li).find((n) => tagOf(n) === "ol"));
     }
   };

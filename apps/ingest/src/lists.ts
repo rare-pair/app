@@ -39,12 +39,19 @@ export class ListCheckRejected extends Error {
  * `ListCheckRejected` when a list refuses a value in the file.
  */
 export async function onRejectList(db: Kysely<Database>, work: Listed): Promise<boolean> {
-  // Both are read in every case: each throws if its list can't be.
-  const [optedOutAuthor, takenDownWork] = await Promise.all([
+  // Both are read in every case. Both are waited for, so the verdict never depends on which
+  // fails first: a list that can't be read (a retry) wins over one that refuses the file.
+  const [optedOutAuthor, takenDownWork] = await Promise.allSettled([
     optedOut(db, checkedPseuds(work.authors)).catch(rejectDataError),
     takenDown(db, work.ao3WorkId).catch(rejectDataError),
   ]);
-  return optedOutAuthor || takenDownWork;
+  const failures = [optedOutAuthor, takenDownWork].filter((r) => r.status === "rejected");
+  const failure = failures.find((r) => !(r.reason instanceof ListCheckRejected)) ?? failures[0];
+  if (failure !== undefined) throw failure.reason;
+  return (
+    (optedOutAuthor.status === "fulfilled" && optedOutAuthor.value) ||
+    (takenDownWork.status === "fulfilled" && takenDownWork.value)
+  );
 }
 
 // oxlint-disable-next-line deslop/no-unknown-parameters -- a caught value is unknown by contract
@@ -62,10 +69,12 @@ function rejectDataError(error: unknown): never {
  * user is "Anonymous" is a user, and stays.
  */
 export function checkedPseuds(authors: Listed["authors"]): string[] {
-  const norms = authors
-    .filter((a) => a.user !== null || normalizePseud(a.pseud) !== "anonymous")
-    .map((a) => normalizePseud(a.pseud));
-  return [...new Set(norms)].filter((norm) => norm !== "");
+  const norms = new Set<string>();
+  for (const a of authors) {
+    const norm = normalizePseud(a.pseud);
+    if (norm !== "" && (a.user !== null || norm !== "anonymous")) norms.add(norm);
+  }
+  return [...norms];
 }
 
 async function optedOut(db: Kysely<Database>, pseudNorms: string[]): Promise<boolean> {

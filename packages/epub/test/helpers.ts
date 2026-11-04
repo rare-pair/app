@@ -76,11 +76,7 @@ export interface Ao3Spec {
   files?: SpineFile[];
   /** NCX entries for chapters, `src` relative to the OPF (URL-encoded). */
   navPoints?: { label: string; src: string }[];
-  extraManifest?: {
-    href: string;
-    mediaType: string;
-    data: string | Uint8Array;
-  }[];
+  extraManifest?: { href: string; mediaType: string; data: string | Uint8Array }[];
   mimetype?: string | null;
 }
 

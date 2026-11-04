@@ -149,11 +149,7 @@ function parseStats(text: string, rawMeta: Record<string, string>): Stats {
       }
       case "chapters": {
         const m = /^(\d+)\/(\d+|\?)$/.exec(value!);
-        if (m)
-          stats.chapters = {
-            posted: Number(m[1]),
-            total: m[2] === "?" ? null : Number(m[2]),
-          };
+        if (m) stats.chapters = { posted: Number(m[1]), total: m[2] === "?" ? null : Number(m[2]) };
         else rawMeta["Stats: Chapters"] = value!;
         break;
       }
