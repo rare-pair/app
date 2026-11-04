@@ -1126,7 +1126,9 @@ epub, under the normal versioning rules.
   session (a display aid only: the gate above reads the role again on every
   `/admin` request and stays the authority). A promotion or demotion shows in the
   header as late as the session lookup sees it: with Hyperdrive's query cache in
-  front of it, about a minute (accepted).
+  front of it, about a minute (accepted). The gate's own read goes through the same
+  binding, so until it is uncached (#574) a demoted moderator can also still open
+  `/admin` for about that long.
 
 ## Wait list
 

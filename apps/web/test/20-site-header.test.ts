@@ -161,6 +161,34 @@ describe("20-site-chrome-and-legal: the site header", () => {
     expect((await fetchW("/auth/update-user", { method: "POST" })).status).toBe(404);
   });
 
+  it("A refusal before the session keeps the bare header, and a missing asset shows the signed-out links", async () => {
+    const cookie = await signInAs("nav-bare@example.test");
+    const refused = await fetchW("/logout", {
+      method: "POST",
+      headers: { cookie, origin: "https://evil.example" },
+    });
+    expect(refused.status).toBe(403);
+    expect(headerOf(await refused.text())).not.toMatch(/<nav|<a href="\/(upload|login)"|<form/);
+
+    const missing = await fetchW("/assets/no-such-file.css", { headers: { cookie } });
+    expect(missing.status).toBe(404);
+    const html = await missing.text();
+    // Whoever asks: the static route never reads the session.
+    expect(linksOf(html).map(([t]) => t)).toEqual(["Add work", "Sign in"]);
+  });
+
+  it("An account that has not accepted the terms sees the header, and its links lead to the terms", async () => {
+    const cookie = await signIn("nav-new@example.test");
+    const html = await (await fetchW("/about", { headers: { cookie } })).text();
+    expect(linksOf(html).map(([t]) => t)).toEqual(["Add work", "My uploads"]);
+    expect(headerOf(html)).toContain('action="/logout"');
+    for (const path of ["/upload", "/me/uploads"]) {
+      const res = await fetchW(path, { headers: { cookie } });
+      expect(res.status, path).toBe(302);
+      expect(res.headers.get("location"), path).toContain("/welcome/terms");
+    }
+  });
+
   it("A header in a chapter's text gets no navigation", async () => {
     for (const path of [`/works/${HOSTILE}/chapters/1`, `/works/${HOSTILE}/full`]) {
       const html = await (await fetchW(path)).text();

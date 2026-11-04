@@ -142,7 +142,7 @@ h2 {
 }
 
 .banner a,
-header nav a,
+body > header nav a,
 footer a,
 .chapters a {
   display: inline-block;
@@ -152,7 +152,7 @@ footer a,
 
 /* A link to a page that isn't open yet: no href, so no hover or focus state. */
 footer a[aria-disabled="true"],
-header a[aria-disabled="true"] {
+body > header a[aria-disabled="true"] {
   color: var(--muted);
   cursor: not-allowed;
   text-decoration: none;

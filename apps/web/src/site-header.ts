@@ -34,8 +34,9 @@ export const headerLinks = ({ signedIn, moderator }: Visitor): string => {
  * keep the bare header, with the site name only. Register it after
  * `disableClosedLinks`, so that sees what this adds, and inside the CSP, which keys on
  * the content type this keeps. Sets no Cache-Control: every HTML response is
- * `private, no-store` already, bar the tag listing's own `private, max-age=60` (a
- * browser may keep its header for that long: FRONTEND-DISCOVERY, *Site header*).
+ * `private, no-store` already, bar the tag listing's own `private, max-age=60,
+ * stale-while-revalidate=60` (a browser may keep its header for up to two minutes:
+ * FRONTEND-DISCOVERY, *Site header*).
  * The role comes with the session lookup, so a promotion or demotion shows as late as
  * that lookup does; /admin's own gate is the authority. A static asset's 404 never
  * ran the session middleware, so it shows the signed-out header.
