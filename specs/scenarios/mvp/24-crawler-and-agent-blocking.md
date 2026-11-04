@@ -37,9 +37,10 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - AND a cross-site `<img>` of an image on `content.rarepair.fans` is served, since images are not throttled
 
 ### Redirects still come first
-- GIVEN a declared automated client asking for a chapter of W
+- GIVEN a declared automated client asking for a chapter of W, that the zone rule doesn't block
 - WHEN it asks on `www.rarepair.fans`, or on `rarepair.fans` with `PRELAUNCH` on
 - THEN the response is the same redirect a browser gets, with no chapter text
+- AND a known bot the zone rule blocks on `rarepair.fans` gets Cloudflare's block page there instead, with `PRELAUNCH` on or off, since it never reaches the Worker
 
 ### A word inside a browser's user agent is not a match
 - GIVEN a real browser whose `User-Agent` holds the letters `bot` inside a phone's model name

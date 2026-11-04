@@ -741,8 +741,9 @@ origin. Work pages, listings and search stay open, so people can still find work
   on the crawler list gets a **403** on a protected path, whatever its session. The
   list is one source both Workers are built from. It names products, matched as plain
   case-insensitive text, with no word as broad as `bot`, which would catch phones whose
-  model names hold those letters. The www 308 and the pre-launch redirect still come
-  first, since neither serves any text. Both Workers share the list. The check runs ahead of the
+  model names hold those letters. In the Worker, the www 308 and the pre-launch redirect
+  still come first, since neither serves any text. The zone rule below runs before the
+  Worker, so a known bot it blocks gets its block page even before launch. Both Workers share the list. The check runs ahead of the
   session lookup, the edge cache and the work's status, so a refusal costs no
   lookups and doesn't itself show whether a work is live, hidden or removed (the work
   page, which stays open, still answers 451 or 410). Paths are checked in the decoded
