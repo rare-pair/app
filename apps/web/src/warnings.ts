@@ -110,7 +110,7 @@ export function screenRedirect(c: ReaderContext, id: number, applies: boolean, n
 export async function showWarnings(c: ReaderContext) {
   const id = positiveInt(c.req.param("id"));
   if (id === null) return c.notFound();
-  const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
+  const db = createDb({ connectionString: c.env.HYPERDRIVE_CACHED.connectionString, max: 1 });
   let live;
   let withheld;
   try {

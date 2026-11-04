@@ -12,7 +12,11 @@ const worker = (bindings: Record<string, string> = {}) =>
   cloudflareTest(({ inject }) => ({
     wrangler: { configPath: "./wrangler.jsonc" },
     miniflare: {
-      hyperdrives: { HYPERDRIVE: inject("databaseUrl") },
+      // Both connections reach the one test database; a local Hyperdrive has no cache.
+      hyperdrives: {
+        HYPERDRIVE: inject("databaseUrl"),
+        HYPERDRIVE_CACHED: inject("databaseUrl"),
+      },
       outboundService: outbound,
       bindings: { ...SECRETS, ...bindings },
       serviceBindings: { EMAIL_SINK: "email-sink", INGEST_SINK: "ingest-sink" },

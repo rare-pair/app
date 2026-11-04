@@ -21,12 +21,25 @@
     "binding": "ASSETS",
     "run_worker_first": true,
   },
-  // Neon Postgres. The id is a placeholder until the Hyperdrive config is created; tests replace
-  // the local connection string with their own database.
+  // Neon Postgres, through two Hyperdrive configs (ARCHITECTURE, Connections). The ids are
+  // placeholders until the configs are created; tests replace the local connection string with
+  // their own database.
+  // HYPERDRIVE is the one with caching off: sessions, roles, moderation, uploads, and every read
+  // a public page doesn't make. HYPERDRIVE_CACHED has caching on and serves public pages only
+  // (src/home.ts, listing.ts, search.ts, work-page.ts, reader.ts, full.ts, warnings.ts).
+  // The two ids must differ: one id pasted into both puts every read in the cache, and nothing
+  // in the repo can see it. The operator runs:
+  //   wrangler hyperdrive update <HYPERDRIVE id> --caching-disabled
+  //   wrangler hyperdrive create <name> --connection-string=<url>   (for HYPERDRIVE_CACHED)
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
       "id": "00000000000000000000000000000000",
+      "localConnectionString": "postgresql://postgres:postgres@127.0.0.1:5432/postgres",
+    },
+    {
+      "binding": "HYPERDRIVE_CACHED",
+      "id": "00000000000000000000000000000001",
       "localConnectionString": "postgresql://postgres:postgres@127.0.0.1:5432/postgres",
     },
   ],

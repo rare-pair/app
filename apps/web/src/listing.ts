@@ -113,7 +113,7 @@ export async function showTagListing(c: Context<{ Bindings: Bindings }>) {
   const page = pageOf(c.req.query("page"));
   const query = queryOf(c.req.query());
   // A few queries, one after another, on one connection.
-  const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
+  const db = createDb({ connectionString: c.env.HYPERDRIVE_CACHED.connectionString, max: 1 });
   try {
     // The heading comes from every live work with the tag, so no page or filter changes it.
     const [heading] = await liveTagSpellings(db, type, name);
