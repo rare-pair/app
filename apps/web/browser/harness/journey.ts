@@ -64,7 +64,11 @@ const payload = (file: EpubFile) => {
 /** Opens /upload, picks `files` and clicks Upload, then returns without waiting for anything. */
 export async function sendFiles(page: Page, files: EpubFile[]): Promise<void> {
   await page.goto(`${SITE}/upload`);
-  await page.setInputFiles("#file", files.map(payload));
+  // Files on disk go by path, as the browser reads a file picked in a dialog; only bytes built in
+  // the test go as in-memory payloads (setInputFiles takes one form or the other).
+  // oxlint-disable-next-line deslop/no-runtime-typeof -- tells the string | object union apart
+  const paths = files.filter((file): file is string => typeof file === "string");
+  await page.setInputFiles("#file", paths.length === files.length ? paths : files.map(payload));
   await page.getByRole("button", { name: "Upload" }).click();
 }
 

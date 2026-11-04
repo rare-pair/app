@@ -226,8 +226,9 @@ describe("recording", () => {
     }
   };
 
-  it("slows the browser only while recording", () => {
-    expect(slowMoFromEnv(undefined)).toBeUndefined();
+  it("slows the browser only while recording", async () => {
+    // Passing undefined would read the run's own BROWSER_RECORD, so unset it for the check.
+    await withEnv(undefined, async () => expect(slowMoFromEnv()).toBeUndefined());
     expect(slowMoFromEnv("")).toBeUndefined();
     expect(slowMoFromEnv("/some/folder")).toBe(750);
   });

@@ -84,7 +84,8 @@ describe("My uploads journeys", () => {
     await goLive(site, id, 41911);
 
     await expect.poll(() => row.locator(".badge").innerText(), REFRESH_WAIT).toBe("Live");
-    // The page was reloaded to get there: the head's meta refresh did it.
-    expect(loads).toBeGreaterThan(loadsBefore);
+    // The page was reloaded to get there: the head's meta refresh did it. The text can show
+    // before the load event fires, so wait for the event rather than read it at once.
+    await expect.poll(() => loads).toBeGreaterThan(loadsBefore);
   });
 });
