@@ -1,5 +1,8 @@
+import { createDb, hideWork, restoreWork, type Database } from "@archive/db";
+import { seedWork } from "@archive/db/seed";
 import { env, exports } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import type { Kysely } from "kysely";
+import { beforeAll, describe, expect, it } from "vitest";
 import handler, { type Env } from "../src/index";
 
 // SAFETY: the test env is the bindings wrangler.jsonc declares, which Env describes.
@@ -13,9 +16,28 @@ const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2
 const EPUB = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 9, 8, 7, 6]);
 
 const IMAGE_KEY =
-  "works/123456/img/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
-const MISSING_IMAGE_KEY = "works/123456/img/" + "0".repeat(64);
-const ORIGINAL_KEY = "originals/01J9ZQ4K7M3XYV8T2W5R6N0B1C";
+  "works/42900/img/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+const MISSING_IMAGE_KEY = "works/42900/img/" + "0".repeat(64);
+// The live work these keys belong to (AO3 ids 42900-42999 are this file's). The original's key
+// names the work's upload, which the database picks, so it is set once the work is seeded.
+const WORK_AO3_ID = 42900;
+let ORIGINAL_KEY = "";
+
+/** Runs `fn` with a Kysely on the test database, through the Worker's Hyperdrive. */
+async function withDb<T>(fn: (db: Kysely<Database>) => Promise<T>): Promise<T> {
+  const db = createDb({ connectionString: E.HYPERDRIVE.connectionString, max: 1 });
+  try {
+    return await fn(db);
+  } finally {
+    await db.destroy();
+  }
+}
+
+let liveWork: { workId: string; uploadId: string };
+beforeAll(async () => {
+  liveWork = await withDb((db) => seedWork(db, { ao3WorkId: WORK_AO3_ID }));
+  ORIGINAL_KEY = `originals/${liveWork.uploadId}.epub`;
+});
 
 // An ExecutionContext that keeps what the Worker hands waitUntil, so a test can wait for it.
 function collectingCtx() {
@@ -35,7 +57,7 @@ function countingBucket() {
     },
   };
   // SAFETY: the Worker calls only BUCKET.get.
-  return { env: { BUCKET: bucket as R2Bucket }, counter };
+  return { env: { BUCKET: bucket as R2Bucket, HYPERDRIVE: E.HYPERDRIVE }, counter };
 }
 
 // Fetches through the Worker's entry as the runtime would, waiting for its cache write.
@@ -75,7 +97,7 @@ async function uncache(...keys: string[]) {
 }
 
 async function seed() {
-  await uncache(IMAGE_KEY, ORIGINAL_KEY, ORIGINAL_KEY + ".epub", MISSING_IMAGE_KEY);
+  await uncache(IMAGE_KEY, ORIGINAL_KEY, MISSING_IMAGE_KEY);
   await E.BUCKET.put(IMAGE_KEY, PNG, { httpMetadata: { contentType: "image/png" } });
   await E.BUCKET.put(ORIGINAL_KEY, EPUB, { httpMetadata: { contentType: "application/epub+zip" } });
 }
@@ -148,16 +170,16 @@ describe("09-content-origin", () => {
     await seed();
     // Things that exist in the bucket but are not images or originals.
     const html = new TextEncoder().encode("<p>x</p>");
-    const fragment = "works/123456/01J9ZQ4K7M3XYV8T2W5R6N0B1C/1.html";
+    const fragment = "works/42900/01J9ZQ4K7M3XYV8T2W5R6N0B1C/1.html";
     await E.BUCKET.put(fragment, html, { httpMetadata: { contentType: "text/html" } });
     await E.BUCKET.put("uploads/01J9ZQ4K7M3XYV8T2W5R6N0B1C", EPUB);
     await E.BUCKET.put("index.html", html, { httpMetadata: { contentType: "text/html" } });
-    await E.BUCKET.put("works/123456/img/.hidden", PNG, {
+    await E.BUCKET.put("works/42900/img/.hidden", PNG, {
       httpMetadata: { contentType: "image/png" },
     });
     await E.BUCKET.put("originals/.hidden", EPUB);
     // Image keys that are not a SHA-256 hex digest, so not versioned by their key.
-    const unversioned = ["works/123456/img/cover.png", `works/123456/img/${"A".repeat(64)}`];
+    const unversioned = ["works/42900/img/cover.png", `works/42900/img/${"A".repeat(64)}`];
     for (const key of unversioned) {
       await E.BUCKET.put(key, PNG, { httpMetadata: { contentType: "image/png" } });
     }
@@ -171,14 +193,14 @@ describe("09-content-origin", () => {
       "uploads/01J9ZQ4K7M3XYV8T2W5R6N0B1C",
       "index.html",
       "",
-      "works/123456/work",
+      "works/42900/work",
       "works/abc/img/x",
-      "works/123456/img/a/b",
-      "works/123456/img/",
-      "works/123456/img/..%2f01J9ZQ4K7M3XYV8T2W5R6N0B1C%2f1.html",
-      "works/123456/img/%2e%2e",
+      "works/42900/img/a/b",
+      "works/42900/img/",
+      "works/42900/img/..%2f01J9ZQ4K7M3XYV8T2W5R6N0B1C%2f1.html",
+      "works/42900/img/%2e%2e",
       // Reaches the Worker as is (no dot segment to resolve), so the regex refuses it.
-      "works/123456/img/.hidden",
+      "works/42900/img/.hidden",
       "originals/.hidden",
       "originals/",
       "originals/a/b",
@@ -270,7 +292,7 @@ describe("content Worker", () => {
       get: () => Promise.reject(new Error("R2 unavailable")),
     };
     // SAFETY: the Worker calls only BUCKET.get on this path.
-    const failing = { BUCKET: bucket as R2Bucket };
+    const failing = { BUCKET: bucket as R2Bucket, HYPERDRIVE: E.HYPERDRIVE };
     for (const method of ["GET", "HEAD"]) {
       const res = await handler.fetch(
         new Request(`${ORIGIN}/${IMAGE_KEY}`, { method }),
@@ -347,8 +369,7 @@ describe("edge cache (#513)", () => {
   // and under the prefix purge names for images): not that Cloudflare's purge reaches it.
   it("The entry sits under exactly the request URL, and deleting it re-reads R2", async () => {
     await seed();
-    await E.BUCKET.put(ORIGINAL_KEY + ".epub", EPUB);
-    for (const key of [IMAGE_KEY, ORIGINAL_KEY, ORIGINAL_KEY + ".epub"]) {
+    for (const key of [IMAGE_KEY, ORIGINAL_KEY]) {
       const { env: counted, counter } = countingBucket();
       await viaHandler(counted, `${ORIGIN}/${key}`);
       expect(await caches.default.match(`${ORIGIN}/${key}`), key).toBeDefined();
@@ -392,7 +413,7 @@ describe("edge cache (#513)", () => {
 
     const bucket: Pick<R2Bucket, "get"> = { get: () => Promise.reject(new Error("down")) };
     // SAFETY: the Worker calls only BUCKET.get on this path.
-    const failing = { BUCKET: bucket as R2Bucket };
+    const failing = { BUCKET: bucket as R2Bucket, HYPERDRIVE: E.HYPERDRIVE };
     const down = await viaHandler(failing, `${ORIGIN}/${IMAGE_KEY}`);
     expect(down.res.status).toBe(503);
     expect(await caches.default.match(`${ORIGIN}/${IMAGE_KEY}`)).toBeUndefined();
@@ -400,7 +421,7 @@ describe("edge cache (#513)", () => {
 
   it("URLs the Worker refuses never get an entry", async () => {
     await seed();
-    const refused = [`${IMAGE_KEY}?v=2`, `${ORIGINAL_KEY}?`, "index.html", "works/123456/work"];
+    const refused = [`${IMAGE_KEY}?v=2`, `${ORIGINAL_KEY}?`, "index.html", "works/42900/work"];
     for (const key of refused) {
       const { res } = await viaHandler(E, `${ORIGIN}/${key}`);
       expect(res.status, key).toBe(404);

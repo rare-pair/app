@@ -54,6 +54,7 @@ export {
 } from "./ban";
 export { approveVersion, closeWrongVersionReports, type ApproveOutcome } from "./approvals";
 export { refreshWorkSearch } from "./search-index";
+export { getImageAccess, getOriginalAccess, type ContentAccess } from "./content-access";
 export { copyVersionToWork } from "./version-copy";
 export { searchLiveWorks, type SearchOptions, type SearchResults } from "./search";
 export type {

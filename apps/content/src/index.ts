@@ -1,6 +1,15 @@
+import { createDb, getImageAccess, getOriginalAccess, type ContentAccess } from "@archive/db";
+
 export interface Env {
   BUCKET: R2Bucket;
+  /** The uncached config (ARCHITECTURE, Connections): a hide must be seen by the next miss. */
+  HYPERDRIVE: Hyperdrive;
 }
+
+// How long the status read may take before the request fails closed. An image is small, so a
+// database that takes longer than this is treated as down rather than waited for.
+const CONNECT_TIMEOUT_MS = 2000;
+const QUERY_TIMEOUT_MS = 2000;
 
 const IMMUTABLE = "public, max-age=31536000, immutable";
 
@@ -34,7 +43,7 @@ const BYPASS_HEADERS = ["range", "if-none-match", "if-modified-since", "if-match
 /** Logs the kind of error only: never its message, and never the URL, which names the work. */
 // oxlint-disable-next-line deslop/no-unknown-parameters -- it takes whatever a catch caught, and reads only its name
 const logFailure = (what: string, error: unknown) =>
-  console.error(`Edge cache ${what}: ${error instanceof Error ? error.name : "unknown"}`);
+  console.error(`Content ${what}: ${error instanceof Error ? error.name : "unknown"}`);
 
 /** The cached 200 under `url`, or undefined: a cache that fails is a miss. */
 async function matchEntry(url: string) {
@@ -56,6 +65,47 @@ async function putEntry(url: string, response: Response) {
 }
 
 const notFound = () => respond(null, 404, { "Cache-Control": "no-store" });
+
+// A hidden work's file: the work page says 451 for the same work (ARCHITECTURE, Author requests
+// & takedowns). No body and no cause, and never cached, so a restore needs no cache action.
+const hiddenResponse = () => respond(null, 451, { "Cache-Control": "no-store" });
+
+/** The row a key belongs to: an image's work by AO3 id, an original's upload by id. */
+type Subject = { kind: "image"; ao3WorkId: number } | { kind: "original"; uploadId: string };
+
+function subjectOf(path: string): Subject {
+  if (IMAGE.test(path)) return { kind: "image", ao3WorkId: Number(path.split("/")[2]) };
+  const segment = path.slice("/originals/".length);
+  // Ingest stores `originals/<upload id>.epub`; a bare id is checked the same way (#119).
+  return {
+    kind: "original",
+    uploadId: segment.endsWith(".epub") ? segment.slice(0, -".epub".length) : segment,
+  };
+}
+
+/**
+ * What may be served for `subject`: one connection and one single-row read. It throws when the
+ * database can't be read, which the caller turns into a refusal, never a serve.
+ */
+async function readAccess(
+  env: Env,
+  ctx: ExecutionContext,
+  subject: Subject,
+): Promise<ContentAccess> {
+  const db = createDb({
+    connectionString: env.HYPERDRIVE.connectionString,
+    max: 1,
+    connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+    queryTimeoutMillis: QUERY_TIMEOUT_MS,
+  });
+  try {
+    return subject.kind === "image"
+      ? await getImageAccess(db, subject.ao3WorkId)
+      : await getOriginalAccess(db, subject.uploadId);
+  } finally {
+    ctx.waitUntil(db.destroy().catch(() => undefined));
+  }
+}
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -83,13 +133,33 @@ export default {
       if (hit) return hit;
     }
 
-    // A failed read still goes out through respond(), empty and uncached.
-    let object: R2ObjectBody | null;
-    try {
-      object = await env.BUCKET.get(path.slice(1));
-    } catch {
+    // Past the cache, so a miss, or a request that never uses it: the work's status is read
+    // before any byte goes out. The R2 read starts with it so the check adds no round trip, but
+    // nothing is sent until the status is known. A hit above needed no read: a hidden work's
+    // cached copy ages out with its entry (ARCHITECTURE, Author requests & takedowns).
+    const [access, read] = await Promise.allSettled([
+      readAccess(env, ctx, subjectOf(path)),
+      env.BUCKET.get(path.slice(1)),
+    ]);
+    const object = read.status === "fulfilled" ? read.value : null;
+    // An unread object holds a connection: drop it whenever it isn't the response.
+    const drop = () => void object?.body.cancel().catch(() => undefined);
+    // A failed read goes out through respond(), empty and uncached, and a status that could
+    // not be read refuses the file however the R2 read went.
+    if (access.status === "rejected") {
+      logFailure("status read", access.reason);
+      drop();
       return respond(null, 503, { "Cache-Control": "no-store" });
     }
+    if (access.value === "hidden") {
+      drop();
+      return hiddenResponse();
+    }
+    if (access.value === "refuse") {
+      drop();
+      return notFound();
+    }
+    if (read.status === "rejected") return respond(null, 503, { "Cache-Control": "no-store" });
     if (!object) return notFound();
 
     // Stored disposition is never echoed. An original's type is fixed; an image keeps
