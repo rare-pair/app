@@ -157,7 +157,8 @@ describe("01-auth-magic-link sign-out", () => {
 
     // Each header alone, from the site, is enough: the check refuses what is foreign, and
     // doesn't need both.
-    for (const headers of [{ origin: BASE }, { "sec-fetch-site": "same-origin" }]) {
+    const alone: Record<string, string>[] = [{ origin: BASE }, { "sec-fetch-site": "same-origin" }];
+    for (const headers of alone) {
       const mine = await signIn(`sign-out-one-header-${Object.keys(headers)[0]}@example.test`);
       const res = await fetchW("/logout", {
         method: "POST",
