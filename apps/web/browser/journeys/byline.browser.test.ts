@@ -60,7 +60,8 @@ describe("byline journeys", () => {
       await queue.goto(`${SITE}/admin/works`);
       const row = queue.locator("tr", { hasText: `(${workId})` });
       await expect.poll(() => row.count()).toBe(1);
-      expect(await row.innerText()).toContain(`Review reasons: ${reason}`);
+      // The one reason, with no other after it.
+      expect(await row.innerText()).toMatch(new RegExp(`Review reasons: ${reason}(\\s|$)`));
     });
   }
 });

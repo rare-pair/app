@@ -71,7 +71,7 @@ describe("reports and notices journeys", () => {
       // The first two reporters are setup; the third's page is the journey.
       if (!record) site.dropRecording(page);
       await page.goto(`${SITE}/works/42240`);
-      await page.getByRole("link", { name: "Report" }).click();
+      await page.getByRole("link", { name: "Report", exact: true }).click();
       await page.waitForURL(/\/works\/42240\/report/);
       await page.getByLabel("Something else").check();
       await page.getByLabel("Details", { exact: false }).fill(`pw5 report ${n}`);
@@ -85,6 +85,14 @@ describe("reports and notices journeys", () => {
 
     await report(1, false);
     await report(2, false);
+    // Both reports are on file, and two are not enough to hide it.
+    const filed = await site.db
+      .selectFrom("reports")
+      .innerJoin("works", "works.id", "reports.work_id")
+      .select("reports.id")
+      .where("works.ao3_work_id", "=", 42240)
+      .execute();
+    expect(filed).toHaveLength(2);
     await stillLive(site);
     const page = await report(3, true);
 

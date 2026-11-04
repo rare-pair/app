@@ -31,7 +31,9 @@ async function sendRemoval(
     await page.getByLabel("Or a pseud, to remove every work by it").fill(pseud);
   await page.getByLabel("A short statement", { exact: false }).fill(statement);
   // The Turnstile stand-in has put its token in the form once its widget is solved.
-  await page.locator('input[name="cf-turnstile-response"]').waitFor({ state: "attached" });
+  await page.waitForFunction(
+    () => document.querySelector<HTMLInputElement>(`input[name="cf-turnstile-response"]`)?.value,
+  );
   await Promise.all([
     page.waitForEvent("load"),
     page.getByRole("button", { name: "Send request" }).click(),
@@ -56,7 +58,7 @@ describe("removal and opt-out journeys", () => {
 
   it("A removal request hides nothing until the emailed link is confirmed, then the work answers 451", async () => {
     const { site } = running;
-    const work = await seedReadableWork(site, {
+    await seedReadableWork(site, {
       ao3WorkId: 42200,
       title: "pw5-Removal work",
       chapters: [
@@ -89,7 +91,6 @@ describe("removal and opt-out journeys", () => {
       expect(text, path).toContain(HIDDEN_LINE);
       expect(text, path).not.toContain("pw5-Removal work");
     }
-    expect(work.workId).toBeTruthy();
     // Chromium logs a console error for each non-2xx navigation; the 451s only.
     await site.assertClean({ allow: [/status of 451/] });
   });
@@ -113,14 +114,17 @@ describe("removal and opt-out journeys", () => {
     await expect.poll(() => row.innerText()).toContain("remove_work (unconfirmed)");
     expect(await row.innerText()).toContain("pw5-Unconfirmed work");
     await row.getByRole("link").first().click();
+    await page.waitForURL(/\/admin\/requests\/[\w-]+/);
     // Nothing to approve until the requester confirms; the moderator can only reject.
     expect(await page.getByRole("button", { name: "Reject", exact: true }).count()).toBe(1);
     expect(await page.getByRole("button", { name: /^Approve/ }).count()).toBe(0);
 
     const reader = await (await site.newContext()).newPage();
     site.dropRecording(reader);
-    const res = await reader.goto(`${SITE}/works/42201`);
-    expect(res?.status()).toBe(200);
+    // Nothing was hidden: every page of the work still answers 200.
+    for (const path of ["", "/chapters/1", "/full"]) {
+      expect((await reader.goto(`${SITE}/works/42201${path}`))?.status(), path).toBe(200);
+    }
   });
 
   it("An opt-out hides every work by the pseud, and a later upload by that pseud is refused", async () => {
