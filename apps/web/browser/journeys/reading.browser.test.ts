@@ -295,7 +295,9 @@ describe("reading journeys", () => {
   // #405: measured in Chromium, the 302 to the warnings screen keeps the Continue link's #pos=50
   // (the screen's URL ends in it), and the form's POST then answers 303 with a Location that has no
   // fragment, so the chapter opens at the top. It fails on the last assertion, not before. It goes
-  // red when #405 is fixed; then make it a plain test.
+  // red when #405 is fixed; then make it a plain test. `it.fails` counts any thrown error, so an
+  // earlier step breaking would also read as the known failure: the position journey above runs
+  // the same save and Continue steps as a plain test.
   it.fails("Continue returns to the saved position through the warnings screen (known failure: #405)", async () => {
     const { site } = running;
     const { context } = await signedIn(site, { email: "pw3-position-warned@example.test" });
