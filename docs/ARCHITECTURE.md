@@ -1124,7 +1124,9 @@ epub, under the normal versioning rules.
   `/admin` URL, so the admin area isn't advertised to anyone else. A moderator's
   or admin's site header has an Admin link, from the role that comes with the
   session (a display aid only: the gate above reads the role again on every
-  `/admin` request and stays the authority).
+  `/admin` request and stays the authority). A promotion or demotion shows in the
+  header as late as the session lookup sees it: with Hyperdrive's query cache in
+  front of it, about a minute (accepted).
 
 ## Wait list
 

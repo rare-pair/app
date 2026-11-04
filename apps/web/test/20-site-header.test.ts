@@ -127,7 +127,7 @@ describe("20-site-chrome-and-legal: the site header", () => {
     }
   });
 
-  it("A non-moderator never sees the Admin link, and a demoted moderator loses it at once", async () => {
+  it("A non-moderator never sees the Admin link, and a demoted moderator loses it on the next request", async () => {
     const email = "nav-demoted@example.test";
     const cookie = await signInAs(email, "moderator");
     const seen = async () =>
