@@ -1,6 +1,6 @@
 # Scenario: Hono and test code follow one idiom, or say why not
 
-Relates to: docs/ARCHITECTURE.md § Decisions so far, § Proposed repo layout (the "Hono's JSX" line); docs/process.md § Working rules; `.claude/skills/tdd/`, which stays the authority on seams, mocking and test names and is not restated here; issues #232, #211, #107, #235, #241
+Relates to: docs/ARCHITECTURE.md § Decisions so far, § Proposed repo layout (the "Hono's JSX" line); docs/process.md § Working rules; `.claude/skills/tdd/`, which stays the authority on seams, mocking and test names and is not restated here; issues #232, #211, #107, #235, #241, #317
 
 Status: draft. R1 and R2 are decided (below). Nothing here changes what a reader, uploader or moderator sees, except the refusals the guard case lists. The bytes of a page do change under R1 (`<input/>`, `defer=""`), but what a browser parses from them doesn't.
 
@@ -82,7 +82,7 @@ Every route follows the guideline, for one form throughout. Keeping the table wa
 - AND a test shows each of those still answers as it does today
 - AND the guard is registered ahead of the session in `src/index.ts`, so a refused post outside `/admin` costs no session lookup: a refused post that carries a session cookie gets no refreshed cookie back
 - AND one test per refusal shows the status and body as before, and a `Cache-Control` that keeps the refusal out of shared caches
-- AND a test shows a cross-site POST to an unknown URL, to an unknown URL under `/admin`, and to a real `/admin` route get the same status and body, with the app's 404, before and after launch, with and without a settings cookie, and signed out and as a moderator
+- AND a test shows a cross-site POST to a real `/admin` route, to an unknown URL under `/admin`, and to an unknown URL elsewhere get the same status and body, the app's 404, with and without a settings cookie, signed out and as a moderator who has accepted the terms. Before launch, "elsewhere" is in an open section, such as `/waitlist/nope`, since `closedBeforeLaunch` redirects the rest. An account yet to accept the terms can already tell these apart, which #317 owns
 - AND these changes a visitor could see are stated, not hidden:
   - An account yet to accept the terms gets the refusal, not the redirect to the terms page, on a route that checked the origin itself
   - A cross-site `POST /waitlist` before launch is refused without waiting out the response-time floor. It reads no address, so nothing about one can show in its timing
@@ -265,7 +265,7 @@ For `/to-tickets`, which sets each ticket's tier and blocking edges. What's reco
 |---|---|---|
 | Now | Docs: the kept deviations. Lint rules already true. Tests for the kept boundaries. `onError`. Script route helper | None |
 | Shared | #232, limited to `AppEnv` and `withDb`. #211, limited to the ID parser. The one same-origin guard | None; #211 after #232 |
-| Routers | Prepare `src/index.ts`: group the route lines by router and mount empty routers, so each batch fills one router and removes one hunk. Then, side by side: admin home and queues (which needs no preparation); sign-in and terms; uploads; reader, work page, warnings, position, settings; listing and search; removal, DMCA, reports; wait list and site pages. Then narrow the ID parsers | The guard, #232, #211 |
+| Routers | Prepare `src/index.ts`: group the route lines by router and mount empty routers, so each batch fills one router and removes one hunk. Then, side by side: admin home and queues (which needs no preparation); sign-in and terms; uploads; reader, work page, warnings, position, settings; listing and search; removal, DMCA, reports; wait list and site pages. Then narrow the ID parsers | The guard, #232, #211; admin home and queues needs only #232 |
 | Tests | Parsed helper: choose the parser, add `signIn` with a role and `expectEscaped`, move one test file as the tracer. Then, side by side, by scenario: 01 to 03; 08 to 13; 14 to 17; 18; 20 to 23 with the unnumbered files. `test/no-js-browser.ts` runs beside them if the parser is synchronous, and with the no-JS test files if not | Nothing in `src`, so beside the routers |
 | JSX trial | Parsed captures of each page, first and alone, since they must record the template-string output. Then the tooling tracer on a module with no routes, and the entire-work trial | The tests that cover those pages |
 | JSX pages | First batch, which settles the pattern. Then `settings` and small leaves such as `barSettings` and `review-notice`, which others use. Then, side by side: admin pages; listing, search, home; reader, work page, warnings; forms (DMCA, remove, report); uploads and wait list. Last, the layout and removing `escapeHtml` | The trial. Modules with no routes (`admin-pages`, `remove-pages`, `waitlist-pages`) can start beside the routers; a module with routes waits for its router batch |
