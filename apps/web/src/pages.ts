@@ -133,7 +133,7 @@ export const privacyPage = () =>
 <ul>
 <li>Signing in uses an email link. We keep your email address and no password. Each session also keeps the network address and browser (user agent) it was started from, for as long as the session lasts.</li>
 <li>Accepted uploads are public. We do not publish your email address.</li>
-<li>Removal and opt-out requests keep a hashed form of the requester's network address, to limit abuse.</li>
+<li>Removal and opt-out requests keep what you send with them: your email address, a hashed form of your network address, and any statement you write. A block on a requester keeps the same email address and hashed network address. We keep this until the site closes, and then delete it. We do not erase it when you ask.</li>
 <li>The wait list: before launch, if you join it, we keep only your email address, hashed confirmation and unsubscribe tokens and the times we emailed you. We send you a confirmation email, and one launch email. We delete the list once the launch emails have been sent, or sooner if you unsubscribe.</li>
 <li>We store the settings and reading position you save, to bring them back next time.</li>
 <li>Our anti-spam check, provided by Cloudflare, runs on the sign-in, upload and removal pages and, before launch, on the wait list form on the coming-soon home page. Each check sends the visitor's network address (Turnstile's <code>remoteip</code>) to Cloudflare.</li>

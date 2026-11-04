@@ -26,6 +26,7 @@ an unofficial stopgap.
 | Search scope | Metadata only: title, author, tags, summary |
 | Chapter rendering | Inline in app pages behind a strict CSP, with no iframe |
 | Wait list | Before launch, `/` is a coming-soon page with a double opt-in wait list. Each confirmed address is sent one launch email, from the same mail subdomain as sign-in, spread over hours on its own queue. The list is deleted after the launch send |
+| Requester data | What a requester sends with a removal or opt-out request (email address, hashed network address, statement), and a requester block's email and hash, is kept until the site closes, then deleted by hand. It is not erased on request. No erase path, sweep job or migration exists for it. Copyright notices and account data are not covered. Privacy page copy is draft, pending legal review (operator ruling, 2026-11-04) |
 
 ## System overview
 
@@ -169,7 +170,9 @@ requests     (id, kind, work_id NULL, pseud_norm NULL,
               contact_email, statement, status, ip_hash, confirm_token_hash NULL, confirm_sent_at NULL,
               confirmed_at NULL, created_at)      -- kind: remove_work | opt_out; status: pending, rejected, approved; a request
               -- hides nothing until confirmed_at is set by the emailed link (the token is
-              -- kept only as a hash, cleared on confirm); rows from before that count as confirmed
+              -- kept only as a hash, cleared on confirm); rows from before that count as confirmed.
+              -- contact_email, ip_hash and statement are kept until the site closes, then deleted;
+              -- not erased on request (see Decisions so far, Requester data)
 request_works (request_id, work_id)  -- written whenever a request hides a work, so a reversed
               request restores exactly those
 optouts      (id, pseud_norm, ao3_user NULL, request_id, active, created_at)  -- checked at ingest
@@ -947,6 +950,8 @@ epub, under the normal versioning rules.
   stored or logged. Every form that stores or matches one uses `src/ip-hash.ts`, so
   blocks match what was stored; changing the key or the grouping orphans stored
   hashes.
+- **Retention.** The hash is kept with the request until the site closes, then deleted
+  by hand. It is not erased on request (operator ruling, 2026-11-04).
 - **Block and ban stop only the action.** Blocking a requester (by contact
   email and IP hash) means their later `/remove` requests, and reports from an
   account with that email or IP hash, are still recorded and queued but no
