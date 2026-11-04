@@ -49,9 +49,7 @@ async function overSearchLimit(site: Site): Promise<ContextOptions> {
   if (left < 10_000) await new Promise((resolve) => setTimeout(resolve, left + 100));
   const ip = freshIp();
   for (let i = 0; i < 100; i += 1) {
-    const res = await site.fetch("/search?q=q1b", {
-      headers: { "cf-connecting-ip": ip },
-    });
+    const res = await site.fetch("/search?q=q1b", { headers: { "cf-connecting-ip": ip } });
     await res.arrayBuffer();
     if (res.status === 429) return { ip };
   }
@@ -72,31 +70,11 @@ export const OPEN_PAGES: InventoryPage[] = [
   { name: "search results", path: () => "/search?q=q1b", as: "anonymous" },
   { name: "tag listing", path: (s) => s.fandomPath, as: "anonymous" },
   { name: "work", path: (s) => `/works/${s.work}`, as: "anonymous" },
-  {
-    name: "work with many tags",
-    path: (s) => `/works/${s.manyTags}`,
-    as: "anonymous",
-  },
-  {
-    name: "work with a long title",
-    path: (s) => `/works/${s.longTitle}`,
-    as: "anonymous",
-  },
-  {
-    name: "warnings",
-    path: (s) => `/works/${s.warned}/warnings`,
-    as: "anonymous",
-  },
-  {
-    name: "chapter",
-    path: (s) => `/works/${s.work}/chapters/2`,
-    as: "anonymous",
-  },
-  {
-    name: "entire work",
-    path: (s) => `/works/${s.work}/full`,
-    as: "anonymous",
-  },
+  { name: "work with many tags", path: (s) => `/works/${s.manyTags}`, as: "anonymous" },
+  { name: "work with a long title", path: (s) => `/works/${s.longTitle}`, as: "anonymous" },
+  { name: "warnings", path: (s) => `/works/${s.warned}/warnings`, as: "anonymous" },
+  { name: "chapter", path: (s) => `/works/${s.work}/chapters/2`, as: "anonymous" },
+  { name: "entire work", path: (s) => `/works/${s.work}/full`, as: "anonymous" },
   {
     name: "chapter with a long title",
     path: (s) => `/works/${s.longTitle}/chapters/1`,
@@ -113,73 +91,31 @@ export const OPEN_PAGES: InventoryPage[] = [
     as: "anonymous",
   },
   { name: "reader settings", path: () => "/settings/reader", as: "anonymous" },
-  {
-    name: "reader settings, signed in",
-    path: () => "/settings/reader",
-    as: "reader",
-  },
+  { name: "reader settings, signed in", path: () => "/settings/reader", as: "reader" },
   { name: "sign in", path: () => "/login", as: "anonymous" },
-  {
-    name: "sign-in link refused",
-    path: () => "/login?error=INVALID_TOKEN",
-    as: "anonymous",
-  },
-  {
-    name: "confirm sign-in",
-    path: () => `/login/confirm?token=${TOKEN}`,
-    as: "anonymous",
-  },
+  { name: "sign-in link refused", path: () => "/login?error=INVALID_TOKEN", as: "anonymous" },
+  { name: "confirm sign-in", path: () => `/login/confirm?token=${TOKEN}`, as: "anonymous" },
   { name: "accept terms", path: () => "/welcome/terms", as: "new account" },
   { name: "upload", path: () => "/upload", as: "reader" },
   { name: "my uploads", path: () => "/me/uploads", as: "reader" },
   { name: "remove", path: () => "/remove", as: "anonymous" },
-  {
-    name: "confirm removal",
-    path: () => `/remove/confirm?token=${TOKEN}`,
-    as: "anonymous",
-  },
+  { name: "confirm removal", path: () => `/remove/confirm?token=${TOKEN}`, as: "anonymous" },
   { name: "report", path: (s) => `/works/${s.work}/report`, as: "reader" },
   { name: "DMCA", path: () => "/dmca", as: "anonymous" },
   { name: "admin", path: () => "/admin", as: "moderator" },
   { name: "admin reports", path: () => "/admin/reports", as: "moderator" },
-  {
-    name: "admin report",
-    path: (s) => `/admin/reports/${s.report}`,
-    as: "moderator",
-  },
+  { name: "admin report", path: (s) => `/admin/reports/${s.report}`, as: "moderator" },
   { name: "admin takedowns", path: () => "/admin/takedowns", as: "moderator" },
-  {
-    name: "admin takedown",
-    path: (s) => `/admin/takedowns/${s.takedown}`,
-    as: "moderator",
-  },
+  { name: "admin takedown", path: (s) => `/admin/takedowns/${s.takedown}`, as: "moderator" },
   { name: "admin requests", path: () => "/admin/requests", as: "moderator" },
-  {
-    name: "admin request",
-    path: (s) => `/admin/requests/${s.request}`,
-    as: "moderator",
-  },
+  { name: "admin request", path: (s) => `/admin/requests/${s.request}`, as: "moderator" },
   { name: "admin works to check", path: () => "/admin/works", as: "moderator" },
-  {
-    name: "work admin",
-    path: (s) => `/admin/works/${s.toCheck}`,
-    as: "moderator",
-  },
+  { name: "work admin", path: (s) => `/admin/works/${s.toCheck}`, as: "moderator" },
   { name: "about", path: () => "/about", as: "anonymous" },
   { name: "terms", path: () => "/terms", as: "anonymous" },
   { name: "privacy", path: () => "/privacy", as: "anonymous" },
-  {
-    name: "hidden",
-    path: (s) => `/works/${s.hidden}`,
-    as: "anonymous",
-    status: 451,
-  },
-  {
-    name: "removed",
-    path: (s) => `/works/${s.removed}`,
-    as: "anonymous",
-    status: 410,
-  },
+  { name: "hidden", path: (s) => `/works/${s.hidden}`, as: "anonymous", status: 451 },
+  { name: "removed", path: (s) => `/works/${s.removed}`, as: "anonymous", status: 410 },
   {
     name: "too many requests",
     path: () => "/search?q=q1b",
@@ -187,12 +123,7 @@ export const OPEN_PAGES: InventoryPage[] = [
     status: 429,
     prepare: overSearchLimit,
   },
-  {
-    name: "not found",
-    path: () => "/q1b-no-such-page",
-    as: "anonymous",
-    status: 404,
-  },
+  { name: "not found", path: () => "/q1b-no-such-page", as: "anonymous", status: 404 },
 ];
 
 /**
@@ -202,11 +133,7 @@ export const OPEN_PAGES: InventoryPage[] = [
  */
 export const PRELAUNCH_PAGES: InventoryPage[] = [
   { name: "coming soon", path: () => "/", as: "anonymous" },
-  {
-    name: "wait list confirm",
-    path: () => `/waitlist/confirm?token=${TOKEN}`,
-    as: "anonymous",
-  },
+  { name: "wait list confirm", path: () => `/waitlist/confirm?token=${TOKEN}`, as: "anonymous" },
   {
     name: "wait list unsubscribe",
     path: () => `/waitlist/unsubscribe?token=${TOKEN}`,
@@ -218,18 +145,10 @@ export const PRELAUNCH_PAGES: InventoryPage[] = [
     path: () => `/login/confirm?token=${TOKEN}`,
     as: "anonymous",
   },
-  {
-    name: "accept terms, before launch",
-    path: () => "/welcome/terms",
-    as: "new account",
-  },
+  { name: "accept terms, before launch", path: () => "/welcome/terms", as: "new account" },
   { name: "about, before launch", path: () => "/about", as: "anonymous" },
   { name: "terms, before launch", path: () => "/terms", as: "anonymous" },
   { name: "privacy, before launch", path: () => "/privacy", as: "anonymous" },
   { name: "admin, before launch", path: () => "/admin", as: "moderator" },
-  {
-    name: "admin reports, before launch",
-    path: () => "/admin/reports",
-    as: "moderator",
-  },
+  { name: "admin reports, before launch", path: () => "/admin/reports", as: "moderator" },
 ];

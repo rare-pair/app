@@ -6,11 +6,7 @@ import { SITE, startSite, type Site, type SiteOptions } from "../harness/site";
 import { openVisitors, visit, type Visitors } from "../harness/visit";
 
 /** The site an inventory suite runs on, ready once its `beforeAll` has run. */
-export type InventorySite = {
-  site: Site;
-  visitors: Visitors;
-  seeded: Inventory;
-};
+export type InventorySite = { site: Site; visitors: Visitors; seeded: Inventory };
 
 /**
  * In the enclosing describe block, starts a site (`prelaunch` as given), opens its visitors

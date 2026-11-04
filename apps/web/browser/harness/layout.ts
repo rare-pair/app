@@ -9,8 +9,8 @@ export const hasSidewaysScroll = (page: Page) =>
 
 /**
  * Up to five elements that reach past the window's right edge, each as `tag.class (width)`,
- * to name what makes a page scroll sideways. Absolutely positioned elements (the skip link,
- * visually hidden text) are left out: they are not what a reader sees.
+ * to name what makes a page scroll sideways. Left out: absolutely positioned elements (the
+ * skip link, visually hidden text) and what is inside a box that scrolls or clips itself.
  */
 export const sidewaysOffenders = (page: Page) =>
   page.evaluate(() => {
@@ -19,7 +19,17 @@ export const sidewaysOffenders = (page: Page) =>
       if (found.length === 5) break;
       const box = el.getBoundingClientRect();
       if (box.width === 0 || box.right <= window.innerWidth) continue;
-      if (getComputedStyle(el).position === "absolute") continue;
+      // Not what a reader sees: an absolutely positioned box (or anything in one), or
+      // anything in a box that scrolls or clips its own overflow.
+      let hidden = false;
+      for (let at: Element | null = el; at && at !== document.body; at = at.parentElement) {
+        const style = getComputedStyle(at);
+        if (style.position === "absolute" || (at !== el && style.overflowX !== "visible")) {
+          hidden = true;
+          break;
+        }
+      }
+      if (hidden) continue;
       const name = el.id
         ? `#${el.id}`
         : el.classList.length > 0

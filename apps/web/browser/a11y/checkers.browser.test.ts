@@ -114,13 +114,9 @@ describe("harness: the Worker's runtime", () => {
   it("runs the miniflare (so the workerd) that wrangler deploys and tests with", () => {
     const require = createRequire(import.meta.url);
     // SAFETY: package.json files, read for one string field.
-    const wrangler = require("wrangler/package.json") as {
-      dependencies: { miniflare: string };
-    };
+    const wrangler = require("wrangler/package.json") as { dependencies: { miniflare: string } };
     // SAFETY: as above.
-    const ours = require("../../package.json") as {
-      devDependencies: { miniflare: string };
-    };
+    const ours = require("../../package.json") as { devDependencies: { miniflare: string } };
     expect(ours.devDependencies.miniflare).toBe(wrangler.dependencies.miniflare);
   });
 });
@@ -134,9 +130,7 @@ describe("harness: a narrow viewport", () => {
   });
 
   it("finds a page that scrolls sideways at 360 px, and one that doesn't", async () => {
-    const narrow = await browser.newContext({
-      viewport: viewportFromEnv("360x640"),
-    });
+    const narrow = await browser.newContext({ viewport: viewportFromEnv("360x640") });
     const small = await narrow.newPage();
     try {
       await small.setContent(`<div style="width: 500px">Too wide</div>`);
@@ -149,13 +143,14 @@ describe("harness: a narrow viewport", () => {
   });
 
   it("names the element that is too wide, and nothing for a page that fits", async () => {
-    const narrow = await browser.newContext({
-      viewport: viewportFromEnv("360x640"),
-    });
+    const narrow = await browser.newContext({ viewport: viewportFromEnv("360x640") });
     const small = await narrow.newPage();
     try {
+      // The skip link's box and its child reach past the edge but aren't what a reader sees.
       await small.setContent(
-        `<p>Fits</p><div class="wide" style="width: 500px">Too wide</div><a style="position: absolute; left: 400px">Skip</a>`,
+        `<p>Fits</p><div class="wide" style="width: 500px">Too wide</div>` +
+          `<a style="position: absolute; left: 400px">Skip <span>link</span></a>` +
+          `<div style="overflow: auto"><pre style="width: 700px">scrolls inside</pre></div>`,
       );
       expect(await sidewaysOffenders(small)).toEqual(["div.wide (500px wide, right edge 508)"]);
       await small.setContent(`<p>Wraps to fit</p>`);

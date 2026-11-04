@@ -57,11 +57,7 @@ export async function seedInventory(
     rating: "General Audiences",
     summary: "<p>A synthetic summary.</p>",
     tags: [fandom, { type: "character", name: "q1b-Character" }],
-    chapters: [1, 2, 3].map((n) => ({
-      title: `Chapter ${n}`,
-      html: chapter(n),
-      words: 20,
-    })),
+    chapters: [1, 2, 3].map((n) => ({ title: `Chapter ${n}`, html: chapter(n), words: 20 })),
     chapterTotal: 3,
   });
   await seedReadableWork(site, {
@@ -138,11 +134,7 @@ export async function seedInventory(
     .executeTakeFirstOrThrow();
   const takedown = await site.db
     .insertInto("takedowns")
-    .values({
-      work_id: work.workId,
-      requester: "q1b-takedown@example.test",
-      basis: "q1b-basis",
-    })
+    .values({ work_id: work.workId, requester: "q1b-takedown@example.test", basis: "q1b-basis" })
     .returning("id")
     .executeTakeFirstOrThrow();
   const request = await site.db
