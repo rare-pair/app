@@ -71,5 +71,7 @@ export function startRecorder(dir: string, maxBytes = MAX_VIDEO_BYTES) {
 }
 
 /** A recorder when `BROWSER_RECORD` names a folder; otherwise none, and nothing is recorded. */
-export const recorderFromEnv = (dir = process.env.BROWSER_RECORD) =>
-  dir === undefined || dir === "" ? undefined : startRecorder(dir);
+export function recorderFromEnv() {
+  const dir = process.env.BROWSER_RECORD;
+  return dir === undefined || dir === "" ? undefined : startRecorder(dir);
+}

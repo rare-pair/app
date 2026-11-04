@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { presignPut } from "../../src/presign";
+import { EPUB_TYPE } from "../../src/upload-limit";
 import { SECRETS } from "../../test/stand-ins";
+import type { CleanOptions } from "./clean";
 import { useJourneySite } from "./journey";
 import { R2_HOST, signedKey } from "./r2-put";
 import { startRecorder, videoName } from "./recording";
@@ -13,7 +15,7 @@ import { launchChromium, SITE, startSite, type Site } from "./site";
 // The harness's own helpers: each must catch what it is there to catch, or a pass on a journey
 // shows nothing.
 
-const EPUB = "application/epub+zip";
+const EPUB = EPUB_TYPE;
 const presigned = (key: string, now = new Date(), expiresSeconds = 600) =>
   presignPut({
     accountId: SECRETS.R2_ACCOUNT_ID,
@@ -34,10 +36,10 @@ describe("on a running site", () => {
   afterAll(() => site.close());
 
   /** What `assertClean` says, polled: Chromium reports console messages when it gets to them. */
-  const complaint = () =>
+  const complaint = (options?: CleanOptions) =>
     expect.poll(() => {
       try {
-        site.assertClean();
+        site.assertClean(options);
         return "";
       } catch (error) {
         // SAFETY: assertClean throws only Errors.
@@ -97,17 +99,7 @@ describe("on a running site", () => {
         console.error("an expected error");
         console.error("an unexpected error");
       });
-      await expect
-        .poll(() => {
-          try {
-            site.assertClean({ allow: [/an expected error/] });
-            return "";
-          } catch (error) {
-            // SAFETY: assertClean throws only Errors.
-            return (error as Error).message;
-          }
-        })
-        .toMatch(/an unexpected error/);
+      await complaint({ allow: [/an expected error/] }).toContain("an unexpected error");
     });
 
     it("leaves the content host and Turnstile stand-in alone", async () => {
