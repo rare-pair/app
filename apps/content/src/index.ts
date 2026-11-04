@@ -11,13 +11,17 @@ export interface Env {
 const CONNECT_TIMEOUT_MS = 2000;
 const QUERY_TIMEOUT_MS = 2000;
 
-// How long a data centre keeps an entry: 12 hours, so a hidden work's cached copy ages out
-// within that (a hide does not purge: ARCHITECTURE, Author requests & takedowns). The Cache
-// API stores a response for its `s-maxage` ahead of `max-age`; `max-age` is the browser's,
-// and #581 splits it off. Both are set here, and nowhere else.
+// The two lifetimes of a served file, each named once (#581). The data centre keeps an entry
+// for 12 hours, so a hidden work's cached copy ages out within that (a hide does not purge:
+// ARCHITECTURE, Author requests & takedowns). A browser keeps its copy for an hour, so a
+// hidden or removed file is gone from a reader's cache soon after. Neither is `immutable`:
+// these files can go away. The entry is stored under the edge's `max-age`, not `s-maxage`:
+// the Cache API honours `max-age` when it stores, and what a browser is sent is rewritten on
+// every response, hit or miss, so the edge's longer lifetime never reaches a browser.
 const EDGE_SECONDS = 12 * 60 * 60;
-const BROWSER_SECONDS = 365 * 24 * 60 * 60;
-const CACHE_CONTROL = `public, max-age=${BROWSER_SECONDS}, immutable, s-maxage=${EDGE_SECONDS}`;
+const BROWSER_SECONDS = 60 * 60;
+const EDGE_CACHE_CONTROL = `public, max-age=${EDGE_SECONDS}`;
+const BROWSER_CACHE_CONTROL = `public, max-age=${BROWSER_SECONDS}`;
 
 // The only keys this origin serves. Images are keyed by the SHA-256 of their bytes
 // (ARCHITECTURE, EPUB processor step 6), so an image path is versioned by its key.
@@ -75,6 +79,13 @@ async function putEntry(url: string, response: Response) {
   } catch (error) {
     logFailure("write", error);
   }
+}
+
+/** A cached entry as a browser gets it: the entry's stored headers, with the browser's lifetime. */
+function forBrowser(entry: Response) {
+  const h = new Headers(entry.headers);
+  h.set("Cache-Control", BROWSER_CACHE_CONTROL);
+  return new Response(entry.body, { status: entry.status, headers: h });
 }
 
 const notFound = () => respond(null, 404, { "Cache-Control": "no-store" });
@@ -143,7 +154,7 @@ export default {
       request.method === "GET" && !BYPASS_HEADERS.some((h) => request.headers.has(h));
     if (cacheable) {
       const hit = await matchEntry(request.url);
-      if (hit) return hit;
+      if (hit) return forBrowser(hit);
     }
 
     // Past the cache, so a miss, or a request that never uses it: the work's status is read
@@ -181,12 +192,16 @@ export default {
     // its stored type only when it is one of the four that ingest writes.
     const stored = object.httpMetadata?.contentType ?? "";
     const response = respond(object.body, 200, {
-      "Cache-Control": CACHE_CONTROL,
+      "Cache-Control": BROWSER_CACHE_CONTROL,
       ...(isOriginal
         ? { "Content-Type": "application/epub+zip", "Content-Disposition": "attachment" }
         : { "Content-Type": IMAGE_TYPES.has(stored) ? stored : "application/octet-stream" }),
     });
-    if (cacheable) ctx.waitUntil(putEntry(request.url, response.clone()));
+    if (cacheable) {
+      const entry = response.clone();
+      entry.headers.set("Cache-Control", EDGE_CACHE_CONTROL);
+      ctx.waitUntil(putEntry(request.url, entry));
+    }
     return response;
   },
 } satisfies ExportedHandler<Env>;

@@ -102,6 +102,11 @@ async function seed() {
   await E.BUCKET.put(ORIGINAL_KEY, EPUB, { httpMetadata: { contentType: "application/epub+zip" } });
 }
 
+// The browser keeps a file for an hour; the edge entry is stored for 12 hours (#581). Written
+// as literals, not read from the Worker: they are the operator's values.
+const BROWSER_CACHE_CONTROL = "public, max-age=3600";
+const EDGE_CACHE_CONTROL = "public, max-age=43200";
+
 describe("09-content-origin", () => {
   it("Content origin sets no cookies", async () => {
     await seed();
@@ -127,17 +132,15 @@ describe("09-content-origin", () => {
     }
   });
 
-  it("Images and downloads are cached as immutable", async () => {
+  it("Images and downloads are cached for the browser for an hour", async () => {
     await seed();
     for (const key of [IMAGE_KEY, ORIGINAL_KEY]) {
       const res = await get(key);
       expect(res.status).toBe(200);
-      expect(res.headers.get("cache-control")).toBe(
-        "public, max-age=31536000, immutable, s-maxage=43200",
-      );
+      expect(res.headers.get("cache-control")).toBe(BROWSER_CACHE_CONTROL);
       await res.arrayBuffer();
     }
-    // A miss is not cached as immutable: the key may be written later.
+    // A miss is not cached: the key may be written later.
     const miss = await get(MISSING_IMAGE_KEY);
     expect(miss.status).toBe(404);
     expect(miss.headers.get("cache-control")).toBe("no-store");
@@ -240,9 +243,7 @@ describe("19-surge-controls-and-quotas", () => {
     for (const key of [IMAGE_KEY, ORIGINAL_KEY]) {
       const res = await get(key);
       expect(res.status).toBe(200);
-      expect(res.headers.get("cache-control")).toBe(
-        "public, max-age=31536000, immutable, s-maxage=43200",
-      );
+      expect(res.headers.get("cache-control")).toBe(BROWSER_CACHE_CONTROL);
       await res.arrayBuffer();
     }
   });
@@ -255,9 +256,7 @@ describe("content Worker", () => {
     const res = await get(IMAGE_KEY, { method: "HEAD" });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");
-    expect(res.headers.get("cache-control")).toBe(
-      "public, max-age=31536000, immutable, s-maxage=43200",
-    );
+    expect(res.headers.get("cache-control")).toBe(BROWSER_CACHE_CONTROL);
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await res.text()).toBe("");
   });
@@ -333,6 +332,23 @@ describe("content Worker", () => {
 });
 
 describe("edge cache (#513)", () => {
+  it("The stored entry has the edge's lifetime, and the browser's header is on a hit and a miss", async () => {
+    await seed();
+    const { env: counted, counter } = countingBucket();
+    for (const key of [IMAGE_KEY, ORIGINAL_KEY]) {
+      const miss = await viaHandler(counted, `${ORIGIN}/${key}`);
+      expect(miss.res.headers.get("cache-control"), `miss ${key}`).toBe(BROWSER_CACHE_CONTROL);
+      const entry = await caches.default.match(`${ORIGIN}/${key}`);
+      expect(entry?.headers.get("cache-control"), `entry ${key}`).toBe(EDGE_CACHE_CONTROL);
+      await entry?.arrayBuffer();
+      const reads = counter.reads;
+      const hit = await viaHandler(counted, `${ORIGIN}/${key}`);
+      expect(counter.reads, `hit ${key}`).toBe(reads);
+      expect(hit.res.headers.get("cache-control"), `hit ${key}`).toBe(BROWSER_CACHE_CONTROL);
+      expect(hit.body.byteLength).toBeGreaterThan(0);
+    }
+  });
+
   it("A repeat request is served from the cache without an R2 read", async () => {
     await seed();
     const { env: counted, counter } = countingBucket();
@@ -344,9 +360,7 @@ describe("edge cache (#513)", () => {
     expect(second.res.status).toBe(200);
     expect(second.body).toEqual(PNG);
     expect(second.res.headers.get("content-type")).toBe("image/png");
-    expect(second.res.headers.get("cache-control")).toBe(
-      "public, max-age=31536000, immutable, s-maxage=43200",
-    );
+    expect(second.res.headers.get("cache-control")).toBe(BROWSER_CACHE_CONTROL);
     expect(second.res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(second.res.headers.has("set-cookie")).toBe(false);
   });

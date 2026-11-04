@@ -87,7 +87,7 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Load target), § Surge con
 ### Content origin is edge-cached
 - GIVEN an image or original download on `content.rarepair.fans`
 - WHEN it is served
-- THEN it has `Cache-Control: public, max-age=31536000, immutable, s-maxage=43200`
+- THEN it has `Cache-Control: public, max-age=3600`, and its stored entry has `public, max-age=43200`
 
 ### A cache hit needs no database read, a miss reads once, and an outage fails closed
 - GIVEN an image of a live work that one data centre has cached

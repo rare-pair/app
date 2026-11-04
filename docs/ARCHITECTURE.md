@@ -49,7 +49,7 @@ an unofficial stopgap.
    │
    │             ┌───────────────────── content.rarepair.fans ──────────────────────┐
    └──────────▶  │  content Worker: epub images + original-file downloads from R2   │
-                 │  separate origin, no cookies, nosniff, edge-cached forever       │
+                 │  separate origin, no cookies, nosniff, edge 12 h, browser 1 h    │
                  └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -417,8 +417,8 @@ Chapter text isn't indexed.
    `works/<ao3_work_id>/img/`, and their links rewritten. SVG, fonts and
    stylesheets are dropped. Images deliberately sit outside the per-upload
    prefix: keyed by content hash, they are shared by every version that uses
-   them, a retried job rewrites the same keys, and they can be cached as
-   `immutable`. Images no version references (say, from a job that failed
+   them, a retried job rewrites the same keys, and a data centre can cache them
+   for 12 hours (*Edge cache*). Images no version references (say, from a job that failed
    before its transaction) are removed by a periodic sweep, and all of them go
    when the work is removed; whatever the removal's purge missed, the sweep
    deletes on a later run (*Removal really removes*).
@@ -1031,8 +1031,7 @@ epub, under the normal versioning rules.
     cache gets 451 (see Hosts), and the data centres' cached copies age out within
     12 hours of being stored, so a hidden work's images can stay visible for up to
     12 hours after the hide, in each data centre that cached them. A browser keeps
-    an image it already has for the image's own lifetime (a year, until #581
-    shortens it), and nothing here purges it. A restore needs no action: the next
+    an image or original it already has for up to an hour, and nothing here purges it. A restore needs no action: the next
     miss reads `live` and fills the cache again. A declared automated client gets
     a 403 on the chapter URLs and `/full` instead (Crawlers and agents).
   - **Held** (a `held_for_review` version, never public): 404 to the public.
@@ -1049,8 +1048,8 @@ epub, under the normal versioning rules.
   upload from R2, and purges the work's pages, cached fragments, images and
   download URLs from the cache. Public pages that read the work through the cached
   Hyperdrive connection can still show it, and can store a chapter page after the
-  purge, for up to about 75 s (see *Connections*). Images and downloads are cached as
-  `immutable`, so without the purge parts of a removed work stay reachable. That
+  purge, for up to about 75 s (see *Connections*). Images and downloads stay in a data
+  centre's cache for 12 hours, so without the purge parts of a removed work stay reachable. That
   the purge clears the content Worker's own cache entries is not yet confirmed (see
   Surge controls, Edge cache); if it does not, a removed work's cached images and
   downloads age out within 12 hours, and a request after that gets a 404. The sweep finishes what the purge or an ingest clean-up
@@ -1348,14 +1347,20 @@ markup: its inline `style` attributes become stylesheet rules, because
   stay bounded. Hyperdrive pools connections, and Neon autoscales compute. Each Hyperdrive
   config keeps its own pool, and the web Worker uses two: before launch, check the pool
   sizes of the two configs and the ingest and sweep one against Neon's connection limit.
-- Edge cache: images and original downloads on `content.rarepair.fans` never change
-  once written (an image's key is its content hash, an original's its upload's id), so the browser keeps them for
-  a year, but a data centre keeps them for 12 hours, because a hide does not purge:
-  `Cache-Control: public, max-age=31536000, immutable, s-maxage=43200`. The Cache API
-  expires an entry by its `s-maxage` ahead of `max-age` (seen in the local runtime,
-  not confirmed on the live zone: an operator checks it before launch, by
-  seeing a cached file refilled after 12 hours). Both values are set in one function (`cacheControl`), and
-  #581 splits the browser's off. The content Worker also
+- Edge cache: images and original downloads on `content.rarepair.fans` can go away
+  (a hide, a removal, an opt-out), so neither lifetime is long and neither is `immutable`.
+  A data centre keeps an entry for 12 hours, because a hide does not purge, and a browser
+  keeps a file for an hour. The entry is stored under `Cache-Control: public, max-age=43200`
+  and every response a browser gets, hit or miss, carries `public, max-age=3600`: the
+  Worker rewrites the header on a hit, so the edge's lifetime never reaches a browser. The
+  entry's lifetime is its `max-age`, not an `s-maxage`, so nothing depends on the Cache API
+  reading `s-maxage` (the local runtime expires an entry on `max-age` alone; the live zone
+  is not measured, and an operator checks it before launch, by seeing a cached file refilled
+  after 12 hours). Each value is named once, in the content Worker's `index.ts`.
+  Without `immutable` a browser's reload fetches the file again instead of reusing its copy.
+  The response has no validator, so that is a full download, served from the edge entry (the
+  Worker keys the cache by URL alone, so a reload's headers pick no other entry): it costs
+  bandwidth, not a database or R2 read. A plain visit within the hour costs neither. The content Worker also
   stores each 200 in the Workers Cache API (`caches.default`) under the bare request
   URL, in the data centre that served it (no replication, no tiered cache), so a
   repeat request there skips R2 (each data centre misses once per key, and
@@ -1369,8 +1374,11 @@ markup: its inline `style` attributes become stylesheet rules, because
   launch. If it fails, a removed work's images and downloads stay cached for up
   to 12 hours. A request that read R2 (and a work's status) before the removal's delete
   or a hide can also store its response after a purge, and that entry too ends within
-  12 hours of its store. Browser caches are untouched: they keep an
-  `immutable` response after removal (#471, open). Chapter fragments are
+  12 hours of its store. Browser caches are untouched, and
+  keep a response for up to an hour after a hide or a removal. The site stops serving a
+  hidden or removed work's files once the edge entry has gone (12 hours at most after a
+  hide; at the purge for a removal), and cannot reach an epub a reader has saved, or a
+  browser's copy for up to an hour. Chapter fragments are
   cached inside the web Worker (see Reading). Work and tag listings
   get a short cache with stale-while-revalidate.
 - Observability: Workers Logs and traces are on from day one, except that the

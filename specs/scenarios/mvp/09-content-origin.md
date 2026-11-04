@@ -29,10 +29,11 @@ Relates to: docs/ARCHITECTURE.md § System overview, § Why these pieces (Two la
 - WHEN the response is returned
 - THEN it has `X-Content-Type-Options: nosniff`
 
-### Images and downloads are cached as immutable
+### Images and downloads are cached for the browser for an hour
 - GIVEN any image or original download served by `content.rarepair.fans`
 - WHEN the response is returned
-- THEN it has `Cache-Control: public, max-age=31536000, immutable, s-maxage=43200`: the browser's year, and 12 hours in the data centre's cache
+- THEN it has `Cache-Control: public, max-age=3600`: the browser's hour, on a cache hit as well as a miss, and never `immutable`
+- AND the data centre's stored entry has `Cache-Control: public, max-age=43200`: 12 hours
 
 ### Original epub downloads as an attachment
 - GIVEN work W's page
