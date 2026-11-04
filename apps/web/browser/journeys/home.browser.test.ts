@@ -32,15 +32,18 @@ describe("home journey", () => {
         addedAt: w.addedAt,
       });
     }
-    // A hidden work is left out of both lists, though it is the newest.
-    await seedReadableWork(site, {
-      ao3WorkId: 42185,
-      title: "Pw4 Home Hidden",
-      status: "hidden",
-      hiddenCause: "moderator",
-      tags: [{ type: "fandom", name: SMALL }],
-      addedAt: "2026-01-06T00:00:00Z",
-    });
+    // Hidden works are left out of both lists, though they are the newest. Counted, they would
+    // put SMALL (4) ahead of BIG (3).
+    for (const id of [42185, 42186]) {
+      await seedReadableWork(site, {
+        ao3WorkId: id,
+        title: `Pw4 Home Hidden ${id}`,
+        status: "hidden",
+        hiddenCause: "moderator",
+        tags: [{ type: "fandom", name: SMALL }],
+        addedAt: "2026-01-06T00:00:00Z",
+      });
+    }
 
     const page = await (await site.newContext()).newPage();
     await page.goto(`${SITE}/`);
