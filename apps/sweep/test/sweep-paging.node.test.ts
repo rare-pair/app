@@ -275,9 +275,10 @@ describe("sweep of a removed work", () => {
     const userId = await removeWork(43_020);
     const uploadId = "44444444-4444-4444-8444-444444444444";
     await putUpload(uploadId, userId, "parse_failed");
-    const files: Record<string, string> = { [`originals/${uploadId}.epub`]: "" };
+    const files: Record<string, string> = {};
     for (let n = 1; n <= 7; n++) files[`works/43020/${uploadId}/${n}.html`] = "";
     for (let n = 1; n <= 3; n++) files[`works/43020/img/${IMG(n)}`] = "";
+    files[`originals/${uploadId}.epub`] = "";
     files["works/430200/1.html"] = "";
     files["originals/55555555-5555-4555-8555-555555555555.epub"] = "";
     const { bucket, keys } = pagingBucket(files);
