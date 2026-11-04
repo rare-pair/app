@@ -74,9 +74,9 @@ describe("wait list journey", () => {
       await page.getByLabel("Email address").fill(email);
       const [response] = await Promise.all([
         page.waitForResponse((r) => new URL(r.url()).pathname === "/waitlist"),
+        page.waitForEvent("load"),
         page.getByRole("button", { name: "Join the wait list" }).click(),
       ]);
-      await page.waitForLoadState("load");
       return response.status();
     };
     const row = () =>
@@ -113,13 +113,15 @@ describe("wait list journey", () => {
 
     // The used link shows its button again, and refuses when it is pressed.
     await page.goto(link);
+    // Nothing logged so far was a refusal: only the one below is expected.
+    await site.assertClean();
     const [refused] = await Promise.all([
       page.waitForResponse(
         (r) => new URL(r.url()).pathname === "/waitlist/confirm" && r.request().method() === "POST",
       ),
+      page.waitForEvent("load"),
       page.getByRole("button", { name: "Confirm" }).click(),
     ]);
-    await page.waitForLoadState("load");
     expect(refused.status()).toBe(400);
     expect(await page.locator("h1").innerText()).toBe("That link doesn't work");
     expect(await page.locator("main").innerText()).toContain("already been used or has expired");
@@ -152,6 +154,8 @@ describe("wait list journey", () => {
       await page.keyboard.press("Tab");
       focused.push(await page.evaluate(() => document.activeElement?.textContent.trim() ?? ""));
     }
+    // The loop reached the footer: its enabled links took focus.
+    for (const name of ["Terms", "Privacy", "About"]) expect(focused).toContain(name);
     expect(focused).not.toContain("Remove my work");
     expect(focused).not.toContain("Copyright notice");
 
