@@ -114,6 +114,23 @@ describe("on a running site", () => {
     });
   });
 
+  describe("newContext", () => {
+    it("with javaScript off, runs none of a page's scripts", async () => {
+      const probe = async (javaScript?: boolean) => {
+        const context = await site.newContext({ javaScript });
+        const page = await context.newPage();
+        await page.goto(`${SITE}/login`);
+        // The login page loads Turnstile's script, which stands in as `window.turnstile`.
+        const ran = await page.evaluate(() => "turnstile" in window);
+        await context.close();
+        return ran;
+      };
+      expect(await probe()).toBe(true);
+      expect(await probe(false)).toBe(false);
+      await site.assertClean();
+    });
+  });
+
   describe("the presigned PUT stand-in", () => {
     it("stores a PUT signed by the web Worker's method, and refuses a forged one", async () => {
       const { context } = await signedIn(site, { email: "pw0-put@example.test" });
@@ -209,8 +226,9 @@ describe("recording", () => {
     }
   };
 
-  it("slows the browser only while recording", () => {
-    expect(slowMoFromEnv(undefined)).toBeUndefined();
+  it("slows the browser only while recording", async () => {
+    // Passing undefined would read the run's own BROWSER_RECORD, so unset it for the check.
+    await withEnv(undefined, async () => expect(slowMoFromEnv()).toBeUndefined());
     expect(slowMoFromEnv("")).toBeUndefined();
     expect(slowMoFromEnv("/some/folder")).toBe(750);
   });
