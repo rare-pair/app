@@ -124,8 +124,8 @@ works        (id, ao3_work_id UNIQUE NOT NULL, title, summary_html, rating, lang
               complete, published_at, updated_at,
               status,            -- processing | live | hidden | removed
               hidden_cause NULL, -- removal_request | reports | moderator, while hidden
-              removed_reason NULL, -- dmca | removal_request | wrong_file | site_safety, while removed
-              removed_at NULL,   -- set with removed_reason; a partial index on it, where status is removed, serves the removal list
+              removed_reason NULL, -- dmca | removal_request | wrong_file | site_safety; the schema's check, like hidden_cause's, allows it only while removed and requires it then
+              removed_at NULL,   -- set with removed_reason, under the same check; a partial index on it, where status is removed, serves the removal list
               list_withheld,     -- the removal list shows no title, byline or AO3 ID
               current_version_id, raw_meta jsonb,
               search tsvector,   -- title A, byline and tags B, summary C; text search config `simple`
@@ -162,7 +162,7 @@ takedowns    (id, work_id, requester, basis, status, resolved_by, created_at,
                            -- information; incomplete when a 512(c)(3)(A) element is missing;
                            -- status: pending, rejected, or removed (approved, which puts the work on the takedown list)
 requests     (id, kind, work_id NULL, pseud_norm NULL,
-              pseud_typed NULL,  -- the pseud as the requester wrote it, for the removal list
+              pseud_typed NULL,  -- for the removal list: the pseud as typed, cleaned like pseud_norm but with its case kept
               contact_email, statement, status, ip_hash, confirm_token_hash NULL, confirm_sent_at NULL,
               confirmed_at NULL, created_at)      -- kind: remove_work | opt_out; status: pending, rejected, approved; a request
               -- hides nothing until confirmed_at is set by the emailed link (the token is
@@ -170,7 +170,9 @@ requests     (id, kind, work_id NULL, pseud_norm NULL,
 request_works (request_id, work_id)  -- written whenever a request hides a work, so a reversed
               request restores exactly those
 optouts      (id, pseud_norm, ao3_user NULL, request_id, active, created_at)  -- checked at ingest
-listed_pseuds (pseud_norm PRIMARY KEY, pseud_typed, listed_at,  -- one row per pseud on the removal list; indexed on listed_at
+listed_pseuds (pseud_norm PRIMARY KEY,  -- one row per pseud on the removal list
+              request_id,        -- the approved opt-out whose pseud_typed is shown
+              listed_at,         -- when the pseud was first approved; indexed
               withheld)          -- the removal list leaves the pseud out
 requester_blocks (id, contact_email NULL, ip_hash NULL, created_by, created_at)
 moderation_actions (id, moderator_id, action, target_kind, target_id, note NULL,
@@ -941,18 +943,25 @@ epub, under the normal versioning rules.
   status changes, by `removeWork` under its lock, so a repeat remove needs none and
   keeps the first. The approved item decides it: a takedown gives `dmca` and a removal
   request gives `removal_request`. A moderator's own remove gives `dmca` when a notice
-  on the work is pending, and otherwise must choose `wrong_file` or `site_safety`. The
-  migration derives a reason for works already removed, the same way, with
-  `site_safety` when nothing else applies. Approving an opt-out adds its pseud to
-  `listed_pseuds` unless it is there already, in the approve's transaction, and
-  rejecting the last approved, active opt-out for a pseud deletes the row. Statements, DMCA fields, requesters and moderation notes are
+  on the work is pending, and otherwise must choose `wrong_file` or `site_safety`, or
+  `removal_request` when a confirmed pending request or an active opt-out covers the
+  work. The migration derives a reason for works already removed, the same way, with
+  `site_safety` when nothing else applies. It lists no opt-out approved before it, since
+  those requesters were never told, though a removed work's 410 was already public.
+  Approving an opt-out adds its pseud to `listed_pseuds` unless it is there already, and
+  rejecting one moves the row to the earliest remaining approved opt-out, or deletes the
+  row when none remains. A withheld row with none remaining stays, so a later approve
+  can't republish the name, and un-withholding it deletes it. Each takes a transaction
+  advisory lock on the `pseud_norm` after its request row, so a concurrent approve and
+  reject can't leave the row wrong. Statements, DMCA fields, requesters and moderation notes are
   never shown. A reversed opt-out takes the entry off, and the action log keeps the
   history. A removed work can't be restored, so its entry stays. A moderator can
   withhold an entry, for a title or name that shouldn't be republished or a removal
   made by mistake: a work then shows only the date and reason, and a pseud is left out. `/remove` and `/dmca` say what will be published before anyone
   submits. The pages carry `X-Robots-Tag: noindex` and give the moderators' contact
   address. Requests `pageCacheable` allows share one edge cache entry per page number
-  for up to 60 s.
+  for up to 60 s, on top of up to 60 s in Hyperdrive's read cache, so in each data
+  centre a change can take about 2 minutes to show. Withholding purges nothing.
 - **DMCA.** To get safe-harbor protection under US law (17 U.S.C. §512), we need
   a designated agent registered with the US Copyright Office, a public takedown
   form, a counter-notice process and a repeat-infringer policy. Get a lawyer to
@@ -986,8 +995,8 @@ epub, under the normal versioning rules.
   - *Works to check*: works with a held version, works live with the "may be
     imperfect" notice, and works reported as "This version is wrong"
 
-  Actions are hide, remove, restore, approve, reject, block a requester and ban
-  an uploader. A *Works to check* item's page has approve (clears the notice,
+  Actions are hide, remove, restore, approve, reject, block a requester, ban
+  an uploader and withhold a removal list entry. A *Works to check* item's page has approve (clears the notice,
   or publishes the held version), make a version current, hide and remove;
   each work's admin page lists every version with "Make current" and "Approve". Approving a held version
   makes it current and checked; each approve is logged once, on the version. Make current and
