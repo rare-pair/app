@@ -3,7 +3,7 @@ import { putFragments, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
 import { chapterPageKey, fragmentCacheKey } from "../src/edge-cache";
-import { fetchW, signIn } from "./helpers";
+import { fetchW, headerOf, signIn } from "./helpers";
 
 // A signed-in or moderator header never reaches a shared cache (spec 20; spec 11, "Fresh
 // nonce on edge-cached pages"). The only shared page entry is a chapter's, and it holds the
@@ -42,8 +42,6 @@ const kept = async (id: number, n: number) =>
 
 const page = async (id: number, init: RequestInit = {}) =>
   (await fetchW(`/works/${id}/chapters/1`, init)).text();
-
-const headerOf = (html: string) => html.match(/<header>([\s\S]*?)<\/header>/)?.[1] ?? "";
 
 describe("20-site-chrome-and-legal: a signed-in header and shared caches", () => {
   it("A signed-in or moderator request never fills the edge page cache", async () => {

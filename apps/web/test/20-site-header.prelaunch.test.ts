@@ -1,7 +1,7 @@
 import { createDb } from "@archive/db";
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
-import { fetchW, signIn } from "./helpers";
+import { fetchW, headerOf, signIn } from "./helpers";
 
 // Before launch (the "prelaunch" project, wrangler.jsonc as it deploys): /upload and
 // /me/uploads are closed, so the header's Add work and My uploads show disabled as the
@@ -9,8 +9,6 @@ import { fetchW, signIn } from "./helpers";
 
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 afterAll(() => db.destroy());
-
-const headerOf = (html: string) => html.match(/<header>([\s\S]*?)<\/header>/)?.[1] ?? "";
 
 /** The header's anchors, as [text, attributes]. */
 const anchorsOf = (html: string) =>

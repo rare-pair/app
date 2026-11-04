@@ -29,6 +29,9 @@ export const UPLOAD_CSP = `${TURNSTILE}; connect-src 'self' https://test00000000
  */
 export const withoutHeader = (html: string) => html.replace(/<header>[\s\S]*?<\/header>/, "");
 
+/** What the page's one `<header>` holds, or "" when it has none. */
+export const headerOf = (html: string) => html.match(/<header>([\s\S]*?)<\/header>/)?.[1] ?? "";
+
 /** The nonce in a CSP header, or null when there is none. */
 export const nonceOf = (csp: string | null) => csp?.match(/'nonce-([^']*)'/)?.[1] ?? null;
 

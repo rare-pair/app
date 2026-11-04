@@ -3,7 +3,7 @@ import { putFragments, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeAuth } from "../src/auth";
-import { fetchW, signIn } from "./helpers";
+import { fetchW, headerOf, signIn } from "./helpers";
 
 // Spec 20, the site header. AO3 work ids 42800 to 42899 are this file's. Addresses are
 // synthetic, at @example.test.
@@ -17,9 +17,6 @@ async function signInAs(email: string, role: string | null = null): Promise<stri
   await db.updateTable("user").set({ role }).where("email", "=", email).execute();
   return cookie;
 }
-
-/** What the page's one <header> holds. */
-const headerOf = (html: string) => html.match(/<header>([\s\S]*?)<\/header>/)?.[1] ?? "";
 
 /** The header's links as [text, href] pairs, in document order; href is null on a disabled one. */
 const linksOf = (html: string) =>
