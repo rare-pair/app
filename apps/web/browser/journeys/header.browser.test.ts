@@ -76,6 +76,9 @@ describe("site header journeys", () => {
     await header.getByRole("link", { name: "Sign in" }).waitFor();
     expect(await header.getByRole("button", { name: "Sign out" }).count()).toBe(0);
     expect(await header.getByRole("link", { name: "My uploads" }).count()).toBe(0);
+    // The session ended on the server too: a page for signed-in accounts sends the browser to sign in.
+    await page.goto(`${SITE}/me/uploads`);
+    await page.waitForURL(/\/login/);
   });
 
   it("A moderator's Admin opens /admin, and Sign out is reachable by keyboard", async () => {

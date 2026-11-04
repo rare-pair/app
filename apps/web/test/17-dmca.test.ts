@@ -516,13 +516,14 @@ describe("17-reports-and-dmca: DMCA", () => {
     const form = await fetchW("/dmca", { headers: { cookie }, redirect: "manual" });
     expect(form.status).toBe(200);
 
+    const before = (await noticesFor(UNACCEPTED_TARGET)).length;
     const res = await postNotice(
       { ...COMPLETE, work: String(UNACCEPTED_TARGET) },
       { headers: { cookie } },
     );
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("Notice received");
-    expect(await noticesFor(UNACCEPTED_TARGET)).toHaveLength(1);
+    expect(await noticesFor(UNACCEPTED_TARGET)).toHaveLength(before + 1);
   });
 
   it("Is linked from the footer beside Remove my work", async () => {

@@ -33,6 +33,7 @@ describe("terms gate's exempt paths", () => {
       "/uploads",
       "/administrator",
       "/removex",
+      "/dmca/",
       "/dmca/x",
       "/dmcax",
       "/about/",
