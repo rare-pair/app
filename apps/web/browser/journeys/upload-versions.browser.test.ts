@@ -1,8 +1,19 @@
+import type { Page } from "playwright";
 import { describe, expect, it } from "vitest";
 import { uploadThroughPage, useJourneySite } from "../harness/journey";
 import { signedIn } from "../harness/sessions";
 import { SITE } from "../harness/site";
+import { byAddress, viaHeader } from "../harness/walk";
 import { chapterSentence, generatedEpub } from "./epubs";
+
+/** Opens the uploaded work as its uploader does: My uploads, then the upload's row link. */
+async function openFromMyUploads(page: Page, uploadId: string): Promise<void> {
+  await viaHeader(page, "My uploads");
+  await Promise.all([
+    page.waitForEvent("load"),
+    page.locator(`li[data-upload-id="${uploadId}"] a`).click(),
+  ]);
+}
 
 // A second upload of a work already in the archive: newer and consistent replaces the current
 // version; newer but changed is held and never public (ARCHITECTURE, Ingestion pipeline).
@@ -23,10 +34,9 @@ describe("version journeys", () => {
       planned: 3,
       updated: "2020-02-01",
     });
-    await site.waitForUpload(
-      await uploadThroughPage(site, page, userId, { name: "v1.epub", bytes: version1 }),
-    );
-    await page.goto(`${SITE}/works/41920`);
+    const first = await uploadThroughPage(site, page, userId, { name: "v1.epub", bytes: version1 });
+    await site.waitForUpload(first);
+    await openFromMyUploads(page, first);
     expect(await page.locator(".chapters a").count()).toBe(2);
 
     // One more chapter, the first two as they were.
@@ -36,11 +46,13 @@ describe("version journeys", () => {
       planned: 3,
       updated: "2020-03-01",
     });
-    await site.waitForUpload(
-      await uploadThroughPage(site, page, userId, { name: "v2.epub", bytes: version2 }),
-    );
+    const second = await uploadThroughPage(site, page, userId, {
+      name: "v2.epub",
+      bytes: version2,
+    });
+    await site.waitForUpload(second);
 
-    await page.goto(`${SITE}/works/41920`);
+    await openFromMyUploads(page, second);
     await expect.poll(() => page.locator(".chapters a").count()).toBe(3);
     await page.locator(".chapters a").nth(2).click();
     await expect.poll(() => page.locator("main").innerText()).toContain(chapterSentence(41920, 3));
@@ -74,7 +86,7 @@ describe("version journeys", () => {
     const id = await uploadThroughPage(site, page, userId, { name: "v3.epub", bytes: changed });
     await site.waitForUpload(id, "held_for_review");
 
-    await page.goto(`${SITE}/me/uploads`);
+    await viaHeader(page, "My uploads");
     const row = page.locator(`li[data-upload-id="${id}"]`);
     await expect.poll(() => row.locator(".badge").innerText()).toBe("Held for review");
     await expect
@@ -83,10 +95,21 @@ describe("version journeys", () => {
 
     // A reader still sees the version before, and nothing of the held one.
     const reader = await (await site.newContext()).newPage();
-    await reader.goto(`${SITE}/works/41921`);
+    await byAddress(
+      reader,
+      "/works/41921",
+      "a reader opens a work from an address shared with them",
+    );
     expect(await reader.locator(".chapters a").count()).toBe(2);
-    const res = await reader.goto(`${SITE}/works/41921/chapters/3`);
-    expect(res?.status()).toBe(404);
+    const [res] = await Promise.all([
+      reader.waitForResponse((r) => r.url() === `${SITE}/works/41921/chapters/3`),
+      byAddress(
+        reader,
+        "/works/41921/chapters/3",
+        "a path no link leads to: the held version's chapter, checked by address",
+      ),
+    ]);
+    expect(res.status()).toBe(404);
     await site.assertClean({ allow: [/status of 404/] });
   });
 });

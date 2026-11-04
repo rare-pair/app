@@ -1,14 +1,24 @@
 import { readFile } from "node:fs/promises";
+import type { Page } from "playwright";
 import { describe, expect, it } from "vitest";
 import { CONTENT_HOST } from "../../src/content-host";
 import { syntheticEpub, uploadThroughPage, useJourneySite } from "../harness/journey";
 import { signedIn } from "../harness/sessions";
-import { SITE } from "../harness/site";
+import { viaHeader } from "../harness/walk";
 
 // One upload through every real Worker: the page's script, the PUT, the queue to ingest, the
 // reader on web, and the content host. Ingested works keep the ids inside the fixtures.
 describe("upload journey", () => {
   const running = useJourneySite();
+
+  /** Opens the uploaded work as its uploader does: My uploads, then the upload's row link. */
+  const openFromMyUploads = async (page: Page, uploadId: string) => {
+    await viaHeader(page, "My uploads");
+    await Promise.all([
+      page.waitForEvent("load"),
+      page.locator(`li[data-upload-id="${uploadId}"] a`).click(),
+    ]);
+  };
 
   it("An uploaded epub is ingested and its chapter reads", async () => {
     const { site } = running;
@@ -25,7 +35,7 @@ describe("upload journey", () => {
     );
     await site.waitForUpload(id);
 
-    await page.goto(`${SITE}/works/1000101`);
+    await openFromMyUploads(page, id);
     await page.locator(".chapters a").first().click();
     await expect
       .poll(() => page.locator("main").innerText())
@@ -43,7 +53,7 @@ describe("upload journey", () => {
     const id = await uploadThroughPage(site, page, userId, fixture);
     await site.waitForUpload(id);
 
-    await page.goto(`${SITE}/works/1000104`);
+    await openFromMyUploads(page, id);
     const [image] = await Promise.all([
       page.waitForResponse((res) =>
         res.url().startsWith(`https://${CONTENT_HOST}/works/1000104/img/`),
@@ -58,7 +68,7 @@ describe("upload journey", () => {
       .poll(() => figure.evaluate((img: HTMLImageElement) => img.naturalWidth))
       .toBeGreaterThan(0);
 
-    await page.goto(`${SITE}/works/1000104`);
+    await openFromMyUploads(page, id);
     const [download] = await Promise.all([
       page.waitForEvent("download"),
       page.getByRole("link", { name: "Download original epub" }).click(),
