@@ -8,7 +8,7 @@ import { SECRETS } from "../../test/stand-ins";
 import type { CleanOptions } from "./clean";
 import { useJourneySite } from "./journey";
 import { R2_HOST, signedKey } from "./r2-put";
-import { startRecorder, videoName } from "./recording";
+import { SLOW_MO_MS, slowMoFromEnv, startRecorder, videoName } from "./recording";
 import { signedIn } from "./sessions";
 import { launchChromium, SITE, startSite, type Site } from "./site";
 
@@ -222,6 +222,29 @@ describe("recording", () => {
       else process.env.BROWSER_RECORD = before;
     }
   };
+
+  it("slows the browser only while recording", () => {
+    expect(slowMoFromEnv(undefined)).toBeUndefined();
+    expect(slowMoFromEnv("")).toBeUndefined();
+    expect(slowMoFromEnv("/some/folder")).toBe(750);
+  });
+
+  it("a browser launched while recording takes its time over each action", async () => {
+    await withEnv("/some/folder", async () => {
+      const browser = await launchChromium();
+      try {
+        const page = await browser.newPage();
+        await page.setContent("<button>Go</button>");
+        const started = Date.now();
+        await page.getByRole("button").click();
+        await page.getByRole("button").click();
+        // A lower bound only: a loaded machine is slower, never faster.
+        expect(Date.now() - started).toBeGreaterThanOrEqual(2 * SLOW_MO_MS - 50);
+      } finally {
+        await browser.close();
+      }
+    });
+  });
 
   it("BROWSER_RECORD saves a WebM of the page named for the test", async () => {
     const dir = await mkdtemp(join(tmpdir(), "pw0-record-"));
