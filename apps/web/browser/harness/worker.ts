@@ -167,6 +167,8 @@ export async function startWorker({
           ...deployed("content", bundles.content),
           // wrangler's custom domain gives no route: Miniflare routes by these.
           routes: [`${CONTENT_HOST}/*`],
+          // The status read before a miss is served (the uncached binding, as deployed).
+          hyperdrives: { HYPERDRIVE: databaseUrl },
           outboundService: noOutbound,
         },
         r2PutWorker,
