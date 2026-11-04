@@ -111,7 +111,8 @@ h2 {
 }
 
 .banner a,
-footer a {
+footer a,
+.chapters a {
   display: inline-block;
   min-height: 24px;
   line-height: 24px;
@@ -238,9 +239,17 @@ article.chapter > div:last-child > p + blockquote:last-child {
   margin: calc(var(--space) * 4) 0;
 }
 
+/* The form is a flex item and the select is as wide as its longest option (a long chapter
+   title): without min-width: 0 neither shrinks below that, and the page scrolls sideways. */
+.chapter-nav form {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .chapter-nav select {
   font: inherit;
   max-width: 100%;
+  min-width: 0;
 }
 
 /* My uploads: rows like work cards; the badge is text in bold, never colour alone. */
@@ -309,15 +318,6 @@ article.chapter > div:last-child > p + blockquote:last-child {
 
 .card-summary > * {
   margin: 0;
-}
-
-/* A summary's headings look like its text, not a card title or the page's
-   (screen readers still list them: #250). */
-.card-summary :is(h1, h2, h3, h4, h5, h6) {
-  margin: 0;
-  font-size: inherit;
-  font-weight: inherit;
-  line-height: inherit;
 }
 
 /* An image takes about one of the three lines rather than its own height. */
