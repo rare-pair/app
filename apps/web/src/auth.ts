@@ -32,6 +32,16 @@ export function makeAuth(env: Bindings, db: Kysely<Database>) {
           input: false,
           fieldName: "terms_accepted_at",
         },
+        // "moderator" or "admin" for a moderator's account, else null. Read-only here
+        // (input: false): nothing a client sends sets it. It comes with the session, so the
+        // site header's Admin link costs no query; adminGate (admin.ts) still reads the
+        // row itself and stays the authority.
+        role: {
+          type: "string",
+          required: false,
+          input: false,
+          fieldName: "role",
+        },
         // True once the account turns the warnings screen off (warnings.ts, settings.ts).
         warningsOff: {
           type: "boolean",

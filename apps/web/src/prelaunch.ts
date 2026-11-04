@@ -43,9 +43,17 @@ export const closedBeforeLaunch: MiddlewareHandler<{
   return c.redirect("/", 302);
 };
 
+/** Links to pages that are closed before launch: the footer's two forms, the header's two. */
+const CLOSED_LINKS = [
+  'footer a[href="/remove"]',
+  'footer a[href="/dmca"]',
+  'header a[href="/upload"]',
+  'header a[href="/me/uploads"]',
+].join(", ");
+
 /**
  * Before launch, shows what points at a closed page as disabled: the footer's "Remove
- * my work" link loses its href (so it goes nowhere and is skipped by Tab) and says it
+ * my work" link and the header's "Add work" and "My uploads" lose their hrefs (so it goes nowhere and is skipped by Tab) and says it
  * is disabled, and the not-found page's search form keeps its label with its input and
  * button disabled. Applied to every HTML response, so an /admin refusal still equals a
  * real 404. After launch it does nothing.
@@ -57,7 +65,7 @@ export const disableClosedLinks: MiddlewareHandler<{
   if (!isPrelaunch(c.env)) return;
   if (!c.res.headers.get("content-type")?.toLowerCase().startsWith("text/html")) return;
   c.res = new HTMLRewriter()
-    .on('footer a[href="/remove"], footer a[href="/dmca"]', {
+    .on(CLOSED_LINKS, {
       element(a) {
         a.removeAttribute("href");
         a.setAttribute("role", "link");
