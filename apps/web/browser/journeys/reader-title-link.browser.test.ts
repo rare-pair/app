@@ -36,7 +36,7 @@ describe("reader title link journeys", () => {
       page.waitForURL((url) => url.pathname === "/search" && url.searchParams.get("q") !== null),
       page.getByRole("button", { name: "Search" }).click(),
     ]);
-    await page.getByRole("link", { name: TITLE }).click();
+    await page.getByRole("link", { name: TITLE, exact: true }).click();
     await page.waitForURL(`${SITE}/works/${WORK}`);
 
     // From a chapter, the title is a link named by the work's title.
