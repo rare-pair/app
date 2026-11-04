@@ -13,7 +13,7 @@ import {
   type Outcome,
   type Stage,
 } from "./lease";
-import { onRejectList } from "./lists";
+import { ListCheckRejected, onRejectList } from "./lists";
 import { AccountBanned, SaveRejected, WorkRemoved, type WorkImages } from "./save";
 
 /** What a job needs from outside: the request's Kysely, the bucket and the two steps. */
@@ -130,7 +130,15 @@ async function run(
     return { status: error.code, failure: { stage: "process", error: error.code } };
   }
   // Before anything is written. A failure to read the lists throws, still in `process`.
-  if (await onRejectList(deps.db, work)) {
+  let rejected: boolean;
+  try {
+    rejected = await onRejectList(deps.db, work);
+  } catch (error) {
+    // A value in the file the lists refuse (a NUL byte in a pseud): the same on every attempt.
+    if (!(error instanceof ListCheckRejected)) throw error;
+    return { status: "parse_failed", failure: { stage: "process", error: error.code } };
+  }
+  if (rejected) {
     return { status: "opted_out", failure: { stage: "process", error: "opted_out" } };
   }
   await lease.keeper?.renew();

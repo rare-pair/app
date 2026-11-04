@@ -59,6 +59,13 @@ export interface Ao3Spec {
   title?: string;
   /** The byline's one pseud, also its user name: letters and digits only. */
   pseud?: string;
+  /**
+   * Replaces the byline's markup after "by " (raw XHTML: a blank link, no link, two names in one
+   * text). Unset gives the one-pseud profile link.
+   */
+  bylineHtml?: string;
+  /** The OPF's `dc:creator` texts, in order; `[]` leaves none. Unset gives the one pseud. */
+  creators?: string[];
   stats?: string;
   /** Extra `<dt>/<dd>` markup appended to the tag list. */
   extraDl?: string;
@@ -109,7 +116,7 @@ export function ao3Epub(spec: Ao3Spec = {}): Uint8Array {
   </dl></div>
   <div class="calibre1">
     <h1 class="calibre6">${title}</h1>
-    <div class="byline">by <a href="http://archiveofourown.org/users/${pseud}/pseuds/${pseud}" rel="author">${pseud}</a></div>
+    <div class="byline">by ${spec.bylineHtml ?? `<a href="http://archiveofourown.org/users/${pseud}/pseuds/${pseud}" rel="author">${pseud}</a>`}</div>
     <p class="calibre7">Summary</p>
     <blockquote class="userstuff">${spec.summary ?? '<p class="calibre7">A synthetic summary.</p>'}</blockquote>
     <p class="calibre7">Notes</p>
@@ -144,7 +151,7 @@ export function ao3Epub(spec: Ao3Spec = {}): Uint8Array {
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
     <dc:title>${title}</dc:title>
     <dc:language>en</dc:language>
-    <dc:creator opf:role="aut">${pseud}</dc:creator>
+    ${(spec.creators ?? [pseud]).map((c) => `<dc:creator opf:role="aut">${c}</dc:creator>`).join("\n    ")}
     <dc:identifier id="uuid_id" opf:scheme="uuid">00000000-0000-4000-8000-000000000000</dc:identifier>
     <dc:publisher>Archive of Our Own</dc:publisher>
   </metadata>

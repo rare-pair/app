@@ -1,4 +1,5 @@
 import { XMLParser, XMLValidator } from "fast-xml-parser";
+import { decodeEntities } from "./entities";
 import { MAX_DEPTH, nodeBudget, type NodeBudget } from "./dom";
 import { EpubError } from "./errors";
 import { LIMITS } from "./unzip";
@@ -389,7 +390,9 @@ export function readPackage(
     opfPath,
     metadata: {
       titles: texts("title"),
-      creators: texts("creator"),
+      // The XML parser leaves numeric references (`&#x200B;`) undecoded: an author's name is
+      // checked against the opt-outs, so it must be the characters the file means.
+      creators: texts("creator").map(decodeEntities),
       languages: texts("language"),
       identifiers: texts("identifier"),
       sources: texts("source"),

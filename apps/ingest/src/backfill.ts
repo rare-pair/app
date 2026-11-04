@@ -2,7 +2,7 @@ import type { Database } from "@archive/db";
 import { EpubError, LIMITS, type ParsedWork } from "@archive/epub";
 import { sql, type Kysely } from "kysely";
 import type { JobDeps } from "./job";
-import { onRejectList } from "./lists";
+import { ListCheckRejected, onRejectList } from "./lists";
 import type { BackfillMessage } from "./message";
 import {
   clearRemovedWork,
@@ -24,7 +24,8 @@ export interface BackfillDeps {
  * now (ARCHITECTURE, EPUB processor, step 8), while that version is still the one the message
  * names. Returns what became of it, for the log: `backfilled`, or why the current version was
  * left as it is (`no_work`, `removed`, `not_current`, `original_missing`, `too_large`,
- * `work_mismatch`, `opted_out`, or an `EpubError`'s or `SaveRejected`'s code: the processor's
+ * `work_mismatch`, `opted_out`, `optout_check_rejected_<sqlstate>` (the opt-out table refused a value
+ * in the file), or an `EpubError`'s or `SaveRejected`'s code: the processor's
  * verdict on the original as it now stands). Each is final, so the message is acked: a short
  * fixed code, never text from the file. Throws on a failure worth retrying, such as R2 or
  * Postgres being down.
@@ -79,7 +80,13 @@ export async function runBackfill(deps: BackfillDeps, message: BackfillMessage):
   }
   if (work.ao3WorkId !== String(row.ao3_work_id)) return "work_mismatch";
   // Before anything is written: what an opt-out now blocks is not published again.
-  if (await onRejectList(deps.db, work)) return "opted_out";
+  try {
+    if (await onRejectList(deps.db, work)) return "opted_out";
+  } catch (error) {
+    // The file stays as it was, as for a processor refusal above.
+    if (error instanceof ListCheckRejected) return error.code;
+    throw error;
+  }
   try {
     return await saveBackfill(
       deps,

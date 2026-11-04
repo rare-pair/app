@@ -35,6 +35,18 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 - WHEN M opens `/admin/works`
 - THEN HV, F and BV are each listed, oldest first
 
+### An empty byline goes live with byline_missing
+- GIVEN an upload whose preface byline and OPF creators name nobody
+- WHEN the upload is ingested
+- THEN the work goes live with the review reason `byline_missing`
+- AND it is listed in *Works to check* as flagged
+
+### A byline that can only be split ambiguously goes live with byline_ambiguous
+- GIVEN an upload whose byline has no profile links and reads "Salt and Pepper"
+- WHEN the upload is ingested
+- THEN the work goes live with the review reason `byline_ambiguous`, its authors the pieces "Salt" and "Pepper"
+- AND it is listed in *Works to check* as flagged
+
 ### Each item has a detail page with actions
 - GIVEN an item in the reports, takedowns or requests queue
 - WHEN M opens its detail page
