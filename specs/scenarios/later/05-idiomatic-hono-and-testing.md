@@ -2,7 +2,7 @@
 
 Relates to: docs/ARCHITECTURE.md § Decisions so far, § Repo layout (the "Hono's JSX" line); docs/process.md § Working rules; `.claude/skills/tdd/`, which stays the authority on seams, mocking and test names and is not restated here; issues #232, #211, #107, #235, #241
 
-Status: draft. R1 and R2 are decided (below). Nothing here changes what a reader, uploader or moderator sees, except the cross-site refusal the guard case names. The bytes of a page do change under R1 (`<input/>`, `defer=""`), but what a browser parses from them doesn't.
+Status: draft. R1 and R2 are decided (below). Nothing here changes what a reader, uploader or moderator sees, except the refusals the guard case lists. The bytes of a page do change under R1 (`<input/>`, `defer=""`), but what a browser parses from them doesn't.
 
 "Idiomatic" here means the framework's documented form, unless that form loses a behaviour this repo has tested on purpose. Where it does, the repo's form stays and the reason is written down, so nobody "fixes" it later. The claims about Hono's behaviour were run against the pinned version (see *Measured*), since the docs leave out some of what decides these cases, such as what `csrf`'s refusal becomes under this repo's `onError`.
 
@@ -73,12 +73,16 @@ Every route follows the guideline, for one form throughout. Keeping the table wa
 - GIVEN three guard middlewares, eight guard registrations listed by path, six handlers that call `isSameOrigin` themselves, and a mistyped path guarding nothing, silently
 - WHEN they become one `app.on("POST", "*", ...)` ahead of the session
 - THEN a POST route is guarded by being a POST route, and a new one needs no registration
-- AND each area keeps its refusal, from one small lookup by path: the forbidden page, the wait list's page, uploads' JSON, and `/admin`'s 404
-- AND `POST /waitlist/unsubscribe` is the one named exemption: it has no origin check today, and a test shows it stays reachable cross-site
-- AND a refused post costs no session lookup, on every route
-- AND one test per refusal, plus the exemption, shows the status and body as before
-- AND the one change a visitor could see is stated, not hidden: a cross-site POST to a URL that doesn't exist now answers 403, not 404. `/admin` still answers 404, so it doesn't show that it exists
-- AND a refusal answered ahead of `pageState` no longer carries the reader's settings attributes, as a cross-site report already doesn't
+- AND each area keeps its refusal, from one small lookup by path, matched by whole segment as `prelaunch.ts` matches `OPEN_SECTIONS`: the forbidden page, the wait list's page, uploads' JSON, and `/admin`'s 404
+- AND the guard passes through the routes that answer without an origin check: `POST /waitlist/unsubscribe` always, since a mail provider's one-click request sends no `Origin`, and once the archive is open `POST /waitlist` (404) and `POST /waitlist/confirm` (the archive-open page, which `test/22-waitlist-confirm.test.ts` requires from another site), since both answer before reading anything
+- AND a test shows each of those still answers as it does today
+- AND the guard is registered ahead of the session in `src/index.ts`, so a refused post costs no session lookup on any route: a refused post that carries a session cookie gets no refreshed cookie back
+- AND one test per refusal shows the status and body as before
+- AND these changes a visitor could see are stated, not hidden:
+  - A cross-site POST to a URL that doesn't exist, or a POST with neither header, answers 403, not 404. `/admin` still answers 404, so it doesn't show that it exists
+  - An account yet to accept the terms gets the refusal, not the redirect to the terms page, on a route that checked the origin itself
+  - A cross-site `POST /waitlist` before launch is refused without waiting out the response-time floor. It reads no address, so nothing about one can show in its timing
+  - A refusal no longer carries the reader's settings attributes, as a cross-site report already doesn't
 
 #### A shared env and database helper
 - GIVEN #232 specifies these
@@ -101,7 +105,7 @@ Every route follows the guideline, for one form throughout. Keeping the table wa
 - AND every URL, method, status, body and header is as before, `/login/` still answering 404, and the existing tests pass unchanged
 - AND a helper that takes `c` stays, and gets a path parameter as a value from its handler, as `workByAo3Id` already does
 - AND once every batch has merged, the ID parsers take `string`, not `string | undefined`, so a handler that lost its path type fails `typecheck`
-- AND an idiom check finds no route whose last argument is a bare name, and `npm run lint` refuses `hono/factory`
+- AND an idiom check finds no `.get(` or `.post(` route whose last argument is a bare name, and `npm run lint` refuses `hono/factory`
 
 #### Middleware stays in `src/index.ts`
 - GIVEN the order in `src/index.ts`, and its comments, keep www off the CSP, a refused post off the database, and the terms gate ahead of the settings
@@ -161,7 +165,7 @@ How to split the rendered layout around the chapters isn't settled: this case ru
 #### Each page parses the same before and after
 - GIVEN the moved assertions only show what they look at, and a dropped space or a lost attribute could pass them all
 - WHEN a page module moves to JSX
-- THEN its output on synthetic props, parsed and normalised to elements, attributes and collapsed text, matches a capture taken before any page moved
+- THEN its response through `exports.default.fetch` on seeded synthetic data, parsed and normalised to elements, attributes and collapsed text, with the nonce and generated IDs masked, matches a capture taken before any page moved
 - AND a difference that is meant is an edit to the capture, with its reason in the PR
 - AND the captures and their test are deleted with the last batch: they guard this migration, and no scenario case rests on them
 
@@ -171,7 +175,7 @@ How to split the rendered layout around the chapters isn't settled: this case ru
 - THEN `"><script>` in that value comes out as `&quot;&gt;&lt;script&gt;`, as `escapeHtml` gives it
 - AND the moved tests pass with no assertion changed, and `npm run test:browser` passes, the layout and accessibility checks included
 - AND a child moves before its parent, since a string of markup in a JSX parent comes out escaped
-- AND a component's markup props are typed as JSX, not `string`, so passing one a string of markup fails `typecheck`
+- AND a component's markup props are typed `HtmlEscapedString | Promise<HtmlEscapedString>`, not `string` or `Child`, so passing one a string of markup fails `typecheck`
 - AND once every batch has merged, `escapeHtml` is gone from `apps/web/src`
 - AND one module owns unescaped HTML, exporting the doctype and the sanitized chapter fragment, and an idiom check finds `raw(` and `dangerouslySetInnerHTML` nowhere else
 - AND the scripts and stylesheet served as strings (`*-script.ts`, `styles.ts`) stay as they are, since they aren't markup
@@ -221,7 +225,7 @@ Unverified: that `vi.waitFor` behaves in the workerd projects as in Node. The ti
 - GIVEN oxlint's `no-restricted-imports` and vitest rules can say some of these rules, and the rest need the syntax tree
 - WHEN a rule above is broken
 - THEN `npm run lint` or `npm test` fails, naming the file, the line and the rule
-- AND an idiom check reads source with the `typescript` compiler API, not as text, so a comment or a string can't trip it
+- AND an idiom check reads source with the `typescript` compiler API, not as text, so a comment or a string can't trip it. It is lint that oxlint can't express, not a behaviour test, so `/tdd`'s seams don't apply to it
 - AND an exception is an `oxlint-disable-next-line` with its reason, or a listed path with its reason in that check
 - AND an item adds its check in the PR that makes it true, so no check holds a rule the code doesn't yet meet
 - AND turning on oxlint's `vitest` plugin adds nothing else: when measured it also raised `expect-expect` warnings, which `--deny-warnings` would fail on
@@ -251,7 +255,7 @@ For `/to-tickets`, which sets each ticket's tier and blocking edges. What's reco
 | Shared | #232, limited to `AppEnv` and `withDb`. #211, limited to the ID parser. The one same-origin guard | None; #211 after #232 |
 | Routers | Prepare `src/index.ts`: group the route lines by router and mount empty routers, so each batch fills one router and removes one hunk. Then, side by side: admin home and queues (which needs no preparation); sign-in and terms; uploads; reader, work page, warnings, position, settings; listing and search; removal, DMCA, reports; wait list and site pages. Then narrow the ID parsers | The guard, #232, #211 |
 | Tests | Parsed helper: choose the parser, add `signIn` with a role and `expectEscaped`, move one test file as the tracer. Then, side by side, by scenario: 01 to 03; 08 to 13; 14 to 17; 18; 20 to 23. `test/no-js-browser.ts` runs beside them if the parser is synchronous, and with the no-JS test files if not | Nothing in `src`, so beside the routers |
-| JSX trial | Tooling tracer on a module with no routes. The entire-work trial. Parsed captures of each page | The tests that cover those pages |
+| JSX trial | Parsed captures of each page, first and alone, since they must record the template-string output. Then the tooling tracer on a module with no routes, and the entire-work trial | The tests that cover those pages |
 | JSX pages | First batch, which settles the pattern. Then `settings` and small leaves such as `barSettings` and `review-notice`, which others use. Then, side by side: admin pages; listing, search, home; reader, work page, warnings; forms (DMCA, remove, report); uploads and wait list. Last, the layout and removing `escapeHtml` | The trial. Modules with no routes (`admin-pages`, `remove-pages`, `waitlist-pages`) can start beside the routers; a module with routes waits for its router batch |
 | Any time | Console helpers. `vi.waitFor` and `expect.poll`. Browser locators | None |
 
@@ -259,8 +263,8 @@ Why this order:
 - **Routers before JSX in the same module,** so no diff both moves a handler and rewrites its markup: a pure move is what the unchanged tests can vouch for.
 - **Tests before JSX,** so they prove the migration rather than get rewritten during it.
 - **The JSX trial early,** so a tooling or streaming problem surfaces before the batches depend on it.
-- **Idiom checks in `apps/web/test`,** not `scripts/`, because `/gate` makes `scripts/` tier 3 and these items are otherwise tier 2. Only the one lint-rules PR changes root configuration.
-- **Tiers.** Sign-in, uploads, the guard and the removal paths are on the security boundary. Other router batches, moved with few changed lines, may come in under `/gate`'s tier 2 limit, so split a batch rather than cross it.
+- **Idiom checks in `apps/web/test`,** not `scripts/`, because `/gate` makes `scripts/` tier 3 whatever the item. Only the one lint-rules PR changes root configuration.
+- **Tiers.** Sign-in, uploads, the guard and the removal paths are on the security boundary. Other router batches, moved with few changed lines, may come in under `/gate`'s tier 2 limit, so split a batch rather than cross it. A test batch is tier 2 only if it loosens nothing: one that weakens an assertion guarding the CSP, sessions or removal is tier 3, so a batch keeps each such assertion at least as strict.
 
 ## Measured
 
@@ -278,6 +282,7 @@ Run on the pinned versions outside the repo, type checks under the repo's `tscon
 | A router's `use()` on a shared base | Runs on routers mounted after it: `/x/r` went through a gate that belonged to another router on `/x`. Mounted the other way round, it didn't |
 | Hono JSX: escaping | Identical to `escapeHtml` on `a&b<c>d"e'f`, in text and in attributes. A `javascript:` URL passes through unchanged |
 | Hono JSX: output | `<input .../>`, `<br/>`, and `defer=""` for a boolean attribute. `disabled={false}` is left out. `null`, `undefined`, `false` and `""` render nothing, and `0` renders `0`. A line break inside text becomes one space |
+| Hono JSX: types, under the Worker's `tsconfig` settings with `jsx` added | A component's missing or unknown prop fails. An unknown attribute on an element, such as `nmae` on `<input>`, compiles. `JSX` isn't a global, and `hono/jsx`'s `JSX` has no `Element`. A prop typed `HtmlEscapedString \| Promise<HtmlEscapedString>` refuses a string and takes JSX, while `Child` and `children` take a string and show it escaped |
 | Hono JSX: the doctype | Can't be written as JSX. Both ``html`<!doctype html>${...}` `` and `raw("<!doctype html>")` work, and `c.html` sends either as `text/html` |
 | JSX mixed with strings | A JSX piece in a plain template gives its markup, with a cast for TypeScript. A string of markup in a JSX parent comes out escaped, and goes through with `raw` or `dangerouslySetInnerHTML` |
 | `oxlint` 1.90 | `no-restricted-imports`, `vitest/no-focused-tests` and `vitest/no-disabled-tests` catch their cases, and leave a comment and `describe.skipIf` alone. The `vitest` plugin also raised `expect-expect` warnings |
