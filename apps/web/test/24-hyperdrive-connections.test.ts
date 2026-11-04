@@ -34,6 +34,12 @@ async function fetchWith(path: string, bindings: Partial<Bindings>, cookie?: str
 
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 let cookie: string;
+let moderator: string;
+/**
+ * A reader-settings cookie, which keeps a signed-out chapter request out of the edge cache: a hit
+ * never opens a connection, and would hide which binding the page reads through.
+ */
+const NO_EDGE_CACHE = "__Host-reader=x";
 
 beforeAll(async () => {
   const seeded = await seedWork(db, {
@@ -45,6 +51,9 @@ beforeAll(async () => {
   });
   await putFragments(env.BUCKET, seeded.fragments);
   cookie = await signIn(`conn-${Date.now()}@example.test`, { acceptTerms: true });
+  const modEmail = `conn-mod-${Date.now()}@example.test`;
+  moderator = await signIn(modEmail, { acceptTerms: true });
+  await db.updateTable("user").set({ role: "moderator" }).where("email", "=", modEmail).execute();
 });
 afterAll(() => db.destroy());
 
@@ -59,10 +68,13 @@ describe("Hyperdrive connections", () => {
     ["the whole work", `/works/${LIVE}/full`],
     ["the warnings screen", `/works/${LIVE}/warnings`],
   ])("Public pages read through the cached connection: %s", async (_name, path) => {
-    const working = await fetchWith(path, {});
+    const working = await fetchWith(path, {}, NO_EDGE_CACHE);
     expect(working.status).toBeLessThan(400);
-    const uncachedBroken = await fetchWith(path, { HYPERDRIVE: unreachable });
+    const uncachedBroken = await fetchWith(path, { HYPERDRIVE: unreachable }, NO_EDGE_CACHE);
     expect(uncachedBroken.status).toBe(working.status);
+    // And it does read through the cached one: break that and the page fails.
+    const cachedBroken = await fetchWith(path, { HYPERDRIVE_CACHED: unreachable }, NO_EDGE_CACHE);
+    expect(cachedBroken.status).toBe(500);
   });
 
   // Sessions, roles, moderation and uploads read through the uncached connection alone.
@@ -70,7 +82,7 @@ describe("Hyperdrive connections", () => {
     ["my uploads", "/me/uploads", 200],
     ["the upload page", "/upload", 200],
     ["the report form", `/works/${LIVE}/report`, 200],
-    ["the admin queue", "/admin", 404],
+    ["the admin queue, to a non-moderator", "/admin", 404],
   ])(
     "Account and moderation paths read through the uncached connection: %s",
     async (_name, path, status) => {
@@ -78,4 +90,9 @@ describe("Hyperdrive connections", () => {
       expect(res.status).toBe(status);
     },
   );
+
+  it("The admin queue reads through the uncached connection, for a moderator", async () => {
+    const res = await fetchWith("/admin", { HYPERDRIVE_CACHED: unreachable }, moderator);
+    expect(res.status).toBe(200);
+  });
 });

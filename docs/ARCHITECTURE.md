@@ -1321,15 +1321,21 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
 - **`HYPERDRIVE_CACHED` (caching on) serves public pages only,** and only these: the home
   page, tag listings, search, the work page, the chapter reader, `/full` and the
   warnings screen. They only read. A node test (`hyperdrive-connections.node.test.ts`)
-  fails if any other file names the binding.
+  fails if any other file names the binding (it reads source text: a helper handed `env`
+  would get past it, and the workerd test in `24-hyperdrive-connections.test.ts` covers the
+  paths it names).
 - **The window.** Hyperdrive's docs give a default `max_age` of 60 s and
   `stale_while_revalidate` of 15 s, with no invalidation on write: up to about 75 s.
   These figures are from the docs; they can't be measured locally, since a local
   Hyperdrive has no cache, and have not been measured against a deployed config. In that
-  window a hide or a removal can still show on those pages, and so can a work that has
-  just gone live (including a cached "no such work" from before it did) or a replaced
-  version's old title, up to about 75 s on public pages. The upload status page links to
-  the work page, so someone can meet this just after "done". New code that reads
+  window a hide or a removal can still show on those pages, and so can an old rating or
+  warning (the warnings screen is decided from the cached read). A removal's cache purge
+  can be undone for the same window: a chapter request that read the work before the
+  removal can store a fresh edge entry after the purge. A work that has just gone live
+  can also show late, including a cached "no such work" from before it did, and a
+  replaced version's old title can show, each up to about 75 s on public pages. The
+  upload status page links to the work page, so someone can meet this just after
+  "done". New code that reads
   through `HYPERDRIVE` without knowing about this is fresh, and so safe.
 - **Operator steps.** Turn caching off on the existing config
   (`wrangler hyperdrive update <id> --caching-disabled`) and use its id for `HYPERDRIVE` in

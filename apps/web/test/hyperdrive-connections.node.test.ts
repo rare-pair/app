@@ -6,7 +6,8 @@ import { describe, expect, it } from "vitest";
 // the default for every read; HYPERDRIVE_CACHED is for public pages only. Hyperdrive's cache
 // (one minute, from its docs) can't be seen locally: a local Hyperdrive has no cache, so these
 // tests read the source and the config. They catch a read that moves to the cached connection
-// and a config that drops a binding. They cannot catch a stale read, the two ids in wrangler.jsonc
+// and a config that drops a binding. They cannot catch a stale read, a binding reached through a helper
+// that is handed `env`, a use after a trailing comment hides or fakes one, the two ids in wrangler.jsonc
 // being the same once they are real, or the caching setting of either deployed config.
 
 /** The public pages that read through the cached connection, and nothing else does. */
@@ -25,7 +26,7 @@ const dir = (rel: string) => join(import.meta.dirname, rel);
 /** Files in `src` whose code names `binding`, comments aside. */
 function filesUsing(srcDir: string, binding: string): string[] {
   const word = new RegExp(`\\b${binding}\\b`);
-  return readdirSync(srcDir)
+  return readdirSync(srcDir, { recursive: true, encoding: "utf8" })
     .filter((f) => f.endsWith(".ts"))
     .filter((f) => {
       const code = readFileSync(join(srcDir, f), "utf8")
