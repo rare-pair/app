@@ -238,7 +238,8 @@ describe("01-auth-magic-link sign-out", () => {
       const name = `out2_${userId.replace(/\W/g, "_")}`;
       await sql
         .raw(
-          `CREATE FUNCTION ${name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'delete refused'; END $$;
+          `CREATE OR REPLACE FUNCTION ${name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'delete refused'; END $$;
+           DROP TRIGGER IF EXISTS ${name} ON session;
            CREATE TRIGGER ${name} BEFORE DELETE ON session FOR EACH ROW WHEN (OLD.user_id = '${userId}') EXECUTE FUNCTION ${name}()`,
         )
         .execute(db);

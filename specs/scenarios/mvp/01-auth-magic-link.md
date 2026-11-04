@@ -150,12 +150,14 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - GIVEN a signed-in user whose `session` row can't be deleted (Postgres refuses the delete)
 - WHEN `POST /logout` arrives from the site
 - THEN the response is a 500 page that says sign-out didn't work and asks the person to try again, with the same "Sign out" button
-- AND it sets no cookie and has no `Clear-Site-Data`, and nothing on it says the person is signed out
+- AND it does not clear the session cookie and has no `Clear-Site-Data`, and nothing on it says the person is signed out
 - AND the session row and the cookie still work, and posting again once the database recovers signs out as usual
+- AND this holds in production only once the check's read is not served from Hyperdrive's query cache (#574)
+- AND the check runs for the session the request's cookie resolved to: a cookie that resolves to none gets the "without a session" answer
 
 ### Sign-out with the database unreachable is not a success and logs no address
 - GIVEN a signed-in user and a database the Worker can't reach
-- WHEN `POST /logout` arrives from the site
+- WHEN `POST /logout` arrives from the site (it fails at the session lookup, before the route; no seam makes only the route's own read fail)
 - THEN the response is a 5xx with no cookie change and no `Clear-Site-Data`
 - AND the log holds no email address
 

@@ -861,7 +861,7 @@ origin. Work pages, listings and search stay open, so people can still find work
   cookies and outlast a sign-out. It ends only the session the cookie names: other devices stay signed in. With no session the answer is the same. `GET /logout`
   signs nobody out: it shows the button, or says the visitor isn't signed in. Better
   Auth clears the cookie even if deleting the row failed and `signOut` answers success
-  either way, so the route reads the session's row by id after `signOut` (through
+  either way, so the route reads the row of the session the cookie resolved to, by id, after `signOut` (through
   `HYPERDRIVE`; a read that a query cache could answer from before the delete would
   mislead it, #574). If the row remains, the answer is a 500 "try again" page: no
   cookie change, no `Clear-Site-Data`, and nothing says the person is signed out. A
