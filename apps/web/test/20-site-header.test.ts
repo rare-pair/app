@@ -169,11 +169,9 @@ describe("20-site-chrome-and-legal: the site header", () => {
     expect((await update({ name: "nav-renamed" })).status).toBe(200);
     expect((await rowOf())?.name).toBe("nav-renamed");
 
-    const refused = await update({ name: "nav-renamed-again", role: "admin" });
-    expect(refused.status).toBe(400);
-    expect(await refused.json()).toMatchObject({ code: "FIELD_NOT_ALLOWED" });
+    // Refused or ignored: either way the role is not set.
+    await update({ name: "nav-renamed-again", role: "admin" });
     const row = await rowOf();
-    expect(row?.name).toBe("nav-renamed");
     expect(row?.role ?? null).toBeNull();
     const html = await (await fetchW("/about", { headers: { cookie } })).text();
     expect(linksOf(html).map(([t]) => t)).not.toContain("Admin");

@@ -898,8 +898,10 @@ origin. Work pages, listings and search stay open, so people can still find work
   `disableSignUp`. A brand-new account must accept the terms on a one-time page,
   `/welcome/terms`, before anything else: until it does, every page requested
   with its session redirects there, except that page itself, `/terms`,
-  `/privacy`, removal requests and copyright notices (`/remove`, `/dmca`: anyone
-  can make them, and a typed notice must not be lost to a redirect) and signing out. Accepting sets `user.terms_accepted_at` and
+  `/privacy`, `/about`, removal requests and copyright notices (`/remove`, `/dmca`:
+  anyone can make them, and a typed notice must not be lost to a redirect), sign-in
+  and signing out, `/admin` (its own gate answers a non-moderator 404) and static
+  files. `TERMS_EXEMPT` in `apps/web/src/terms.ts` is the list. Accepting sets `user.terms_accepted_at` and
   continues to the stored `next`. Accounts that have accepted never see the
   page again.
 - **Single use.** The token is consumed by one `DELETE … RETURNING` in

@@ -18,7 +18,7 @@ import {
 } from "./helpers";
 
 // One database serves every test file in the run, so this file keeps to AO3 work IDs
-// 17800 to 17899, names every tag it seeds with an "x8-" prefix, and finds its notices by
+// 17800 to 17899 (and 43900 for the one notice an unaccepted account files), names every tag it seeds with an "x8-" prefix, and finds its notices by
 // its own work or marker. Text is synthetic; addresses are @example.test.
 const W = 17800;
 const HIDDEN = 17801;
@@ -509,6 +509,10 @@ describe("17-reports-and-dmca: DMCA", () => {
     // The terms gate sends every page but a few to /welcome/terms, and a posted form is
     // not carried over; /dmca is exempt, as /remove is, so a typed notice is not lost.
     const cookie = await signInAs("x8-unaccepted@example.test");
+    // The premise: this account is gated elsewhere.
+    const gated = await fetchW("/upload", { headers: { cookie }, redirect: "manual" });
+    expect(gated.status).toBe(302);
+    expect(gated.headers.get("location")).toContain("/welcome/terms");
     const form = await fetchW("/dmca", { headers: { cookie }, redirect: "manual" });
     expect(form.status).toBe(200);
 

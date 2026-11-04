@@ -154,7 +154,7 @@ describe("01-auth-magic-link", () => {
     }
   });
 
-  it("Before accepting, the terms, privacy, about, removal and sign-in pages and static files still open", async () => {
+  it("Before accepting, the terms, privacy, about, removal, copyright notice and sign-in pages and static files still open", async () => {
     const cookie = await signIn("terms-exempt@example.test");
 
     for (const path of [
@@ -162,6 +162,7 @@ describe("01-auth-magic-link", () => {
       "/privacy",
       "/about",
       "/remove",
+      "/dmca",
       "/login",
       "/login/confirm?token=x",
     ]) {

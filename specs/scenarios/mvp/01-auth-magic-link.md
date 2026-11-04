@@ -131,7 +131,7 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 
 ### New account must accept the terms before continuing
 - GIVEN a new account, signed in with `terms_accepted_at` empty, that started signing in from a work page
-- WHEN it opens any page other than `/welcome/terms`, `/terms`, `/privacy` or sign-out
+- WHEN it opens any page other than `/welcome/terms`, `/terms`, `/privacy`, `/about`, removal requests (`/remove`), copyright notices (`/dmca`), sign-in or sign-out (or `/admin`, which answers a non-moderator 404, and static files)
 - THEN it is redirected to `/welcome/terms`
 - AND once it accepts there, `terms_accepted_at` is set and it continues to the work page it started from
 
