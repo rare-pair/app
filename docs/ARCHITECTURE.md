@@ -16,7 +16,7 @@ an unofficial stopgap.
 | Name and domain | rarepair, always written lowercase as one word. The site is served at `rarepair.fans`, and `www.rarepair.fans` redirects there. Epub images and original downloads are served from `content.rarepair.fans` |
 | Who can read uploads | Shared public archive. Every upload is readable by everyone, with takedowns and author removal requests from day one. The one exception is below, in Crawlers and agents |
 | Crawlers and agents | Clients that declare themselves automated are refused fic text: chapters, `/full`, images and originals. Work pages, tag listings and search are not refused. Reading stays public, with no challenge and no sign-in, so anything posing as a browser is only throttled (operator ruling, 2026-11-04) |
-| Hosting | Cloudflare: Workers, R2, Queues, KV, plus Neon Postgres through Hyperdrive |
+| Hosting | Cloudflare: Workers, R2, Queues, KV, plus Neon Postgres through Hyperdrive: a config with caching off for every read that decides something, and one with caching on for public pages only (see Connections) |
 | Load target | Surge-ready: assume tens of thousands of signups in the first days |
 | Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend |
 | Accepted files | AO3-native epub exports only. FanFicFare support comes later |
@@ -26,6 +26,7 @@ an unofficial stopgap.
 | Search scope | Metadata only: title, author, tags, summary |
 | Chapter rendering | Inline in app pages behind a strict CSP, with no iframe |
 | Wait list | Before launch, `/` is a coming-soon page with a double opt-in wait list. Each confirmed address is sent one launch email, from the same mail subdomain as sign-in, spread over hours on its own queue. The list is deleted after the launch send |
+| Requester data | What a requester sends with a removal or opt-out request (email address, hashed network address, statement), and a requester block's email and hash, is kept until the site closes, then deleted by hand. It is not erased on request. There is no retention sweep job and no migration for it. The only delete of a request's row is the rollback when its confirmation email cannot be queued. Copyright notices and account data are not covered. Privacy page copy is draft, pending legal review (operator ruling, 2026-11-04) |
 
 ## System overview
 
@@ -48,7 +49,8 @@ an unofficial stopgap.
    │
    │             ┌───────────────────── content.rarepair.fans ──────────────────────┐
    └──────────▶  │  content Worker: epub images + original-file downloads from R2   │
-                 │  separate origin, no cookies, nosniff, edge-cached forever       │
+                 │  separate origin, no cookies, nosniff, edge 12 h, browser 1 h    │
+                 │  reads work status from Postgres (Hyperdrive, uncached) on a miss│
                  └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -108,8 +110,19 @@ an unofficial stopgap.
     `GET` for an image or an original is answered from the data centre's cache
     (`caches.default`, keyed by the bare URL) without an R2 read once the first
     response is stored, and a miss reads R2 and stores the 200 (a failed cache read
-    counts as a miss, and requests that arrive before the store completes also miss). `HEAD`, errors (404, 405, 503), `Range` and conditional
+    counts as a miss, and requests that arrive before the store completes also miss). `HEAD`, errors (404, 405, 451, 503), `Range` and conditional
     requests never read or fill it. See *Surge controls*, Edge cache.
+  - The content Worker reads Postgres, on the uncached Hyperdrive config (see
+    *Connections*), for every request that does not hit its cache: a miss, `HEAD`,
+    `Range` and conditional requests. It reads the work's status (an image by its AO3
+    work id, an original through its upload) before any byte goes out, and serves
+    only a `live` work's files: a hidden work's get 451, and a removed or unknown
+    work's, an upload with no work (a refused file) and a held version's get 404, all
+    with no body and `Cache-Control: no-store`. A duplicate upload follows its
+    work. A cache hit needs no read. If the database can't be connected to, or can't answer,
+    within 2 s each (two client-side timeouts, one on the connection and one on the query, each shown by its own test: one against a server that never answers (the connection timeout) and one against a server that accepts the connection and stalls the query (the query timeout); there is no server-side `statement_timeout`, which pg sends as a startup parameter that Hyperdrive may not pass on; the cost is that Postgres keeps running a query the client gave up on until it finishes, and with a database that has stopped answering, those queries pile up with the request rate, each holding a pooled Hyperdrive connection), the request fails closed (a request can hold its connection for up to about 4 s before it does): 503, empty, `no-store`, nothing stored and no bytes sent.
+    An image is judged by its work alone: images are shared by every version of a work and keyed by their content hash, so a held version's image is served once the work is live, as an unguessable URL (only its original is refused). A refusal never names the hide cause. The connection is per request and the
+    logs hold an error's class name only.
 
 ## Data model (first cut)
 
@@ -169,7 +182,9 @@ requests     (id, kind, work_id NULL, pseud_norm NULL,
               contact_email, statement, status, ip_hash, confirm_token_hash NULL, confirm_sent_at NULL,
               confirmed_at NULL, created_at)      -- kind: remove_work | opt_out; status: pending, rejected, approved; a request
               -- hides nothing until confirmed_at is set by the emailed link (the token is
-              -- kept only as a hash, cleared on confirm); rows from before that count as confirmed
+              -- kept only as a hash, cleared on confirm); rows from before that count as confirmed.
+              -- contact_email, ip_hash and statement are kept until the site closes, then deleted;
+              -- not erased on request (see Decisions so far, Requester data)
 request_works (request_id, work_id)  -- written whenever a request hides a work, so a reversed
               request restores exactly those
 optouts      (id, pseud_norm, ao3_user NULL, request_id, active, created_at)  -- checked at ingest
@@ -403,10 +418,11 @@ Chapter text isn't indexed.
    `works/<ao3_work_id>/img/`, and their links rewritten. SVG, fonts and
    stylesheets are dropped. Images deliberately sit outside the per-upload
    prefix: keyed by content hash, they are shared by every version that uses
-   them, a retried job rewrites the same keys, and they can be cached as
-   `immutable`. Images no version references (say, from a job that failed
+   them, a retried job rewrites the same keys, and a data centre can cache them
+   for 12 hours (*Edge cache*). Images no version references (say, from a job that failed
    before its transaction) are removed by a periodic sweep, and all of them go
-   when the work is removed.
+   when the work is removed; whatever the removal's purge missed, the sweep
+   deletes on a later run (*Removal really removes*).
 7. **Versioning.** Each work is keyed by `ao3_work_id`. The first upload
    creates the work. A later upload:
    - **replaces the current version** only if it is newer (more chapters or a
@@ -489,10 +505,45 @@ Chapter text isn't indexed.
    Postgres transaction that upserts the work, adds the version, chapters and
    tags, and points `current_version_id` at the new version. Set the work
    `live` last. If the job fails before the transaction, R2 is left with
-   orphaned files under its `<upload_id>/` prefix, which the cleanup rules
-   delete. A
+   orphaned files under its `<upload_id>/` prefix, which the sweep deletes once
+   the prefix is a day old and no version points at it. A
    job that fails for good goes to the dead-letter queue as `parse_failed`,
    with the stage and error recorded on the upload row.
+
+   **A refused upload's original is deleted.** Once the job has recorded a
+   refusal (any rejection code, `account_banned` included, and a job that
+   failed for good; not `work_removed`, whose save already deleted it), it
+   deletes the one key `originals/<upload_id>.epub`, so the content host no
+   longer serves it from R2. The content host serves an upload's original only
+   when the upload is `live` or a `duplicate` (a refused upload gets 404 whatever its
+   work's status), so a refused upload's original, which never went live,
+   is not served, and no edge copy is expected to exist for it. The delete comes
+   after the fenced write that ends the upload, and only when that write
+   matched: a job that lost its lease deletes nothing, and an ended upload
+   can't be claimed again, so the delete never removes a file a takeover job
+   stored for a version that goes live. A retry that ends refused (an opt-out
+   or a ban that arrived between attempts) deletes what the earlier attempt
+   stored by the same rule. The delete is best effort: a failure is logged
+   (the upload id, a count, never the file) and changes neither the upload's
+   status nor the message's verdict, and a crash between the ending write and
+   the delete leaves the file, which nothing removes yet (the sweep covers
+   `works/` objects and the `uploads/` expiry is a lifecycle rule; neither
+   touches `originals/`, except that the sweep deletes the original of each upload
+   whose prefix it finds under a removed work's folder). Four cases leave an
+   epub that nothing deletes, tracked in https://github.com/rare-pair/app/issues/592
+   (the operator chose a ticket over fixing them now): (1) an upload of a removed
+   work whose job dies on every delivery, or whose ending write fails on the last
+   attempt, so it stays `processing` and the sweep skips the work as in flight;
+   (2) a duplicate's epub after the ordinary sweep removed its prefix and a removal's
+   delete then failed, because the sweep finds originals only from folder prefixes and
+   never visits an emptied folder again; (3) a crash between the ending write and
+   this delete, or that delete failing, which can leave an opted-out or banned
+   upload's file; (4) an upload with no `work_id` whose prefix is gone, which can't be
+   tied to its work. The content host refuses all of these (#579), so they can't be
+   downloaded; they are only stored. Only the original goes: fragments and images of a
+   refused upload are the sweep's. A refused upload has no version, so this
+   leaves the keep-for-re-sanitize decision intact. A `duplicate`'s original
+   is kept (below).
 
    A later upload of a known work is decided in the same transaction, from
    facts read before it (the current version's chapter text comes from R2,
@@ -512,7 +563,9 @@ Chapter text isn't indexed.
    and the job deletes the R2 files it had written: its `originals/` file, and
    the work's `works/<ao3_work_id>/` folder (only the upload's own fragments, if
    the work was restored in the meantime; its images then stay for the sweep),
-   since the removal's purge may have run before those writes. The same
+   since the removal's purge may have run before those writes. What a failed
+   clean-up leaves under a removed work's folder, the sweep deletes (*Removal
+   really removes*). The same
    clean-up runs when a redelivery reaches the save and finds the work removed,
    so a clean-up that failed is repeated (not on the last attempt, nor when the
    takedown list now ends the upload earlier). A removal that purges the current version's
@@ -580,8 +633,8 @@ it on one written after the ban), and ingest sets it on a job whose uploader is
 banned, checked before the file is read and again, with a key-share lock on the
 account's row, in the save's transaction. A save that took that lock first
 finishes, and its upload counts as finished. A ban the save's check catches
-leaves the R2 files the job had already written, `originals/` included (a
-`work_removed` refusal deletes them; the ban's refusal leaves them). Step 2 lists which problem gives which of the first three.
+leaves the fragments and images the job had already written for the sweep, and
+deletes the upload's `originals/` file like any refusal (step 8). Step 2 lists which problem gives which of the first three.
 `not_ao3` covers any file without an AO3 preface "Posted originally" line,
 including one whose AO3 work URL is only in the OPF (step 4). `opted_out`
 covers the opt-out list and the takedown list of moderator-removed works.
@@ -703,7 +756,13 @@ can be snapshotted.
   is served before the work's status is checked (the warnings screen check
   still comes first). The status is read before the page is cached, so a hide
   can show up to 60 s after the page was cached, which can run slightly past 60 s
-  from the hide itself.
+  from the hide itself. The page's own reads go through the cached Hyperdrive
+  connection (see *Connections*), which adds up to about 75 s more, so in all a
+  hide, a removal or a change can take about 135 s (a little over 2 minutes) to show on
+  a chapter. The work page, `/full`, listings, search and the home page have no edge
+  cache of this kind, so for them it is the connection's window, up to about 75 s, plus
+  the browser cache a response sends: a tag listing's `private, max-age=60,
+  stale-while-revalidate=60` adds up to 120 s in the same browser, so about 195 s.
 - **Warnings screen.** A work rated Mature or Explicit, or carrying archive
   warnings, or marked "Choose Not To Use Archive Warnings", or with no rating
   at all, shows an interstitial with its rating and warnings the first time a
@@ -947,6 +1006,8 @@ epub, under the normal versioning rules.
   stored or logged. Every form that stores or matches one uses `src/ip-hash.ts`, so
   blocks match what was stored; changing the key or the grouping orphans stored
   hashes.
+- **Retention.** The hash is kept with the request, or with a requester block, until the site closes, then deleted
+  by hand. It is not erased on request (operator ruling, 2026-11-04).
 - **Block and ban stop only the action.** Blocking a requester (by contact
   email and IP hash) means their later `/remove` requests, and reports from an
   account with that email or IP hash, are still recorded and queued but no
@@ -975,8 +1036,18 @@ epub, under the normal versioning rules.
     and it is left out of search, listings and the home page. A chapter page
     cached before the hide can stay readable (not the 451) for up to 60 s after
     it was cached, in each data centre, which can run slightly past 60 s from the
-    hide. A hide does not purge it, unlike removal (see *Removal really removes*
-    below). This applies to every hide cause. A declared automated client gets
+    hide. The work page, `/full`, tag listings, search and the home page read
+    through the cached connection (see *Connections*), so they can show the work
+    for up to about 75 s after a hide (a tag listing adds its browser cache, see
+    Reading), and a chapter's own read adds the same to its 60 s. A hide does not purge it, unlike removal (see *Removal really removes*
+    below). This applies to every hide cause. A hidden work's images and original
+    on the content host are different: a request that misses the content Worker's
+    cache gets 451 (see Hosts), and the data centres' cached copies age out within
+    12 hours of being stored, so a hidden work's images can stay visible for up to
+    12 hours after the hide, in each data centre that cached them. A browser keeps
+    an image or original it already has for an hour, and a cache hit gives it a fresh hour,
+    so a browser can show it up to 13 hours after the hide (see *Edge cache*); nothing here purges it. A restore needs no action: the next
+    miss reads `live` and fills the cache again. A declared automated client gets
     a 403 on the chapter URLs and `/full` instead (Crawlers and agents).
   - **Held** (a `held_for_review` version, never public): 404 to the public.
     The work keeps serving its current version. The held version is visible
@@ -990,10 +1061,32 @@ epub, under the normal versioning rules.
 - **Removal really removes.** Setting a work to `removed`, through a takedown,
   an author request or a moderator, also deletes `works/<ao3_work_id>/` and the raw
   upload from R2, and purges the work's pages, cached fragments, images and
-  download URLs from the cache. Images and downloads are cached as
-  `immutable`, so without the purge parts of a removed work stay reachable. That
+  download URLs from the cache. Public pages that read the work through the cached
+  Hyperdrive connection can still show it, and can store a chapter page after the
+  purge, for up to about 75 s (see *Connections*). Images and downloads stay in a data
+  centre's cache for 12 hours, so without the purge parts of a removed work stay reachable. That
   the purge clears the content Worker's own cache entries is not yet confirmed (see
-  Surge controls, Edge cache).
+  Surge controls, Edge cache); if it does not, a removed work's cached images and
+  downloads age out within 12 hours, and a request after that gets a 404. The sweep finishes what the purge or an ingest clean-up
+  missed: each run, within its limits (works and R2 calls a run, and one pass over the
+  bucket a day), deletes everything under the folder of a work whose status is
+  `removed`, with no age limit, along with `originals/<upload_id>.epub` for each
+  `<upload_id>/` prefix in that folder. The status is read fresh: the query selects
+  `now()`, a non-immutable (stable) function, so Hyperdrive never serves it from its cache, and the
+  Hyperdrive config has caching off too; a change to that read must keep it uncacheable.
+  The sweep skips a work that has an upload pending or processing whose `<upload_id>/`
+  prefix is in the folder, or that is already tied to the work, and takes the work on a
+  later run; an upload stuck in either state keeps its work skipped until it ends. A job
+  that hasn't written yet can't be seen, but it can't commit a version of a removed
+  work either: the status checks of step 8 refuse the commit, and the job deletes its own
+  files. A folder the run leaves partly deleted is visited again, and an emptied folder no
+  longer appears in R2, so later runs don't visit it. This relies on
+  removal being permanent: nothing restores a `removed` work, and a restore would have to
+  change this rule first, as the sweep would delete a restored work's files on a stale
+  read (step 8's branch for a work restored meanwhile is defensive, for that reason).
+  A folder with no `works` row is not a removed work and gets the ordinary rules. Not
+  covered: an original whose `<upload_id>/` prefix is gone while the upload has no
+  `work_id` (nothing ties it to the work).
 - **The removal list.** `/removed` lists removed works, newest first: title,
   byline, "The original work" link with its ID and its note, as on the work page,
   date and reason. `/removed/pseuds` lists pseuds with an approved, active opt-out,
@@ -1035,8 +1128,9 @@ epub, under the normal versioning rules.
   and `/dmca` say what will be published before anyone submits. The pages carry
   `X-Robots-Tag: noindex` and give the moderators' contact address. Requests
   `pageCacheable` allows share one edge cache entry per page number for up to 60 s,
-  holding the page's data and not its nonce, on top of up to 60 s in Hyperdrive's read
-  cache, so in each data centre a change can take about 2 minutes to show. Withholding
+  holding the page's data and not its nonce, on top of up to about 75 s in the cached
+  Hyperdrive connection if these pages read through it (see *Connections*), so in each
+  data centre a change can take about 135 s to show. Withholding
   purges nothing.
 - **DMCA.** To get safe-harbor protection under US law (17 U.S.C. §512), we need
   a designated agent registered with the US Copyright Office, a public takedown
@@ -1265,10 +1359,27 @@ markup: its inline `style` attributes become stylesheet rules, because
   and an R2 lifecycle rule expires anything under `uploads/` after 7 days.
   Raw files the archive keeps are copied to `originals/` during ingest.
 - Queue backpressure: set a maximum consumer concurrency so Neon connections
-  stay bounded. Hyperdrive pools connections, and Neon autoscales compute.
-- Edge cache: images and original downloads on `content.rarepair.fans` never change
-  once written, since each version has its own prefix, so they're cached with
-  `Cache-Control: public, max-age=31536000, immutable`. The content Worker also
+  stay bounded. Hyperdrive pools connections, and Neon autoscales compute. Each Hyperdrive
+  config keeps its own pool, and the web Worker uses two: before launch, check the pool
+  sizes of the two configs and the ingest and sweep one against Neon's connection limit.
+- Edge cache: images and original downloads on `content.rarepair.fans` can go away
+  (a hide, a removal, an opt-out), so neither lifetime is long and neither is `immutable`.
+  A data centre keeps an entry for 12 hours, because a hide does not purge, and a browser
+  keeps a file for an hour. The entry is stored under `Cache-Control: public, max-age=43200`
+  and every response a browser gets, hit or miss, carries `public, max-age=3600`: the
+  Worker rewrites the header on a hit, so the edge's lifetime never reaches a browser. The
+  entry's lifetime is its `max-age`, not an `s-maxage`, so nothing depends on the Cache API
+  reading `s-maxage` (the local runtime expires an entry on `max-age` alone; the live zone
+  is not measured, and an operator checks it before launch (step 7 of the list in *Connections*), by seeing a cached file refilled
+  after 12 hours, and by fetching a cached file twice and reading its `Cache-Control` and `Age`
+  on the second response, with the zone's Browser Cache TTL and any Cache Rule or Edge Cache TTL on the content host not overriding the header). A hit
+  hands a browser a fresh hour whatever the entry's age, so a file hidden just before its entry
+  would expire can sit in a browser for up to 13 hours (12 at the edge, then the last hour a
+  hit gave out). Each value is named once, in the content Worker's `index.ts`.
+  Without `immutable` a browser's reload fetches the file again instead of reusing its copy.
+  The response has no validator, so that is a full download, served from the edge entry (the
+  Worker keys the cache by URL alone, so a reload's headers pick no other entry): it costs
+  bandwidth, not a database or R2 read. A plain visit within the hour costs neither. The content Worker also
   stores each 200 in the Workers Cache API (`caches.default`) under the bare request
   URL, in the data centre that served it (no replication, no tiered cache), so a
   repeat request there skips R2 (each data centre misses once per key, and
@@ -1279,10 +1390,16 @@ markup: its inline `style` attributes become stylesheet rules, because
   Cloudflare's documentation does not confirm that a purge by URL or prefix reaches
   Cache API entries in every data centre: this is unverified on the live zone
   (the prefix purge for images included), and an operator checks it before
-  launch. If it fails, a removed work's images and downloads stay cached for up
-  to a year. A request that read R2 before the removal's delete can also store its
-  response after the purge. Browser caches are untouched: they keep an
-  `immutable` response after removal (#471, open). Chapter fragments are
+  launch (step 7 of the list in *Connections*). If it fails, a removed work's images and downloads stay cached for up
+  to 12 hours. A request that read R2 (and a work's status) before the removal's delete
+  or a hide can also store its response after a purge, and that entry too ends within
+  12 hours of its store. Browser caches are untouched. The site
+  stops serving a hidden or removed work's files once the edge entry is gone: 12 hours from
+  its store after a hide, and at the purge for a removal if the purge reaches the entry
+  (otherwise 12 hours from its store). It cannot reach an epub a reader has saved, or a
+  browser's copy, which lasts an hour from the browser's last fetch, so up to 13 hours
+  after a hide. Entries stored before this ticket shipped carry the old headers; an operator
+  purges the content host's whole cache at deploy, which clears them if the purge reaches Cache API entries (unverified, as above); otherwise they end within 12 hours of their store. Chapter fragments are
   cached inside the web Worker (see Reading). Work and tag listings
   get a short cache with stale-while-revalidate.
 - Observability: Workers Logs and traces are on from day one, except that the
@@ -1291,6 +1408,84 @@ markup: its inline `style` attributes become stylesheet rules, because
   stay on. Track queue depth, ingest failure
   rate and search p95 on a dashboard, with crawler refusals by reason and throttled
   reads, each counted from a log line holding only the reason.
+
+## Connections
+
+The web Worker reaches Neon through two Hyperdrive configs. Hyperdrive caches reads by
+default, and a cached read can be old: `HYPERDRIVE` is the one with caching off, and
+`HYPERDRIVE_CACHED` has it on.
+
+- **`HYPERDRIVE` (caching off) is the default.** Sessions, roles and every `/admin` page,
+  sign-in and its link check, terms, uploads and their status, reports, removal and DMCA
+  requests and their confirmation, the wait list, and the launch dead-letter consumer. A
+  sign-out, a demotion, a ban or a used token takes effect at once, and a read that
+  decides a write sees the row it is about to write over. Ingest and the sweep have this
+  one alone, because their reads feed writes (the lease, the opt-out and removal checks,
+  versioning, what to sweep); a read added there that is only a check stays on it too.
+  So does the content Worker, which has no other: its status read decides what a miss
+  may serve, so a hide must reach the next miss, not wait out a cached read.
+- **`HYPERDRIVE_CACHED` (caching on) serves public pages only,** and only these: the home
+  page, tag listings, search, the work page, the chapter reader, `/full` and the
+  warnings screen. They only read. `/removed` and `/removed/pseuds` are not built: the ticket that builds them names their
+  connection, and the allowlist and its test change with it. A node test
+  (`hyperdrive-connections.node.test.ts`)
+  fails if any other file names the binding (it reads source text: a helper handed `env`
+  would get past it, and the workerd test in `24-hyperdrive-connections.test.ts` covers the
+  paths it names).
+- **The window.** Hyperdrive's docs give a default `max_age` of 60 s and
+  `stale_while_revalidate` of 15 s, with no invalidation on write: up to about 75 s.
+  These figures are from the docs; they can't be measured locally, since a local
+  Hyperdrive has no cache, and have not been measured against a deployed config. In that
+  window a hide or a removal can still show on those pages, and so can an old rating or
+  warning (the warnings screen is decided from the cached read). A removal's cache purge
+  can be undone for the same window: a chapter request that read the work before the
+  removal can store a fresh edge entry after the purge. A work that has just gone live
+  can also show late, including a cached "no such work" from before it did, and a
+  replaced version's old title can show, and a work just restored or un-hidden can still
+  answer 451 or 410, each up to about 75 s on public pages. The
+  upload status page links to the work page, so someone can meet this just after
+  "done". New code that reads
+  through `HYPERDRIVE` without knowing about this is fresh, and so safe.
+- **Operator steps: one ordered list.** Keep this order: each step needs what the
+  one before made, and once Workers are live a step out of order serves reads from the
+  wrong config. (Before launch nothing is live, so a slip costs nothing but the ids must
+  still exist first.) **Pasting one id into both configs puts
+  every read back in the cache, and no test can see it**: ids in the repo are
+  placeholders, and caching is a property of the deployed config.
+  1. Create a second config on the same database with caching on (`wrangler hyperdrive
+     create <name> --connection-string=<url>`).
+  2. Put real ids in all four wrangler files: the second config's id on `HYPERDRIVE_CACHED`
+     in `apps/web`, and the existing config's id on `HYPERDRIVE` in `apps/web`,
+     `apps/ingest`, `apps/sweep` and `apps/content`. Check the two ids differ.
+  3. Deploy `apps/web` with both bindings.
+  4. Turn caching off on the existing config (`wrangler hyperdrive update <id>
+     --caching-disabled`). Check that only `HYPERDRIVE_CACHED`'s config has caching on.
+  5. Deploy `apps/content`, `apps/ingest` and `apps/sweep`.
+  6. Purge the content host's whole cache, so entries stored under older headers go.
+  7. Live checks, which can't be measured locally:
+     - the purge by URL and by prefix reaches the content Worker's Cache API entries
+       (see *Surge controls*, Edge cache);
+     - the 12-hour refill: each data centre misses once per file per 12 hours. `HEAD`,
+       `Range` and conditional requests, and every refusal (404 for a file that isn't
+       there, 451, 503), are never cached and read every time, so a scraper walking ids
+       costs a database read and an R2 read per request (the R2 read starts with the
+       status read and is dropped on a refusal); the extra reads are unknown until launch;
+     - `Cache-Control` and `Age` on the content host's responses and on the web Worker's
+       cached pages;
+     - the Hyperdrive window of about 75 s (the figures above are from the docs) on a
+       public page after a hide;
+     - the pool: a Hyperdrive config's pool is shared by every Worker on it, so content
+       misses compete with web's sign-in and admin for connections and for Neon's limit.
+       Watch Neon's connection count and the Worker's 503s; if they compete, a third
+       uncached config for content is the fix, with its own id here.
+     If the purge does not reach those entries, the old ones end within 12 hours of
+     their store.
+
+  Not part of this list: the real Turnstile key and the notices mailbox are set elsewhere
+  (the DMCA notices are on another branch); the operator does them before launch.
+- Queries that select `now()` or another non-immutable function are never cached by Hyperdrive.
+  Some reads here still select `now()` beside a read for that reason; they stay correct
+  on an uncached connection and are redundant there.
 
 ## MVP vs later
 
@@ -1324,7 +1519,7 @@ apps/web/          Hono Worker: pages, auth, upload handshake, search, admin
 apps/content/      Worker serving epub images and original downloads from R2
 apps/ingest/       Queue consumer: epub processing
 apps/mailer/       Queue consumer: sends email (Resend, with failover)
-apps/sweep/        Daily cron: deletes unreferenced images and orphaned upload prefixes from R2
+apps/sweep/        Daily cron: deletes unreferenced images, orphaned upload prefixes and removed works' leftovers from R2
 packages/epub/     unzip + OPF + AO3 preface parser + sanitizer (tested in workerd)
 packages/db/       SQL migrations + typed queries
 fixtures/epubs/    real AO3 epub samples for parser and sanitizer tests

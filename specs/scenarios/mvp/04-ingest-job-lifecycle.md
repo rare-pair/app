@@ -60,7 +60,7 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 - GIVEN a job that has written chapter fragments to R2
 - WHEN it fails before the Postgres transaction commits
 - THEN no work, version, chapter or tag rows from that job exist
-- AND the R2 files are left under `works/<ao3_work_id>/<upload_id>/` for that upload, for the cleanup rules to delete
+- AND the R2 files are left under `works/<ao3_work_id>/<upload_id>/` for that upload, for the sweep to delete once the prefix is a day old and no version points at it
 
 ### Failure inside the transaction rolls back
 - GIVEN a job whose Postgres transaction fails part-way
@@ -85,3 +85,12 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 - GIVEN a job that ingests an upload successfully
 - WHEN the job finishes
 - THEN the raw file has been copied from `uploads/` to `originals/`
+
+### A refused upload's stored epub is deleted
+- GIVEN an upload whose raw epub is stored under `originals/<upload_id>.epub`
+- WHEN the job ends the upload refused: a save the database refused inside its transaction, a retry that ends `opted_out`, a ban that lands while or between attempts, or a failure for good (not `work_removed`, whose save already deleted its files)
+- THEN `originals/<upload_id>.epub` is deleted after the ending write, and only when that write matched
+- AND the log says what was deleted with the upload id and a count, never the file or the reader
+- AND a failed delete changes neither the upload's status nor the message's verdict
+- AND a job that lost its lease deletes nothing a takeover job shares
+- AND a crash between the ending write and the delete leaves the file, which nothing deletes yet (https://github.com/rare-pair/app/issues/592)

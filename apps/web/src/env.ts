@@ -9,8 +9,17 @@ export type Bindings = {
   PRELAUNCH?: string;
   TURNSTILE_SITE_KEY: string;
   ASSETS: Fetcher;
-  /** Neon Postgres. */
+  /**
+   * Neon Postgres through the Hyperdrive config with caching off. The default for every read:
+   * sessions, roles, moderation, uploads, and anything a public page doesn't read.
+   */
   HYPERDRIVE: Hyperdrive;
+  /**
+   * The same database through a config with caching on, for public pages only (home, listings,
+   * search, work page, reader, full, warnings). A read here can be up to about 75 s old
+   * (ARCHITECTURE, Connections), so nothing that decides a write goes through it.
+   */
+  HYPERDRIVE_CACHED: Hyperdrive;
   /** Chapter fragments, under works/ (ARCHITECTURE, Reading). */
   BUCKET: R2Bucket;
   /** Signed-in readers' saved reading positions, one key each (src/position.ts). */

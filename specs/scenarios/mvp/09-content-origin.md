@@ -1,6 +1,6 @@
 # Scenario: Content origin (epub images and original downloads)
 
-Relates to: docs/ARCHITECTURE.md § System overview, § Why these pieces (Two layers of XSS defense), § Reading (Download original epub), § Surge controls (Edge cache), § Author requests & takedowns (Removal really removes)
+Relates to: docs/ARCHITECTURE.md § System overview, § Why these pieces (Two layers of XSS defense), § Reading (Download original epub), § Surge controls (Edge cache), § Author requests & takedowns (What hidden, held and removed works show; Removal really removes), § Connections
 
 ## Setup
 - The content Worker serves `content.rarepair.fans`, a separate origin from `rarepair.fans`
@@ -29,10 +29,11 @@ Relates to: docs/ARCHITECTURE.md § System overview, § Why these pieces (Two la
 - WHEN the response is returned
 - THEN it has `X-Content-Type-Options: nosniff`
 
-### Images and downloads are cached as immutable
+### Images and downloads are cached for the browser for an hour
 - GIVEN any image or original download served by `content.rarepair.fans`
 - WHEN the response is returned
-- THEN it has `Cache-Control: public, max-age=31536000, immutable`
+- THEN it has `Cache-Control: public, max-age=3600`: the browser's hour, on a cache hit as well as a miss, and never `immutable`
+- AND the data centre's stored entry has `Cache-Control: public, max-age=43200`: 12 hours
 
 ### Original epub downloads as an attachment
 - GIVEN work W's page
@@ -56,4 +57,75 @@ Relates to: docs/ARCHITECTURE.md § System overview, § Why these pieces (Two la
 - WHEN W is set to `removed`
 - THEN `works/<ao3_work_id>/` and the raw upload are deleted from R2
 - AND the images and download URLs are purged from the cache
-- AND later requests for them no longer return the work's bytes
+- AND later requests to the site for them no longer return the work's bytes
+- AND it cannot reach an epub a reader has saved, or a browser's own copy, which lasts an hour from the browser's last fetch (`max-age=3600`)
+- AND where the purge does not reach an edge entry, the entry ends 12 hours after it was stored
+
+### A hidden work's image is refused, whatever the request
+- GIVEN work W is hidden, for any cause, and its image is in R2 and not in the edge cache
+- WHEN the image is requested by GET, HEAD, with a `Range` header, or with any conditional header
+- THEN the response is 451 with no body, `Cache-Control: no-store` and `nosniff`
+- AND it has no `Set-Cookie`, and nothing is stored in the edge cache
+
+### A hidden work's original is refused, whatever the request
+- GIVEN work W is hidden, for any cause, and its original is in R2 and not in the edge cache
+- WHEN the original is requested by GET, HEAD, with a `Range` header, or with any conditional header
+- THEN the response is 451 with no body, `Cache-Control: no-store` and `nosniff`
+- AND it has no `Set-Cookie`, and nothing is stored in the edge cache
+
+### A copy cached before a hide is served until it ages out
+- GIVEN work W is live and its image is in the data centre's cache
+- WHEN W is hidden and the image is requested again
+- THEN the cached copy is still served, as a hide does not purge
+- AND the entry is gone at most 12 hours after it was stored (`max-age=43200`), and the next request is refused with 451
+- AND a browser that fetched the copy from the edge keeps it for an hour from that fetch, so up to 13 hours after the hide
+
+### A refusal names no cause
+- GIVEN work W is hidden by a removal request
+- WHEN its image is requested
+- THEN no header of the 451 carries the hide cause
+
+### A restored work's image and original are served again
+- GIVEN work W was hidden and its files were refused
+- WHEN W is restored
+- THEN the next request for each returns the file with the headers of any other
+
+### A removed work's files are a 404, as are unknown works and uploads
+- GIVEN a removed work, a work no row names, a work id above 2147483647 and an upload no row names, each with a file in R2
+- WHEN a file is requested
+- THEN the response is a 404 with no body and `Cache-Control: no-store`
+
+### An original whose upload has no work is a 404
+- GIVEN an upload that ingest refused, whose original remains in R2
+- WHEN the original is requested
+- THEN the response is a 404
+
+### A held version's original is a 404, though its work is live
+- GIVEN a live work with a version held for review, and the held upload's original in R2
+- WHEN that original is requested
+- THEN the response is a 404
+- AND the original of the work's current version is served
+
+### A duplicate upload's original follows its work's status
+- GIVEN a duplicate upload of work W, with an original in R2
+- WHEN the original is requested while W is live, and again once W is hidden
+- THEN it is served, and then refused with 451
+
+### An image id with a leading zero is not a work
+- GIVEN a live work 42900
+- WHEN `/works/042900/img/<hash>` is requested
+- THEN the response is a 404, with no status read
+
+### An original's key without .epub is checked the same way
+- GIVEN a hidden work's original stored under its upload id without `.epub`
+- WHEN it is requested
+- THEN the response is 451
+
+### The sweep deletes what remains of a removed work
+- GIVEN a removed work W with files left under `works/<ao3_work_id>/`, and `originals/<upload_id>.epub` for each upload prefix in that folder, after a crashed job or a failed clean-up
+- WHEN the sweep next runs
+- THEN those files and originals are deleted
+- AND a live or hidden work's files are never touched by this rule
+- AND a work with an upload still pending or processing in its folder is left for a later run
+- AND a repeat run deletes nothing more
+- AND the cases it cannot reach (a stuck upload, a duplicate's epub after a failed removal delete, a crash or failed delete right after a refusal, an upload with no `work_id` whose prefix is gone) are tracked in https://github.com/rare-pair/app/issues/592

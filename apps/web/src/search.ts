@@ -89,7 +89,7 @@ export async function showSearch(c: Context<{ Bindings: Bindings; Variables: Ses
     return limited;
   }
   const page = pageOf(c.req.query("page"));
-  const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
+  const db = createDb({ connectionString: c.env.HYPERDRIVE_CACHED.connectionString, max: 1 });
   try {
     const { works, total } = await searchLiveWorks(db, q, {
       pageSize: PAGE_SIZE,

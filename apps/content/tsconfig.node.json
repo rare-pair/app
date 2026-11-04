@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["vitest.config.ts"]
+  "include": ["vitest.config.ts", "test/global-setup.ts", "test/provided.d.ts"]
 }

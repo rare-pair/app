@@ -7,6 +7,10 @@ export interface DbConfig {
   connectionString: string;
   /** Pool size. Left out (or 0), pg's default of 10 applies. */
   max?: number;
+  /** How long to wait for a connection before failing. Left out, pg waits indefinitely. */
+  connectionTimeoutMillis?: number;
+  /** How long a query may run, measured by the client, before it fails. Client side only: pg would send a server-side `statement_timeout` as a startup parameter, which Hyperdrive may not pass through. Left out, no limit. */
+  queryTimeoutMillis?: number;
 }
 
 /**
@@ -15,7 +19,12 @@ export interface DbConfig {
  * `ctx.waitUntil(db.destroy())`, since connections can't outlive the request.
  */
 export function createDb(config: DbConfig): Kysely<Database> {
-  const pool = new pg.Pool({ connectionString: config.connectionString, max: config.max });
+  const pool = new pg.Pool({
+    connectionString: config.connectionString,
+    max: config.max,
+    connectionTimeoutMillis: config.connectionTimeoutMillis,
+    query_timeout: config.queryTimeoutMillis,
+  });
   // pg reports an idle client's lost connection as an error on the pool, and an
   // EventEmitter with no listener throws it. The pool has already dropped that
   // client, so the error is only reported. In workerd, ending the pool raises one

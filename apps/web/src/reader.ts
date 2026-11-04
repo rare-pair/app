@@ -53,7 +53,7 @@ export async function showChapter(c: ReaderContext) {
   }
 
   // Two sequential queries at most, so one connection.
-  const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
+  const db = createDb({ connectionString: c.env.HYPERDRIVE_CACHED.connectionString, max: 1 });
   let live;
   let withheld;
   try {
