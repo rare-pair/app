@@ -32,6 +32,7 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - GIVEN any app page
 - WHEN it renders
 - THEN the footer has a "Remove my work" link to `/remove`
+- AND a "Removed works" link to `/removed`
 
 ### Not-found page
 - GIVEN a URL that matches no page
