@@ -1,8 +1,8 @@
 # Scenario: DaisyUI as the UI baseline, and the theme picker
 
-Relates to: docs/FRONTEND-DISCOVERY.md § Decisions so far (Visual direction, Warnings, JavaScript, Branding), § Principles, § Where the frontend changes the architecture (2. Reader settings under the CSP), § Typographic system, § Components, § Accessibility and devices; docs/ARCHITECTURE.md § Reading; specs/scenarios/mvp/07-sanitizing-and-images.md; specs/scenarios/mvp/11-reader-and-csp.md; specs/scenarios/mvp/13-reader-settings-and-position.md; specs/scenarios/mvp/20-site-chrome-and-legal.md; specs/scenarios/mvp/21-accessibility-and-no-js.md; specs/scenarios/mvp/22-waitlist.md
+Relates to: docs/FRONTEND-DISCOVERY.md § Decisions so far (Visual direction, Warnings, JavaScript, Branding), § Principles, § Where the frontend changes the architecture (2. Reader settings under the CSP), § Typographic system, § Components, § Reading experience, § Accessibility and devices; docs/ARCHITECTURE.md § Reading, § MVP vs later; specs/scenarios/mvp/07-sanitizing-and-images.md; specs/scenarios/mvp/11-reader-and-csp.md; specs/scenarios/mvp/13-reader-settings-and-position.md; specs/scenarios/mvp/20-site-chrome-and-legal.md; specs/scenarios/mvp/21-accessibility-and-no-js.md; specs/scenarios/mvp/22-waitlist.md
 
-Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not boxes, shadows or imagery". The picker includes synthwave and black. Browsers from late 2023 to current are supported. The app gains a Tailwind build step for its CSS.
+Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not boxes, shadows or imagery". The picker includes synthwave and black. The app gains a Tailwind build step for its CSS, and the browser floor in Setup follows from that. DaisyUI's 14 px field text and its navbar height stand, on reader pages too.
 
 ## Setup
 - DaisyUI 5 and Tailwind, each pinned to one exact version, built into one site stylesheet that holds only what Tailwind's source scan finds
@@ -20,38 +20,31 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 - The themes offered, in this order: Match my device, Light, Dark, Sepia, Dim, Night, Silk, Lofi, Synthwave, Black
 - Light, Dark and Sepia are the site's own palettes. The other six are DaisyUI's, changed only where a case below needs it
 - A live work W with a chapter whose sanitized HTML has `h1`–`h6`, lists, links, an image, a blockquote and a table
-- A signed-out reader, with JavaScript on and off
-- Supported browsers: Chrome and Edge 120, Firefox 121, Safari and iOS Safari 17.2, Samsung Internet 23, and anything newer
+- Supported browsers: Chrome and Edge 120, Firefox 128, Safari and iOS Safari 17.2, Samsung Internet 23, and anything newer
 
 ## Cases
 
 ### Existing behaviour holds
 - GIVEN this feature is built
 - WHEN the specs in `specs/scenarios/mvp/` are run
-- THEN every case in them still passes
+- THEN every case in them still passes, with DaisyUI's 14 px field text as the one exception to spec 21's "Interface type and rhythm"
 
 ### Pages use the baseline
 - GIVEN every page in the page inventory except the wait list's
 - WHEN it renders
-- THEN its header, footer, notices, cards, badges, pagination, forms, progress bars, lists and tables have their DaisyUI classes in the markup
-- AND those elements render with DaisyUI's size, padding and colours, which the site's own element rules don't override
+- THEN the elements listed in Setup have their DaisyUI classes in the markup
+- AND they render with DaisyUI's size, padding and colours, which the site's own element rules don't override
+- AND with JavaScript off, each DaisyUI component works or shows its content
 
 ### Warnings stay in plain view
 - GIVEN a work card, a work page or the warnings screen
-- WHEN it renders in any theme
+- WHEN it renders
 - THEN rating and warnings are visible text, never inside a collapse, dropdown, tooltip or modal
-- AND they are bold text with labels spelled out and no colour coding
-- AND the warnings screen is still a full page
 
-### Status is never colour alone
-- GIVEN a status badge, flash message or field error
-- WHEN it renders in any theme
-- THEN its meaning is given in text
-
-### Nothing needs JavaScript that didn't before
-- GIVEN JavaScript is off
-- WHEN a user completes each journey in spec 21 that needs no Turnstile check
-- THEN every DaisyUI component on the way works or shows its content
+### Colour is never the only signal
+- GIVEN a status badge, a flash message, a field error or a link inside a sentence
+- WHEN it renders
+- THEN its meaning is given in text, and the link is underlined
 
 ### Site classes don't pick up DaisyUI by accident
 - GIVEN a site class that shares a name with a DaisyUI or Tailwind class that Setup doesn't choose for it, such as `stats` on the work page and `rating` on the warnings screen
@@ -64,33 +57,17 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 - THEN it offers the themes in Setup, each with its name in text
 - AND the reader bar's Theme control offers the same list in the same order
 
-### Picker works without JS
-- GIVEN a reader with JavaScript off
-- WHEN they choose Synthwave on `/settings/reader` and submit the form
-- THEN the settings cookie holds that theme
-- AND they are redirected back to a page rendered with `data-theme="synthwave"`
+### Every theme works through the reader settings flow
+- GIVEN any named theme in the list
+- WHEN a reader chooses it as in spec 13's "Settings form works without JS" and, in the reader bar, "Settings apply live with JS"
+- THEN those cases hold for that theme
+- AND the next page has it on `<html>` as sent by the server, so no other theme shows first
 
-### Picker applies live with JS
-- GIVEN a reader with JavaScript on
-- WHEN they choose Black in the reader bar
-- THEN `data-theme` on `<html>` changes without a reload
-- AND the cookie is written, so the next page the server renders has the same theme
-
-### Saved theme shows on first paint
-- GIVEN a reader whose cookie holds Black
-- WHEN they open any page that uses the site stylesheet
-- THEN the server's `<html>` already has that `data-theme`, so no other theme shows first
-
-### Match my device follows the system
-- GIVEN a reader with no theme set and a system preference for dark
-- WHEN they open any page that uses the site stylesheet
-- THEN it renders in the Dark theme
-- AND with a system preference for light it renders in the Light theme
-
-### Choosing Match my device clears the theme
+### Match my device
 - GIVEN a reader whose cookie holds Synthwave
 - WHEN they choose Match my device
 - THEN the cookie holds no theme and `<html>` has no `data-theme`
+- AND a page renders in Dark with a system preference for dark, and in Light with a system preference for light
 
 ### Only themes in the list are written
 - GIVEN a cookie or a form post whose theme is outside the list, including a DaisyUI theme that isn't offered
@@ -105,10 +82,10 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 
 ### Each theme supplies everything its components read
 - GIVEN any theme in the list
-- WHEN a page renders in it
+- WHEN its values are checked
 - THEN the site's text, muted, rule, accent and paper colours and every colour DaisyUI's components read come from that theme
-- AND native controls and scrollbars follow the theme's light or dark `color-scheme`
-- AND a component in Light, Dark or Sepia has a set radius, border and size, none left undefined
+- AND it sets a light or dark `color-scheme`
+- AND Light, Dark and Sepia set a radius, border and size for components
 
 ### Every theme passes AA
 - GIVEN any theme in the list
@@ -118,29 +95,22 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 - AND the visible boundary of an input, select, textarea, checkbox or radio passes 3:1 on what is behind it
 - AND disabled controls are exempt from these ratios, as in WCAG
 
-### Links stand out from text
-- GIVEN a link inside a sentence, in any theme
-- WHEN it renders
-- THEN it is underlined, so colour isn't the only signal
-
-### The reset stays out of the chapter
-- GIVEN any reset the site stylesheet includes
+### Uploaded text keeps its look
+- GIVEN the built site stylesheet, in one theme
 - WHEN a chapter of W, a work card with an uploaded summary and that work's page render
-- THEN the chapter has the same computed styles as before for headings, lists, links, the image, the blockquote and the table, apart from the theme's colours
-- AND the summary still clamps to three lines on the card, and its lists and headings on the work page have the same computed styles as before, apart from the theme's colours
+- THEN the chapter has the same computed styles as before for headings, lists, links, the image, the blockquote and the table
+- AND the summary's lists and headings on the work page have the same computed styles as before, and it still clamps to three lines on the card
 
 ### Uploaded text cannot use DaisyUI
-- GIVEN an epub whose chapter or summary has elements with `data-theme`, `class="btn"`, `class="modal"` or `<input class="theme-controller" checked>`
+- GIVEN spec 07's sanitizer and an epub whose chapter or summary has elements with `data-theme`, `class="btn"`, `class="modal"` or `<input class="theme-controller" checked>`
 - WHEN it is sanitized and rendered
 - THEN none of those attributes or inputs reach the page
 - AND the theme is unchanged
 
 ### CSP is unchanged
-- GIVEN any page
-- WHEN it renders
-- THEN its CSP matches ARCHITECTURE § Reading, with `style-src 'self'` and no `data:` in `img-src`
-- AND no inline `style` attribute is used
-- AND the page loads no style from another host, and no script from another host except Turnstile's on the pages that already load it
+- GIVEN the CSP spec 11 requires, and the rule in spec 13 against inline `style`
+- WHEN any page renders
+- THEN both still hold
 - AND the served stylesheet contains no `data:` URL
 
 ### One theme store
@@ -171,18 +141,13 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 ### Reduced motion stops component animation
 - GIVEN a reader whose system sets `prefers-reduced-motion`
 - WHEN they use any DaisyUI component
-- THEN it doesn't animate
+- THEN it doesn't animate, which goes beyond the smooth scrolling specs 13 and 21 cover
 
 ### The baseline fits a phone
-- GIVEN a 360 px wide viewport
-- WHEN each page renders in each theme, including Silk with its 2 px borders and a card with 20+ tags and long warnings
+- GIVEN a 360 px wide viewport, and spec 21's "No sideways scrolling at 360 px" holding in the default theme
+- WHEN `/settings/reader`, a chapter's reader bar and a card with 20+ tags and long warnings render in each theme
 - THEN nothing scrolls sideways
 - AND the reader bar is still not sticky or fixed
-
-### No web fonts
-- GIVEN any page except the wait list's
-- WHEN it loads in any theme
-- THEN only system font stacks are used and no font file is downloaded
 
 ### The wait list is unchanged
 - GIVEN `PRELAUNCH` on
@@ -213,23 +178,23 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
   | Synthwave | 9.78 | 7.01 | 5.37 | 5.13 | 8.16 |
   | Black | 14.45 | 1.86 | 11.31 | 7.08 | 5.25 |
 
-  Black's links, Silk's muted text and the field errors in Silk and Lofi fail AA as shipped, so the AA cases need adjustments there.
+  Black's links, Silk's muted text and the field errors in Silk and Lofi fail AA as shipped, so the AA case needs adjustments there.
 - **Why Light, Dark and Sepia stay the site's own.** DaisyUI's `dark` fails AA as shipped: link 3.4:1, text on a primary button 4.14:1. It has no sepia, and Match my device has to resolve to the site's own Dark.
 - **The reset.** DaisyUI's components set no `box-sizing`, so they likely need a reset, and that reset removes heading sizes, list bullets, link styling and inline images from any markup that has no classes. Uploaded chapters have no classes, because the sanitizer drops them.
 - **`data:` URLs.** Every measured Tailwind build has one, in the `--fx-noise` variable DaisyUI always emits, and the whole of `daisyui.css` has 42. `img-src` would block them if used, so they must be left out.
 - **Why not `theme-controller` or `theme-change`.** A checked `theme-controller` input overrides `data-theme`, so the page and the cookie can disagree. `theme-change` keeps the choice in `localStorage`, which the server can't read, so the wrong theme shows first and JS-off readers get nothing. DaisyUI's `[data-theme]` selectors already work with the cookie.
-- **Tailwind's own floor.** Tailwind 4 documents Chrome 111, Safari 16.4 and Firefox 128 as its minimum. Firefox 121 to 127 is below that because it lacks `@property`, so nothing that colour, layout or a control's use depends on can need a registered property there.
 - **Wait list stylesheets.** These pages load the site stylesheet and then their own, which is why they need a way to stay out of the baseline. `22-waitlist.prelaunch.test.ts` pins those two stylesheets today, so it changes with this.
-- **Browser floor.** December 2023 releases, from caniuse data, with Samsung Internet 23 as that browser's last 2023 release. Firefox 121 is the first Firefox with `:has()`, which DaisyUI uses heavily. Firefox first has `oklch()` in 113, so a floor at the start of 2023 would need fallback colours.
+- **Browser floor.** Firefox 128 (July 2024) is Tailwind 4's documented minimum, and the operator raised the floor to it. The other browsers are December 2023 releases, from caniuse data, with Samsung Internet 23 as that browser's last 2023 release. All of them are at or above Tailwind's minimums of Chrome 111 and Safari 16.4.
+- **14 px field text.** It is off the 13/16/20 scale, and iOS Safari zooms in when a reader focuses a field under 16 px. The operator accepted this.
 - **Not yet proven.** No page has been rendered with DaisyUI, and the budget rests on a sample of classes rather than the app's real markup.
 
 ## Docs to change with this
 
 - FRONTEND-DISCOVERY § Decisions so far: replace the Visual direction row with DaisyUI as the baseline, and add the browser floor and the Tailwind build. The Warnings and Branding rows stand
 - FRONTEND-DISCOVERY § Principles: 2 (text is the interface, one accent colour) and 3 (tiny CSS, with the budget above)
-- FRONTEND-DISCOVERY § Typographic system: Measure and rhythm ("not boxes") and Colour (the theme list)
-- FRONTEND-DISCOVERY § Typographic system, Scale: say whether DaisyUI's 14 px field text stands, which is off the 13/16/20 scale and makes iOS Safari zoom on focus, and change spec 21's Interface type case if it does
-- FRONTEND-DISCOVERY § Reading experience: say whether navbar's height on reader pages stands, against "the only chrome is a slim top bar"
+- FRONTEND-DISCOVERY § Typographic system: Measure and rhythm ("not boxes"), Colour (the theme list) and Scale (add DaisyUI's 14 px field text)
+- FRONTEND-DISCOVERY § Reading experience: the navbar's height on reader pages replaces "the only chrome is a slim top bar"
 - FRONTEND-DISCOVERY § Components: Work card, Status badge, Flash message and Pagination
 - ARCHITECTURE § Reading: the reader's theme list
 - ARCHITECTURE § MVP vs later: add this to the Later list
+- specs/scenarios/mvp/21-accessibility-and-no-js.md: record the 14 px exception in "Interface type and rhythm"
