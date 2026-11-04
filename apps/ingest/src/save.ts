@@ -60,7 +60,7 @@ const originalKey = (uploadId: string) => `originals/${uploadId}.epub`;
  * takeover this key is the new job's.
  */
 export async function deleteOriginal(
-  bucket: Pick<R2Bucket, "list" | "delete">,
+  bucket: Pick<SaveBucket, "list" | "delete">,
   uploadId: string,
 ): Promise<number> {
   const key = originalKey(uploadId);

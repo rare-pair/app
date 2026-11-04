@@ -14,12 +14,19 @@ import {
   type Stage,
 } from "./lease";
 import { ListCheckRejected, onRejectList } from "./lists";
-import { AccountBanned, deleteOriginal, SaveRejected, WorkRemoved, type WorkImages } from "./save";
+import {
+  AccountBanned,
+  deleteOriginal,
+  SaveRejected,
+  WorkRemoved,
+  type SaveBucket,
+  type WorkImages,
+} from "./save";
 
 /** What a job needs from outside: the request's Kysely, the bucket and the two steps. */
 export interface JobDeps {
   db: Kysely<Database>;
-  bucket: Pick<R2Bucket, "get" | "list" | "delete">;
+  bucket: Pick<SaveBucket, "get" | "list" | "delete">;
   /**
    * The epub processor: bytes in, a parsed work out, or an `EpubError`. It adds each image the
    * work shows to `images`, if given.
