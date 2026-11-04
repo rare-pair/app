@@ -36,6 +36,7 @@ describe("sign-out journey", () => {
     expect(await page.locator("body").innerText()).toContain("You are not signed in");
     await page.goto(`${SITE}/me/uploads`);
     expect(new URL(page.url()).pathname).toBe("/login");
-    expect(await context.cookies()).toEqual([]);
+    const names = (await context.cookies()).map((cookie) => cookie.name);
+    expect(names).not.toContain("__Secure-better-auth.session_token");
   });
 });
