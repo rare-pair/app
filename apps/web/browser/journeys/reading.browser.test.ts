@@ -4,6 +4,7 @@ import { useJourneySite, type JourneySite } from "../harness/journey";
 import { seedReadableWork } from "../harness/seed";
 import { signedIn } from "../harness/sessions";
 import { SITE } from "../harness/site";
+import { byAddress, startAtHome, viaHeader } from "../harness/walk";
 
 // A reader moves through works with the scripts running and the CSP enforced. The works are
 // seeded straight into the database and bucket: ingest is not what these prove (the upload
@@ -103,6 +104,38 @@ const scrollState = (page: Page) =>
     room: document.documentElement.scrollHeight - window.innerHeight,
   }));
 
+/**
+ * From the home page, clicks the work's card (titles are unique) and waits for its work page.
+ * Every work this file reads is live and among the 12 newest, so each has a card on home.
+ */
+async function openWork(page: Page, ao3WorkId: number, title: string) {
+  await Promise.all([
+    page.waitForURL(`${SITE}/works/${ao3WorkId}`),
+    page.locator(".card-title").getByRole("link", { name: title, exact: true }).click(),
+  ]);
+}
+
+/** Back to home by the header's site name, then to the work's page by its card. */
+async function backToWork(page: Page, ao3WorkId: number, title: string) {
+  await viaHeader(page, "rarepair");
+  await openWork(page, ao3WorkId, title);
+}
+
+/**
+ * Presses Back until the work's page, then reloads it: the page was drawn before the position
+ * was saved, and the Continue link is drawn by the server.
+ */
+async function backByHistory(page: Page, ao3WorkId: number) {
+  for (let i = 0; i < 4 && new URL(page.url()).pathname !== `/works/${ao3WorkId}`; i += 1) {
+    await page.goBack();
+  }
+  await page.reload();
+  expect(new URL(page.url()).pathname).toBe(`/works/${ao3WorkId}`);
+}
+
+/** On a work's page, clicks its first chapter link (it only waits for the click, not the page). */
+const openFirstChapter = (page: Page) => page.locator(".chapters a").first().click();
+
 /** The text of the page's main element. */
 const mainText = (page: Page) => page.locator("main").innerText();
 
@@ -127,11 +160,11 @@ describe("reading journeys", () => {
 
   it("Chapter select and previous and next move between chapters, and the entire work shows every chapter", async () => {
     const { site } = running;
-    const page = await (await site.newContext()).newPage();
+    const page = await startAtHome(await site.newContext());
     const nav = page.locator("nav.chapter-nav").first();
 
-    await page.goto(`${SITE}/works/${NAVIGATION}`);
-    await page.locator(".chapters a").first().click();
+    await openWork(page, NAVIGATION, "pw3-Work in three chapters");
+    await openFirstChapter(page);
     await page.waitForURL(`${SITE}/works/${NAVIGATION}/chapters/1`);
     expect(await nav.getByRole("link", { name: "Previous chapter" }).count()).toBe(0);
 
@@ -150,8 +183,14 @@ describe("reading journeys", () => {
     expect(await nav.getByRole("link", { name: "Next chapter" }).count()).toBe(0);
     expect(await nav.getByRole("link", { name: "Previous chapter" }).count()).toBe(1);
 
-    // The page streams: the last heading is there once the whole of it has been parsed.
-    await page.goto(`${SITE}/works/${NAVIGATION}/full`);
+    // The chapter page has no link back to its work, so the header's site name leads home and the
+    // card to the work (a stable path, where Back would count the Go form's redirect). The entire
+    // work is that page's link. The page streams: the last heading is there once all is parsed.
+    await backToWork(page, NAVIGATION, "pw3-Work in three chapters");
+    await Promise.all([
+      page.waitForURL(`${SITE}/works/${NAVIGATION}/full`),
+      page.getByRole("link", { name: "Read the entire work on one page" }).click(),
+    ]);
     await page.locator("h2#chapter-3").waitFor();
     expect(await page.locator("article.chapter").count()).toBe(3);
     expect(await page.locator("h2.chapter-title").count()).toBe(3);
@@ -162,9 +201,11 @@ describe("reading journeys", () => {
 
   it("A work with warnings stops at the warnings screen and Continue reaches the chapter", async () => {
     const { site } = running;
-    const page = await (await site.newContext()).newPage();
+    const page = await startAtHome(await site.newContext());
 
-    await page.goto(`${SITE}/works/${WARNED_A}/chapters/1`);
+    await openWork(page, WARNED_A, "pw3-Warned work A");
+    await openFirstChapter(page);
+    await page.waitForURL(new RegExp(`/works/${WARNED_A}/warnings\\?next=`));
     const url = new URL(page.url());
     expect(url.pathname).toBe(`/works/${WARNED_A}/warnings`);
     expect(url.searchParams.get("next")).toBe(`/works/${WARNED_A}/chapters/1`);
@@ -185,7 +226,11 @@ describe("reading journeys", () => {
     expect(await mainText(page)).toContain(`pw3 warned ${WARNED_A} chapter 1`);
 
     // The session cookie remembers the work: its next chapter opens with no screen.
-    await page.goto(`${SITE}/works/${WARNED_A}/chapters/2`);
+    await page
+      .locator("nav.chapter-nav")
+      .first()
+      .getByRole("link", { name: "Next chapter" })
+      .click();
     await page.waitForURL(`${SITE}/works/${WARNED_A}/chapters/2`);
     expect(await mainText(page)).toContain(`pw3 warned ${WARNED_A} chapter 2`);
   });
@@ -193,9 +238,10 @@ describe("reading journeys", () => {
   it("A signed-in reader who turned the warnings screen off skips it", async () => {
     const { site } = running;
     const { context, userId } = await signedIn(site, { email: "pw3-skips-warnings@example.test" });
-    const page = await context.newPage();
+    const page = await startAtHome(context);
 
-    await page.goto(`${SITE}/works/${WARNED_B}/chapters/1`);
+    await openWork(page, WARNED_B, "pw3-Warned work B");
+    await openFirstChapter(page);
     await page.waitForURL(new RegExp(`/works/${WARNED_B}/warnings\\?next=`));
     await page.getByLabel("Don't show this screen again").check();
     await Promise.all([
@@ -212,7 +258,8 @@ describe("reading journeys", () => {
     expect(stored.warnings_off).toBe(true);
 
     // Another warned work, never continued past: it reads straight through.
-    await page.goto(`${SITE}/works/${WARNED_A}/chapters/1`);
+    await backToWork(page, WARNED_A, "pw3-Warned work A");
+    await openFirstChapter(page);
     await page.waitForURL(`${SITE}/works/${WARNED_A}/chapters/1`);
     expect(await mainText(page)).toContain(`pw3 warned ${WARNED_A} chapter 1`);
   });
@@ -220,8 +267,10 @@ describe("reading journeys", () => {
   it("Reader settings apply without a reload and survive one", async () => {
     const { site } = running;
     const context = await site.newContext();
-    const page = await context.newPage();
-    await page.goto(`${SITE}/works/${SETTINGS}/chapters/1`);
+    const page = await startAtHome(context);
+    await openWork(page, SETTINGS, "pw3-Settings work");
+    await openFirstChapter(page);
+    await page.waitForURL(`${SITE}/works/${SETTINGS}/chapters/1`);
 
     // Hidden until the nonced script has run under the CSP, so this shows the script ran.
     const theme = page.getByLabel("Theme");
@@ -269,8 +318,10 @@ describe("reading journeys", () => {
   it("Reading position is saved while scrolling and Continue returns to it", async () => {
     const { site } = running;
     const { context } = await signedIn(site, { email: "pw3-position@example.test" });
-    const page = await context.newPage();
-    await page.goto(`${SITE}/works/${POSITION}/chapters/1`);
+    const page = await startAtHome(context);
+    await openWork(page, POSITION, "pw3-Position work 42004");
+    await openFirstChapter(page);
+    await page.waitForURL(`${SITE}/works/${POSITION}/chapters/1`);
 
     const { room } = await scrollState(page);
     expect(room).toBeGreaterThan(1000);
@@ -279,7 +330,9 @@ describe("reading journeys", () => {
     const { y } = await scrollState(page);
     const pct = Math.round((y / room) * 100);
 
-    await page.goto(`${SITE}/works/${POSITION}`);
+    // The chapter has no link to its work. The site name is at the top, and scrolling up to click
+    // it would save position 0 over the one under test, so a reader presses Back.
+    await backByHistory(page, POSITION);
     const href = await page.locator("p.continue a").getAttribute("href");
     const [, shown] = /^\/works\/\d+\/chapters\/1#pos=(\d+)$/.exec(href ?? "") ?? [];
     expect(Math.abs(Number(shown) - pct)).toBeLessThanOrEqual(1);
@@ -301,8 +354,10 @@ describe("reading journeys", () => {
   it.fails("Continue returns to the saved position through the warnings screen (known failure: #405)", async () => {
     const { site } = running;
     const { context } = await signedIn(site, { email: "pw3-position-warned@example.test" });
-    const page = await context.newPage();
-    await page.goto(`${SITE}/works/${WARNED_POSITION}/chapters/1`);
+    const page = await startAtHome(context);
+    await openWork(page, WARNED_POSITION, "pw3-Position work 42007");
+    await openFirstChapter(page);
+    await page.waitForURL(new RegExp(`/works/${WARNED_POSITION}/warnings\\?next=`));
     await Promise.all([
       page.waitForEvent("load"),
       page.getByRole("button", { name: "Continue" }).click(),
@@ -311,7 +366,8 @@ describe("reading journeys", () => {
     await saveHalfway(page, WARNED_POSITION, room);
 
     // A new session: the screen comes back before the chapter.
-    await page.goto(`${SITE}/works/${WARNED_POSITION}`);
+    // Back, not the site name: scrolling up to it would save position 0 over the saved one.
+    await backByHistory(page, WARNED_POSITION);
     await context.clearCookies({ name: "__Host-warned" });
     await page.locator("p.continue a").click();
     await page.waitForURL(new RegExp(`/works/${WARNED_POSITION}/warnings\\?next=`));
@@ -328,15 +384,24 @@ describe("reading journeys", () => {
 
   it("Hidden and removed works show their 451 and 410 pages", async () => {
     const { site } = running;
-    const page = await (await site.newContext()).newPage();
+    const page = await startAtHome(await site.newContext());
 
-    const hidden = await page.goto(`${SITE}/works/${HIDDEN}/chapters/1`);
+    // Neither work is on home or linked from anywhere: a person has only a saved link.
+    const hidden = await byAddress(
+      page,
+      `/works/${HIDDEN}/chapters/1`,
+      "a saved link to a work a moderator has since hidden",
+    );
     expect(hidden?.status()).toBe(451);
     const hiddenText = await mainText(page);
     expect(hiddenText).toContain("Temporarily hidden by a moderator");
     expect(hiddenText).not.toMatch(/pw3[- ]Hidden work|pw3 hidden/);
 
-    const removed = await page.goto(`${SITE}/works/${REMOVED}`);
+    const removed = await byAddress(
+      page,
+      `/works/${REMOVED}`,
+      "a saved link to a work since removed",
+    );
     expect(removed?.status()).toBe(410);
     const removedText = await mainText(page);
     expect(removedText).toContain("This work has been removed");

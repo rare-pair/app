@@ -5,6 +5,7 @@ import { tagHref } from "../../src/tag-links";
 import { seedReadableWork } from "../harness/seed";
 import { useJourneySite } from "../harness/journey";
 import { SITE } from "../harness/site";
+import { startAtHome } from "../harness/walk";
 
 const FANDOM = "Pw4 Listing Fandom";
 const PATH = tagHref("fandom", normalizeTagName("fandom", FANDOM));
@@ -57,8 +58,13 @@ describe("tag listing journey", () => {
       });
     }
 
-    const page = await (await site.newContext()).newPage();
-    await page.goto(`${SITE}${PATH}`);
+    // From home, the fandom's link in "Popular fandoms" is the way in: the 22 works do not all
+    // show among "Recently added", but the one fandom is in the top ten.
+    const page = await startAtHome(await site.newContext());
+    await Promise.all([
+      page.waitForURL(`${SITE}${PATH}`),
+      page.locator("ul.fandom-list").getByRole("link", { name: FANDOM }).click(),
+    ]);
     expect(await page.locator("h1").innerText()).toBe(`${FANDOM} (fandom)`);
     expect(await cards(page)).toEqual(Array.from({ length: 20 }, (_, n) => title(COUNT - 1 - n)));
 
@@ -97,7 +103,8 @@ describe("tag listing journey", () => {
     await apply(page, shareable);
     expect(await cards(page)).toEqual([title(9)]);
 
-    // The URL is shareable: asked for alone, from nowhere, it answers with the same card.
+    // The URL is shareable: asked for alone, from nowhere, it answers with the same card. This is
+    // a Node fetch, not a page visit, so it is not a `byAddress`.
     const shared = await site.fetch(`${PATH}${shareable}`);
     expect(shared.status).toBe(200);
     const html = await shared.text();
