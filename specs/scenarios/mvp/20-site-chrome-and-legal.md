@@ -56,8 +56,8 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 ### Site header has Search for every visitor
 - GIVEN any visitor, signed out, signed in or a moderator
 - WHEN any app page renders
-- THEN "Search" is the first link in the header's navigation, and it goes to `/search`
-- AND `/search` with no query is the search page: the search box, no results
+- THEN "Search" is the first link in the header's navigation, and it goes to `/search` (before launch it is disabled, see "Site header before launch"; a page answered before the session has the bare header)
+- AND `/search` with no query, or a blank one, is the search page: the search box, no results
 
 ### Site header for an account that has not accepted the terms
 - GIVEN a signed-in account that has not accepted the terms
