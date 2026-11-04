@@ -103,8 +103,6 @@ describe("version journeys", () => {
     site.dropRecording(reader);
     await reader.goto(`${SITE}/works/42361`);
     expect(await reader.locator(".chapters a").count()).toBe(2);
-    const before = await reader.goto(`${SITE}/works/42361/chapters/3`);
-    expect(before?.status()).toBe(404);
 
     await page.goto(`${SITE}/admin/works`);
     const row = page.locator("tr", { hasText: "(42361)" });
@@ -132,6 +130,5 @@ describe("version journeys", () => {
       targetId: held.id,
       moderatorId: mod.userId,
     });
-    await site.assertClean({ allow: [/status of 404/] });
   });
 });

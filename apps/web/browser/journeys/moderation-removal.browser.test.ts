@@ -80,6 +80,7 @@ describe("removal journeys", () => {
     await expect.poll(() => reader.locator(".chapters a").count()).toBe(2);
     expect((await site.bucket.list({ prefix: "works/42300/" })).objects.length).toBeGreaterThan(2);
     expect(await site.bucket.head(originalKey)).not.toBeNull();
+    expect(await site.bucket.head(uploadKey)).not.toBeNull();
     expect((await site.fetch(`${CONTENT}/${imageKey}`, { headers: RANGE })).status).toBe(200);
     expect((await site.fetch(`${CONTENT}/${originalKey}`, { headers: RANGE })).status).toBe(200);
 
@@ -147,7 +148,16 @@ describe("removal journeys", () => {
       })
       .returning("id")
       .executeTakeFirstOrThrow();
+    // Its image and original, put under the keys ingest uses, as the removal journey above shows.
+    const imageKey = `works/42301/img/${IMAGE_HASH}`;
+    const originalKey = `originals/${work.uploadId}.epub`;
+    await site.bucket.put(imageKey, new Uint8Array([1, 2, 3]), {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await site.bucket.put(originalKey, new Uint8Array([4, 5, 6]));
     expect((await site.fetch("/works/42301")).status).toBe(200);
+    expect((await site.fetch(`${CONTENT}/${imageKey}`, { headers: RANGE })).status).toBe(200);
+    expect((await site.fetch(`${CONTENT}/${originalKey}`, { headers: RANGE })).status).toBe(200);
 
     await page.goto(`${SITE}/admin/takedowns`);
     await openRow(page, "(42301)");
@@ -163,6 +173,9 @@ describe("removal journeys", () => {
       .executeTakeFirstOrThrow();
     expect(row).toEqual({ status: "removed", resolved_by: mod.userId });
     expect((await site.bucket.list({ prefix: "works/42301/" })).objects).toHaveLength(0);
+    expect(await site.bucket.head(originalKey)).toBeNull();
+    expect((await site.fetch(`${CONTENT}/${imageKey}`)).status).toBe(404);
+    expect((await site.fetch(`${CONTENT}/${originalKey}`)).status).toBe(404);
     expect((await site.fetch("/works/42301")).status).toBe(410);
     expect((await site.fetch("/works/42301/chapters/1")).status).toBe(410);
     await expectLogged(site, {
