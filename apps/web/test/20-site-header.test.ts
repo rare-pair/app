@@ -23,27 +23,24 @@ const headerOf = (html: string) => html.match(/<header>([\s\S]*?)<\/header>/)?.[
 
 /** The header's links as [text, href] pairs, in document order; href is null on a disabled one. */
 const linksOf = (html: string) =>
-  [...headerOf(html).matchAll(/<a\b([^>]*)>([^<]*)<\/a>/g)]
-    .map((m) => [m[2]!, m[1]!.match(/\bhref="([^"]*)"/)?.[1] ?? null] as const)
-    .filter(([text]) => text !== "rarepair");
+  [...headerOf(html).matchAll(/<a\b([^>]*)>([^<]*)<\/a>/g)].flatMap((m) =>
+    m[2] === "rarepair" ? [] : [[m[2]!, m[1]!.match(/\bhref="([^"]*)"/)?.[1] ?? null] as const],
+  );
 
 const WORK = 42800;
 const HIDDEN = 42801;
 const REMOVED = 42802;
 const HOSTILE = 42803;
-const RENAMED = 42804;
 const TAG = "nav-Fandom-42800";
 
 beforeAll(async () => {
-  for (const [id, extra] of [
+  const seeds: [number, Parameters<typeof seedWork>[1]][] = [
     [WORK, { tags: [{ type: "fandom", name: TAG }] }],
     [HIDDEN, { status: "hidden", hiddenCause: "moderator" }],
     [REMOVED, { status: "removed" }],
-    [
-      HOSTILE,
-      { chapters: [{ html: "<p>one</p><header><a href=\"/x\">hostile</a></header>" }, {}] },
-    ],
-  ] as const) {
+    [HOSTILE, { chapters: [{ html: '<p>one</p><header><a href="/x">hostile</a></header>' }, {}] }],
+  ];
+  for (const [id, extra] of seeds) {
     const w = await seedWork(db, { ao3WorkId: id, title: `nav work ${id}`, ...extra });
     await putFragments(env.BUCKET, w.fragments);
   }
@@ -89,19 +86,28 @@ describe("20-site-chrome-and-legal: the site header", () => {
       expect(out.status, path).toBe(status);
       const outHtml = await out.text();
       expectOneHeader(outHtml, path);
-      expect(linksOf(outHtml).map(([t]) => t), path).toEqual(["Add work", "Sign in"]);
+      expect(
+        linksOf(outHtml).map(([t]) => t),
+        path,
+      ).toEqual(["Add work", "Sign in"]);
 
       const inRes = await fetchW(path, { headers: { cookie: signedIn } });
       expect(inRes.status, path).toBe(status);
       const inHtml = await inRes.text();
       expectOneHeader(inHtml, path);
-      expect(linksOf(inHtml).map(([t]) => t), path).toEqual(["Add work", "My uploads"]);
+      expect(
+        linksOf(inHtml).map(([t]) => t),
+        path,
+      ).toEqual(["Add work", "My uploads"]);
       expect(inHtml, path).toContain('action="/logout"');
 
       const modRes = await fetchW(path, { headers: { cookie: moderator } });
       const modHtml = await modRes.text();
       expectOneHeader(modHtml, path);
-      expect(linksOf(modHtml).map(([t]) => t), path).toEqual(["Add work", "My uploads", "Admin"]);
+      expect(
+        linksOf(modHtml).map(([t]) => t),
+        path,
+      ).toEqual(["Add work", "My uploads", "Admin"]);
       // No visitor's header goes on a page every visitor can be served.
       expect(headerOf(outHtml), path).not.toMatch(/Sign out|\/admin|My uploads/);
       expect(headerOf(inHtml), path).not.toMatch(/\/admin|Sign in/);
@@ -116,7 +122,7 @@ describe("20-site-chrome-and-legal: the site header", () => {
 
     const user = await signInAs("nav-admin-refused@example.test");
     for (const cookie of [undefined, user]) {
-      const headers = cookie === undefined ? {} : { cookie };
+      const headers: Record<string, string> = cookie === undefined ? {} : { cookie };
       const refused = await fetchW("/admin", { headers });
       const missing = await fetchW("/no-such-page", { headers });
       expect(refused.status).toBe(404);
@@ -127,7 +133,8 @@ describe("20-site-chrome-and-legal: the site header", () => {
   it("A non-moderator never sees the Admin link, and a demoted moderator loses it at once", async () => {
     const email = "nav-demoted@example.test";
     const cookie = await signInAs(email, "moderator");
-    const seen = async () => linksOf(await (await fetchW("/about", { headers: { cookie } })).text());
+    const seen = async () =>
+      linksOf(await (await fetchW("/about", { headers: { cookie } })).text());
     expect((await seen()).map(([t]) => t)).toContain("Admin");
     await db.updateTable("user").set({ role: null }).where("email", "=", email).execute();
     expect((await seen()).map(([t]) => t)).not.toContain("Admin");
@@ -143,11 +150,14 @@ describe("20-site-chrome-and-legal: the site header", () => {
     const auth = makeAuth(env, db);
     // The session's own update, with the role in it: refused, or ignored. Either way the
     // row is unchanged. Better Auth's handler isn't mounted, so this is the route's only way in.
-    await auth.api
-      // SAFETY: `role` is not in the update's typed body, because input: false removes it.
-      .updateUser({ headers: new Headers({ cookie }), body: { name: "x", role: "admin" } as never })
-      .catch(() => undefined);
-    const row = await db.selectFrom("user").select("role").where("email", "=", email).executeTakeFirst();
+    // SAFETY: `role` is not in the update's typed body, because input: false removes it.
+    const body = { name: "x", role: "admin" } as never;
+    await auth.api.updateUser({ headers: new Headers({ cookie }), body }).catch(() => undefined);
+    const row = await db
+      .selectFrom("user")
+      .select("role")
+      .where("email", "=", email)
+      .executeTakeFirst();
     expect(row?.role ?? null).toBeNull();
     const html = await (await fetchW("/about", { headers: { cookie } })).text();
     expect(linksOf(html).map(([t]) => t)).not.toContain("Admin");
@@ -185,8 +195,7 @@ describe("20-site-chrome-and-legal: the site header", () => {
       ["Add work", "/upload"],
       ["Sign in", "/login"],
     ]);
-    expect(headerOf(html)).not.toContain("<form");
-    expect(headerOf(html)).not.toContain("<button");
+    expect(headerOf(html)).not.toMatch(/<form|<button/);
   });
 
   it("Signed in, the header has Add work, My uploads and a Sign out form", async () => {
@@ -199,8 +208,7 @@ describe("20-site-chrome-and-legal: the site header", () => {
     const form = headerOf(html).match(/<form\b[^>]*>[\s\S]*?<\/form>/)?.[0] ?? "";
     expect(form).toMatch(/<form\b(?=[^>]*\bmethod="post")(?=[^>]*\baction="\/logout")/);
     expect(form).toMatch(/<button\b[^>]*type="submit"[^>]*>Sign out<\/button>/);
-    expect(headerOf(html)).not.toContain("/admin");
-    expect(headerOf(html)).not.toContain("/login");
+    expect(headerOf(html)).not.toMatch(/\/admin|\/login/);
   });
 
   it("A moderator and an admin also get Admin, before Sign out", async () => {

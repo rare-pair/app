@@ -36,7 +36,10 @@ describe("18 moderation before launch", () => {
     for (const cookie of [undefined, user]) {
       // GET /waitlist answers the not-found page before launch, for this visitor: the
       // header shows who asks.
-      const control = await fetchW("/waitlist", cookie === undefined ? {} : { headers: { cookie } });
+      const control = await fetchW(
+        "/waitlist",
+        cookie === undefined ? {} : { headers: { cookie } },
+      );
       expect(control.status).toBe(404);
       const notFound = await control.text();
       const res = await fetchW(

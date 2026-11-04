@@ -293,11 +293,7 @@ describe("18 moderation", () => {
     const cookie = await signIn(email, "moderator");
     expect((await get("/admin/reports", cookie)).status).toBe(200);
     await db.updateTable("user").set({ role: "user" }).where("email", "=", email).execute();
-    await expectRefused(
-      await get("/admin/reports", cookie),
-      await notFoundBody(cookie),
-      "demoted",
-    );
+    await expectRefused(await get("/admin/reports", cookie), await notFoundBody(cookie), "demoted");
   });
 
   it("The area's own page links to the four queues", async () => {

@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { headerLinks } from "../src/site-header";
 
 describe("20-site-chrome-and-legal: the header's links", () => {
   const texts = (html: string) =>
-    [...html.matchAll(/>([^<>]+)</g)].map((m) => m[1]!.trim()).filter((text) => text !== "");
+    [...html.matchAll(/>([^<>]+)</g)].flatMap((m) => (m[1]!.trim() === "" ? [] : [m[1]!.trim()]));
 
   it("Signed out, Add work then Sign in", () => {
     const html = headerLinks({ signedIn: false, moderator: false });
@@ -30,7 +31,7 @@ describe("20-site-chrome-and-legal: the header's links", () => {
   });
 
   it("The module reads no database: the role comes with the session", () => {
-    const source = readFileSync(new URL("../src/site-header.ts", import.meta.url), "utf8");
+    const source = readFileSync(join(import.meta.dirname, "../src/site-header.ts"), "utf8");
     expect(source).not.toMatch(/createDb|HYPERDRIVE/);
   });
 });

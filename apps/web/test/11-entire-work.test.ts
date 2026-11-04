@@ -210,7 +210,9 @@ describe("11-reader-and-csp", () => {
       // Under the bar, before the chapter nav and the text.
       const at = html.indexOf(NOTICE);
       expect(at, path).toBeGreaterThan(html.indexOf('<div class="reader-bar">'));
-      expect(at, path).toBeLessThan(html.search(/<nav class="chapter-nav"|<h2 class="chapter-title"/));
+      expect(at, path).toBeLessThan(
+        html.search(/<nav class="chapter-nav"|<h2 class="chapter-title"/),
+      );
     }
     // No notice for a work without review reasons, or once a moderator has checked it.
     for (const path of [chapterUrl(W, 1), fullUrl(W), chapterUrl(CHECKED, 2), fullUrl(CHECKED)]) {

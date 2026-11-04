@@ -79,8 +79,9 @@ describe("20-site-chrome-and-legal: a signed-in header and shared caches", () =>
     // The signed-out reader still gets the kept page, with the signed-out header.
     const shared = await page(id);
     expect(shared).toContain(`nav old ${id}`);
-    expect(headerOf(shared)).toContain("Sign in");
-    expect(headerOf(shared)).not.toContain("Sign out");
+    const sharedHeader = headerOf(shared);
+    expect(sharedHeader).toContain("Sign in");
+    expect(sharedHeader).not.toContain("Sign out");
   });
 
   it("A page kept from a signed-out request gets each reader's own header", async () => {
@@ -102,7 +103,7 @@ describe("20-site-chrome-and-legal: a signed-in header and shared caches", () =>
     const stored = await entry!.text();
     expect(stored).toContain(`nav old ${id}`);
     expect(stored).not.toMatch(/<header|Sign out|Sign in|\/admin|\/logout|\/me\/uploads/);
-    const fragment = await caches.default.match(fragmentCacheKey(id, 1, (await versionOf(id))));
+    const fragment = await caches.default.match(fragmentCacheKey(id, 1, await versionOf(id)));
     if (fragment) expect(await fragment.text()).not.toMatch(/<header|Sign out|\/admin/);
   });
 

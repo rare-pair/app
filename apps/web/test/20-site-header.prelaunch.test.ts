@@ -14,9 +14,9 @@ const headerOf = (html: string) => html.match(/<header>([\s\S]*?)<\/header>/)?.[
 
 /** The header's anchors, as [text, attributes]. */
 const anchorsOf = (html: string) =>
-  [...headerOf(html).matchAll(/<a\b([^>]*)>([^<]*)<\/a>/g)]
-    .map((m) => [m[2]!, m[1]!] as const)
-    .filter(([text]) => text !== "rarepair");
+  [...headerOf(html).matchAll(/<a\b([^>]*)>([^<]*)<\/a>/g)].flatMap((m) =>
+    m[2] === "rarepair" ? [] : [[m[2]!, m[1]!] as const],
+  );
 
 /** The anchor with `text`: its attributes. */
 const anchor = (html: string, text: string) => anchorsOf(html).find(([t]) => t === text)?.[1];
@@ -35,7 +35,10 @@ describe("20-site-chrome-and-legal: the site header before launch", () => {
       const html = await res.text();
       expectDisabled(anchor(html, "Add work"), path);
       expect(anchor(html, "Sign in"), path).toContain('href="/login"');
-      expect(anchorsOf(html).map(([t]) => t), path).toEqual(["Add work", "Sign in"]);
+      expect(
+        anchorsOf(html).map(([t]) => t),
+        path,
+      ).toEqual(["Add work", "Sign in"]);
       // The anonymous header has no form and no button: the wait list pages count theirs.
       expect(headerOf(html), path).not.toMatch(/<form|<button/);
     }

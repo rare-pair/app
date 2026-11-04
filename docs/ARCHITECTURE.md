@@ -1121,7 +1121,10 @@ epub, under the normal versioning rules.
   it is built. The row's `moderator_id` has no foreign key to `user`, so
   deleting an account keeps its log rows, with the id as it was. Anyone
   without the moderator or admin role, signed out included, gets 404 for every
-  `/admin` URL, so the admin area isn't advertised.
+  `/admin` URL, so the admin area isn't advertised to anyone else. A moderator's
+  or admin's site header has an Admin link, from the role that comes with the
+  session (a display aid only: the gate above reads the role again on every
+  `/admin` request and stays the authority).
 
 ## Wait list
 

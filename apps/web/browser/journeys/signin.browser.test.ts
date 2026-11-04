@@ -126,19 +126,21 @@ describe("sign-in journey", () => {
     await tab.close();
   });
 
-  // No route, link or button signs a reader out yet (#554). The journey states what it should
-  // do and goes red the day it does, when the marker comes off.
-  it.fails("Sign-out ends the session in the browser (known failure: #554)", async () => {
+  // The header's Sign out, from the home page: it ends the session in the browser (#554,
+  // #568). This was the known failure that marked it; the header's control makes it pass.
+  it("Sign-out ends the session in the browser", async () => {
     const { site } = running;
     const { context } = await signedIn(site, { email: "pw1-signout@example.test" });
     const page = await context.newPage();
+    await page.goto(`${SITE}/`);
+    await page.getByRole("banner").getByRole("button", { name: "Sign out" }).click();
+    await expect.poll(() => page.url()).toBe(`${SITE}/`);
+    await page.getByRole("banner").getByRole("link", { name: "Sign in" }).waitFor();
+    expect((await context.cookies()).map((cookie) => cookie.name)).not.toContain(
+      "__Secure-better-auth.session_token",
+    );
     await page.goto(`${SITE}/upload`);
-    // The page itself loaded, so only the missing control can fail the wait below.
-    await page.getByRole("heading", { name: "Upload a work" }).waitFor();
-    const control = page
-      .getByRole("link", { name: /sign out/i })
-      .or(page.getByRole("button", { name: /sign out/i }));
-    await control.waitFor({ timeout: 2000 });
+    expect(new URL(page.url()).pathname).toBe("/login");
   });
 
   it("A used link shows the refused-link page", async () => {
