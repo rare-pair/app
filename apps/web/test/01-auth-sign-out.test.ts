@@ -288,22 +288,20 @@ describe("01-auth-magic-link sign-out", () => {
         ...env,
         HYPERDRIVE: { connectionString: "postgresql://nobody:nothing@127.0.0.1:1/none" },
       };
-      let res = null as Response | null;
+      let answered: Response | undefined;
       const logged = await consoleDuring(async () => {
         const ctx = createExecutionContext();
         const request = new Request(`${BASE}/logout`, {
           method: "POST",
           headers: { cookie, origin: BASE },
         });
-        res = await app.fetch(request, down, ctx);
+        answered = await app.fetch(request, down, ctx);
         await waitOnExecutionContext(ctx);
       });
 
-      // SAFETY: assigned in the callback above, which has run.
-      const answered = res as unknown as Response;
-      expect(answered.status).toBeGreaterThanOrEqual(500);
-      expect(answered.headers.getSetCookie()).toEqual([]);
-      expect(answered.headers.get("clear-site-data")).toBeNull();
+      expect(answered?.status).toBeGreaterThanOrEqual(500);
+      expect(answered?.headers.getSetCookie()).toEqual([]);
+      expect(answered?.headers.get("clear-site-data")).toBeNull();
       expect(logged.join("\n")).not.toContain("example.test");
     });
   });
