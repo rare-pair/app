@@ -76,56 +76,57 @@ describe("getOriginalAccess", () => {
   });
 });
 
+/** Runs an image-access read against a fake server, and returns how it failed and how long it took. */
+async function readAgainst(
+  onConnection: (socket: net.Socket) => void,
+  timeouts: { connect: number; query: number },
+) {
+  const server = net.createServer(onConnection);
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  // SAFETY: a server listening on a port has an address object, not a pipe path.
+  const { port } = server.address() as net.AddressInfo;
+  const db = createDb({
+    connectionString: `postgresql://u:p@127.0.0.1:${port}/d`,
+    max: 1,
+    connectionTimeoutMillis: timeouts.connect,
+    queryTimeoutMillis: timeouts.query,
+  });
+  const started = Date.now();
+  try {
+    const failure = await getImageAccess(db, 1).then(
+      () => null,
+      (error: Error) => error,
+    );
+    return { failure, elapsed: Date.now() - started };
+  } finally {
+    await db.destroy();
+    server.close();
+  }
+}
+
 describe("createDb timeouts", () => {
   it("A server that never answers fails the read within the query timeout", async () => {
     // Accepts connections and says nothing, as a database that has stopped responding does.
-    const server = net.createServer(() => {});
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-    // SAFETY: a server listening on a port has an address object, not a pipe path.
-    const { port } = server.address() as net.AddressInfo;
-    const db = createDb({
-      connectionString: `postgresql://u:p@127.0.0.1:${port}/d`,
-      max: 1,
-      connectionTimeoutMillis: 300,
-      queryTimeoutMillis: 300,
-    });
-    const started = Date.now();
-    try {
-      await expect(getImageAccess(db, 1)).rejects.toThrow();
-      expect(Date.now() - started).toBeLessThan(3000);
-    } finally {
-      await db.destroy();
-      server.close();
-    }
+    const { failure, elapsed } = await readAgainst(() => {}, { connect: 300, query: 300 });
+    expect(failure).not.toBeNull();
+    expect(elapsed).toBeLessThan(3000);
   });
 
   it("A server that accepts the connection and stalls the query fails the read within the query timeout", async () => {
     // Answers the startup message with "authentication ok" and "ready for query", then says
     // nothing to the query: the connect timeout has nothing to catch, only the query timeout does.
-    const server = net.createServer((socket) => {
-      socket.once("data", () => {
-        const authOk = Buffer.from([0x52, 0, 0, 0, 8, 0, 0, 0, 0]);
-        const ready = Buffer.from([0x5a, 0, 0, 0, 5, 0x49]);
-        socket.write(Buffer.concat([authOk, ready]));
-      });
-      socket.on("error", () => {});
-    });
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-    // SAFETY: a server listening on a port has an address object, not a pipe path.
-    const { port } = server.address() as net.AddressInfo;
-    const db = createDb({
-      connectionString: `postgresql://u:p@127.0.0.1:${port}/d`,
-      max: 1,
-      connectionTimeoutMillis: 5000,
-      queryTimeoutMillis: 300,
-    });
-    const started = Date.now();
-    try {
-      await expect(getImageAccess(db, 1)).rejects.toThrow(/timeout/i);
-      expect(Date.now() - started).toBeLessThan(2000);
-    } finally {
-      await db.destroy();
-      server.close();
-    }
+    const { failure, elapsed } = await readAgainst(
+      (socket) => {
+        socket.once("data", () => {
+          const authOk = Buffer.from([0x52, 0, 0, 0, 8, 0, 0, 0, 0]);
+          const ready = Buffer.from([0x5a, 0, 0, 0, 5, 0x49]);
+          socket.write(Buffer.concat([authOk, ready]));
+        });
+        socket.on("error", () => {});
+      },
+      { connect: 5000, query: 300 },
+    );
+    expect(failure?.message).toMatch(/timeout/i);
+    expect(elapsed).toBeLessThan(2000);
   });
 });
