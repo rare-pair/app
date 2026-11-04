@@ -124,6 +124,13 @@ describe("Byline hardening (#258, #276)", () => {
     expect(work.reviewReasons).toEqual([]);
   });
 
+  it("An Oxford comma and a stray separator cut no name wrongly", async () => {
+    const oxford = await processEpub(ao3Epub({ bylineHtml: "Q, and P", creators: [] }));
+    expect(oxford.authors.map((a) => a.pseud)).toEqual(["Q", "P"]);
+    const stray = await processEpub(ao3Epub({ bylineHtml: link("ghost", " "), creators: ["P,"] }));
+    expect(stray.authors.map((a) => a.pseud)).toEqual(["P,", "P"]);
+  });
+
   it("The review codes carry no byline text", async () => {
     const work = await processEpub(ao3Epub({ bylineHtml: "Salt and Pepper", creators: [] }));
     expect(work.reviewReasons.join(" ")).not.toMatch(/salt|pepper/i);

@@ -151,7 +151,7 @@ describe("21-opt-out-hardening: a hostile value in the file", () => {
   it("A long byline is checked in one query", async () => {
     const t = token();
     await addOptOut(`last${t}`);
-    // A real file can't carry this many: the processor's node budget stops it first.
+    // A file this size is not a real one: a byline has no cap of its own (#543).
     const crowd = Array.from({ length: 70_000 }, (_, i) => `crowd ${t} ${i}`);
 
     expectOptedOut(await ingestByline([...crowd, `Last${t}`]));

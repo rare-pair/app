@@ -337,12 +337,15 @@ Chapter text isn't indexed.
      from their headed blocks.
    - Unknown labels are kept in a `raw_meta` JSON column, so we never lose
      data the parser doesn't understand yet.
-   - **Whose byline is checked.** Every name the file gives: the preface's named
+   - **Whose byline is checked.** Every name the file gives in a form we can read: the preface's named
      authors (a link with nothing visible in it, such as a space or a
      zero-width character, names nobody) and every OPF `dc:creator` the
      preface doesn't already name, so a blank or partial preface byline never
-     hides the author. A byline with no profile links is cut at ", " and
-     " and "; each piece is checked. So is a `dc:creator` that holds several
+     hides the author. A byline with no profile links is cut at commas (an Oxford "and"
+     included) and at a lowercase " and "; each piece is checked, but not the
+     whole text (an opt-out for a pseud that itself holds ", " or " and " is
+     matched only through an OPF `dc:creator` that holds it whole). Other
+     separators ("&", ";", "AND") cut nothing. So is a `dc:creator` that holds several
      names, whole and cut. Cutting is a guess: nothing says "Salt and Pepper"
      isn't one pseud, so a cut byline gets the `byline_ambiguous` review
      reason, and a file with no name anywhere gets `byline_missing`. Both go

@@ -28,7 +28,8 @@ function sameKey(pseud: string): string {
 
 /** A byline's or creator's text cut into names where AO3 would write a list: ", " and " and ". */
 export function splitNames(text: string): string[] {
-  return text.split(/,\s*|\s+and\s+/).filter((name) => !isBlank(name));
+  // ", and P" (an Oxford comma) is one separator, not a piece "and P".
+  return text.split(/\s*,\s*(?:and\s+)?|\s+and\s+/).filter((name) => !isBlank(name));
 }
 
 /** The authors the opt-out check reads and the review reasons for a byline it can't trust. */
@@ -67,10 +68,9 @@ export function resolveByline(
     // Every piece already named ("A and B" beside links to A and B): nothing new, nothing guessed.
     if (names.length > 1 && names.every((name) => named.has(sameKey(name)))) continue;
     add(creator);
-    if (names.length > 1) {
-      creatorAmbiguous = true;
-      for (const name of names) add(name);
-    }
+    // A stray separator ("P,") leaves one piece that differs from the whole: it is checked too.
+    for (const name of names) add(name);
+    if (names.length > 1) creatorAmbiguous = true;
   }
   const reviewReasons: string[] = [];
   if (authors.length === 0) reviewReasons.push(BYLINE_MISSING);
