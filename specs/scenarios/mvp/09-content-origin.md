@@ -57,7 +57,8 @@ Relates to: docs/ARCHITECTURE.md § System overview, § Why these pieces (Two la
 - WHEN W is set to `removed`
 - THEN `works/<ao3_work_id>/` and the raw upload are deleted from R2
 - AND the images and download URLs are purged from the cache
-- AND later requests for them no longer return the work's bytes
+- AND later requests to the site for them no longer return the work's bytes
+- AND it cannot reach an epub a reader has saved, or a browser's own copy, which stays for up to an hour (`max-age=3600`)
 
 ### A hidden work's image is refused, whatever the request
 - GIVEN work W is hidden, for any cause, and its image is in R2 and not in the edge cache
