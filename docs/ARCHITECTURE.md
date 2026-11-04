@@ -22,6 +22,7 @@ an unofficial stopgap.
 | Accepted files | AO3-native epub exports only. FanFicFare support comes later |
 | New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) |
 | Author identity | No work claims and no author verification while AO3 is down. Removal and opt-out are requests anyone can make, without proving who they are, and they take effect once the requester confirms control of the contact email |
+| Removal list | Removed works (title, byline, a link to the original with its ID, date, reason) are public at `/removed`, and pseuds with an approved opt-out at `/removed/pseuds`. Reasons come from a fixed list, never free text. Open requests and hidden works are never listed, and a moderator can withhold an entry |
 | Search scope | Metadata only: title, author, tags, summary |
 | Chapter rendering | Inline in app pages behind a strict CSP, with no iframe |
 | Wait list | Before launch, `/` is a coming-soon page with a double opt-in wait list. Each confirmed address is sent one launch email, from the same mail subdomain as sign-in, spread over hours on its own queue. The list is deleted after the launch send |
@@ -126,6 +127,9 @@ works        (id, ao3_work_id UNIQUE NOT NULL, title, summary_html, rating, lang
               complete, published_at, updated_at,
               status,            -- processing | live | hidden | removed
               hidden_cause NULL, -- removal_request | reports | moderator, while hidden
+              removed_reason NULL, -- dmca | removal_request | wrong_file | site_safety; the schema's check, like hidden_cause's, allows it only while removed and requires it then
+              removed_at NULL,   -- set with removed_reason, under the same check; a partial index on it, where status is removed, serves the removal list
+              list_withheld,     -- the removal list shows no title, byline or AO3 ID
               current_version_id, raw_meta jsonb,
               search tsvector,   -- title A, byline and tags B, summary C; text search config `simple`
               search_text)       -- the same text, for pg_trgm fuzzy matching
@@ -160,14 +164,19 @@ takedowns    (id, work_id, requester, basis, status, resolved_by, created_at,
               incomplete)  -- a DMCA notice: basis is the copyrighted work, requester the contact
                            -- information; incomplete when a 512(c)(3)(A) element is missing;
                            -- status: pending, rejected, or removed (approved, which puts the work on the takedown list)
-requests     (id, kind, work_id NULL, pseud_norm NULL, contact_email, statement,
-              status, ip_hash, confirm_token_hash NULL, confirm_sent_at NULL,
+requests     (id, kind, work_id NULL, pseud_norm NULL,
+              pseud_typed NULL,  -- for the removal list: the pseud as typed, cleaned like pseud_norm but with its case kept; NULL on an opt-out from before the list, which is never listed
+              contact_email, statement, status, ip_hash, confirm_token_hash NULL, confirm_sent_at NULL,
               confirmed_at NULL, created_at)      -- kind: remove_work | opt_out; status: pending, rejected, approved; a request
               -- hides nothing until confirmed_at is set by the emailed link (the token is
               -- kept only as a hash, cleared on confirm); rows from before that count as confirmed
 request_works (request_id, work_id)  -- written whenever a request hides a work, so a reversed
               request restores exactly those
 optouts      (id, pseud_norm, ao3_user NULL, request_id, active, created_at)  -- checked at ingest
+listed_pseuds (pseud_norm PRIMARY KEY,  -- one row per pseud on the removal list
+              request_id,        -- the approved opt-out whose pseud_typed is shown
+              listed_at,         -- when the pseud was first approved; indexed
+              withheld)          -- the removal list leaves the pseud out
 requester_blocks (id, contact_email NULL, ip_hash NULL, created_by, created_at)
 moderation_actions (id, moderator_id, action, target_kind, target_id, note NULL,
               created_at)  -- no FK on moderator_id (rows outlive the account) or target_id (it
@@ -985,6 +994,50 @@ epub, under the normal versioning rules.
   `immutable`, so without the purge parts of a removed work stay reachable. That
   the purge clears the content Worker's own cache entries is not yet confirmed (see
   Surge controls, Edge cache).
+- **The removal list.** `/removed` lists removed works, newest first: title,
+  byline, "The original work" link with its ID and its note, as on the work page,
+  date and reason. `/removed/pseuds` lists pseuds with an approved, active opt-out,
+  in `requests.pseud_typed`'s cleaned form. Only a `removed` work is listed, so
+  a work hidden by an opt-out or anything else is not, and no pending or unconfirmed
+  item is listed or counted. An unfair hide stays temporary and private. Nobody's
+  identity is checked, so the wording names the route ("Removed after a removal
+  request"), never the person, and the pages say so. The reason is set when the
+  status changes, by `removeWork` under its lock, so a repeat remove needs none and
+  keeps the first. The approved item decides it: a takedown gives `dmca` and a removal
+  request gives `removal_request`. A moderator's own remove gives `dmca` when a notice
+  on the work is pending, and otherwise must choose `wrong_file` or `site_safety`, or
+  `removal_request` when a confirmed pending request or an active opt-out covers the
+  work. The migration derives a reason for works already removed, the same way, with
+  `site_safety` when nothing else applies. An opt-out from before it, approved or
+  pending, keeps a NULL `pseud_typed` and is never listed, since its requester was never
+  told. For the same reason a work it gives a reason to starts withheld. A pending
+  `remove_work` request from before it is not marked: the site hasn't launched, so these
+  rows are test data. Approving an opt-out that has a
+  `pseud_typed` adds its pseud to `listed_pseuds`, or, when a row is there whose request
+  isn't approved, points the row at this one; a withhold chosen at that step applies,
+  and approving never lifts one. Rejecting one moves the row to the earliest remaining
+  approved opt-out with a `pseud_typed`, or deletes the row when none remains.
+  A withheld row with none remaining stays, so a later approve can't republish the name,
+  and un-withholding it deletes it. Each takes a transaction advisory lock on the
+  `pseud_norm` after its request row, so a concurrent approve and reject can't leave the
+  row wrong. Statements, DMCA fields, requesters and moderation notes are never shown.
+  A reversed opt-out takes the entry off, and the action log keeps the history. A
+  removed work can't be restored (`restoreWork` leaves it as it is), so its entry
+  stays. A moderator can withhold an entry, for a title or name that shouldn't be
+  republished or a removal made by mistake: a work then shows only the date and reason,
+  and a pseud is left out, and shows as "Name withheld" in any listed byline. Every
+  confirm step that removes a work or approves an opt-out with a `pseud_typed` shows the
+  entry and offers the withhold before anything is published. It is already selected for `site_safety` and
+  for a pseud with no works here, whose typed text nothing in the archive backs. A byline
+  comes from the uploaded file, so the pages say the people named may have done nothing.
+  Each withhold and un-withhold logs `withhold` or `unwithhold`,
+  on the work, or on target kind `pseud` with the `pseud_norm` as `target_id`. `/remove`
+  and `/dmca` say what will be published before anyone submits. The pages carry
+  `X-Robots-Tag: noindex` and give the moderators' contact address. Requests
+  `pageCacheable` allows share one edge cache entry per page number for up to 60 s,
+  holding the page's data and not its nonce, on top of up to 60 s in Hyperdrive's read
+  cache, so in each data centre a change can take about 2 minutes to show. Withholding
+  purges nothing.
 - **DMCA.** To get safe-harbor protection under US law (17 U.S.C. §512), we need
   a designated agent registered with the US Copyright Office, a public takedown
   form, a counter-notice process and a repeat-infringer policy. Get a lawyer to
@@ -1018,8 +1071,8 @@ epub, under the normal versioning rules.
   - *Works to check*: works with a held version, works live with the "may be
     imperfect" notice, and works reported as "This version is wrong"
 
-  Actions are hide, remove, restore, approve, reject, block a requester and ban
-  an uploader. A *Works to check* item's page has approve (clears the notice,
+  Actions are hide, remove, restore, approve, reject, block a requester, ban
+  an uploader and withhold a removal list entry. A *Works to check* item's page has approve (clears the notice,
   or publishes the held version), make a version current, hide and remove;
   each work's admin page lists every version with "Make current" and "Approve". Approving a held version
   makes it current and checked; each approve is logged once, on the version. Make current and
@@ -1042,7 +1095,8 @@ epub, under the normal versioning rules.
   and another pending request for the work stays pending. A failed cache purge still marks
   the item, and Remove on the work retries it. Approving an opt-out only confirms it: it is marked
   `approved` and logged `approve`, its `optouts` row stays active and its works stay hidden, and
-  nothing is removed, so there is no confirm step. Rejecting an opt-out, pending or `approved`,
+  nothing is removed. Its confirm step shows the pseud as the removal list will show it, with a
+  choice to withhold it. Rejecting an opt-out, pending or `approved`,
   reverses it: the request becomes `rejected` and its row goes inactive, so new uploads by
   the pseud are accepted again. A request's page lists the other requests from the same contact
   email (any case) or IP hash, and "Restore related works" restores in bulk: it rejects the
@@ -1249,7 +1303,7 @@ markup: its inline `style` attributes become stylesheet rules, because
 5. Browse by fandom, tag or rating, sorted by updated date or word count
 6. Search: title, author, tags, summary (Postgres FTS plus trigram)
 7. Remove-my-work and opt-out requests, reports, DMCA form, minimal
-   moderation queue
+   moderation queue, public removal list
 8. Terms, a privacy notice and a clear "unofficial, temporary" banner
 
 **Later**
@@ -1291,5 +1345,7 @@ little client JS for upload progress and the reader settings.
 - **Deleted or orphaned works.** Someone may upload a work the author deleted
   from AO3. While AO3 is down we can't check, so we rely on the opt-out list and
   remove-my-work requests.
-- **Legal review.** Get a review of the DMCA setup and terms before public
-  launch.
+- **Legal review.** Get a review of the DMCA setup, the terms and the public
+  removal list before public launch. It should cover naming people beside a reason
+  they can't dispute, and a successful counter-notice: removal deletes the files and
+  can't be undone, so restoring the work isn't possible today, and its entry stays.
