@@ -1,11 +1,11 @@
 # Scenario: DaisyUI as the UI baseline, and the theme picker
 
-Relates to: docs/FRONTEND-DISCOVERY.md § Decisions so far (Visual direction, Warnings, JavaScript, Branding), § Principles, § Where the frontend changes the architecture (2. Reader settings under the CSP), § Typographic system, § Components, § Accessibility and devices; docs/ARCHITECTURE.md § Reading; specs/scenarios/mvp/13-reader-settings-and-position.md; specs/scenarios/mvp/21-accessibility-and-no-js.md
+Relates to: docs/FRONTEND-DISCOVERY.md § Decisions so far (Visual direction, Warnings, JavaScript, Branding), § Principles, § Where the frontend changes the architecture (2. Reader settings under the CSP), § Typographic system, § Components, § Accessibility and devices; docs/ARCHITECTURE.md § Reading; specs/scenarios/mvp/07-sanitizing-and-images.md; specs/scenarios/mvp/11-reader-and-csp.md; specs/scenarios/mvp/13-reader-settings-and-position.md; specs/scenarios/mvp/20-site-chrome-and-legal.md; specs/scenarios/mvp/21-accessibility-and-no-js.md; specs/scenarios/mvp/22-waitlist.md
 
 Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not boxes, shadows or imagery". The picker includes synthwave and black. Browsers from late 2023 to current are supported. The app gains a Tailwind build step for its CSS.
 
 ## Setup
-- DaisyUI 5 and Tailwind, each pinned to one exact version, built into one site stylesheet with only the classes the app uses
+- DaisyUI 5 and Tailwind, each pinned to one exact version, built into one site stylesheet that holds only what Tailwind's source scan finds
 - DaisyUI is the baseline for the site's own interface:
   - site header and footer: navbar and footer
   - banner, flash messages and the review notice: alert
@@ -27,13 +27,14 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 
 ### Existing behaviour holds
 - GIVEN this feature is built
-- WHEN specs 13 and 21 are run
+- WHEN the specs in `specs/scenarios/mvp/` are run
 - THEN every case in them still passes
 
 ### Pages use the baseline
 - GIVEN every page in the page inventory except the wait list's
 - WHEN it renders
 - THEN its header, footer, notices, cards, badges, pagination, forms, progress bars, lists and tables have their DaisyUI classes in the markup
+- AND those elements render with DaisyUI's size, padding and colours, which the site's own element rules don't override
 
 ### Warnings stay in plain view
 - GIVEN a work card, a work page or the warnings screen
@@ -190,14 +191,16 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 
 ## Notes
 
-- **Why Tailwind.** The app had no CSS build, but the baseline needs far more of DaisyUI. Tailwind's class prefix is also a simple answer to the class-name collisions. Measured on 5.7.50 with eight theme files and a sample of the classes in Setup:
+- **Why Tailwind.** The app had no CSS build, but the baseline needs far more of DaisyUI. Measured on 5.7.50 with eight theme files, a sample of the classes in Setup and a scan of `apps/web/src`:
 
   | | Raw | Brotli |
   | --- | --- | --- |
   | Today's stylesheet | 11.5 KB | 2.7 KB |
-  | Tailwind build alone | 62.5 KB | 8.8 KB |
-  | Tailwind build, plus today's stylesheet | about 74 KB | about 11.5 KB |
+  | Tailwind build, no prefix, plus today's stylesheet | about 96 KB | about 14.3 KB |
+  | Tailwind build, `d-` class prefix, plus today's stylesheet | about 78 KB | about 12.1 KB |
   | DaisyUI's pre-built files, plus today's stylesheet, no build | 325 KB | 18 KB |
+
+- **The class prefix.** Tailwind's scan turns plain words in the source into rules, such as `stats`, `rating`, `fixed` and `hidden`. Without a prefix, the budget has almost no room left before any markup moves. A prefix leaves room, and it also ends the class-name collisions.
 
 - **Measured contrast.** Measured on 5.7.50 from the theme files, not in a browser:
 
@@ -211,12 +214,12 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
   | Black | 14.45 | 1.86 | 11.31 | 7.08 | 5.25 |
 
   Black's links, Silk's muted text and the field errors in Silk and Lofi fail AA as shipped, so the AA cases need adjustments there.
-- **Why Light, Dark and Sepia stay the site's own.** DaisyUI's `dark` fails AA as shipped: link 3.4:1, text on a primary button 4.14:1. It has no sepia, and its files have no `prefers-color-scheme` rule.
+- **Why Light, Dark and Sepia stay the site's own.** DaisyUI's `dark` fails AA as shipped: link 3.4:1, text on a primary button 4.14:1. It has no sepia, and Match my device has to resolve to the site's own Dark.
 - **The reset.** DaisyUI's components set no `box-sizing`, so they likely need a reset, and that reset removes heading sizes, list bullets, link styling and inline images from any markup that has no classes. Uploaded chapters have no classes, because the sanitizer drops them.
-- **`data:` URLs.** The sample Tailwind build has one, and the whole of `daisyui.css` has 42. `img-src` would block them, so they must be left out.
+- **`data:` URLs.** Every measured Tailwind build has one, in the `--fx-noise` variable DaisyUI always emits, and the whole of `daisyui.css` has 42. `img-src` would block them if used, so they must be left out.
 - **Why not `theme-controller` or `theme-change`.** A checked `theme-controller` input overrides `data-theme`, so the page and the cookie can disagree. `theme-change` keeps the choice in `localStorage`, which the server can't read, so the wrong theme shows first and JS-off readers get nothing. DaisyUI's `[data-theme]` selectors already work with the cookie.
 - **Tailwind's own floor.** Tailwind 4 documents Chrome 111, Safari 16.4 and Firefox 128 as its minimum. Firefox 121 to 127 is below that because it lacks `@property`, so nothing that colour, layout or a control's use depends on can need a registered property there.
-- **Wait list stylesheets.** These pages load the site stylesheet and then their own, which is why they need a way to stay out of the baseline.
+- **Wait list stylesheets.** These pages load the site stylesheet and then their own, which is why they need a way to stay out of the baseline. `22-waitlist.prelaunch.test.ts` pins those two stylesheets today, so it changes with this.
 - **Browser floor.** December 2023 releases, from caniuse data, with Samsung Internet 23 as that browser's last 2023 release. Firefox 121 is the first Firefox with `:has()`, which DaisyUI uses heavily. Firefox first has `oklch()` in 113, so a floor at the start of 2023 would need fallback colours.
 - **Not yet proven.** No page has been rendered with DaisyUI, and the budget rests on a sample of classes rather than the app's real markup.
 
