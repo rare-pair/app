@@ -949,7 +949,9 @@ epub, under the normal versioning rules.
   work. The migration derives a reason for works already removed, the same way, with
   `site_safety` when nothing else applies. An opt-out from before it, approved or
   pending, keeps a NULL `pseud_typed` and is never listed, since its requester was never
-  told, though a removed work's 410 was already public. Approving an opt-out that has a
+  told. For the same reason a work it gives a reason to starts withheld. A pending
+  `remove_work` request from before it is not marked: the site hasn't launched, so these
+  rows are test data. Approving an opt-out that has a
   `pseud_typed` adds its pseud to `listed_pseuds`, or, when a row is there whose request
   isn't approved, points the row at this one; a withhold chosen at that step applies,
   and approving never lifts one. Rejecting one moves the row to the earliest remaining
@@ -963,8 +965,8 @@ epub, under the normal versioning rules.
   stays. A moderator can withhold an entry, for a title or name that shouldn't be
   republished or a removal made by mistake: a work then shows only the date and reason,
   and a pseud is left out, and shows as "Name withheld" in any listed byline. Every
-  confirm step that removes a work or approves an opt-out shows the entry and offers the
-  withhold before anything is published. It is already selected for `site_safety` and
+  confirm step that removes a work or approves an opt-out with a `pseud_typed` shows the
+  entry and offers the withhold before anything is published. It is already selected for `site_safety` and
   for a pseud with no works here, whose typed text nothing in the archive backs. A byline
   comes from the uploaded file, so the pages say the people named may have done nothing.
   Each withhold and un-withhold logs `withhold` or `unwithhold`,

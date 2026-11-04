@@ -135,12 +135,13 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - WHEN the migration runs
 - THEN their reasons are `dmca`, `removal_request`, `dmca`, `removal_request` and `site_safety`
 - AND each `removed_at` is the time of its latest `remove` log row, or the migration's time if it has none
+- AND each has its details withheld, because nobody involved was told they would be published
 
 ### An opt-out from before the list is never listed
 - GIVEN an opt-out approved before the migration, and one still pending
 - WHEN the migration runs
 - THEN both keep a NULL `pseud_typed` and neither is listed, because their requesters were never told a name would be published
-- AND when a moderator opens the pending one's approve, the confirm step says it won't be listed, and approving adds no entry
+- AND when a moderator opens the pending one's approve, the confirm step says this request adds no name to the list, and approving doesn't change the list
 
 ### A reversal doesn't fall back to an opt-out from before the list
 - GIVEN an opt-out for P approved before the migration, and a later approved opt-out that lists P
