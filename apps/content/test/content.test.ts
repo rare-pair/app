@@ -1,5 +1,8 @@
+import { createDb, type Database } from "@archive/db";
+import { seedWork } from "@archive/db/seed";
 import { env, exports } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import type { Kysely } from "kysely";
+import { beforeAll, describe, expect, it } from "vitest";
 import handler, { type Env } from "../src/index";
 
 // SAFETY: the test env is the bindings wrangler.jsonc declares, which Env describes.
@@ -13,9 +16,28 @@ const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2
 const EPUB = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 9, 8, 7, 6]);
 
 const IMAGE_KEY =
-  "works/123456/img/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
-const MISSING_IMAGE_KEY = "works/123456/img/" + "0".repeat(64);
-const ORIGINAL_KEY = "originals/01J9ZQ4K7M3XYV8T2W5R6N0B1C";
+  "works/42900/img/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+const MISSING_IMAGE_KEY = "works/42900/img/" + "0".repeat(64);
+// The live work these keys belong to (AO3 ids 42900-42999 are this file's). The original's key
+// names the work's upload, which the database picks, so it is set once the work is seeded.
+const WORK_AO3_ID = 42900;
+let ORIGINAL_KEY = "";
+
+/** Runs `fn` with a Kysely on the test database, through the Worker's Hyperdrive. */
+async function withDb<T>(fn: (db: Kysely<Database>) => Promise<T>): Promise<T> {
+  const db = createDb({ connectionString: E.HYPERDRIVE.connectionString, max: 1 });
+  try {
+    return await fn(db);
+  } finally {
+    await db.destroy();
+  }
+}
+
+let liveWork: { workId: string; uploadId: string };
+beforeAll(async () => {
+  liveWork = await withDb((db) => seedWork(db, { ao3WorkId: WORK_AO3_ID }));
+  ORIGINAL_KEY = `originals/${liveWork.uploadId}.epub`;
+});
 
 // An ExecutionContext that keeps what the Worker hands waitUntil, so a test can wait for it.
 function collectingCtx() {
@@ -35,7 +57,7 @@ function countingBucket() {
     },
   };
   // SAFETY: the Worker calls only BUCKET.get.
-  return { env: { BUCKET: bucket as R2Bucket }, counter };
+  return { env: { BUCKET: bucket as R2Bucket, HYPERDRIVE: E.HYPERDRIVE }, counter };
 }
 
 // Fetches through the Worker's entry as the runtime would, waiting for its cache write.
@@ -75,10 +97,15 @@ async function uncache(...keys: string[]) {
 }
 
 async function seed() {
-  await uncache(IMAGE_KEY, ORIGINAL_KEY, ORIGINAL_KEY + ".epub", MISSING_IMAGE_KEY);
+  await uncache(IMAGE_KEY, ORIGINAL_KEY, MISSING_IMAGE_KEY);
   await E.BUCKET.put(IMAGE_KEY, PNG, { httpMetadata: { contentType: "image/png" } });
   await E.BUCKET.put(ORIGINAL_KEY, EPUB, { httpMetadata: { contentType: "application/epub+zip" } });
 }
+
+// The browser keeps a file for an hour; the edge entry is stored for 12 hours (#581). Written
+// as literals, not read from the Worker: they are the operator's values.
+const BROWSER_CACHE_CONTROL = "public, max-age=3600";
+const EDGE_CACHE_CONTROL = "public, max-age=43200";
 
 describe("09-content-origin", () => {
   it("Content origin sets no cookies", async () => {
@@ -105,15 +132,15 @@ describe("09-content-origin", () => {
     }
   });
 
-  it("Images and downloads are cached as immutable", async () => {
+  it("Images and downloads are cached for the browser for an hour", async () => {
     await seed();
     for (const key of [IMAGE_KEY, ORIGINAL_KEY]) {
       const res = await get(key);
       expect(res.status).toBe(200);
-      expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+      expect(res.headers.get("cache-control")).toBe(BROWSER_CACHE_CONTROL);
       await res.arrayBuffer();
     }
-    // A miss is not cached as immutable: the key may be written later.
+    // A miss is not cached: the key may be written later.
     const miss = await get(MISSING_IMAGE_KEY);
     expect(miss.status).toBe(404);
     expect(miss.headers.get("cache-control")).toBe("no-store");
@@ -148,16 +175,16 @@ describe("09-content-origin", () => {
     await seed();
     // Things that exist in the bucket but are not images or originals.
     const html = new TextEncoder().encode("<p>x</p>");
-    const fragment = "works/123456/01J9ZQ4K7M3XYV8T2W5R6N0B1C/1.html";
+    const fragment = "works/42900/01J9ZQ4K7M3XYV8T2W5R6N0B1C/1.html";
     await E.BUCKET.put(fragment, html, { httpMetadata: { contentType: "text/html" } });
     await E.BUCKET.put("uploads/01J9ZQ4K7M3XYV8T2W5R6N0B1C", EPUB);
     await E.BUCKET.put("index.html", html, { httpMetadata: { contentType: "text/html" } });
-    await E.BUCKET.put("works/123456/img/.hidden", PNG, {
+    await E.BUCKET.put("works/42900/img/.hidden", PNG, {
       httpMetadata: { contentType: "image/png" },
     });
     await E.BUCKET.put("originals/.hidden", EPUB);
     // Image keys that are not a SHA-256 hex digest, so not versioned by their key.
-    const unversioned = ["works/123456/img/cover.png", `works/123456/img/${"A".repeat(64)}`];
+    const unversioned = ["works/42900/img/cover.png", `works/42900/img/${"A".repeat(64)}`];
     for (const key of unversioned) {
       await E.BUCKET.put(key, PNG, { httpMetadata: { contentType: "image/png" } });
     }
@@ -171,14 +198,16 @@ describe("09-content-origin", () => {
       "uploads/01J9ZQ4K7M3XYV8T2W5R6N0B1C",
       "index.html",
       "",
-      "works/123456/work",
+      "works/42900/work",
       "works/abc/img/x",
-      "works/123456/img/a/b",
-      "works/123456/img/",
-      "works/123456/img/..%2f01J9ZQ4K7M3XYV8T2W5R6N0B1C%2f1.html",
-      "works/123456/img/%2e%2e",
+      // A leading zero would be a second spelling of the work, and a second cache key.
+      `works/0${WORK_AO3_ID}/img/${"0".repeat(64)}`,
+      "works/42900/img/a/b",
+      "works/42900/img/",
+      "works/42900/img/..%2f01J9ZQ4K7M3XYV8T2W5R6N0B1C%2f1.html",
+      "works/42900/img/%2e%2e",
       // Reaches the Worker as is (no dot segment to resolve), so the regex refuses it.
-      "works/123456/img/.hidden",
+      "works/42900/img/.hidden",
       "originals/.hidden",
       "originals/",
       "originals/a/b",
@@ -214,7 +243,7 @@ describe("19-surge-controls-and-quotas", () => {
     for (const key of [IMAGE_KEY, ORIGINAL_KEY]) {
       const res = await get(key);
       expect(res.status).toBe(200);
-      expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+      expect(res.headers.get("cache-control")).toBe(BROWSER_CACHE_CONTROL);
       await res.arrayBuffer();
     }
   });
@@ -227,7 +256,7 @@ describe("content Worker", () => {
     const res = await get(IMAGE_KEY, { method: "HEAD" });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");
-    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(res.headers.get("cache-control")).toBe(BROWSER_CACHE_CONTROL);
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await res.text()).toBe("");
   });
@@ -270,7 +299,7 @@ describe("content Worker", () => {
       get: () => Promise.reject(new Error("R2 unavailable")),
     };
     // SAFETY: the Worker calls only BUCKET.get on this path.
-    const failing = { BUCKET: bucket as R2Bucket };
+    const failing = { BUCKET: bucket as R2Bucket, HYPERDRIVE: E.HYPERDRIVE };
     for (const method of ["GET", "HEAD"]) {
       const res = await handler.fetch(
         new Request(`${ORIGIN}/${IMAGE_KEY}`, { method }),
@@ -303,6 +332,68 @@ describe("content Worker", () => {
 });
 
 describe("edge cache (#513)", () => {
+  it("An entry stored by an earlier deploy, or with an Age, goes out with the browser's hour", async () => {
+    await seed();
+    await caches.default.put(
+      `${ORIGIN}/${IMAGE_KEY}`,
+      new Response(PNG, {
+        headers: {
+          "Cache-Control": "public, max-age=31536000, immutable, s-maxage=43200",
+          "Content-Type": "image/png",
+          Age: "39600",
+          "Last-Modified": "Wed, 01 Jan 2020 00:00:00 GMT",
+          ETag: '"stored"',
+        },
+      }),
+    );
+    const { env: counted, counter } = countingBucket();
+    const { res } = await viaHandler(counted, `${ORIGIN}/${IMAGE_KEY}`);
+    expect(counter.reads).toBe(0);
+    expect(res.headers.get("cache-control")).toBe(BROWSER_CACHE_CONTROL);
+    expect(res.headers.has("age")).toBe(false);
+    expect(res.headers.has("etag")).toBe(false);
+    expect(res.headers.has("last-modified")).toBe(false);
+    expect(res.headers.has("set-cookie")).toBe(false);
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    // A stored type outside the four ingest writes is not echoed, and an original stays an
+    // attachment.
+    await caches.default.put(
+      `${ORIGIN}/${IMAGE_KEY}`,
+      new Response(PNG, {
+        headers: { "Content-Type": "text/html", "Cache-Control": EDGE_CACHE_CONTROL },
+      }),
+    );
+    await caches.default.put(
+      `${ORIGIN}/${ORIGINAL_KEY}`,
+      new Response(EPUB, {
+        headers: { "Content-Type": "text/html", "Cache-Control": EDGE_CACHE_CONTROL },
+      }),
+    );
+    const image = await viaHandler(counted, `${ORIGIN}/${IMAGE_KEY}`);
+    expect(image.res.headers.get("content-type")).toBe("application/octet-stream");
+    const original = await viaHandler(counted, `${ORIGIN}/${ORIGINAL_KEY}`);
+    expect(original.res.headers.get("content-type")).toBe("application/epub+zip");
+    expect(original.res.headers.get("content-disposition")).toBe("attachment");
+    await uncache(IMAGE_KEY, ORIGINAL_KEY);
+  });
+
+  it("The stored entry has the edge's lifetime, and the browser's header is on a hit and a miss", async () => {
+    await seed();
+    const { env: counted, counter } = countingBucket();
+    for (const key of [IMAGE_KEY, ORIGINAL_KEY]) {
+      const miss = await viaHandler(counted, `${ORIGIN}/${key}`);
+      expect(miss.res.headers.get("cache-control"), `miss ${key}`).toBe(BROWSER_CACHE_CONTROL);
+      const entry = await caches.default.match(`${ORIGIN}/${key}`);
+      expect(entry?.headers.get("cache-control"), `entry ${key}`).toBe(EDGE_CACHE_CONTROL);
+      await entry?.arrayBuffer();
+      const reads = counter.reads;
+      const hit = await viaHandler(counted, `${ORIGIN}/${key}`);
+      expect(counter.reads, `hit ${key}`).toBe(reads);
+      expect(hit.res.headers.get("cache-control"), `hit ${key}`).toBe(BROWSER_CACHE_CONTROL);
+      expect(hit.body.byteLength).toBeGreaterThan(0);
+    }
+  });
+
   it("A repeat request is served from the cache without an R2 read", async () => {
     await seed();
     const { env: counted, counter } = countingBucket();
@@ -314,7 +405,7 @@ describe("edge cache (#513)", () => {
     expect(second.res.status).toBe(200);
     expect(second.body).toEqual(PNG);
     expect(second.res.headers.get("content-type")).toBe("image/png");
-    expect(second.res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(second.res.headers.get("cache-control")).toBe(BROWSER_CACHE_CONTROL);
     expect(second.res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(second.res.headers.has("set-cookie")).toBe(false);
   });
@@ -347,8 +438,7 @@ describe("edge cache (#513)", () => {
   // and under the prefix purge names for images): not that Cloudflare's purge reaches it.
   it("The entry sits under exactly the request URL, and deleting it re-reads R2", async () => {
     await seed();
-    await E.BUCKET.put(ORIGINAL_KEY + ".epub", EPUB);
-    for (const key of [IMAGE_KEY, ORIGINAL_KEY, ORIGINAL_KEY + ".epub"]) {
+    for (const key of [IMAGE_KEY, ORIGINAL_KEY]) {
       const { env: counted, counter } = countingBucket();
       await viaHandler(counted, `${ORIGIN}/${key}`);
       expect(await caches.default.match(`${ORIGIN}/${key}`), key).toBeDefined();
@@ -392,7 +482,7 @@ describe("edge cache (#513)", () => {
 
     const bucket: Pick<R2Bucket, "get"> = { get: () => Promise.reject(new Error("down")) };
     // SAFETY: the Worker calls only BUCKET.get on this path.
-    const failing = { BUCKET: bucket as R2Bucket };
+    const failing = { BUCKET: bucket as R2Bucket, HYPERDRIVE: E.HYPERDRIVE };
     const down = await viaHandler(failing, `${ORIGIN}/${IMAGE_KEY}`);
     expect(down.res.status).toBe(503);
     expect(await caches.default.match(`${ORIGIN}/${IMAGE_KEY}`)).toBeUndefined();
@@ -400,7 +490,7 @@ describe("edge cache (#513)", () => {
 
   it("URLs the Worker refuses never get an entry", async () => {
     await seed();
-    const refused = [`${IMAGE_KEY}?v=2`, `${ORIGINAL_KEY}?`, "index.html", "works/123456/work"];
+    const refused = [`${IMAGE_KEY}?v=2`, `${ORIGINAL_KEY}?`, "index.html", "works/42900/work"];
     for (const key of refused) {
       const { res } = await viaHandler(E, `${ORIGIN}/${key}`);
       expect(res.status, key).toBe(404);
@@ -424,6 +514,7 @@ describe("edge cache (#513)", () => {
       { range: "bytes=0-3" },
       { "if-none-match": '"x"' },
       { "if-modified-since": "Wed, 01 Jan 2020 00:00:00 GMT" },
+      { "if-unmodified-since": "Wed, 01 Jan 2030 00:00:00 GMT" },
       { "if-match": '"x"' },
       { "if-range": '"x"' },
     ];
@@ -432,6 +523,6 @@ describe("edge cache (#513)", () => {
       expect(res.res.status, JSON.stringify(headers)).toBe(200);
       expect(res.body, JSON.stringify(headers)).toEqual(PNG);
     }
-    expect(counter.reads).toBe(7);
+    expect(counter.reads).toBe(8);
   });
 });

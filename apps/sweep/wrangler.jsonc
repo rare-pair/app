@@ -1,8 +1,10 @@
 {
   // Sweep Worker: once a day it deletes, under each `works/<ao3_work_id>/` folder in R2, the
   // images no version references and the `<upload_id>/` prefixes no version or in-flight job
-  // owns, older than 24 hours (ARCHITECTURE, EPUB processor). It reads Postgres through
-  // Hyperdrive. No routes: nothing reaches it but the cron.
+  // owns, older than 24 hours (ARCHITECTURE, EPUB processor). Under a removed work's folder it
+  // deletes everything, of any age, plus `originals/<upload_id>.epub` for each upload prefix
+  // there, unless a job of the work is running (ARCHITECTURE, Removal really removes). It
+  // reads Postgres through Hyperdrive. No routes: nothing reaches it but the cron.
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "rarepair-sweep",
   "main": "src/worker.ts",
@@ -18,10 +20,11 @@
   // Five minutes, under the 15-minute wall time a cron invocation has.
   "limits": { "cpu_ms": 300000 },
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "rarepair" }],
-  // Neon Postgres. The id is a placeholder until the Hyperdrive config is created, with
-  // `--caching-disabled`: the sweep decides what to delete from what it reads, so every read
-  // must be fresh (src/sweep.ts also keeps its reads uncacheable). Tests replace the local
-  // connection string with their own database.
+  // Neon Postgres. The id is a placeholder until the Hyperdrive config is created. It is the
+  // config with caching off, the one apps/web's HYPERDRIVE uses (ARCHITECTURE, Connections): the
+  // sweep decides what to delete from what it reads, so every read must be fresh (src/sweep.ts
+  // also keeps its reads uncacheable). Tests replace the local connection string with their
+  // own database.
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",

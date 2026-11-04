@@ -117,7 +117,7 @@ export async function showFull(c: ReaderContext) {
 
   // Two sequential queries at most, so one connection. A hidden or removed work answers
   // 451 or 410 here, before anything about its chapters is read.
-  const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
+  const db = createDb({ connectionString: c.env.HYPERDRIVE_CACHED.connectionString, max: 1 });
   let live;
   let withheld;
   try {

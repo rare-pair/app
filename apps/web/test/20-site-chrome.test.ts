@@ -71,6 +71,15 @@ describe("20-site-chrome-and-legal", () => {
     expect(privacy).toMatch(/remoteip/i);
   });
 
+  it("The privacy page says requester data is kept until the site closes", async () => {
+    const privacy = await htmlOf("/privacy");
+    expect(privacy).toMatch(/requests keep .*email address/i);
+    expect(privacy).toMatch(/hashed form of your network address/i);
+    expect(privacy).toMatch(/work or pseud/i);
+    expect(privacy).toMatch(/until the site closes, and then delete it/i);
+    expect(privacy).toMatch(/do not erase .* when you ask/i);
+  });
+
   it("Footer links to removal", async () => {
     for (const path of APP_PAGES) {
       const html = await htmlOf(path);

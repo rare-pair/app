@@ -125,7 +125,8 @@ Relates to: docs/ARCHITECTURE.md § Data model (reports.reporter_id, reports.kin
 ### Takedown approval removes the work
 - GIVEN a takedown on work W
 - WHEN a moderator approves it and W is set to `removed`
-- THEN `works/<ao3_work_id>/` and the raw upload are deleted from R2 and the work's cached pages, fragments, images and download URLs are purged
+- THEN `works/<ao3_work_id>/` and the raw upload are deleted from R2, and the sweep deletes what that delete missed, except the cases in https://github.com/rare-pair/app/issues/592
+- AND the work's cached pages, fragments, images and download URLs are purged where the purge reaches them (what it cannot reach is in specs/scenarios/mvp/09-content-origin.md)
 - AND W's page returns 410
 - AND W's AO3 work ID goes on the takedown list
 

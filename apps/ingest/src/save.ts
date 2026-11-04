@@ -55,6 +55,21 @@ async function clearPrefix(bucket: SaveBucket, prefix: string): Promise<number> 
 const originalKey = (uploadId: string) => `originals/${uploadId}.epub`;
 
 /**
+ * Deletes the raw file of upload `uploadId` and returns how many keys it found. Deleting a key
+ * already gone is no error, so a repeat is safe. The caller must still own the upload: after a
+ * takeover this key is the new job's.
+ */
+export async function deleteOriginal(
+  bucket: Pick<SaveBucket, "list" | "delete">,
+  uploadId: string,
+): Promise<number> {
+  const key = originalKey(uploadId);
+  const found = await bucket.list({ prefix: key, limit: 1 });
+  await bucket.delete([key]);
+  return found.objects.length;
+}
+
+/**
  * Whether the work is removed now. `now()` keeps Hyperdrive from answering from its cache: a
  * stale `live` would leave behind what a job put back after a removal, and a stale `removed`
  * would delete a restored work's files.
@@ -81,10 +96,7 @@ async function discardUploadFiles(
   lease: Lease,
   ao3WorkId: number,
 ): Promise<void> {
-  const original = originalKey(lease.id);
-  const found = await deps.bucket.list({ prefix: original, limit: 1 });
-  let deleted = found.objects.length;
-  await deps.bucket.delete([original]);
+  let deleted = await deleteOriginal(deps.bucket, lease.id);
   // A work restored meanwhile keeps its folder, but not this upload's own fragments, which no
   // version row points at.
   deleted += (await isRemovedNow(deps.db, ao3WorkId))
@@ -112,7 +124,7 @@ export class SaveRejected extends Error {
 
 /**
  * The work the upload is of has been removed: nothing is saved, and the job ends the upload as
- * `work_removed`, at once, since the work stays removed until a moderator restores it.
+ * `work_removed`, at once, since a removed work stays removed (restoring one is #565, still open).
  */
 export class WorkRemoved extends Error {}
 
@@ -156,8 +168,11 @@ type Chapters = (ParsedWork["chapters"][number] & { key: string })[];
  * stores no version (`duplicate`). Every outcome writes the files; a duplicate's fragments,
  * which no version points at, are left for the periodic sweep (apps/sweep). A failure before or
  * inside the transaction leaves no rows, only R2 objects: under keys a retry overwrites when it
- * is worth one, and left for the cleanup rules (#177) when the file is refused. A save refused
- * as `WorkRemoved` deletes the files it wrote (`discardUploadFiles`), never on `LeaseLost`.
+ * is worth one, and left for the sweep when the file is refused, except the
+ * `originals/` file, which `runJob` deletes once the refusal is recorded (`deleteOriginal`); a
+ * crash before that delete leaves it, and nothing removes it yet (rare-pair/app#592). A
+ * save refused as `WorkRemoved` deletes the files it wrote (`discardUploadFiles`), never on
+ * `LeaseLost`.
  */
 export async function saveWork(
   deps: { db: Kysely<Database>; bucket: SaveBucket },

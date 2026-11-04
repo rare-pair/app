@@ -12,6 +12,7 @@ import {
   seededVersion,
   seededWork,
   upload,
+  withDb,
   withImages,
 } from "./helpers";
 import { sweepWorker } from "../src/worker";
@@ -221,5 +222,99 @@ describe("sweep of orphaned version prefixes", () => {
     expect(await bucketKeys(`works/${ao3WorkId}/`)).toEqual(
       [...work.chapterKeys, ...processing, ...pending].sort(),
     );
+  });
+});
+
+describe("sweep of a removed work", () => {
+  // Fixed ids from this item's range; the neighbour's folder name extends the removed one's.
+  // The database is shared by every test, so each takes its own removed work's id (43010-43019).
+  let REMOVED = 43_009;
+  let NEIGHBOUR = 430_090;
+  beforeEach(() => {
+    REMOVED++;
+    NEIGHBOUR = REMOVED * 10;
+  });
+  const original = (uploadId: string) => `originals/${uploadId}.epub`;
+
+  it("A removed work's leftover files are deleted by the next run", async () => {
+    await seededWork({ ao3WorkId: REMOVED, status: "removed" });
+    const refused = await upload(null, "parse_failed");
+    await putPrefix(REMOVED, refused, 2);
+    await putImages(REMOVED, imageKey());
+    await env.BUCKET.put(original(refused), "synthetic");
+    await env.BUCKET.put(`works/${NEIGHBOUR}/1.html`, "<p>Neighbour.</p>");
+
+    // No age cutoff: everything here is young.
+    await runSweep(0);
+
+    expect(await bucketKeys(`works/${REMOVED}/`)).toEqual([]);
+    expect(await bucketKeys(original(refused))).toEqual([]);
+    expect(await bucketKeys(`works/${NEIGHBOUR}/`)).toEqual([`works/${NEIGHBOUR}/1.html`]);
+  });
+
+  it("A live or hidden work's files are never touched", async () => {
+    const live = await seededWork({ ao3WorkId: 43_002 });
+    const hidden = await seededWork({
+      ao3WorkId: 43_003,
+      status: "hidden",
+      hiddenCause: "moderator",
+    });
+    const strays: string[] = [];
+    for (const work of [live, hidden]) {
+      const stray = await upload(work.userId, "parse_failed");
+      strays.push(...(await putPrefix(work.ao3WorkId, stray, 1)));
+      await env.BUCKET.put(original(stray), "synthetic");
+      await putImages(work.ao3WorkId, imageKey());
+    }
+    const before = await bucketKeys("");
+
+    // Even a run a day later takes only what the old rules take: young leftovers stay now, and
+    // the removed rule has no say over these works.
+    await runSweep(0);
+    expect(await bucketKeys("")).toEqual(before);
+
+    await runSweep(25);
+    for (const work of [live, hidden]) {
+      for (const key of work.chapterKeys) expect(await bucketKeys(key)).toEqual([key]);
+    }
+    expect(await bucketKeys("originals/")).toHaveLength(2);
+  });
+
+  it("A work with a job running is left for a later run", async () => {
+    const work = await seededWork({ ao3WorkId: REMOVED, status: "removed" });
+    const processing = await upload(work.userId, "processing");
+    const pending = await upload(work.userId, "pending");
+    await putPrefix(REMOVED, processing, 1);
+    await putPrefix(REMOVED, pending, 1);
+    await env.BUCKET.put(original(processing), "synthetic");
+    const before = await bucketKeys("");
+
+    await runSweep(0);
+    expect(await bucketKeys("")).toEqual(before);
+
+    // The jobs end: the next run deletes what they left.
+    await withDb((db) =>
+      db
+        .updateTable("uploads")
+        .set({ status: "parse_failed" })
+        .where("id", "in", [processing, pending])
+        .execute(),
+    );
+    await runSweep(0);
+    expect(await bucketKeys(`works/${REMOVED}/`)).toEqual([]);
+    expect(await bucketKeys(original(processing))).toEqual([]);
+  });
+
+  it("A second run deletes nothing more", async () => {
+    await seededWork({ ao3WorkId: REMOVED, status: "removed" });
+    await putPrefix(REMOVED, await upload(null, "parse_failed"), 1);
+    await env.BUCKET.put(`works/${NEIGHBOUR}/1.html`, "<p>Neighbour.</p>");
+
+    await runSweep(0);
+    const after = await bucketKeys("");
+    await runSweep(0);
+
+    expect(await bucketKeys(`works/${REMOVED}/`)).toEqual([]);
+    expect(await bucketKeys("")).toEqual(after);
   });
 });
