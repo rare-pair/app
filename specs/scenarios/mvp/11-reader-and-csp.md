@@ -6,7 +6,7 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Chapter rendering, Name an
 - A live work W with 5 chapters, chapter notes on chapter 2 and end notes on chapter 2, rated General Audiences with no archive warnings
 - Chapter fragments are stored in R2 under the version's prefix
 - A chapter fixture containing an injected `<script>` that survived the sanitizer (test-only)
-- The pages with a Turnstile check are `/login`, `/upload` and `/remove`
+- The pages with a Turnstile check are `/login`, `/upload`, `/remove` and `/dmca`
 - A live work F whose current version has review reasons no moderator has cleared
 - A work H hidden after reader reports, and a work R in status `removed`
 

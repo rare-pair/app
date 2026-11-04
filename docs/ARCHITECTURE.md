@@ -654,7 +654,7 @@ can be snapshotted.
   form-action 'self'; frame-ancestors 'none'`. Injected markup can't guess the
   nonce, so any script that gets past the sanitizer won't run. Session cookies
   are `HttpOnly`, so scripts can't read them anyway.
-- **Pages with a Turnstile check** (sign-in, upload, `/remove`, and the
+- **Pages with a Turnstile check** (sign-in, upload, `/remove`, `/dmca`, and the
   coming-soon page at `/` while `PRELAUNCH` is on, with `/waitlist`, where a
   refused join shows its form again) add exactly one
   allowance, `frame-src https://challenges.cloudflare.com`, for the challenge
@@ -1064,8 +1064,11 @@ epub, under the normal versioning rules.
   pending notice on it is marked `removed` and its AO3 work ID goes on the takedown list, and
   later uploads of it are rejected `opted_out` (EPUB processor, step 4). A
   notice missing statutory elements is still queued, marked incomplete (the Approve confirm page says so; approving is still allowed). The
-  form has no Turnstile, so it works without JavaScript; a rate limit per IP
-  is its only abuse control. The counter-notice process and
+  form has a Turnstile check, so it needs JavaScript; without it the page names an
+  email address (the `NOTICES_EMAIL` var) for a notice, which a person reads and which
+  doesn't reach the takedowns queue. A rate limit per IP, counted before the
+  check, is its other abuse control; a refused post gives the form back with what
+  was typed. The counter-notice process and
   repeat-infringer policy are part of the lawyer review.
 - **Reports.** Every work has a report button. Reporting needs a signed-in
   account, so each report has a reporter who can be rate limited or blocked;
@@ -1247,10 +1250,10 @@ markup: its inline `style` attributes become stylesheet rules, because
 
 ## Surge controls
 
-- Turnstile on signup, login, upload, the wait list and `/remove` requests. Turnstile needs
+- Turnstile on signup, login, upload, the wait list, `/remove` requests and DMCA notices. Turnstile needs
   JavaScript, so those forms do too; reading, browsing and search work without
-  it. Each form's widget names its own action (`login`, `waitlist`, `upload`
-  and `remove`) with `data-action`, and the Worker passes
+  it. Each form's widget names its own action (`login`, `waitlist`, `upload`,
+  `remove` and `dmca`) with `data-action`, and the Worker passes
   a token only when siteverify reports that action and this host, so a token
   solved on one form is refused by every other. Cloudflare's published test
   secret keys, which don't promise an action, skip the action comparison only.

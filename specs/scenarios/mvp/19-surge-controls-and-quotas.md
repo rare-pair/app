@@ -3,7 +3,7 @@
 Relates to: docs/ARCHITECTURE.md § Decisions so far (Load target), § Surge controls (Status codes), § Ingestion pipeline, § Auth (magic link); docs/FRONTEND-DISCOVERY.md § Page inventory (Too many requests), § Copy and tone
 
 ## Setup
-- Turnstile is configured on signup, login, upload and `/remove` requests
+- Turnstile is configured on signup, login, upload, `/remove` requests and DMCA notices
 - The Workers rate-limiting binding covers login, upload requests and search, keyed per IP and per user, over 10- or 60-second windows. It also covers reads, per specs/scenarios/mvp/24-crawler-and-agent-blocking.md
 - Upload quotas are counted in Postgres (`user.upload_quota_used`)
 - Users: a user E with quota left (on either tier), a brand-new user N, a trusted user T

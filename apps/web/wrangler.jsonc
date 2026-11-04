@@ -80,8 +80,8 @@
       "namespace_id": "1041",
       "simple": { "limit": 3, "period": 60 },
     },
-    // POST /dmca, per client IP only: the form has no Turnstile (it must work without
-    // JavaScript) and no address to key on. A first value, to be revisited with the others.
+    // POST /dmca, per client IP, counted before the body is read and before its Turnstile
+    // check (the form has no address to key on). A first value, to be revisited with the others.
     // 1035, from the removal-requests block, clear of the ids /remove will take from 1030.
     { "name": "DMCA_IP_LIMIT", "namespace_id": "1035", "simple": { "limit": 5, "period": 60 } },
     // POST /remove, per client IP and per contact email. The IP is counted before the form is
@@ -131,9 +131,9 @@
     // page and other app pages redirect to it. Only "off" turns it off; a missing or
     // misspelt value keeps it on.
     "PRELAUNCH": "on",
-    // The public Turnstile sitekey of the coming-soon and sign-in forms. This is Cloudflare's
+    // The public Turnstile sitekey of every Turnstile form: coming-soon, sign-in, upload, removal and copyright notice. This is Cloudflare's
     // always-passes test sitekey: replace it with the real one before launch. Cloudflare
-    // refuses its tokens under a real secret key, so until then those forms fail closed.
+    // refuses its tokens under a real secret key, so until then those forms fail closed (the copyright notice form too: its <noscript> email is the only way to send one).
     "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
     // The bucket presigned upload URLs PUT into, under uploads/ (src/presign.ts). It must be
     // the BUCKET binding's bucket_name above, which /complete and ingest read uploads from.
@@ -149,6 +149,9 @@
     // moderators' real address in its place (`wrangler deploy --var MODERATORS_EMAIL:...`);
     // the repo's code, notes and tests never hold one.
     "MODERATORS_EMAIL": "moderators@example.invalid",
+    // Where the copyright notice page's <noscript> message sends a visitor without JavaScript.
+    // The mailbox must exist and be read: mail there doesn't reach the takedowns queue.
+    "NOTICES_EMAIL": "admin@rarepair.fans",
     // The most uploads an account may confirm in a UTC day (src/quota.ts): the new-account
     // tier, which every account but a moderator or admin gets, and the trusted tier of
     // moderators and admins. ARCHITECTURE (Surge controls) sets them before launch from load

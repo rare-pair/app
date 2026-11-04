@@ -17,7 +17,7 @@ fandoms and pseuds in it are invented placeholders.
 | --- | --- |
 | Visual direction | Modern and minimal. The identity is plain HTML with a strong typographic hierarchy: type, spacing and rules do the work, not boxes, shadows or imagery |
 | Warnings | **Hard constraint:** rating and archive warnings show on every work card and work page. They are never collapsed, never behind a hover, and never hidden to save space. Minimalism applies to everything else |
-| JavaScript | Reading, browsing, search and reader settings work fully with JavaScript off; small scripts only enhance them (settings without a reload, saving reading position). Forms with a Turnstile check (sign-in, upload, `/remove`, and the wait list before launch) need JavaScript, because Turnstile can't produce a token without it; with JS off they say so in a `<noscript>` message |
+| JavaScript | Reading, browsing, search and reader settings work fully with JavaScript off; small scripts only enhance them (settings without a reload, saving reading position). Forms with a Turnstile check (sign-in, upload, `/remove`, the copyright notice at `/dmca`, and the wait list before launch) need JavaScript, because Turnstile can't produce a token without it; with JS off they say so in a `<noscript>` message |
 | Pagination | Server-side pages with real URLs. No infinite scroll |
 | Branding | No AO3 or OTW name, symbols or styling in the UI. Ratings and warnings are text badges, not symbol icons (ARCHITECTURE, opening) |
 | Author identity | No claims, no author accounts, no "my works". Removal and opt-out are a public request form that needs no sign-in (ARCHITECTURE, *Author requests & takedowns*) |
@@ -149,8 +149,8 @@ Reading never requires an account (ARCHITECTURE, *Auth*).
 ## Page inventory
 
 Every page renders without JavaScript, and reading, browsing and search work
-fully. The forms with a Turnstile check (sign-in, upload, `/remove`, and the
-wait list before launch) need JavaScript and show a `<noscript>` message
+fully. The forms with a Turnstile check (sign-in, upload, `/remove`, the copyright
+notice at `/dmca`, and the wait list before launch) need JavaScript and show a `<noscript>` message
 without it. Elsewhere the
 "JS adds" column is progressive enhancement only.
 
@@ -175,7 +175,7 @@ without it. Elsewhere the
 | Remove my work / opt out | `/remove` (`?work=:id` prefills) | all | `<noscript>` message with the moderators' contact address | Request form with Turnstile, then a "check your email" page that is the same for every requester. The emailed link is `/remove/confirm?token=` (a button page, then a confirmed page, or one page for a used, expired or unknown link) |
 | Removal list | `/removed`, `/removed/pseuds` | all | Paged lists, newest first. Removed works: title, byline, "The original work" link with its ID and note, date, reason. Opted-out pseuds: name, date, reason. Says that nobody's identity is checked, and gives the moderators' contact address | — |
 | Report | `/works/:id/report` | signed in (others are redirected to sign in, carrying `next`) | Form, then a confirmation page | — |
-| DMCA notice | `/dmca` | all | Statutory notice form | — |
+| DMCA notice | `/dmca` | all | `<noscript>` message: the form needs JavaScript; it names the notices address (`NOTICES_EMAIL`) and lists what a notice must say, so a notice can be emailed | Statutory notice form with Turnstile |
 | Moderation queues | `/admin/{reports,takedowns,requests,works}` | moderator (404 for anyone else) | Tables with detail pages; `/admin/works` is *Works to check* | — |
 | Work admin | `/admin/works/:id` | moderator (404 for anyone else) | Every version (date, uploader, chapter count, hold and review reasons) with "Make current" and "Approve"; close wrong-version reports, hide, remove; withhold a removed work's details from the removal list | — |
 | Listed pseuds | `/admin/listed-pseuds` | moderator (404 for anyone else) | Every pseud on the removal list, listed or withheld, with withhold and un-withhold | — |
@@ -193,8 +193,8 @@ with the architecture as written. These are the resolutions. ARCHITECTURE.md is
 updated to match.
 
 1. **Forms with Turnstile need JS.** Turnstile can't produce a token without
-   JavaScript, and sign-in, upload, `/remove` and the wait list before launch
-   all require one. So those forms need JS and show a `<noscript>` message without it, while
+   JavaScript, and sign-in, upload, `/remove`, the copyright notice and the wait
+   list before launch all require one. So those forms need JS and show a `<noscript>` message without it, while
    reading, browsing and search stay fully usable with JS off. Uploads are
    direct presigned PUTs to R2 with progress (R2 doesn't accept form POSTs);
    the earlier no-JS multipart path through the Worker was dropped. Turnstile

@@ -1,5 +1,5 @@
 // The server half of a Turnstile check, shared by every form that has one:
-// sign-in, the wait list, upload requests and removal requests (ARCHITECTURE, Surge controls).
+// sign-in, the wait list, upload requests, removal requests and copyright notices (ARCHITECTURE, Surge controls).
 // It takes everything site-specific as arguments, so each route passes its own.
 
 const SITEVERIFY = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
@@ -9,13 +9,14 @@ const MAX_TOKEN = 2048;
 /**
  * What each form's widget names with `data-action`, and its check expects back from
  * siteverify, so a token solved on one form is refused by every other. Cloudflare allows
- * up to 32 letters, digits, `_` and `-`. `remove` is for the removal form.
+ * up to 32 letters, digits, `_` and `-`. `remove` is for the removal form and `dmca` for the copyright notice.
  */
 export const TURNSTILE_ACTIONS = {
   login: "login",
   waitlist: "waitlist",
   upload: "upload",
   remove: "remove",
+  dmca: "dmca",
 } as const;
 
 export type TurnstileAction = (typeof TURNSTILE_ACTIONS)[keyof typeof TURNSTILE_ACTIONS];

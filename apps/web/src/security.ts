@@ -21,7 +21,7 @@ const strictPolicy = (nonce: string) =>
 // The pages with a Turnstile check, matched exactly: only they, and / and /waitlist
 // before launch (hasTurnstile), may frame the challenge.
 const UPLOAD_PATH = "/upload";
-const TURNSTILE_PATHS = new Set(["/login", UPLOAD_PATH, "/remove"]);
+const TURNSTILE_PATHS = new Set(["/login", UPLOAD_PATH, "/remove", "/dmca"]);
 export const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
 const TURNSTILE_FRAME = `frame-src ${TURNSTILE_ORIGIN}`;
 

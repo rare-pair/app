@@ -14,12 +14,12 @@ Relates to: docs/FRONTEND-DISCOVERY.md § Decisions so far (JavaScript, Paginati
 - WHEN a user opens every page in the inventory and completes each journey without a Turnstile check: find and read, change reader settings, check uploads, report, moderate
 - THEN every page renders and every one of those journeys can be completed
 - AND reading, browsing, search and reader settings work fully
-- AND sign in, upload and `/remove` show their `<noscript>` message instead of a working form
+- AND sign in, upload, `/remove` and the copyright notice at `/dmca` show their `<noscript>` message instead of a working form
 
 ### Scripts only enhance pages without a Turnstile check
 - GIVEN JavaScript is on
 - WHEN pages load
-- THEN on sign in, upload and `/remove` scripts run Turnstile and the form, including upload progress
+- THEN on sign in, upload, `/remove` and `/dmca` scripts run Turnstile and the form, including upload progress
 - AND on every other page scripts only add reader settings without reload, saving reading position and in-place upload status
 
 ### WCAG 2.2 AA
