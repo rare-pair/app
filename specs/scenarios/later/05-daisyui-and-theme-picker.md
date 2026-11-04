@@ -96,7 +96,7 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 - AND disabled controls are exempt from these ratios, as in WCAG
 
 ### Uploaded text keeps its look
-- GIVEN the built site stylesheet, in one theme
+- GIVEN the built site stylesheet, in the Light theme, whose colours don't change
 - WHEN a chapter of W, a work card with an uploaded summary and that work's page render
 - THEN the chapter has the same computed styles as before for headings, lists, links, the image, the blockquote and the table
 - AND the summary's lists and headings on the work page have the same computed styles as before, and it still clamps to three lines on the card
@@ -141,7 +141,7 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 ### Reduced motion stops component animation
 - GIVEN a reader whose system sets `prefers-reduced-motion`
 - WHEN they use any DaisyUI component
-- THEN it doesn't animate, which goes beyond the smooth scrolling specs 13 and 21 cover
+- THEN it doesn't animate
 
 ### The baseline fits a phone
 - GIVEN a 360 px wide viewport, and spec 21's "No sideways scrolling at 360 px" holding in the default theme
