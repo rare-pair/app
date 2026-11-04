@@ -49,7 +49,8 @@ export const syntheticEpub = (name: string) =>
 
 /**
  * Uploads the file at `path` through `/upload` as a signed-in `page` does, until the page says
- * it was accepted, and returns the upload's id. Follow with `site.waitForUpload(id)`.
+ * it was accepted or already held, and returns the upload's id. Follow with
+ * `site.waitForUpload(id)`, or `site.waitForUpload(id, "duplicate")` for a second upload.
  */
 export async function uploadThroughPage(
   site: Site,
@@ -60,7 +61,9 @@ export async function uploadThroughPage(
   await page.goto(`${SITE}/upload`);
   await page.setInputFiles("#file", path);
   await page.getByRole("button", { name: "Upload" }).click();
-  await expect.poll(() => page.locator("#files").innerText()).toContain("Uploaded.");
+  await expect
+    .poll(() => page.locator("#files").innerText())
+    .toMatch(/Uploaded\.|We already have this one\./);
   const { id } = await site.db
     .selectFrom("uploads")
     .select("id")

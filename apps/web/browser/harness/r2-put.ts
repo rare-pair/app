@@ -19,7 +19,9 @@ const amzDate = (value: string) =>
 
 /**
  * The key `url` was presigned for, signing again with `presignPut` and the throwaway keys, or
- * null when R2 would refuse it: forged, altered, late, or for another content type.
+ * null when it is forged, altered, late, or for another content type. Those are the refusals
+ * the harness shows, not all of R2's: it doesn't cap X-Amz-Expires, or decode the key, which
+ * for `uploads/<uuid>` doesn't matter.
  */
 export async function signedKey(
   url: string,

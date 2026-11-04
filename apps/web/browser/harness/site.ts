@@ -99,7 +99,10 @@ export type Site = {
    * `expected` (default `live`, written last, so the work and its objects are all there).
    * Throws at once, naming the status, if the job ends any other way, and after 30 seconds.
    */
-  waitForUpload: (id: string, expected?: UploadStatus) => Promise<void>;
+  waitForUpload: (
+    id: string,
+    expected?: Exclude<UploadStatus, "pending" | "processing">,
+  ) => Promise<void>;
   /**
    * Throws, listing every CSP violation, console or script error and off-site request in any
    * of the site's contexts since the last call. `allow` excuses the problems it matches.

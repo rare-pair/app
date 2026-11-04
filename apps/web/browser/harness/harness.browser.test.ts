@@ -193,6 +193,7 @@ describe("recording", () => {
       "upload-journey-reads-a-chapter-2",
     ]);
     expect(videoName("x".repeat(300), taken)).toHaveLength(100);
+    expect(videoName("!!!", taken)).toBe("test");
   });
 
   /** Runs `body` with `BROWSER_RECORD` as given, whatever the run itself set. */

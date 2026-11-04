@@ -17,15 +17,18 @@ export function videoName(testName: string, taken: Set<string>): string {
     .replace(/[^a-z0-9]+/g, "-")
     .slice(0, MAX_NAME_LENGTH)
     .replace(/^-|-$/g, "");
-  let name = base;
-  for (let n = 2; taken.has(name); n += 1) name = `${base}-${n}`;
+  // A name with no ASCII letter or digit has nothing left.
+  const stem = base === "" ? "test" : base;
+  let name = stem;
+  for (let n = 2; taken.has(name); n += 1) name = `${stem}-${n}`;
   taken.add(name);
   return name;
 }
 
 /**
  * Records the pages of the contexts it watches into `dir`, one WebM a page, named for the test
- * that opened it. A page opened outside a test has no recording. Videos hold the viewport only.
+ * that opened it. A page opened before a file's first test has no recording; one opened in a
+ * later hook takes the last test's name, as Vitest keeps it. Videos hold the viewport only.
  */
 export function startRecorder(dir: string, maxBytes = MAX_VIDEO_BYTES) {
   const contexts: BrowserContext[] = [];
