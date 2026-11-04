@@ -25,6 +25,16 @@ async function sessionRows(email: string) {
   return rows.length;
 }
 
+/** The id of the account with this address. */
+async function userIdOf(email: string) {
+  const user = await db
+    .selectFrom("user")
+    .select("id")
+    .where("email", "=", email)
+    .executeTakeFirstOrThrow();
+  return user.id;
+}
+
 /** POST /logout as the site's own form posts it, with `cookie` if given. */
 function postLogout(cookie?: string, extra: Record<string, string> = {}) {
   const headers = { ...extra };
@@ -93,17 +103,13 @@ describe("01-auth-magic-link sign-out", () => {
   it("A refresh due on the sign-out request does not undo it", async () => {
     const email = "sign-out-refresh@example.test";
     const cookie = await signIn(email, { acceptTerms: true });
-    const user = await db
-      .selectFrom("user")
-      .select("id")
-      .where("email", "=", email)
-      .executeTakeFirstOrThrow();
+    const userId = await userIdOf(email);
     // Two days old of seven: Better Auth extends it on the next lookup.
     const makeDue = () =>
       db
         .updateTable("session")
         .set({ expires_at: new Date(Date.now() + 5 * 24 * 60 * 60_000) })
-        .where("user_id", "=", user.id)
+        .where("user_id", "=", userId)
         .execute();
     await makeDue();
     // The control: a read of this session does hand back a refreshed session cookie, so the
@@ -253,14 +259,19 @@ describe("01-auth-magic-link sign-out", () => {
     it("A failed delete does not report a successful sign-out", async () => {
       const email = "sign-out-delete-fails@example.test";
       const cookie = await signIn(email, { acceptTerms: true });
-      const user = await db
-        .selectFrom("user")
-        .select("id")
-        .where("email", "=", email)
-        .executeTakeFirstOrThrow();
+      const user = await userIdOf(email);
 
-      await whileDeleteFails(user.id, async () => {
-        const res = await postLogout(cookie);
+      await whileDeleteFails(user, async () => {
+        let res: Response | undefined;
+        const logged = await consoleDuring(async () => {
+          res = await postLogout(cookie);
+        });
+        // What it logs says what happened, and nothing about who.
+        const log = logged.join("\n");
+        expect(log).toContain("session row remained");
+        expect(log).not.toContain("example.test");
+        expect(log).not.toContain(user);
+        if (res === undefined) throw new Error("no response");
 
         expect(res.status).toBe(500);
         expect(res.headers.get("location")).toBeNull();
@@ -280,6 +291,7 @@ describe("01-auth-magic-link sign-out", () => {
       const retry = await postLogout(cookie);
       expect(retry.status).toBe(303);
       expect(retry.headers.get("clear-site-data")).toBe('"cache"');
+      expect(retry.headers.getSetCookie().join("\n")).toContain("Max-Age=0");
       expect(await sessionRows(email)).toBe(0);
     });
 
@@ -303,7 +315,8 @@ describe("01-auth-magic-link sign-out", () => {
         await waitOnExecutionContext(ctx);
       });
 
-      expect(answered?.status).toBeGreaterThanOrEqual(500);
+      expect(answered?.status).toBe(500);
+      expect(logged.length).toBeGreaterThan(0);
       expect(answered?.headers.getSetCookie()).toEqual([]);
       expect(answered?.headers.get("clear-site-data")).toBeNull();
       expect(logged.join("\n")).not.toContain("example.test");
