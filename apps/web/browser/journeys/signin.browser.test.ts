@@ -102,7 +102,13 @@ describe("sign-in journey", () => {
     const page = await context.newPage();
 
     await page.goto(`${SITE}/upload`);
+    // signInLink returns the newest email, and the first sign-in's is already there: wait for
+    // the one this request queues.
+    const signIns = async () =>
+      (await site.emails()).filter((m) => m.kind === "sign-in" && m.to === email).length;
+    const sent = await signIns();
     await requestLink(page, email);
+    await expect.poll(signIns).toBeGreaterThan(sent);
     await followLink(page, await signInLink(site, email));
     await expect.poll(() => page.url()).toBe(`${SITE}/upload`);
     await page.getByRole("heading", { name: "Upload a work" }).waitFor();
@@ -127,6 +133,8 @@ describe("sign-in journey", () => {
     const { context } = await signedIn(site, { email: "pw1-signout@example.test" });
     const page = await context.newPage();
     await page.goto(`${SITE}/upload`);
+    // The page itself loaded, so only the missing control can fail the wait below.
+    await page.getByRole("heading", { name: "Upload a work" }).waitFor();
     const control = page
       .getByRole("link", { name: /sign out/i })
       .or(page.getByRole("button", { name: /sign out/i }));
