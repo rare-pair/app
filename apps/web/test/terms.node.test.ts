@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isTermsExempt } from "../src/terms";
 
 describe("terms gate's exempt paths", () => {
-  it("The terms page, the pages it links to, sign-in, removal, /admin and static files are exempt", () => {
+  it("The terms page, the pages it links to, sign-in, sign-out, removal, copyright notice, /admin and static files are exempt", () => {
     for (const path of [
       "/welcome/terms",
       "/terms",
@@ -10,8 +10,10 @@ describe("terms gate's exempt paths", () => {
       "/about",
       "/remove",
       "/remove/x",
+      "/dmca",
       "/login",
       "/login/confirm",
+      "/logout",
       "/admin",
       "/admin/reports",
       "/assets",
@@ -31,6 +33,9 @@ describe("terms gate's exempt paths", () => {
       "/uploads",
       "/administrator",
       "/removex",
+      "/dmca/",
+      "/dmca/x",
+      "/dmcax",
       "/about/",
       "/aboutx",
       "/terms/",
@@ -40,6 +45,8 @@ describe("terms gate's exempt paths", () => {
       "/privacyx",
       "/assetsx/site.css",
       "/login/confirmx",
+      "/logout/x",
+      "/logoutx",
     ]) {
       expect(isTermsExempt(path), path).toBe(false);
     }

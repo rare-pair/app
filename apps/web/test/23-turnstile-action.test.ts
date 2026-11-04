@@ -2,6 +2,7 @@ import { createDb } from "@archive/db";
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
 import {
+  DMCA_TOKEN,
   emailsTo,
   fetchW,
   LOGIN_TOKEN,
@@ -35,6 +36,7 @@ describe("23-turnstile-action", () => {
     expect(actionsIn(await upload.text())).toEqual(["upload"]);
 
     expect(actionsIn(await (await fetchW("/remove")).text())).toEqual(["remove"]);
+    expect(actionsIn(await (await fetchW("/dmca")).text())).toEqual(["dmca"]);
   });
 
   it("A token solved on another form is refused by removal requests", async () => {
@@ -58,6 +60,27 @@ describe("23-turnstile-action", () => {
     );
     expect(own.status).toBe(200);
     expect(await stored()).toHaveLength(1);
+  });
+
+  it("A token solved on another form is refused by copyright notices", async () => {
+    // Work 43200 is not held, so a notice that passes the check is turned away with the 404.
+    const fields = { work: "43200", signature: "Pat Example" };
+    for (const token of [
+      LOGIN_TOKEN,
+      WAITLIST_TOKEN,
+      UPLOAD_TOKEN,
+      REMOVE_TOKEN,
+      "XXXX.DUMMY.TOKEN.XXXX",
+    ]) {
+      const res = await postLogin({ ...fields, "cf-turnstile-response": token }, { url: "/dmca" });
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain("The anti-spam check did not pass.");
+    }
+    const own = await postLogin(
+      { ...fields, "cf-turnstile-response": DMCA_TOKEN },
+      { url: "/dmca" },
+    );
+    expect(own.status).toBe(404);
   });
 
   it("A token solved on another form is refused by sign-in", async () => {

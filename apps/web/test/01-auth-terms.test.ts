@@ -154,7 +154,7 @@ describe("01-auth-magic-link", () => {
     }
   });
 
-  it("Before accepting, the terms, privacy, about, removal and sign-in pages and static files still open", async () => {
+  it("Before accepting, the terms, privacy, about, removal, copyright notice and sign-in pages and static files still open", async () => {
     const cookie = await signIn("terms-exempt@example.test");
 
     for (const path of [
@@ -162,6 +162,7 @@ describe("01-auth-magic-link", () => {
       "/privacy",
       "/about",
       "/remove",
+      "/dmca",
       "/login",
       "/login/confirm?token=x",
     ]) {
@@ -262,7 +263,9 @@ describe("01-auth-magic-link", () => {
 
   it("Before accepting, /admin answers its own 404, as for any other non-moderator", async () => {
     const cookie = await signIn("terms-admin@example.test");
-    const notFound = await (await fetchW("/nope")).text();
+    // The same account's own not-found page: the header shows the visitor, so it differs by who asks.
+    // (An unknown path outside /remove/ would be sent to the terms page first.)
+    const notFound = await (await get("/remove/nope", cookie)).text();
 
     for (const path of ["/admin", "/admin/reports"]) {
       const res = await get(path, cookie);

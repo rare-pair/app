@@ -3,7 +3,7 @@
 Relates to: docs/FRONTEND-DISCOVERY.md § Decisions so far (JavaScript, Pagination), § Principles, § Page inventory, § Where the frontend changes the architecture (1. Forms with Turnstile need JS), § Typographic system, § Accessibility and devices; docs/ARCHITECTURE.md § Reading, § Sanitizing (security requirement), § Surge controls
 
 ## Setup
-- Every page in the page inventory: home, search, tag listing, work, warnings, chapter, entire work, reader settings, sign in, confirm sign-in, accept terms, upload, my uploads, remove, report, DMCA, admin queues (including works to check), work admin, about/terms/privacy, hidden, removed, too many requests, not found
+- Every page in the page inventory: home, search, tag listing, work, warnings, chapter, entire work, reader settings, sign in, confirm sign-in, sign out, accept terms, upload, my uploads, remove, report, DMCA, admin queues (including works to check), work admin, about/terms/privacy, hidden, removed, too many requests, not found
 - A browser with JavaScript off, one with CSS off, and a 360 px wide viewport
 - An automated WCAG 2.2 AA checker
 
@@ -14,12 +14,12 @@ Relates to: docs/FRONTEND-DISCOVERY.md § Decisions so far (JavaScript, Paginati
 - WHEN a user opens every page in the inventory and completes each journey without a Turnstile check: find and read, change reader settings, check uploads, report, moderate
 - THEN every page renders and every one of those journeys can be completed
 - AND reading, browsing, search and reader settings work fully
-- AND sign in, upload and `/remove` show their `<noscript>` message instead of a working form
+- AND sign in, upload, `/remove` and the copyright notice at `/dmca` show their `<noscript>` message instead of a working form
 
 ### Scripts only enhance pages without a Turnstile check
 - GIVEN JavaScript is on
 - WHEN pages load
-- THEN on sign in, upload and `/remove` scripts run Turnstile and the form, including upload progress
+- THEN on sign in, upload, `/remove` and `/dmca` scripts run Turnstile and the form, including upload progress
 - AND on every other page scripts only add reader settings without reload, saving reading position and in-place upload status
 
 ### WCAG 2.2 AA

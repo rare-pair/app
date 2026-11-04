@@ -6,7 +6,7 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Chapter rendering, Name an
 - A live work W with 5 chapters, chapter notes on chapter 2 and end notes on chapter 2, rated General Audiences with no archive warnings
 - Chapter fragments are stored in R2 under the version's prefix
 - A chapter fixture containing an injected `<script>` that survived the sanitizer (test-only)
-- The pages with a Turnstile check are `/login`, `/upload` and `/remove`
+- The pages with a Turnstile check are `/login`, `/upload`, `/remove` and `/dmca`
 - A live work F whose current version has review reasons no moderator has cleared
 - A work H hidden after reader reports, and a work R in status `removed`
 
@@ -99,7 +99,13 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Chapter rendering, Name an
 ### Slim top bar
 - GIVEN any chapter of W
 - WHEN the page renders
-- THEN the only chrome is a slim top bar with the work title and a settings link, which scrolls away
+- THEN inside the text column the only chrome is a slim top bar with the work title, which links to the work page, and a settings link, which scrolls away (the site header and footer sit around the column, as on every page)
+
+### The work title in the bar links to the work
+- GIVEN any chapter of W, or its entire work on `/full`
+- WHEN a reader follows the link named by the work's title in the top bar
+- THEN the work page opens
+- AND the title is the same link on a chapter served from the edge page cache, since the cached entry holds the link and no signed-in state
 
 ### Entire work on one page
 - GIVEN live work W

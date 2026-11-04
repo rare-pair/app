@@ -6,23 +6,27 @@ import {
   BASE,
   consoleDuring,
   DMCA_IP_LIMIT,
+  DMCA_TOKEN,
   fetchW,
   freshIp,
   nonceOf,
   signIn as signInAs,
-  STRICT,
+  LOGIN_TOKEN,
+  TURNSTILE,
   windowHeadroom,
   withoutNonce,
 } from "./helpers";
 
 // One database serves every test file in the run, so this file keeps to AO3 work IDs
-// 17800 to 17899, names every tag it seeds with an "x8-" prefix, and finds its notices by
+// 17800 to 17899 (and 43900 for the one notice an unaccepted account files), names every tag it seeds with an "x8-" prefix, and finds its notices by
 // its own work or marker. Text is synthetic; addresses are @example.test.
 const W = 17800;
 const HIDDEN = 17801;
 const REMOVED = 17802;
 /** No work has it. */
 const UNKNOWN = 17899;
+/** The work a signed-in account that hasn't accepted the terms files a notice against. */
+const UNACCEPTED_TARGET = 43900;
 /** One work for each notice that leaves out an element, so each finds its own row. */
 const OMISSION_BASE = 17810;
 
@@ -64,6 +68,7 @@ beforeAll(async () => {
     tags: [...X8_TAGS],
   });
   await seedWork(db, { ao3WorkId: REMOVED, status: "removed", tags: [...X8_TAGS] });
+  await seedWork(db, { ao3WorkId: UNACCEPTED_TARGET, title: "x8 Work 43900", tags: [...X8_TAGS] });
   for (const [i] of OMISSIONS.entries()) {
     await seedWork(db, {
       ao3WorkId: OMISSION_BASE + i,
@@ -92,7 +97,7 @@ const postNotice = (
   fetchW("/dmca", {
     method: "POST",
     headers: { ...FORM_HEADERS, "cf-connecting-ip": ip, ...headers },
-    body: new URLSearchParams(fields).toString(),
+    body: new URLSearchParams({ "cf-turnstile-response": DMCA_TOKEN, ...fields }).toString(),
   });
 
 /** The notices stored for AO3 work `ao3WorkId`, oldest first. */
@@ -133,17 +138,203 @@ describe("17-reports-and-dmca: DMCA", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toMatch(/^text\/html/);
     expect(res.headers.get("cache-control")).toBe("no-store");
-    // No script and no Turnstile, so no frame-src either: the strict policy.
+    // The anti-spam check's frame is allowed, and nothing else.
     const csp = res.headers.get("content-security-policy");
-    expect(nonceOf(csp)).not.toBeNull();
-    expect(withoutNonce(csp)).toBe(STRICT);
+    const nonce = nonceOf(csp);
+    expect(nonce).not.toBeNull();
+    expect(withoutNonce(csp)).toBe(TURNSTILE);
     const html = await res.text();
-    expect(html).not.toMatch(/<script/i);
-    expect(html).toContain('<form class="dmca-form" method="post" action="/dmca">');
+    const scripts = html.match(/<script\b[^>]*>/g) ?? [];
+    expect(scripts).toHaveLength(2);
+    for (const tag of scripts) expect(tag).toContain(`nonce="${nonce}"`);
+    expect(html).toContain(
+      `<script nonce="${nonce}">document.getElementById("dmca").hidden = false;</script>`,
+    );
+    expect(html).toContain(
+      '<form id="dmca" class="dmca-form" method="post" action="/dmca" hidden>',
+    );
+    expect(html).toContain('<div class="cf-turnstile"');
+    expect(html).toContain('data-action="dmca"');
+    expect(html).toContain("<noscript>");
     for (const name of [...OMISSIONS, "work"]) {
       expect(html, name).toMatch(new RegExp(`name="${name}"`));
     }
     expect(html).toContain('<input type="checkbox" name="good_faith"');
+  });
+
+  it("A notice without a passing anti-spam check is not stored, and the form says why", async () => {
+    const wrongHost = `${DMCA_TOKEN}@other.example`;
+    for (const token of ["", LOGIN_TOKEN, wrongHost]) {
+      const marker = `x8-nocheck-${crypto.randomUUID()}`;
+      const res = await postNotice({
+        ...COMPLETE,
+        contact: marker,
+        "cf-turnstile-response": token,
+      });
+      expect(res.status, token).toBe(400);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      const html = await res.text();
+      expect(html).toContain("The anti-spam check did not pass.");
+      expect(html).toContain(`write to ${env.NOTICES_EMAIL} and include`);
+      // Everything typed comes back, with a fresh widget.
+      expect(html).toContain(marker);
+      expect(html).toContain("x8 The whole text of the work named above");
+      expect(html).toMatch(/name="good_faith" value="yes" checked/);
+      expect(html).toMatch(/name="accuracy_authority" value="yes" checked/);
+      expect(html).toContain('class="cf-turnstile"');
+      expect(await noticesFrom(marker)).toEqual([]);
+    }
+  });
+
+  it("A notice posted with no token field at all is refused the same way", async () => {
+    const marker = `x8-notoken-${crypto.randomUUID()}`;
+    const res = await fetchW("/dmca", {
+      method: "POST",
+      headers: { ...FORM_HEADERS, "cf-connecting-ip": freshIp() },
+      body: new URLSearchParams({ ...COMPLETE, contact: marker }).toString(),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain(marker);
+    expect(await noticesFrom(marker)).toEqual([]);
+  });
+
+  it("A long notice survives an anti-spam check that fails", async () => {
+    const long = `x8 ${"a".repeat(3990)}`;
+    const res = await postNotice({
+      ...COMPLETE,
+      copyrighted_work: long,
+      infringing_material: long,
+      contact: long,
+      "cf-turnstile-response": "",
+    });
+    expect(res.status).toBe(400);
+    const html = await res.text();
+    expect(html.split(long).length - 1).toBe(3);
+  });
+
+  it("A notice is kept in the form when the anti-spam check is not answering", async () => {
+    const marker = `x8-down-${crypto.randomUUID()}`;
+    const res = await postNotice({
+      ...COMPLETE,
+      contact: marker,
+      "cf-turnstile-response": "siteverify-down",
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const html = await res.text();
+    expect(html).toContain("The anti-spam check is not answering just now.");
+    expect(html).toContain(`write to ${env.NOTICES_EMAIL} and include`);
+    expect(html).toContain(marker);
+    expect(html).toContain('class="cf-turnstile"');
+    expect(await noticesFrom(marker)).toEqual([]);
+  });
+
+  it("A refusal after the check passes still shows a fresh widget", async () => {
+    const res = await postNotice({ ...COMPLETE, work: String(UNKNOWN) });
+    expect(res.status).toBe(404);
+    expect(await res.text()).toContain('class="cf-turnstile"');
+    const bad = await postNotice({ ...COMPLETE, work: "" });
+    expect(bad.status).toBe(400);
+    expect(await bad.text()).toContain('class="cf-turnstile"');
+  });
+
+  it("The limit is counted before the anti-spam check", async () => {
+    await windowHeadroom(60);
+    const ip = freshIp();
+    for (let i = 0; i < DMCA_IP_LIMIT; i++) {
+      // Each counts, solved or not; none of these is stored.
+      expect((await postNotice({ ...COMPLETE, work: String(UNKNOWN) }, { ip })).status).toBe(404);
+    }
+    const res = await postNotice({ ...COMPLETE, "cf-turnstile-response": "" }, { ip });
+    expect(res.status).toBe(429);
+  });
+
+  it("A long notice over the limit comes back in the form, with a fresh widget and the address", async () => {
+    await windowHeadroom(60);
+    const ip = freshIp();
+    for (let i = 0; i < DMCA_IP_LIMIT; i++) {
+      await postNotice({ ...COMPLETE, work: String(UNKNOWN) }, { ip });
+    }
+    const long = `x8 ${"b".repeat(3990)}`;
+    const marker = `x8-limit-keep-${crypto.randomUUID()}`;
+    const res = await postNotice(
+      {
+        ...COMPLETE,
+        copyrighted_work: long,
+        infringing_material: long,
+        contact: `${marker} ${long}`.slice(0, 4000),
+        signature: "s".repeat(1000),
+      },
+      { ip },
+    );
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("60");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const html = await res.text();
+    expect(html).toContain("Too many requests");
+    expect(html.split(long).length - 1).toBe(2);
+    // What a rejected post echoes is capped to what the form takes.
+    expect(html).toContain("s".repeat(200));
+    expect(html).not.toContain("s".repeat(201));
+    expect(html).toContain(marker);
+    expect(html).toMatch(/name="good_faith" value="yes" checked/);
+    expect(html).toMatch(/name="accuracy_authority" value="yes" checked/);
+    expect(html).toContain('class="cf-turnstile"');
+    expect(html).toContain(`write to ${env.NOTICES_EMAIL} and include`);
+    expect(await noticesFrom(marker)).toEqual([]);
+  });
+
+  it("A post with no form fields gets the plain 429 over the limit", async () => {
+    await windowHeadroom(60);
+    const ip = freshIp();
+    for (let i = 0; i < DMCA_IP_LIMIT; i++) {
+      await postNotice({ ...COMPLETE, work: String(UNKNOWN) }, { ip });
+    }
+    const res = await fetchW("/dmca", {
+      method: "POST",
+      headers: { ...FORM_HEADERS, "content-type": "application/json", "cf-connecting-ip": ip },
+      body: "{}",
+    });
+    expect(res.status).toBe(429);
+    expect(await res.text()).not.toContain('class="cf-turnstile"');
+  });
+
+  it("A body too large to keep gets the plain 429 over the limit", async () => {
+    await windowHeadroom(60);
+    const ip = freshIp();
+    for (let i = 0; i < DMCA_IP_LIMIT; i++) {
+      await postNotice({ ...COMPLETE, work: String(UNKNOWN) }, { ip });
+    }
+    const res = await postNotice({ ...COMPLETE, contact: "c".repeat(300 * 1024) }, { ip });
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("60");
+    expect(await res.text()).not.toContain('class="cf-turnstile"');
+  });
+
+  it("The intro to the form is hidden with it, so without JavaScript nothing points at a missing form", async () => {
+    const html = await (await fetchW("/dmca")).text();
+    const form = html.match(/<form id="dmca"[^>]*\bhidden\b[^>]*>[\s\S]*?<\/form>/)?.[0] ?? "";
+    expect(form).toContain("Use this form to tell us");
+    expect(html.replace(form, "")).not.toContain("Use this form to tell us");
+  });
+
+  it("The page without JavaScript names the notices address and what a notice needs", async () => {
+    const html = await (await fetchW("/dmca")).text();
+    const noscript = html.match(/<noscript>[\s\S]*?<\/noscript>/)?.[0] ?? "";
+    expect(noscript).toMatch(/^<noscript><p>[^<]*needs JavaScript[^<]*<\/p><\/noscript>$/);
+    expect(env.NOTICES_EMAIL).not.toBe("");
+    expect(noscript).toContain(env.NOTICES_EMAIL);
+    expect(noscript).toContain("not authorised by the copyright owner, its agent or the law");
+    expect(noscript).toContain("under penalty of perjury");
+    expect(noscript).toContain("as your signature");
+    expect(noscript).toContain("online queue");
+    // Nothing can be submitted without the script that shows the form.
+    expect(html).toMatch(/<form\b[^>]*\bhidden\b/);
+  });
+
+  it("The privacy page says the anti-spam check runs on the copyright notice page", async () => {
+    const html = await (await fetchW("/privacy")).text();
+    expect(html).toContain("removal and copyright notice pages");
   });
 
   it("Submitting a DMCA notice creates a takedown", async () => {
@@ -312,6 +503,27 @@ describe("17-reports-and-dmca: DMCA", () => {
     expect(await res.text()).toContain("Too many requests");
     expect(await noticesFrom(marker)).toEqual([]);
     expect((await postNotice(COMPLETE)).status).toBe(200);
+  });
+
+  it("An account that hasn't accepted the terms can open the form and post a notice, which is kept", async () => {
+    // The terms gate sends every page but a few to /welcome/terms, and a posted form is
+    // not carried over; /dmca is exempt, as /remove is, so a typed notice is not lost.
+    const cookie = await signInAs("x8-unaccepted@example.test");
+    // The premise: this account is gated elsewhere.
+    const gated = await fetchW("/upload", { headers: { cookie }, redirect: "manual" });
+    expect(gated.status).toBe(302);
+    expect(gated.headers.get("location")).toContain("/welcome/terms");
+    const form = await fetchW("/dmca", { headers: { cookie }, redirect: "manual" });
+    expect(form.status).toBe(200);
+
+    const before = (await noticesFor(UNACCEPTED_TARGET)).length;
+    const res = await postNotice(
+      { ...COMPLETE, work: String(UNACCEPTED_TARGET) },
+      { headers: { cookie } },
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Notice received");
+    expect(await noticesFor(UNACCEPTED_TARGET)).toHaveLength(before + 1);
   });
 
   it("Is linked from the footer beside Remove my work", async () => {

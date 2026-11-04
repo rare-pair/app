@@ -707,7 +707,7 @@ can be snapshotted.
   form-action 'self'; frame-ancestors 'none'`. Injected markup can't guess the
   nonce, so any script that gets past the sanitizer won't run. Session cookies
   are `HttpOnly`, so scripts can't read them anyway.
-- **Pages with a Turnstile check** (sign-in, upload, `/remove`, and the
+- **Pages with a Turnstile check** (sign-in, upload, `/remove`, `/dmca`, and the
   coming-soon page at `/` while `PRELAUNCH` is on, with `/waitlist`, where a
   refused join shows its form again) add exactly one
   allowance, `frame-src https://challenges.cloudflare.com`, for the challenge
@@ -898,7 +898,10 @@ origin. Work pages, listings and search stay open, so people can still find work
   `disableSignUp`. A brand-new account must accept the terms on a one-time page,
   `/welcome/terms`, before anything else: until it does, every page requested
   with its session redirects there, except that page itself, `/terms`,
-  `/privacy` and signing out. Accepting sets `user.terms_accepted_at` and
+  `/privacy`, `/about`, removal requests and copyright notices (`/remove`, `/dmca`:
+  anyone can make them, and a typed notice must not be lost to a redirect), sign-in
+  and signing out, `/admin` (its own gate answers a non-moderator 404) and static
+  files. `TERMS_EXEMPT` in `apps/web/src/terms.ts` is the list. Accepting sets `user.terms_accepted_at` and
   continues to the stored `next`. Accounts that have accepted never see the
   page again.
 - **Single use.** The token is consumed by one `DELETE … RETURNING` in
@@ -911,6 +914,21 @@ origin. Work pages, listings and search stay open, so people can still find work
   set with `useSecureCookies: true`. There is no `Domain`
   (`crossSubDomainCookies` stays off), so the cookie never reaches
   `content.rarepair.fans`.
+- **Sign-out is `/logout`.** `POST /logout` from a button in a form, behind the same
+  same-origin check as the sign-in forms (before the session lookup), calls
+  `auth.api.signOut`: it deletes the session row and clears Better Auth's cookies with
+  the attributes they were set with, and the answer is a 303 to `/`. The response also
+  carries `Clear-Site-Data: "cache"`, so a page the browser kept while signed in is fetched again, in a browser that
+  honours the header (Chromium does, on a 303 too; Safari and Firefox are unchecked). Not `"cookies"`: the reader's settings live in
+  cookies and outlast a sign-out. It ends only the session the cookie names: other devices stay signed in. With no session the answer is the same. `GET /logout`
+  signs nobody out: it shows the button, or says the visitor isn't signed in. Better
+  Auth clears the cookie even if deleting the row failed and `signOut` answers success
+  either way, so the route reads the row of the session the cookie resolved to, by id, after `signOut` (through
+  `HYPERDRIVE`; a read that a query cache could answer from before the delete would
+  mislead it; `HYPERDRIVE` is uncached once deploy step 4 in *Connections* is done). If the row remains, the answer is a 500 "try again" page: no
+  cookie change, no `Clear-Site-Data`, and nothing says the person is signed out. A
+  database that can't be reached is a plain 500 the same way (#588).
+  Open before launch and exempt from the terms gate.
 - **Better Auth's own rate limiter** only covers requests through
   `auth.handler`. Its default memory store is per isolate on Workers, so set
   `rateLimit.storage: "database"` (or a Durable Object through
@@ -1143,8 +1161,11 @@ epub, under the normal versioning rules.
   pending notice on it is marked `removed` and its AO3 work ID goes on the takedown list, and
   later uploads of it are rejected `opted_out` (EPUB processor, step 4). A
   notice missing statutory elements is still queued, marked incomplete (the Approve confirm page says so; approving is still allowed). The
-  form has no Turnstile, so it works without JavaScript; a rate limit per IP
-  is its only abuse control. The counter-notice process and
+  form has a Turnstile check, so it needs JavaScript; without it the page names an
+  email address (the `NOTICES_EMAIL` var) for a notice, which a person reads and which
+  doesn't reach the takedowns queue. A rate limit per IP, counted before the
+  check, is its other abuse control; a refused post gives the form back with what
+  was typed. The counter-notice process and
   repeat-infringer policy are part of the lawyer review.
 - **Reports.** Every work has a report button. Reporting needs a signed-in
   account, so each report has a reporter who can be rate limited or blocked;
@@ -1205,7 +1226,15 @@ epub, under the normal versioning rules.
   it is built. The row's `moderator_id` has no foreign key to `user`, so
   deleting an account keeps its log rows, with the id as it was. Anyone
   without the moderator or admin role, signed out included, gets 404 for every
-  `/admin` URL, so the admin area isn't advertised.
+  `/admin` URL, so the admin area isn't advertised to anyone else. A moderator's
+  or admin's site header has an Admin link, from the role that comes with the
+  session (a display aid only: the gate above reads the role again on every
+  `/admin` request and stays the authority). A promotion or demotion shows in the
+  header, and takes effect at the gate, on the next request: the session lookup and
+  the gate's own read both go through the uncached `HYPERDRIVE` binding (see
+  *Connections*), once deploy step 4 there is done. Before that step, with Hyperdrive's
+  query cache in front, a demoted moderator can still open `/admin` for up to about 75 s
+  (the window in *Connections*).
 
 ## Wait list
 
@@ -1319,10 +1348,10 @@ markup: its inline `style` attributes become stylesheet rules, because
 
 ## Surge controls
 
-- Turnstile on signup, login, upload, the wait list and `/remove` requests. Turnstile needs
+- Turnstile on signup, login, upload, the wait list, `/remove` requests and DMCA notices. Turnstile needs
   JavaScript, so those forms do too; reading, browsing and search work without
-  it. Each form's widget names its own action (`login`, `waitlist`, `upload`
-  and `remove`) with `data-action`, and the Worker passes
+  it. Each form's widget names its own action (`login`, `waitlist`, `upload`,
+  `remove` and `dmca`) with `data-action`, and the Worker passes
   a token only when siteverify reports that action and this host, so a token
   solved on one form is refused by every other. Cloudflare's published test
   secret keys, which don't promise an action, skip the action comparison only.
@@ -1481,8 +1510,16 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
      If the purge does not reach those entries, the old ones end within 12 hours of
      their store.
 
-  Not part of this list: the real Turnstile key and the notices mailbox are set elsewhere
-  (the DMCA notices are on another branch); the operator does them before launch.
+  Also before launch, not tied to the order above:
+  - **The real Turnstile key.** Put the real site key on `TURNSTILE_SITE_KEY` in
+    `apps/web/wrangler.jsonc` and the real secret as the `TURNSTILE_SECRET_KEY` secret.
+    The repo holds Cloudflare's always-passes test site key, and Cloudflare refuses its
+    tokens under a real secret, so without both every Turnstile form (sign-in, upload,
+    the wait list, `/remove`, `/dmca`) fails closed.
+  - **The notices mailbox.** `admin@rarepair.fans` (the `NOTICES_EMAIL` var) must exist
+    and be read. The copyright notice page names it for a visitor without JavaScript and
+    on a refusal that stops the form working (rate limit, failed or unreachable Turnstile check). Mail sent there doesn't reach the takedowns queue: a person reads it
+    and enters the notice.
 - Queries that select `now()` or another non-immutable function are never cached by Hyperdrive.
   Some reads here still select `now()` beside a read for that reason; they stay correct
   on an uncached connection and are redundant there.

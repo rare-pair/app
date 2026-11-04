@@ -40,7 +40,7 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Wait list), § Wait list, 
 
 ### Other app pages are closed before launch
 - GIVEN `PRELAUNCH` is on
-- WHEN a visitor opens any app page other than `/`, the `/waitlist` pages, `/terms`, `/privacy`, sign-in (`/login`, `/login/confirm`), `/welcome/terms`, sign-out or `/admin`
+- WHEN a visitor opens any app page other than `/`, the `/waitlist` pages, `/terms`, `/privacy`, sign-in (`/login`, `/login/confirm`), `/welcome/terms`, sign-out (`/logout`) or `/admin`
 - THEN they are redirected to `/` with a 302
 - AND `content.rarepair.fans` is unaffected
 

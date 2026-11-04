@@ -2,7 +2,14 @@ import { createDb, insertUpload } from "@archive/db";
 import { seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { BASE, fetchW, postLogin, signIn as signInAs, UPLOAD_TOKEN } from "./helpers";
+import {
+  BASE,
+  fetchW,
+  postLogin,
+  signIn as signInAs,
+  UPLOAD_TOKEN,
+  withoutHeader,
+} from "./helpers";
 
 // MOD6's cases: a moderator bans an uploader from a work's admin page. One database serves
 // every test file in the run. This file keeps to AO3 work IDs 14400 to 14499 and gives every
@@ -158,7 +165,8 @@ describe("18-moderation", () => {
     const form = await get("/upload", z.cookie);
     expect(form.status).toBe(403);
     expect(form.headers.get("cache-control")).toBe("no-store");
-    const formHtml = await form.text();
+    // Narrowed to exclude the header, whose Sign out is a form: asserted in 20-site-header.test.ts.
+    const formHtml = withoutHeader(await form.text());
     expect(formHtml).toContain("This account can't upload.");
     // None of the upload page: no form, no upload area, no script, no Turnstile widget.
     expect(formHtml).not.toContain("<form");

@@ -15,12 +15,13 @@ export const WELCOME_TERMS = "/welcome/terms";
 
 /**
  * What an account that hasn't accepted the terms can still reach: the terms page,
- * the terms and privacy pages (ARCHITECTURE, Auth); the about page and removal
- * requests, which anyone can make; sign-in, so it can switch address; /admin, whose
- * own gate answers every non-moderator with the same 404 (ARCHITECTURE, Moderation),
- * so a moderator who hasn't accepted the terms still reaches it; and static files.
- * A path ending in `/*` covers itself and everything below it, by whole segment, as
- * Hono's `/assets/*` does. Sign-out belongs here once a ticket builds it.
+ * the terms and privacy pages (ARCHITECTURE, Auth); the about page; removal
+ * requests (`/remove`) and copyright notices (`/dmca`), which anyone can make, so a
+ * typed one is not lost to a redirect; sign-in, so it can switch address; sign-out,
+ * so it can leave; /admin, whose own gate answers every non-moderator with the same 404
+ * (ARCHITECTURE, Moderation), so a moderator who hasn't accepted the terms still
+ * reaches it; and static files. A path ending in `/*` covers itself and everything
+ * below it, by whole segment, as Hono's `/assets/*` does.
  */
 export const TERMS_EXEMPT = [
   WELCOME_TERMS,
@@ -28,8 +29,10 @@ export const TERMS_EXEMPT = [
   "/privacy",
   "/about",
   "/remove/*",
+  "/dmca",
   "/login",
   "/login/confirm",
+  "/logout",
   "/admin/*",
   "/assets/*",
 ] as const;

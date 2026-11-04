@@ -22,6 +22,16 @@ export const TURNSTILE = `${STRICT}; frame-src https://challenges.cloudflare.com
 // The account id is vitest.config.ts's throwaway one.
 export const UPLOAD_CSP = `${TURNSTILE}; connect-src 'self' https://test0000000000000000000000000acct.r2.cloudflarestorage.com`;
 
+/**
+ * A page without the site header (`<header>...</header>`, the one the layout emits), for
+ * an assertion about the rest of the page: "no form", "no link to sign in". It removes
+ * only that element; the header is asserted on its own in 20-site-header.test.ts.
+ */
+export const withoutHeader = (html: string) => html.replace(/<header>[\s\S]*?<\/header>/, "");
+
+/** What the page's one `<header>` holds, or "" when it has none. */
+export const headerOf = (html: string) => html.match(/<header>([\s\S]*?)<\/header>/)?.[1] ?? "";
+
 /** The nonce in a CSP header, or null when there is none. */
 export const nonceOf = (csp: string | null) => csp?.match(/'nonce-([^']*)'/)?.[1] ?? null;
 
@@ -117,6 +127,7 @@ export const LOGIN_TOKEN = "XXXX.DUMMY.TOKEN.XXXX#login";
 export const WAITLIST_TOKEN = "XXXX.DUMMY.TOKEN.XXXX#waitlist";
 export const UPLOAD_TOKEN = "XXXX.DUMMY.TOKEN.XXXX#upload";
 export const REMOVE_TOKEN = "XXXX.DUMMY.TOKEN.XXXX#remove";
+export const DMCA_TOKEN = "XXXX.DUMMY.TOKEN.XXXX#dmca";
 
 /** The headers a browser on rarepair.fans sends with the sign-in form. */
 const LOGIN_HEADERS = {

@@ -184,11 +184,13 @@ describe("11-reader-and-csp", () => {
     ]);
     // The slim bar: the work title is the one chrome h1; the chapter's own h1 is content.
     const chrome = articles.reduce((page, a) => page.replace(a, ""), html);
-    expect(chrome.match(/<h1\b[^>]*>[\s\S]*?<\/h1>/g)).toEqual([`<h1>${TITLE_ESCAPED}</h1>`]);
+    expect(chrome.match(/<h1\b[^>]*>[\s\S]*?<\/h1>/g)).toEqual([
+      `<h1><a href="/works/${W}">${TITLE_ESCAPED}</a></h1>`,
+    ]);
     // The settings link comes back to the entire work (R5).
     expect(chrome).toMatch(
       new RegExp(
-        `<div class="reader-bar"><h1>[^<]*</h1><a href="/settings/reader\\?next=%2Fworks%2F${W}%2Ffull">`,
+        `<div class="reader-bar"><h1><a href="/works/${W}">[^<]*</a></h1><a href="/settings/reader\\?next=%2Fworks%2F${W}%2Ffull">`,
       ),
     );
     // No chapter select, no frame, no epub engine, no summary; a way back to the work. The
@@ -210,7 +212,9 @@ describe("11-reader-and-csp", () => {
       // Under the bar, before the chapter nav and the text.
       const at = html.indexOf(NOTICE);
       expect(at, path).toBeGreaterThan(html.indexOf('<div class="reader-bar">'));
-      expect(at, path).toBeLessThan(html.search(/<nav|<h2 class="chapter-title"/));
+      expect(at, path).toBeLessThan(
+        html.search(/<nav class="chapter-nav"|<h2 class="chapter-title"/),
+      );
     }
     // No notice for a work without review reasons, or once a moderator has checked it.
     for (const path of [chapterUrl(W, 1), fullUrl(W), chapterUrl(CHECKED, 2), fullUrl(CHECKED)]) {
@@ -306,7 +310,9 @@ describe("entire work", () => {
   it("An untitled work and an empty chapter still make a whole page", async () => {
     const html = await htmlOf(fullUrl(EDGE));
     expect(html).toContain("<title>Untitled work, entire work · rarepair</title>");
-    expect(html).toContain('<div class="reader-bar"><h1>Untitled work</h1>');
+    expect(html).toContain(
+      `<div class="reader-bar"><h1><a href="/works/${EDGE}">Untitled work</a></h1>`,
+    );
     expect(articlesOf(html)).toEqual(["<p>R4-EDGE-1</p>", "", "<p>R4-EDGE-3</p>"]);
     expect(html).toContain("</main>");
   });

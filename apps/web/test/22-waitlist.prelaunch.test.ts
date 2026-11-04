@@ -252,6 +252,9 @@ describe("22-waitlist", () => {
       ["/login/confirm?token=x", "GET"],
       // Where the first admin signs in before launch.
       ["/login/confirm", "POST"],
+      // Signed in before launch (an admin), a reader can still leave.
+      ["/logout", "GET"],
+      ["/logout", "POST"],
       ["/admin", "GET"],
       ["/admin/launch", "GET"],
       ["/robots.txt", "GET"],

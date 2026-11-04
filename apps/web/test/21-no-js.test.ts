@@ -155,7 +155,7 @@ interface Entry {
   path: string;
   who?: Who;
   status?: number;
-  /** Sign in, upload and /remove: the form hides until a nonced script shows it. */
+  /** Sign in, upload, /remove and the copyright notice: the form hides until a nonced script shows it. */
   turnstile?: boolean;
   /** The enhancement scripts the page may carry, by file name before the hash. */
   scripts?: string[];
@@ -288,6 +288,12 @@ const ENTRIES = (): Entry[] => [
   },
   { name: "accept terms", path: "/welcome/terms", who: "newcomer", order: [...CHROME, "<form"] },
   {
+    name: "sign out",
+    path: "/logout",
+    who: "reader",
+    order: [...CHROME, 'action="/logout"', "Sign out"],
+  },
+  {
     name: "upload",
     path: "/upload",
     who: "reader",
@@ -319,7 +325,12 @@ const ENTRIES = (): Entry[] => [
     who: "reader",
     order: [...CHROME, "<fieldset>", "<legend>", "<textarea", "<button"],
   },
-  { name: "copyright notice", path: "/dmca", order: [...CHROME, "<form", "<button"] },
+  {
+    name: "copyright notice",
+    path: "/dmca",
+    turnstile: true,
+    order: [...CHROME, "<noscript>", 'id="dmca"', "<button"],
+  },
   { name: "moderation home", path: "/admin", who: "moderator", order: [...CHROME, "<nav"] },
   ...["reports", "takedowns", "requests", "works"].map((queue) => ({
     name: `${queue} queue`,

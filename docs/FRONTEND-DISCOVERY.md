@@ -17,10 +17,11 @@ fandoms and pseuds in it are invented placeholders.
 | --- | --- |
 | Visual direction | Modern and minimal. The identity is plain HTML with a strong typographic hierarchy: type, spacing and rules do the work, not boxes, shadows or imagery |
 | Warnings | **Hard constraint:** rating and archive warnings show on every work card and work page. They are never collapsed, never behind a hover, and never hidden to save space. Minimalism applies to everything else |
-| JavaScript | Reading, browsing, search and reader settings work fully with JavaScript off; small scripts only enhance them (settings without a reload, saving reading position). Forms with a Turnstile check (sign-in, upload, `/remove`, and the wait list before launch) need JavaScript, because Turnstile can't produce a token without it; with JS off they say so in a `<noscript>` message |
+| JavaScript | Reading, browsing, search and reader settings work fully with JavaScript off; small scripts only enhance them (settings without a reload, saving reading position). Forms with a Turnstile check (sign-in, upload, `/remove`, the copyright notice at `/dmca`, and the wait list before launch) need JavaScript, because Turnstile can't produce a token without it; with JS off they say so in a `<noscript>` message |
 | Pagination | Server-side pages with real URLs. No infinite scroll |
 | Branding | No AO3 or OTW name, symbols or styling in the UI. Ratings and warnings are text badges, not symbol icons (ARCHITECTURE, opening) |
 | Author identity | No claims, no author accounts, no "my works". Removal and opt-out are a public request form that needs no sign-in (ARCHITECTURE, *Author requests & takedowns*) |
+| Site header | Every HTML page that runs after the session lookup has a header that carries, left to right: Search, Add work, My uploads (signed in), Admin (moderator or admin only), then Sign in (signed out) or Sign out (signed in, a form posting to `/logout`, so it works with JavaScript off). Before launch Search, Add work and My uploads show disabled, as the footer's closed links do (`/search` is closed until then); Sign in, Sign out and Admin stay live. A cross-site refusal, answered before the session, shows the bare site name, and a missing static file's 404 shows the signed-out links, whoever asks. An account that hasn't accepted the terms sees the header as ruled, and Search, Add work and My uploads lead back to the terms page (the terms gate has no exception for `/search`). It shows no name or address. It is built for each response from the session and never stored in a shared cache: a signed-in reader is never served from the edge page cache. One consequence: the tag listing, which a browser may keep for up to two minutes, can show the signed-out header for that long after sign-in. Accepted |
 | Card summaries | Clamped to 3 lines with a "more" link to the work page, which shows the full summary. Rating and archive warnings are separate lines and are never clamped. A content note in summary line 4 is hidden on cards, and that's accepted |
 | Home page | Leads with search. Popular fandoms and recently added works go below |
 | Original AO3 link | A live link with a note that it works again once AO3 is back. Nothing changes automatically when AO3 returns; redirecting works to AO3 is part of a later wind-down the operator starts by hand |
@@ -86,7 +87,7 @@ Reading never requires an account (ARCHITECTURE, *Auth*).
    from. It uses a stored same-site `next` value, never an open redirect.
 4. An email with no account gets one at this point. A new account first lands
    on a one-time terms page (`/welcome/terms`) and must accept before going
-   anywhere else; then it continues to `next`. Returning users never see it.
+   anywhere else (bar the pages open to anyone: see the Accept terms row); then it continues to `next`. Returning users never see it.
 
 **3. Upload works** (uploader)
 1. They pick one or more `.epub` files on the upload page and submit. Each
@@ -148,8 +149,8 @@ Reading never requires an account (ARCHITECTURE, *Auth*).
 ## Page inventory
 
 Every page renders without JavaScript, and reading, browsing and search work
-fully. The forms with a Turnstile check (sign-in, upload, `/remove`, and the
-wait list before launch) need JavaScript and show a `<noscript>` message
+fully. The forms with a Turnstile check (sign-in, upload, `/remove`, the copyright
+notice at `/dmca`, and the wait list before launch) need JavaScript and show a `<noscript>` message
 without it. Elsewhere the
 "JS adds" column is progressive enhancement only.
 
@@ -167,13 +168,14 @@ without it. Elsewhere the
 | Reader settings | `/settings/reader` | all | POST form sets a cookie, then redirects back; signed-in readers also get the warnings on/off choice, saved to their account | Applied live from the reader |
 | Sign in | `/login` | all | `<noscript>` message: signing in needs JavaScript | Email form with Turnstile, "check your email", error states |
 | Confirm sign-in | `/login/confirm?token=…` | all | "Sign in" button (POST form); used, expired or unknown links redirect to `/login` with a message | — |
-| Accept terms | `/welcome/terms` | new accounts, once | Terms summary, link to `/terms`, Accept button (POST form); every other signed-in page redirects here until accepted | — |
+| Sign out | `/logout` | all (signed in or not) | Signed in: a "Sign out" button (POST form) that ends the session and goes to `/`, or, if the session row couldn't be deleted, answers a 500 "Sign out didn't work, try again" page with the same button; GET signs nobody out. Signed out: says so, with a link to sign in | — |
+| Accept terms | `/welcome/terms` | new accounts, once | Terms summary, link to `/terms`, Accept button (POST form); every other signed-in page redirects here until accepted, except the pages open to anyone and to sign-in (`/terms`, `/privacy`, `/about`, `/remove` and `/dmca`, so a typed request or notice isn't lost, `/login`, `/logout`), `/admin` and static files (`TERMS_EXEMPT` in `apps/web/src/terms.ts`); `/search` is not exempt | — |
 | Upload | `/upload` | signed in | `<noscript>` message: uploading needs JavaScript | Turnstile, then direct-to-R2 upload with progress, one or more files |
 | My uploads | `/me/uploads` | signed in | Status list; with JS it updates in place, without JS a `<meta http-equiv="refresh">` inside `<noscript>` reloads it while anything is processing | Updates in place |
 | Remove my work / opt out | `/remove` (`?work=:id` prefills) | all | `<noscript>` message with the moderators' contact address | Request form with Turnstile, then a "check your email" page that is the same for every requester. The emailed link is `/remove/confirm?token=` (a button page, then a confirmed page, or one page for a used, expired or unknown link) |
 | Removal list | `/removed`, `/removed/pseuds` | all | Paged lists, newest first. Removed works: title, byline, "The original work" link with its ID and note, date, reason. Opted-out pseuds: name, date, reason. Says that nobody's identity is checked, and gives the moderators' contact address | — |
 | Report | `/works/:id/report` | signed in (others are redirected to sign in, carrying `next`) | Form, then a confirmation page | — |
-| DMCA notice | `/dmca` | all | Statutory notice form | — |
+| DMCA notice | `/dmca` | all | `<noscript>` message: the form needs JavaScript; it names the notices address (`NOTICES_EMAIL`) and lists what a notice must say, so a notice can be emailed; a refusal that stops the form working (rate limit, failed or unreachable Turnstile check) names it too | Statutory notice form with Turnstile |
 | Moderation queues | `/admin/{reports,takedowns,requests,works}` | moderator (404 for anyone else) | Tables with detail pages; `/admin/works` is *Works to check* | — |
 | Work admin | `/admin/works/:id` | moderator (404 for anyone else) | Every version (date, uploader, chapter count, hold and review reasons) with "Make current" and "Approve"; close wrong-version reports, hide, remove; withhold a removed work's details from the removal list | — |
 | Listed pseuds | `/admin/listed-pseuds` | moderator (404 for anyone else) | Every pseud on the removal list, listed or withheld, with withhold and un-withhold | — |
@@ -191,8 +193,8 @@ with the architecture as written. These are the resolutions. ARCHITECTURE.md is
 updated to match.
 
 1. **Forms with Turnstile need JS.** Turnstile can't produce a token without
-   JavaScript, and sign-in, upload, `/remove` and the wait list before launch
-   all require one. So those forms need JS and show a `<noscript>` message without it, while
+   JavaScript, and sign-in, upload, `/remove`, the copyright notice and the wait
+   list before launch all require one. So those forms need JS and show a `<noscript>` message without it, while
    reading, browsing and search stay fully usable with JS off. Uploads are
    direct presigned PUTs to R2 with progress (R2 doesn't accept form POSTs);
    the earlier no-JS multipart path through the Worker was dropped. Turnstile
@@ -276,11 +278,17 @@ decoration in a minimal design. They're bold text with labels spelled out.
   carried over the redirect in a short-lived cookie.
 - **Temporary banner.** One line at the very top of every page, linking to
   `/about`.
+- **Site header.** The site name, then a labelled `Site` navigation: Search, Add work,
+  My uploads, Admin, and Sign in or Sign out, only the items the visitor gets
+  (*Decisions so far*). Plain links and one form button in a wrapping row, so
+  nothing scrolls sideways at 360 px for a moderator's longest row.
 
 ## Reading experience
 
-- The text column sits centred at `66ch`. The only chrome is a slim top bar
-  with the work title and a settings link, which scrolls away.
+- The text column sits centred at `66ch`. Inside it, the only chrome is a slim top
+  bar with the work title, which links to the work page, and a settings link, which
+  scrolls away (the site header
+  and footer sit around the column, as on every page).
 - Chapter notes come before the text, end notes after, both in a smaller,
   muted style. The summary is not repeated on chapter pages.
 - Settings: theme, size, line spacing, and serif or sans, kept in a cookie.

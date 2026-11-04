@@ -14,12 +14,14 @@ import { deadLetteredLaunchEmails } from "./launch-dead-letter";
 import { showTagListing } from "./listing";
 import { showSearch } from "./search";
 import { requestSignIn, showSignIn } from "./login";
+import { sameOriginLogout, showLogout, signOutRoute } from "./logout";
 import { jumpToChapter, showChapter } from "./reader";
 import { sameOriginOnly, showReportForm, submitReport } from "./report";
 import { aboutPage, notFoundPage, privacyPage, termsPage } from "./pages";
 import { showRemoveForm, submitRemove } from "./remove";
 import { confirmRemove, showRemoveConfirm } from "./remove-confirm";
 import { pageState } from "./page-state";
+import { siteHeader } from "./site-header";
 import { SETTINGS_SCRIPT, SETTINGS_SCRIPT_PATH } from "./reader-settings";
 import { UPLOAD_SCRIPT, UPLOAD_SCRIPT_PATH } from "./upload-script";
 import { closedBeforeLaunch, disableClosedLinks, isPrelaunch } from "./prelaunch";
@@ -64,6 +66,7 @@ app.post("/works/:id/warnings", sameOriginOnly);
 app.post("/remove", sameOriginOnly);
 app.post("/remove/confirm", sameOriginOnly);
 app.post("/dmca", sameOriginOnly);
+app.post("/logout", sameOriginLogout);
 // The session, once, for every page; routes read c.var.session and never mount it
 // again. Static files skip it, and the lookup's database connection with it. Then
 // an account that hasn't accepted the terms is sent to accept them.
@@ -73,6 +76,8 @@ app.use(except("/assets/*", sessionMiddleware, termsGate));
 app.use(pageState);
 // Before launch, links to closed pages are shown disabled.
 app.use(disableClosedLinks);
+// The header's links, from the session. Inside disableClosedLinks, so that sees them.
+app.use(siteHeader);
 
 // The moderation area: every /admin URL goes through its gate (admin.ts).
 app.route("/admin", admin);
@@ -90,6 +95,8 @@ app.get("/login", showSignIn);
 app.post("/login", requestSignIn);
 app.get("/login/confirm", showConfirm);
 app.post("/login/confirm", confirmSignIn);
+app.get("/logout", showLogout);
+app.post("/logout", signOutRoute);
 app.get(WELCOME_TERMS, requireSignIn, showTerms);
 app.post(WELCOME_TERMS, acceptTerms);
 app.post("/waitlist", joinWaitlist);

@@ -136,7 +136,7 @@ export const privacyPage = () =>
 <li>Removal and opt-out requests keep what you send with them: your email address, a hashed form of your network address, the work or pseud you name, and any statement you write. A block on a requester keeps the same email address and hashed network address. We keep this until the site closes, and then delete it. We do not erase it when you ask.</li>
 <li>The wait list: before launch, if you join it, we keep only your email address, hashed confirmation and unsubscribe tokens and the times we emailed you. We send you a confirmation email, and one launch email. We delete the list once the launch emails have been sent, or sooner if you unsubscribe.</li>
 <li>We store the settings and reading position you save, to bring them back next time.</li>
-<li>Our anti-spam check, provided by Cloudflare, runs on the sign-in, upload and removal pages and, before launch, on the wait list form on the coming-soon home page. Each check sends the visitor's network address (Turnstile's <code>remoteip</code>) to Cloudflare.</li>
+<li>Our anti-spam check, provided by Cloudflare, runs on the sign-in, upload, removal and copyright notice pages and, before launch, on the wait list form on the coming-soon home page. Each check sends the visitor's network address (Turnstile's <code>remoteip</code>) to Cloudflare.</li>
 </ul>`,
   );
 
@@ -204,12 +204,29 @@ export const checkEmailPage = () =>
 <p>The link can take a minute to arrive during busy periods.</p>`,
   );
 
-/** A form posted from somewhere other than this site. */
-export const forbiddenPage = () =>
+/**
+ * A form posted from somewhere other than this site. The sign-in link is for the
+ * sign-in forms: `signInLink: false` leaves it off, for sign-out, where it would
+ * send the person the wrong way.
+ */
+export const forbiddenPage = ({ signInLink = true } = {}) =>
   layout(
     "Request refused",
-    `<p>That request didn't come from rarepair. <a href="/login">Sign in here</a>.</p>`,
+    signInLink
+      ? `<p>That request didn't come from rarepair. <a href="/login">Sign in here</a>.</p>`
+      : `<p>That request didn't come from rarepair.</p>`,
   );
+
+const SIGN_OUT_FORM = `<form method="post" action="/logout">
+<button type="submit">Sign out</button>
+</form>`;
+
+/** `GET /logout` for someone signed in: only a button that posts. No script. */
+export const logoutPage = () => layout("Sign out", SIGN_OUT_FORM);
+
+/** `GET /logout` for someone who isn't signed in. */
+export const notSignedInPage = () =>
+  layout("Sign out", `<p>You are not signed in. <a href="/login">Sign in</a>.</p>`);
 
 /**
  * The emailed link's page: only a button that posts the token. Opening the link
@@ -244,4 +261,15 @@ export const tooManyRequestsPage = (seconds: number) =>
   layout(
     "Too many requests",
     `<p>There have been too many requests in a short time. Please try again in ${seconds === 1 ? "1 second" : `${seconds} seconds`}.</p>`,
+  );
+
+/**
+ * `POST /logout` when the session's row is still there after the delete: nothing says
+ * the person is signed out, because they aren't. The same button posts again.
+ */
+export const signOutFailedPage = () =>
+  layout(
+    "Sign out didn't work",
+    `<p>We couldn't sign you out, and you are still signed in. Please try again.</p>
+${SIGN_OUT_FORM}`,
   );

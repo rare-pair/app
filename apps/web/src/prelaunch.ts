@@ -9,7 +9,7 @@ export const isPrelaunch = (env: Pick<Bindings, "PRELAUNCH">) => env.PRELAUNCH !
 
 // The pages open before launch (ARCHITECTURE, Wait list): the coming-soon page, the
 // static pages, sign-in, so an admin can sign in for the first time, and what those
-// pages load. Sign-out isn't here: no doc fixes its URL yet.
+// pages load, and sign-out, so anyone signed in can leave.
 const OPEN_PATHS = new Set([
   "/",
   "/terms",
@@ -17,6 +17,7 @@ const OPEN_PATHS = new Set([
   "/about",
   "/login",
   "/login/confirm",
+  "/logout",
   "/welcome/terms",
   "/robots.txt",
   "/favicon.ico",
@@ -24,7 +25,7 @@ const OPEN_PATHS = new Set([
 // Open with everything below them, by whole segment: /admin/launch, never /administrator.
 // Not /api/auth: nothing serves it yet, and opening it before launch would be a way
 // around POST /login's checks. The ticket that mounts Better Auth's handler opens only
-// the routes it must (sign-out at most), never the whole section.
+// the routes it must, never the whole section. Sign-out is our own /logout.
 const OPEN_SECTIONS = ["/waitlist", "/admin", "/assets"];
 
 const isOpenBeforeLaunch = (path: string) =>
@@ -42,12 +43,21 @@ export const closedBeforeLaunch: MiddlewareHandler<{
   return c.redirect("/", 302);
 };
 
+/** Links to pages that are closed before launch: the footer's two forms, the header's three. */
+const CLOSED_LINKS = [
+  'footer a[href="/remove"]',
+  'footer a[href="/dmca"]',
+  'body > header a[href="/search"]',
+  'body > header a[href="/upload"]',
+  'body > header a[href="/me/uploads"]',
+].join(", ");
+
 /**
- * Before launch, shows what points at a closed page as disabled: the footer's "Remove
- * my work" link loses its href (so it goes nowhere and is skipped by Tab) and says it
- * is disabled, and the not-found page's search form keeps its label with its input and
- * button disabled. Applied to every HTML response, so an /admin refusal still equals a
- * real 404. After launch it does nothing.
+ * Before launch, shows what points at a closed page as disabled: the footer's two form
+ * links and the site header's "Search", "Add work" and "My uploads" lose their hrefs (so each goes
+ * nowhere and is skipped by Tab) and say they are disabled, and the not-found page's
+ * search form keeps its label with its input and button disabled. Applied to every HTML
+ * response, so an /admin refusal still equals a real 404. After launch it does nothing.
  */
 export const disableClosedLinks: MiddlewareHandler<{
   Bindings: Pick<Bindings, "PRELAUNCH">;
@@ -56,7 +66,7 @@ export const disableClosedLinks: MiddlewareHandler<{
   if (!isPrelaunch(c.env)) return;
   if (!c.res.headers.get("content-type")?.toLowerCase().startsWith("text/html")) return;
   c.res = new HTMLRewriter()
-    .on('footer a[href="/remove"], footer a[href="/dmca"]', {
+    .on(CLOSED_LINKS, {
       element(a) {
         a.removeAttribute("href");
         a.setAttribute("role", "link");
