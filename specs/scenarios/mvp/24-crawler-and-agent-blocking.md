@@ -13,7 +13,7 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - A declared automated client is a request with a `Signature-Agent` header, or with a `User-Agent` matching the crawler list. The signature is not verified: announcing itself is enough. A missing `User-Agent` is not a declaration
 - Zone config: one custom rule blocks `cf.client.bot` on each host's protected paths. A request it blocks gets Cloudflare's own block page and never reaches a Worker. Bot Fight Mode, Super Bot Fight Mode and Browser Integrity Check are off, since each can challenge a reader or set a cookie. AI Crawler and Agent access policies stay on allow and Bot Preference Sync stays off, since both act on the whole zone
 - Read throttles are Workers rate-limiting bindings keyed per client as in specs/scenarios/mvp/19-surge-controls-and-quotas.md (an IPv4 address, or an IPv6 /64). First values per 60 seconds, to be revisited in load testing: 120 chapter pages, 10 `/works/:id/full` and 10 originals. At those limits one address can still take 14,400 whole works a day, so the throttles slow a scraper and don't stop one
-- One read is one GET or HEAD of a chapter page, `/works/:id/full` or an original. The chapter select's redirect, the warnings screen and a refused request don't count
+- One read is one GET or HEAD of a chapter page, `/works/:id/full` or an original, counted before anything is looked up, whatever it answers, a redirect to the warnings screen included. `/works/:id/chapters` (the chapter select's redirect), `/works/:id/warnings` and a refused request don't count
 
 ## Cases
 
@@ -65,11 +65,13 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - THEN the response is 403 with no body and no bytes of the file
 - AND it has `X-Content-Type-Options: nosniff` and `Cache-Control: no-store` and no `Set-Cookie`
 - AND it is not stored in the cache, and the file's cached entry is unchanged
+- AND a file that doesn't exist or was removed gets the same 403 with no cache or R2 read, so the answer doesn't show which files exist
 
 ### Content origin refusals log no URL
 - GIVEN a refused request on `content.rarepair.fans`
 - WHEN the refusal is recorded
-- THEN nothing logged holds the URL, the work id or the client's address
+- THEN no log line holds the URL, the work id or the client's address
+- AND traces stay as ARCHITECTURE § Why these pieces (Hosts) has them, which may record the request URL
 
 ### Refusals store nothing about the client
 - GIVEN a refused request on either host
@@ -182,7 +184,8 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 ### Refusal page explains itself
 - GIVEN a person whose browser sends a user agent on the crawler list
 - WHEN they get the 403 page
-- THEN it says plainly that automated access to chapters isn't allowed, and links to the home page and `/about`
+- THEN it says plainly that automated access to chapters isn't allowed, and that a person seeing this can try another browser or turn off the tool that changed theirs
+- AND it links to the home page and `/about`
 
 ### Refusals are counted by reason
 - GIVEN requests refused or throttled by either Worker
