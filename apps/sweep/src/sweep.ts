@@ -378,10 +378,16 @@ async function sweepRemoved(
     bucket,
     [...state.uploads].map((id) => `originals/${id}.epub`),
   );
+  let previous: string | undefined;
   for (;;) {
     // The trailing slash keeps `works/12/` from reaching `works/123/`. No cursor: what was
     // listed is gone, so the next listing starts at what is left.
     const page = await bucket.list({ prefix: folder, limit: PAGE });
+    const first = page.objects[0]?.key;
+    // The same first key again: the delete took nothing, or a writer put it back. Left for a
+    // later run, rather than spending the budget on a loop that makes no progress.
+    if (first !== undefined && first === previous) return;
+    previous = first;
     if (page.objects.length > 0) {
       await bucket.delete(page.objects.map((o) => o.key));
       report.removedObjectsDeleted += page.objects.length;

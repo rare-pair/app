@@ -313,6 +313,21 @@ describe("sweep of a removed work", () => {
     expect(keys()).toEqual([]);
   });
 
+  it("A delete that takes nothing doesn't spend the budget on the same page", async () => {
+    await removeWork(43_023);
+    const { bucket } = pagingBucket({
+      "works/43023/1.html": "",
+      "works/43023/2.html": "",
+      "works/43023/3.html": "",
+    });
+    const stuck: SweepBucket = { ...bucket, delete: async () => {} };
+
+    const report = await sweep({ db: t.db, bucket: stuck, cutoff: new Date(0), limits: LIMITS });
+
+    expect(LIMITS.subrequests - report.subrequestsLeft).toBeLessThan(10);
+    expect(report.finished).toBe(true);
+  });
+
   it("A removed work with a job running keeps its files, and the report says so", async () => {
     const userId = await removeWork(43_022);
     const uploadId = "66666666-6666-4666-8666-666666666666";
