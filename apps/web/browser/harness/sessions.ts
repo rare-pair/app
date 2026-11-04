@@ -59,6 +59,7 @@ export async function signedIn(
       throw new Error(`signing ${email} in was refused: ${page.url()}`);
     }
   } finally {
+    site.dropRecording(page);
     await page.close();
   }
   const user = await site.db
