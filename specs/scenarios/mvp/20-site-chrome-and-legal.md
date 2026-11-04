@@ -70,7 +70,7 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - GIVEN a signed-in account that has not accepted the terms
 - WHEN a page that is open to it renders
 - THEN the header is the signed-in one, as ruled
-- AND "Add work" and "My uploads" lead back to the terms page until they are accepted, since the terms gate sends the account there
+- AND "Search", "Add work" and "My uploads" lead back to the terms page until they are accepted, since the terms gate sends the account there (it has no exception for `/search`)
 
 ### Pages without the full header
 - GIVEN a cross-site post refused before the session is read, or a missing static file

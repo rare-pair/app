@@ -147,7 +147,7 @@
     "PRELAUNCH": "on",
     // The public Turnstile sitekey of every Turnstile form: coming-soon, sign-in, upload, removal and copyright notice. This is Cloudflare's
     // always-passes test sitekey: replace it with the real one before launch. Cloudflare
-    // refuses its tokens under a real secret key, so until then those forms fail closed (the copyright notice form too: its <noscript> email is the only way to send one).
+    // refuses its tokens under a real secret key, so until then those forms fail closed (the copyright notice form too: the page's email address is the only way to send one).
     "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
     // The bucket presigned upload URLs PUT into, under uploads/ (src/presign.ts). It must be
     // the BUCKET binding's bucket_name above, which /complete and ingest read uploads from.
@@ -163,7 +163,7 @@
     // moderators' real address in its place (`wrangler deploy --var MODERATORS_EMAIL:...`);
     // the repo's code, notes and tests never hold one.
     "MODERATORS_EMAIL": "moderators@example.invalid",
-    // Where the copyright notice page's <noscript> message sends a visitor without JavaScript.
+    // The address the copyright notice page names: in its <noscript> message for a visitor without JavaScript, and on its refusals.
     // The mailbox must exist and be read: mail there doesn't reach the takedowns queue.
     "NOTICES_EMAIL": "admin@rarepair.fans",
     // The most uploads an account may confirm in a UTC day (src/quota.ts): the new-account

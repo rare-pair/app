@@ -62,6 +62,28 @@ describe("site header journeys", () => {
     await page.getByRole("heading", { level: 1 }).waitFor();
   });
 
+  it("Sign out works from the keyboard: Tab to the button, Enter, and the header is the signed-out one", async () => {
+    const { site } = running;
+    const { context } = await signedIn(site, { email: "nav-keyboard-out@example.test" });
+    const page = await context.newPage();
+    await page.goto(`${SITE}/`);
+    const header = page.getByRole("banner");
+
+    const reached: string[] = [];
+    for (let i = 0; i < 12 && !reached.includes("Sign out"); i += 1) {
+      await page.keyboard.press("Tab");
+      // SAFETY: after a Tab, the focused element is one of the page's links or buttons.
+      const focused = () => (document.activeElement as HTMLElement).innerText;
+      reached.push(await page.evaluate(focused));
+    }
+    expect(reached.at(-1)).toBe("Sign out");
+
+    await page.keyboard.press("Enter");
+    await header.getByRole("link", { name: "Sign in" }).waitFor();
+    expect(await header.getByRole("button", { name: "Sign out" }).count()).toBe(0);
+    expect(await header.getByRole("link", { name: "My uploads" }).count()).toBe(0);
+  });
+
   it("A moderator's Admin opens /admin, and Sign out is reachable by keyboard", async () => {
     const { site } = running;
     const { context } = await signedIn(site, {

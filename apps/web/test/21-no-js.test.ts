@@ -287,6 +287,7 @@ const ENTRIES = (): Entry[] => [
     order: [...CHROME, "<form"],
   },
   { name: "accept terms", path: "/welcome/terms", who: "newcomer", order: [...CHROME, "<form"] },
+  { name: "sign out", path: "/logout", who: "reader", order: [...CHROME, "<form"] },
   {
     name: "upload",
     path: "/upload",

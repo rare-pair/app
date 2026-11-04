@@ -152,7 +152,7 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - THEN the response is a 500 page that says sign-out didn't work and asks the person to try again, with the same "Sign out" button
 - AND it does not clear the session cookie and has no `Clear-Site-Data`, and nothing on it says the person is signed out
 - AND the session row and the cookie still work, and posting again once the database recovers signs out as usual
-- AND this holds in production only once the check's read is not served from Hyperdrive's query cache (#574)
+- AND this holds in production once the check's read is on the uncached `HYPERDRIVE` binding (deploy step 4 in ARCHITECTURE's *Connections*)
 - AND the check runs for the session the request's cookie resolved to: a cookie that resolves to none gets the "without a session" answer
 
 ### Sign-out with the database unreachable is not a success and logs no address
@@ -200,7 +200,7 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - GIVEN a user who signed out
 - WHEN a request carries the session cookie it had before
 - THEN the request is signed out: `/logout` says so and `/me/uploads` redirects to `/login`
-- AND this holds in production only once the session lookup is not served from Hyperdrive's query cache (#574)
+- AND this holds in production once the session lookup is on the uncached `HYPERDRIVE` binding (deploy step 4 in ARCHITECTURE's *Connections*)
 
 ### A refresh due on the sign-out request does not undo it
 - GIVEN a signed-in user whose session is due to be extended

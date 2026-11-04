@@ -94,6 +94,7 @@ Relates to: docs/ARCHITECTURE.md § Data model (reports.reporter_id, reports.kin
 - GIVEN any visitor
 - WHEN they open `/dmca`
 - THEN a statutory takedown notice form is shown
+- AND it opens, and a notice posted from it is kept, for a signed-in account that has not accepted the terms (the terms gate exempts `/dmca`, as it does `/remove`)
 - AND it needs JavaScript, for its Turnstile check: without it the page shows a `<noscript>` message that names the notices address and what a notice must say, and no notice can be submitted
 
 ### Submitting a DMCA notice creates a takedown

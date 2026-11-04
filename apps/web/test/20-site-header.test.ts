@@ -3,6 +3,7 @@ import { putFragments, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeAuth } from "../src/auth";
+import { SITE } from "../src/signin";
 import { fetchW, headerOf, signIn } from "./helpers";
 
 // Spec 20, the site header. AO3 work ids 42800 to 42899 are this file's. Addresses are
@@ -150,20 +151,33 @@ describe("20-site-chrome-and-legal: the site header", () => {
     const email = "nav-role-input@example.test";
     const cookie = await signInAs(email);
     const auth = makeAuth(env, db);
-    // The session's own update, with the role in it: refused, or ignored. Either way the
-    // row is unchanged. Better Auth's handler isn't mounted, so this is the route's only way in.
-    // SAFETY: `role` is not in the update's typed body, because input: false removes it.
-    const body = { name: "x", role: "admin" } as never;
-    await auth.api.updateUser({ headers: new Headers({ cookie }), body }).catch(() => undefined);
-    const row = await db
-      .selectFrom("user")
-      .select("role")
-      .where("email", "=", email)
-      .executeTakeFirst();
+    // Better Auth's own update-user endpoint at its real base path. The site doesn't mount
+    // this handler, so the test calls it directly: it is the request a client would send if
+    // it were mounted. First prove the endpoint works for this session (a name change goes
+    // through), then send the role with it: refused, and the row is unchanged.
+    const update = (body: object) =>
+      auth.handler(
+        new Request(`${SITE}/api/auth/update-user`, {
+          method: "POST",
+          headers: { cookie, origin: SITE, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    const rowOf = () =>
+      db.selectFrom("user").select(["name", "role"]).where("email", "=", email).executeTakeFirst();
+
+    expect((await update({ name: "nav-renamed" })).status).toBe(200);
+    expect((await rowOf())?.name).toBe("nav-renamed");
+
+    const refused = await update({ name: "nav-renamed-again", role: "admin" });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ code: "FIELD_NOT_ALLOWED" });
+    const row = await rowOf();
+    expect(row?.name).toBe("nav-renamed");
     expect(row?.role ?? null).toBeNull();
     const html = await (await fetchW("/about", { headers: { cookie } })).text();
     expect(linksOf(html).map(([t]) => t)).not.toContain("Admin");
-    expect((await fetchW("/auth/update-user", { method: "POST" })).status).toBe(404);
+    expect((await fetchW("/api/auth/update-user", { method: "POST" })).status).toBe(404);
   });
 
   it("A refusal before the session keeps the bare header, and a missing asset shows the signed-out links", async () => {
@@ -187,7 +201,8 @@ describe("20-site-chrome-and-legal: the site header", () => {
     const html = await (await fetchW("/about", { headers: { cookie } })).text();
     expect(linksOf(html).map(([t]) => t)).toEqual(["Search", "Add work", "My uploads"]);
     expect(headerOf(html)).toContain('action="/logout"');
-    for (const path of ["/upload", "/me/uploads"]) {
+    // Search too: the header's Search link is no exception, the gate sends it to the terms.
+    for (const path of ["/upload", "/me/uploads", "/search"]) {
       const res = await fetchW(path, { headers: { cookie } });
       expect(res.status, path).toBe(302);
       expect(res.headers.get("location"), path).toContain("/welcome/terms");

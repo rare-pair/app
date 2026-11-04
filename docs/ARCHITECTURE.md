@@ -898,7 +898,8 @@ origin. Work pages, listings and search stay open, so people can still find work
   `disableSignUp`. A brand-new account must accept the terms on a one-time page,
   `/welcome/terms`, before anything else: until it does, every page requested
   with its session redirects there, except that page itself, `/terms`,
-  `/privacy` and signing out. Accepting sets `user.terms_accepted_at` and
+  `/privacy`, removal requests and copyright notices (`/remove`, `/dmca`: anyone
+  can make them, and a typed notice must not be lost to a redirect) and signing out. Accepting sets `user.terms_accepted_at` and
   continues to the stored `next`. Accounts that have accepted never see the
   page again.
 - **Single use.** The token is consumed by one `DELETE … RETURNING` in
@@ -922,7 +923,7 @@ origin. Work pages, listings and search stay open, so people can still find work
   Auth clears the cookie even if deleting the row failed and `signOut` answers success
   either way, so the route reads the row of the session the cookie resolved to, by id, after `signOut` (through
   `HYPERDRIVE`; a read that a query cache could answer from before the delete would
-  mislead it, #574). If the row remains, the answer is a 500 "try again" page: no
+  mislead it; `HYPERDRIVE` is uncached once deploy step 4 in *Connections* is done). If the row remains, the answer is a 500 "try again" page: no
   cookie change, no `Clear-Site-Data`, and nothing says the person is signed out. A
   database that can't be reached is a plain 500 the same way (#588).
   Open before launch and exempt from the terms gate.
@@ -1227,10 +1228,10 @@ epub, under the normal versioning rules.
   or admin's site header has an Admin link, from the role that comes with the
   session (a display aid only: the gate above reads the role again on every
   `/admin` request and stays the authority). A promotion or demotion shows in the
-  header as late as the session lookup sees it: with Hyperdrive's query cache in
-  front of it, about a minute (accepted). The gate's own read goes through the same
-  binding, so until it is uncached (#574) a demoted moderator can also still open
-  `/admin` for about that long.
+  header, and takes effect at the gate, on the next request: the session lookup and
+  the gate's own read both go through the uncached `HYPERDRIVE` binding (see
+  *Connections*), once deploy step 4 there is done. Before that step, with Hyperdrive's
+  query cache in front, a demoted moderator can still open `/admin` for about a minute.
 
 ## Wait list
 
@@ -1506,8 +1507,16 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
      If the purge does not reach those entries, the old ones end within 12 hours of
      their store.
 
-  Not part of this list: the real Turnstile key and the notices mailbox are set elsewhere
-  (the DMCA notices are on another branch); the operator does them before launch.
+  Also before launch, not tied to the order above:
+  - **The real Turnstile key.** Put the real site key on `TURNSTILE_SITE_KEY` in
+    `apps/web/wrangler.jsonc` and the real secret as the `TURNSTILE_SECRET_KEY` secret.
+    The repo holds Cloudflare's always-passes test site key, and Cloudflare refuses its
+    tokens under a real secret, so without both every Turnstile form (sign-in, upload,
+    the wait list, `/remove`, `/dmca`) fails closed.
+  - **The notices mailbox.** `admin@rarepair.fans` (the `NOTICES_EMAIL` var) must exist
+    and be read. The copyright notice page names it for a visitor without JavaScript and
+    on its refusals. Mail sent there doesn't reach the takedowns queue: a person reads it
+    and enters the notice.
 - Queries that select `now()` or another non-immutable function are never cached by Hyperdrive.
   Some reads here still select `now()` beside a read for that reason; they stay correct
   on an uncached connection and are redundant there.
