@@ -114,6 +114,20 @@ describe("on a running site", () => {
     });
   });
 
+  describe("newContext", () => {
+    it("with javaScript off, runs none of a page's scripts", async () => {
+      const probe = async (javaScript?: boolean) => {
+        const page = await (await site.newContext({ javaScript })).newPage();
+        await page.goto(`${SITE}/login`);
+        // The login page loads Turnstile's script, which stands in as `window.turnstile`.
+        return page.evaluate(() => "turnstile" in window);
+      };
+      expect(await probe()).toBe(true);
+      expect(await probe(false)).toBe(false);
+      await site.assertClean();
+    });
+  });
+
   describe("the presigned PUT stand-in", () => {
     it("stores a PUT signed by the web Worker's method, and refuses a forged one", async () => {
       const { context } = await signedIn(site, { email: "pw0-put@example.test" });

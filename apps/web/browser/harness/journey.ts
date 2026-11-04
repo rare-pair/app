@@ -1,4 +1,5 @@
-import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { BrowserContext, Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
@@ -47,29 +48,67 @@ export function useJourneySite(options?: SiteOptions): JourneySite {
 export const syntheticEpub = (name: string) =>
   join(dirname(fileURLToPath(import.meta.url)), "../../../../fixtures/epubs/synthetic", name);
 
+/** A file to upload: the path of one on disk, or bytes built in the test under a name. */
+export type EpubFile = string | { name: string; bytes: Uint8Array };
+
+const EPUB_MIME = "application/epub+zip";
+
+/** What `setInputFiles` takes for `file`; a path on disk is read, named for its last segment. */
+const payload = (file: EpubFile) => {
+  const { name, bytes } =
+    // oxlint-disable-next-line deslop/no-runtime-typeof -- tells the string | object union apart
+    typeof file === "string" ? { name: basename(file), bytes: readFileSync(file) } : file;
+  return { name, mimeType: EPUB_MIME, buffer: Buffer.from(bytes) };
+};
+
+/** Opens /upload, picks `files` and clicks Upload, then returns without waiting for anything. */
+export async function sendFiles(page: Page, files: EpubFile[]): Promise<void> {
+  await page.goto(`${SITE}/upload`);
+  await page.setInputFiles("#file", files.map(payload));
+  await page.getByRole("button", { name: "Upload" }).click();
+}
+
 /**
- * Uploads the file at `path` through `/upload` as a signed-in `page` does, until the page says
- * it was accepted or already held, and returns the upload's id. Follow with
- * `site.waitForUpload(id)`, or `site.waitForUpload(id, "duplicate")` for a second upload.
+ * Sends `files` as `sendFiles` does and waits until every row says it was accepted or that we
+ * already have it. Returns the ids of the user's newest `files.length` uploads, in no set
+ * order. Follow with `site.waitForUpload(id)` for each.
+ */
+export async function uploadFilesThroughPage(
+  site: Site,
+  page: Page,
+  userId: string,
+  files: EpubFile[],
+): Promise<string[]> {
+  await sendFiles(page, files);
+  const rows = page.locator("#files li");
+  await expect.poll(() => rows.count()).toBe(files.length);
+  for (let i = 0; i < files.length; i++) {
+    await expect
+      .poll(() => rows.nth(i).innerText())
+      .toMatch(/Uploaded\.|We already have this one\./);
+  }
+  const ids = await site.db
+    .selectFrom("uploads")
+    .select("id")
+    .where("user_id", "=", userId)
+    .orderBy("created_at", "desc")
+    .limit(files.length)
+    .execute();
+  return ids.map(({ id }) => id);
+}
+
+/**
+ * Uploads one file through `/upload` as a signed-in `page` does, until the page says it was
+ * accepted or already held, and returns the upload's id. Follow with `site.waitForUpload(id)`,
+ * or `site.waitForUpload(id, "duplicate")` for a second upload.
  */
 export async function uploadThroughPage(
   site: Site,
   page: Page,
   userId: string,
-  path: string,
+  file: EpubFile,
 ): Promise<string> {
-  await page.goto(`${SITE}/upload`);
-  await page.setInputFiles("#file", path);
-  await page.getByRole("button", { name: "Upload" }).click();
-  await expect
-    .poll(() => page.locator("#files").innerText())
-    .toMatch(/Uploaded\.|We already have this one\./);
-  const { id } = await site.db
-    .selectFrom("uploads")
-    .select("id")
-    .where("user_id", "=", userId)
-    .orderBy("created_at", "desc")
-    .limit(1)
-    .executeTakeFirstOrThrow();
-  return id;
+  const [id] = await uploadFilesThroughPage(site, page, userId, [file]);
+  // SAFETY: one file was sent, so one id came back.
+  return id as string;
 }
