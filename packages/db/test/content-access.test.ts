@@ -127,7 +127,7 @@ describe("createDb timeouts", () => {
       },
       { connect: 5000, query: 300 },
     );
-    expect(failure?.message).toMatch(/timeout/i);
+    expect(failure?.message).toMatch(/query read timeout/i);
     expect(elapsed).toBeLessThan(2000);
   });
 });

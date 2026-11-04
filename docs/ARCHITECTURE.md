@@ -120,7 +120,7 @@ an unofficial stopgap.
     work's, an upload with no work (a refused file) and a held version's get 404, all
     with no body and `Cache-Control: no-store`. A duplicate upload follows its
     work. A cache hit needs no read. If the database can't be connected to, or can't answer,
-    within 2 s each (two client-side timeouts, one on the connection and one on the query, each shown by its own test: one against a server that never answers (the connection timeout) and one against a server that accepts the connection and stalls the query (the query timeout); there is no server-side `statement_timeout`, which pg sends as a startup parameter that Hyperdrive may not pass on; the cost is that Postgres keeps running a query the client gave up on until it finishes, and the read is a single-row lookup), the request fails closed (a request can hold its connection for up to about 4 s before it does): 503, empty, `no-store`, nothing stored and no bytes sent.
+    within 2 s each (two client-side timeouts, one on the connection and one on the query, each shown by its own test: one against a server that never answers (the connection timeout) and one against a server that accepts the connection and stalls the query (the query timeout); there is no server-side `statement_timeout`, which pg sends as a startup parameter that Hyperdrive may not pass on; the cost is that Postgres keeps running a query the client gave up on until it finishes, and with a database that has stopped answering, those queries pile up with the request rate, each holding a pooled Hyperdrive connection), the request fails closed (a request can hold its connection for up to about 4 s before it does): 503, empty, `no-store`, nothing stored and no bytes sent.
     An image is judged by its work alone: images are shared by every version of a work and keyed by their content hash, so a held version's image is served once the work is live, as an unguessable URL (only its original is refused). A refusal never names the hide cause. The connection is per request and the
     logs hold an error's class name only.
 
@@ -516,8 +516,8 @@ Chapter text isn't indexed.
    deletes the one key `originals/<upload_id>.epub`, so the content host no
    longer serves it from R2. The content host serves an upload's original only
    when the upload is `live` or a `duplicate` (a refused upload gets 404 whatever its
-   work's status), so no copy of a refused upload's original is in an edge cache to
-   purge. The delete comes
+   work's status), so a refused upload's original is not served, and no
+   edge copy is expected to exist for it. The delete comes
    after the fenced write that ends the upload, and only when that write
    matched: a job that lost its lease deletes nothing, and an ended upload
    can't be claimed again, so the delete never removes a file a takeover job
@@ -1446,8 +1446,9 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
   upload status page links to the work page, so someone can meet this just after
   "done". New code that reads
   through `HYPERDRIVE` without knowing about this is fresh, and so safe.
-- **Operator steps: one ordered list.** Before launch nothing is deployed, so the order
-  of steps 1 to 5 doesn't matter; after, it does. **Pasting one id into both configs puts
+- **Operator steps: one ordered list.** Steps 1 to 3 go in this order, since each
+  needs what the one before made. Before launch nothing is deployed, so steps 3 to 5 then
+  have no order among them; once Workers are live, keep the order. **Pasting one id into both configs puts
   every read back in the cache, and no test can see it**: ids in the repo are
   placeholders, and caching is a property of the deployed config.
   1. Create a second config on the same database with caching on (`wrangler hyperdrive
