@@ -1433,7 +1433,7 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
   limit; if they do, a third uncached config for content is the fix, with its own id
   here) and the hit ratio (each data centre misses once per file per 12 hours; `HEAD`, `Range` and conditional
   requests, and every refusal (404 for a file that isn't there, 451, 503), are never
-  cached and read every time, so a scraper walking ids costs a read per request, and the
+  cached and read every time, so a scraper walking ids costs a database read and an R2 read per request (the R2 read starts with the status read and is dropped on a refusal), and the
   extra reads are unknown until launch: watch Neon's connection count and the Worker's 503s).
 - Queries that select `now()` or another non-immutable function are never cached by Hyperdrive.
   Some reads here still select `now()` beside a read for that reason; they stay correct

@@ -52,6 +52,10 @@ const REQUEST_KINDS: { name: string; init: RequestInit }[] = [
     name: "If-Modified-Since",
     init: { headers: { "if-modified-since": "Wed, 01 Jan 2020 00:00:00 GMT" } },
   },
+  {
+    name: "If-Unmodified-Since",
+    init: { headers: { "if-unmodified-since": "Wed, 01 Jan 2030 00:00:00 GMT" } },
+  },
   { name: "If-Match", init: { headers: { "if-match": '"x"' } } },
   { name: "If-Range", init: { headers: { "if-range": '"x"' } } },
 ];
@@ -206,6 +210,23 @@ describe("09-content-origin", () => {
     await expectServed(`originals/${id}.epub`, EPUB, "duplicate of a live work");
     await withDb((db) => hideWork(db, live.workId, "moderator"));
     await expectRefused(`originals/${id}.epub`, 451, "duplicate of a hidden work");
+  });
+
+  it("No other spelling of a hidden original's key returns its bytes", async () => {
+    const hidden = await seeded("hidden", "moderator");
+    const id = hidden.uploadId;
+    // Each spelling has an object under it in R2, so only a refusal keeps the bytes back.
+    const spellings = [
+      `originals/${id}.EPUB`,
+      `originals/${id}.epub.epub`,
+      `originals/${id.toUpperCase()}.epub`,
+    ];
+    for (const key of spellings) {
+      await E.BUCKET.put(key, EPUB);
+      const { res, body } = await request(key);
+      expect(res.status, key).not.toBe(200);
+      expect(body.byteLength, key).toBe(0);
+    }
   });
 
   it("An original's key without .epub is checked the same way", async () => {

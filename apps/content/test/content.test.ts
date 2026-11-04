@@ -455,6 +455,7 @@ describe("edge cache (#513)", () => {
       { range: "bytes=0-3" },
       { "if-none-match": '"x"' },
       { "if-modified-since": "Wed, 01 Jan 2020 00:00:00 GMT" },
+      { "if-unmodified-since": "Wed, 01 Jan 2030 00:00:00 GMT" },
       { "if-match": '"x"' },
       { "if-range": '"x"' },
     ];
@@ -463,6 +464,6 @@ describe("edge cache (#513)", () => {
       expect(res.res.status, JSON.stringify(headers)).toBe(200);
       expect(res.body, JSON.stringify(headers)).toEqual(PNG);
     }
-    expect(counter.reads).toBe(7);
+    expect(counter.reads).toBe(8);
   });
 });

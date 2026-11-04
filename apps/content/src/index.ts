@@ -17,8 +17,7 @@ const QUERY_TIMEOUT_MS = 2000;
 // and #581 splits it off. Both are set here, and nowhere else.
 const EDGE_SECONDS = 12 * 60 * 60;
 const BROWSER_SECONDS = 365 * 24 * 60 * 60;
-const cacheControl = () =>
-  `public, max-age=${BROWSER_SECONDS}, immutable, s-maxage=${EDGE_SECONDS}`;
+const CACHE_CONTROL = `public, max-age=${BROWSER_SECONDS}, immutable, s-maxage=${EDGE_SECONDS}`;
 
 // The only keys this origin serves. Images are keyed by the SHA-256 of their bytes
 // (ARCHITECTURE, EPUB processor step 6), so an image path is versioned by its key.
@@ -45,7 +44,14 @@ function respond(body: BodyInit | null, status: number, headers: Record<string, 
 }
 
 // Requests the cache would answer differently from the Worker (206, 304): they skip it.
-const BYPASS_HEADERS = ["range", "if-none-match", "if-modified-since", "if-match", "if-range"];
+const BYPASS_HEADERS = [
+  "range",
+  "if-none-match",
+  "if-modified-since",
+  "if-unmodified-since",
+  "if-match",
+  "if-range",
+];
 
 /** Logs the kind of error only: never its message, and never the URL, which names the work. */
 // oxlint-disable-next-line deslop/no-unknown-parameters -- it takes whatever a catch caught, and reads only its name
@@ -165,7 +171,8 @@ export default {
     let object: R2ObjectBody | null;
     try {
       object = await reading;
-    } catch {
+    } catch (error) {
+      logFailure("object read", error);
       return respond(null, 503, { "Cache-Control": "no-store" });
     }
     if (!object) return notFound();
@@ -174,7 +181,7 @@ export default {
     // its stored type only when it is one of the four that ingest writes.
     const stored = object.httpMetadata?.contentType ?? "";
     const response = respond(object.body, 200, {
-      "Cache-Control": cacheControl(),
+      "Cache-Control": CACHE_CONTROL,
       ...(isOriginal
         ? { "Content-Type": "application/epub+zip", "Content-Disposition": "attachment" }
         : { "Content-Type": IMAGE_TYPES.has(stored) ? stored : "application/octet-stream" }),
