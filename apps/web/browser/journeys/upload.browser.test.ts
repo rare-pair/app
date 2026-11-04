@@ -44,11 +44,12 @@ describe("upload journey", () => {
     await site.waitForUpload(id);
 
     await page.goto(`${SITE}/works/1000104`);
-    const imageLoaded = page.waitForResponse((res) =>
-      res.url().startsWith(`https://${CONTENT_HOST}/works/1000104/img/`),
-    );
-    await page.locator(".chapters a").first().click();
-    const image = await imageLoaded;
+    const [image] = await Promise.all([
+      page.waitForResponse((res) =>
+        res.url().startsWith(`https://${CONTENT_HOST}/works/1000104/img/`),
+      ),
+      page.locator(".chapters a").first().click(),
+    ]);
     expect(image.status()).toBe(200);
     expect(image.headers()["content-type"]).toBe("image/png");
     expect(image.headers()["x-content-type-options"]).toBe("nosniff");

@@ -33,6 +33,8 @@ export function useJourneySite(options?: SiteOptions): JourneySite {
       const opened = site.contexts().filter((context) => !before.has(context));
       await Promise.all(opened.map((context) => context.close()));
     }
+    // Anything reported while they closed is this test's too, not the next one's.
+    await site.assertClean();
   });
   // When startSite failed there is nothing to close, and its error is the one to see.
   afterAll(async () => {

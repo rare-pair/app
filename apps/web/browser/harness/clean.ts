@@ -1,4 +1,7 @@
+import { setTimeout as delay } from "node:timers/promises";
 import type { BrowserContext } from "playwright";
+
+const FLUSH_MS = 5000;
 
 /** What a test may have expected to go wrong: a problem matching one of these is excused. */
 export type CleanOptions = { allow?: RegExp[] };
@@ -29,7 +32,15 @@ export function cleanCheck(offSite: string[]) {
      */
     assertClean: async ({ allow = [] }: CleanOptions = {}) => {
       const pages = contexts.flatMap((context) => context.pages());
-      await Promise.allSettled(pages.map((page) => page.evaluate("0")));
+      await Promise.all(
+        pages.map(async (page) => {
+          const answered = page.evaluate("true").catch(() => true);
+          const timedOut = delay(FLUSH_MS, false, { ref: false });
+          if (!(await Promise.race([answered, timedOut]))) {
+            problems.push(`no answer from the page in ${FLUSH_MS} ms: ${page.url()}`);
+          }
+        }),
+      );
       const found = [
         ...problems.splice(0),
         ...offSite.slice(offSiteSeen).map((url) => `off-site request: ${url}`),

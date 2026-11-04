@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -13,6 +13,8 @@ import { r2PutWorker } from "./r2-put";
 
 /** apps/, where each Worker's folder is. */
 const APPS = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+
+const BUNDLE_TIMEOUT_MS = 120_000;
 
 /** The Workers a site runs, by their folders under apps/. */
 type App = "web" | "ingest" | "content";
@@ -39,19 +41,35 @@ async function bundleWorker(app: App): Promise<string> {
   await promisify(execFile)(
     process.execPath,
     [join(dirname(wrangler), "bin/wrangler.js"), "deploy", "--dry-run", "--outdir", outdir],
-    { cwd: join(APPS, app), env },
-  );
+    { cwd: join(APPS, app), env, timeout: BUNDLE_TIMEOUT_MS },
+  ).catch(async (error: Error) => {
+    await rm(outdir, { recursive: true });
+    throw error;
+  });
   return outdir;
 }
 
-/** Bundles the three Workers, side by side. */
+/** Bundles the three Workers, side by side. If one fails, leaves no folder behind. */
 export async function bundleWorkers(): Promise<WorkerBundles> {
-  const [web, ingest, content] = await Promise.all([
+  const results = await Promise.allSettled([
     bundleWorker("web"),
     bundleWorker("ingest"),
     bundleWorker("content"),
   ]);
-  return { web, ingest, content };
+  const [web, ingest, content] = results;
+  if (
+    web.status === "fulfilled" &&
+    ingest.status === "fulfilled" &&
+    content.status === "fulfilled"
+  ) {
+    return { web: web.value, ingest: ingest.value, content: content.value };
+  }
+  await Promise.all(
+    results.flatMap((r) => (r.status === "fulfilled" ? [rm(r.value, { recursive: true })] : [])),
+  );
+  throw new Error("Bundling a Worker failed", {
+    cause: results.flatMap((r) => (r.status === "rejected" ? [r.reason] : [])),
+  });
 }
 
 /**
@@ -156,6 +174,11 @@ export async function startWorker({
       ],
     }),
   );
-  const url = await mf.ready;
-  return { mf, port: Number(url.port) };
+  try {
+    const url = await mf.ready;
+    return { mf, port: Number(url.port) };
+  } catch (error) {
+    await mf.dispose();
+    throw error;
+  }
 }
