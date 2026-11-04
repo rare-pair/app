@@ -71,17 +71,18 @@ Every route follows the guideline, for one form throughout. Keeping the table wa
 - AND the app's own handlers keep refusing by returning a response
 
 #### One same-origin guard, on every POST by default
-- GIVEN three guard middlewares, eight guard registrations listed by path, six handlers that call `isSameOrigin` themselves, and a mistyped path guarding nothing, silently
+- GIVEN two guard middlewares outside `/admin`, eight guard registrations listed by path, six handlers that call `isSameOrigin` themselves, and a mistyped path guarding nothing, silently
 - WHEN they become one `app.on("POST", "*", ...)` ahead of the session
 - THEN a POST route is guarded by being a POST route, and a new one needs no registration
 - AND the guard acts only when `matchedRoutes` from `hono/route` shows a POST route other than its own, so a POST to a URL with no such route falls through to the same 404 as today. `/admin` must look like a URL that doesn't exist (ARCHITECTURE, *Status codes*), and a 403 on unknown URLs would give it away
 - AND an idiom check finds no route registered with a method other than `.get` or `.post`, since the guard can't see a route registered as `.all`, or under another unsafe method. A later route that needs one, such as a mounted auth handler, widens the guard in the same PR
-- AND each area keeps its refusal, from one small lookup by path, matched by whole segment as `prelaunch.ts` matches `OPEN_SECTIONS`: the forbidden page, the wait list's page, uploads' JSON, and `/admin`'s 404
+- AND each area keeps its refusal, from one small lookup by path, matched by whole segment as `prelaunch.ts` matches `OPEN_SECTIONS`: the forbidden page, the wait list's page, and uploads' JSON
+- AND `/admin` and below aren't the guard's: `adminSameOrigin` stays after `adminGate`, as today. A refusal ahead of `pageState` and `disableClosedLinks` gets a different 404 body from an unknown URL, which runs both, so it would show which `/admin` routes exist
 - AND the guard passes through the routes that answer without an origin check: `POST /waitlist/unsubscribe` always, since a mail provider's one-click request sends no `Origin`, and once the archive is open `POST /waitlist` (404) and `POST /waitlist/confirm` (the archive-open page, which `test/22-waitlist-confirm.test.ts` requires from another site), since both answer before reading anything
 - AND a test shows each of those still answers as it does today
-- AND the guard is registered ahead of the session in `src/index.ts`, so a refused post costs no session lookup on any route: a refused post that carries a session cookie gets no refreshed cookie back
+- AND the guard is registered ahead of the session in `src/index.ts`, so a refused post outside `/admin` costs no session lookup: a refused post that carries a session cookie gets no refreshed cookie back
 - AND one test per refusal shows the status and body as before, and a `Cache-Control` that keeps the refusal out of shared caches
-- AND a test shows a cross-site POST to an unknown URL and to a real `/admin` route get the same answer
+- AND a test shows a cross-site POST to an unknown URL, to an unknown URL under `/admin`, and to a real `/admin` route get the same status and body, with the app's 404, before and after launch, with and without a settings cookie, and signed out and as a moderator
 - AND these changes a visitor could see are stated, not hidden:
   - An account yet to accept the terms gets the refusal, not the redirect to the terms page, on a route that checked the origin itself
   - A cross-site `POST /waitlist` before launch is refused without waiting out the response-time floor. It reads no address, so nothing about one can show in its timing
@@ -289,7 +290,7 @@ Run on the pinned versions outside the repo, type checks under the repo's `tscon
 | `csrf`'s refusal under today's `onError` | A 500 "Internal Server Error", because it throws `HTTPException`. Alone, it is a plain-text 403 |
 | `secureHeaders` | Sets its CSP on JSON too, and adds `X-Frame-Options`, `Cross-Origin-Resource-Policy` and others the app doesn't send today. Its `Referrer-Policy: no-referrer` applies to every response, where the app sets its own per route (`strict-origin` on the token pages, for one) |
 | `parseBody` behind `bodyLimit` | A streamed body over the limit gets a 413, as `readForm` refuses it, but a multipart body is read, where `readForm` never reads one |
-| `app.on("POST", "*", guard)` ahead of the session | A refusal stopped at the guard, with no session step. `/admin` got the app's 404 and `/uploads` JSON. An exempt path passed through. GET didn't reach the guard. `matchedRoutes` listed mounted POST routes by full path and the guard itself as `POST /*`, so limiting the guard to other POST routes left a cross-site POST to an unknown URL, or to a GET-only path, at the app's 404 |
+| `app.on("POST", "*", guard)` ahead of the session | A refusal stopped at the guard, with no session step or any later middleware, which is why `/admin` stays out of it. `/uploads` got JSON. An exempt path passed through. GET didn't reach the guard. `matchedRoutes` listed mounted POST routes by full path and the guard itself as `POST /*`, so limiting the guard to other POST routes left a cross-site POST to an unknown URL, or to a GET-only path, at the app's 404 |
 | `c.req.param("id")` type | `string` inline, in a sub-router and in `Context<E, "/works/:id">`. `string \| undefined` in a plain `Context<E>`, **and in `createHandlers`, which the docs offer as the typed form** |
 | Feature routers | `c.notFound()` and a throw inside a router reach the parent's `notFound` and `onError`. `/login` from a router's `/` gives 200, and `/login/` gives 404. Two routers can share a base. HEAD works. A path in a `const` literal, like `SETTINGS_PATH`, keeps the parameter's type |
 | A router's `use()` on a shared base | Runs on routers mounted after it: `/x/r` went through a gate that belonged to another router on `/x`. Mounted the other way round, it didn't |
