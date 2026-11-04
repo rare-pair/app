@@ -341,6 +341,7 @@ describe("edge cache (#513)", () => {
           "Cache-Control": "public, max-age=31536000, immutable, s-maxage=43200",
           "Content-Type": "image/png",
           Age: "39600",
+          ETag: '"stored"',
         },
       }),
     );
@@ -349,6 +350,7 @@ describe("edge cache (#513)", () => {
     expect(counter.reads).toBe(0);
     expect(res.headers.get("cache-control")).toBe(BROWSER_CACHE_CONTROL);
     expect(res.headers.has("age")).toBe(false);
+    expect(res.headers.has("etag")).toBe(false);
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     await uncache(IMAGE_KEY);
   });

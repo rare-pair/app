@@ -13,10 +13,10 @@ const QUERY_TIMEOUT_MS = 2000;
 
 // The two lifetimes of a served file, each named once (#581). The data centre keeps an entry
 // for 12 hours, so a hidden work's cached copy ages out within that (a hide does not purge:
-// ARCHITECTURE, Author requests & takedowns). A browser keeps its copy for an hour, so a
-// hidden or removed file is gone from a reader's cache soon after. Neither is `immutable`:
+// ARCHITECTURE, Author requests & takedowns). A browser keeps its copy for an hour from its
+// fetch, and a hit hands out a fresh hour, so a hidden file can last 13 hours in a browser. Neither is `immutable`:
 // these files can go away. The entry is stored under the edge's `max-age`, not `s-maxage`:
-// the Cache API honours `max-age` when it stores, and what a browser is sent is rewritten on
+// the local Cache API honours `max-age` when it stores (not measured on the live zone), and what a browser is sent is rewritten on
 // every response, hit or miss, so the edge's longer lifetime never reaches a browser.
 const EDGE_SECONDS = 12 * 60 * 60;
 const BROWSER_SECONDS = 60 * 60;
@@ -83,12 +83,13 @@ async function putEntry(url: string, response: Response) {
 
 /**
  * A cached entry as a browser gets it: its stored headers with the browser's lifetime, and no
- * `Age` (a cache may add one, and a browser would take it off the hour). It goes out through
+ * `Age`, `ETag` or `Last-Modified` (an Age would be taken off the hour, and a validator would
+ * make a reload conditional, which skips the cache). It goes out through
  * respond(), so `nosniff` is set whatever the entry holds.
  */
 function forBrowser(entry: Response) {
   const headers = Object.fromEntries(entry.headers);
-  delete headers.age;
+  for (const name of ["age", "etag", "last-modified"]) delete headers[name];
   delete headers["cache-control"];
   return respond(entry.body, entry.status, { ...headers, "Cache-Control": BROWSER_CACHE_CONTROL });
 }

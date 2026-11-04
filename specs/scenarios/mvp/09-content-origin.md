@@ -58,7 +58,8 @@ Relates to: docs/ARCHITECTURE.md § System overview, § Why these pieces (Two la
 - THEN `works/<ao3_work_id>/` and the raw upload are deleted from R2
 - AND the images and download URLs are purged from the cache
 - AND later requests to the site for them no longer return the work's bytes
-- AND it cannot reach an epub a reader has saved, or a browser's own copy, which stays for up to an hour (`max-age=3600`)
+- AND it cannot reach an epub a reader has saved, or a browser's own copy, which lasts an hour from the browser's last fetch (`max-age=3600`)
+- AND where the purge does not reach an edge entry, the entry ends 12 hours after it was stored
 
 ### A hidden work's image is refused, whatever the request
 - GIVEN work W is hidden, for any cause, and its image is in R2 and not in the edge cache
@@ -76,7 +77,8 @@ Relates to: docs/ARCHITECTURE.md § System overview, § Why these pieces (Two la
 - GIVEN work W is live and its image is in the data centre's cache
 - WHEN W is hidden and the image is requested again
 - THEN the cached copy is still served, as a hide does not purge
-- AND once the entry is gone, the next request is refused with 451
+- AND the entry is gone at most 12 hours after it was stored (`max-age=43200`), and the next request is refused with 451
+- AND a browser that fetched the copy from the edge keeps it for an hour from that fetch, so up to 13 hours after the hide
 
 ### A refusal names no cause
 - GIVEN work W is hidden by a removal request

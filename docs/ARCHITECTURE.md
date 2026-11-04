@@ -1031,7 +1031,8 @@ epub, under the normal versioning rules.
     cache gets 451 (see Hosts), and the data centres' cached copies age out within
     12 hours of being stored, so a hidden work's images can stay visible for up to
     12 hours after the hide, in each data centre that cached them. A browser keeps
-    an image or original it already has for up to an hour, and nothing here purges it. A restore needs no action: the next
+    an image or original it already has for an hour, and a cache hit gives it a fresh hour,
+    so a browser can show it up to 13 hours after the hide (see *Edge cache*); nothing here purges it. A restore needs no action: the next
     miss reads `live` and fills the cache again. A declared automated client gets
     a 403 on the chapter URLs and `/full` instead (Crawlers and agents).
   - **Held** (a `held_for_review` version, never public): 404 to the public.
@@ -1378,11 +1379,13 @@ markup: its inline `style` attributes become stylesheet rules, because
   launch. If it fails, a removed work's images and downloads stay cached for up
   to 12 hours. A request that read R2 (and a work's status) before the removal's delete
   or a hide can also store its response after a purge, and that entry too ends within
-  12 hours of its store. Browser caches are untouched, and
-  keep a response for up to an hour after a hide or a removal. The site stops serving a
-  hidden or removed work's files once the edge entry has gone (12 hours at most after a
-  hide; at the purge for a removal), and cannot reach an epub a reader has saved, or a
-  browser's copy for up to an hour. Chapter fragments are
+  12 hours of its store. Browser caches are untouched. The site
+  stops serving a hidden or removed work's files once the edge entry is gone: 12 hours from
+  its store after a hide, and at the purge for a removal if the purge reaches the entry
+  (otherwise 12 hours from its store). It cannot reach an epub a reader has saved, or a
+  browser's copy, which lasts an hour from the browser's last fetch, so up to 13 hours
+  after a hide. Entries stored before this ticket shipped carry the old headers; an operator
+  purges the content host's whole cache at deploy, so none outlives 12 hours. Chapter fragments are
   cached inside the web Worker (see Reading). Work and tag listings
   get a short cache with stale-while-revalidate.
 - Observability: Workers Logs and traces are on from day one, except that the
