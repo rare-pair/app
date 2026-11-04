@@ -155,7 +155,7 @@ describe("20-site-chrome-and-legal: the site header", () => {
     // this handler, so the test calls it directly: it is the request a client would send if
     // it were mounted. First prove the endpoint works for this session (a name change goes
     // through), then send the role with it: refused, and the row is unchanged.
-    const update = (body: object) =>
+    const update = (body: { name: string; role?: string }) =>
       auth.handler(
         new Request(`${SITE}/api/auth/update-user`, {
           method: "POST",
