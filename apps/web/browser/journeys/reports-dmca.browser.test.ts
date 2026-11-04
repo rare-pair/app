@@ -3,6 +3,7 @@ import { useJourneySite } from "../harness/journey";
 import { seedReadableWork } from "../harness/seed";
 import { signedIn } from "../harness/sessions";
 import { SITE, type Site } from "../harness/site";
+import { byAddress, startAtHome, viaFooter, viaHeader } from "../harness/walk";
 
 // A DMCA notice reaching the takedowns queue, and three accounts' reports hiding a work, through
 // the real forms. Works here take AO3 ids 42220 (notice) and 42240 (reports).
@@ -13,10 +14,9 @@ describe("reports and notices journeys", () => {
   it("A DMCA notice is stored and reaches the takedowns queue", async () => {
     const { site } = running;
     await seedReadableWork(site, { ao3WorkId: 42220, title: "pw5-Noticed work" });
-    const notice = await (await site.newContext()).newPage();
+    const notice = await startAtHome(await site.newContext());
 
-    await notice.goto(SITE);
-    await notice.locator("footer").getByRole("link", { name: "Copyright notice" }).click();
+    await viaFooter(notice, "Copyright notice");
     await notice.waitForURL(/\/dmca$/);
     await notice.getByLabel("The work here", { exact: false }).fill("42220");
     await notice
@@ -51,8 +51,10 @@ describe("reports and notices journeys", () => {
       email: "pw5-mod-takedowns@example.test",
       role: "moderator",
     });
-    const page = await moderator.context.newPage();
-    await page.goto(`${SITE}/admin/takedowns`);
+    const page = await startAtHome(moderator.context);
+    await viaHeader(page, "Admin");
+    await page.getByRole("link", { name: "Takedowns" }).click();
+    await page.waitForURL(/\/admin\/takedowns$/);
     const row = page.locator("tr", { hasText: "pw5-Noticed work" });
     await expect.poll(() => row.count()).toBe(1);
     const text = await row.innerText();
@@ -73,10 +75,12 @@ describe("reports and notices journeys", () => {
     /** Signs a new account in and has it report work 42240 for "Something else". */
     const report = async (n: number, record: boolean) => {
       const { context } = await signedIn(site, { email: `pw5-reporter${n}@example.test` });
-      const page = await context.newPage();
+      const page = await startAtHome(context);
       // The first two reporters are setup; the third's page is the journey.
       if (!record) site.dropRecording(page);
-      await page.goto(`${SITE}/works/42240`);
+      // From home, the work's card, then its Report link.
+      await page.locator(".card-title").getByRole("link", { name: "pw5-Reported work" }).click();
+      await page.waitForURL(/\/works\/42240$/);
       await page.getByRole("link", { name: "Report", exact: true }).click();
       await page.waitForURL(/\/works\/42240\/report/);
       await page.getByLabel("Something else").check();
@@ -102,7 +106,7 @@ describe("reports and notices journeys", () => {
     await stillLive(site);
     const page = await report(3, true);
 
-    const res = await page.goto(`${SITE}/works/42240`);
+    const res = await byAddress(page, "/works/42240", "the hidden work is listed nowhere");
     expect(res?.status()).toBe(451);
     expect(await page.locator("main").innerText()).toContain(
       "Temporarily hidden after reader reports",

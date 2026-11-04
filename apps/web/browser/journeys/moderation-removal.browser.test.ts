@@ -11,6 +11,7 @@ import {
 import { seedReadableWork } from "../harness/seed";
 import { signedIn } from "../harness/sessions";
 import { SITE, type Site } from "../harness/site";
+import { byAddress, startAtHome, viaHeader } from "../harness/walk";
 import { chapterSentence, generatedEpub } from "./epubs";
 
 // A moderator approves a removal: the work's pages answer 410 and its files leave the bucket the
@@ -49,7 +50,7 @@ describe("removal journeys", () => {
     const { site } = running;
     const mod = await signedIn(site, { email: requesterEmail("mod-removal"), role: "moderator" });
     // The moderator's page is the first recorded; the reader's, opened second, is the "-2" video.
-    const page = await mod.context.newPage();
+    const page = await startAtHome(mod.context);
     const reader = await (await site.newContext()).newPage();
 
     // A real upload, so the work and its original are where ingest puts them; only the image
@@ -85,7 +86,9 @@ describe("removal journeys", () => {
     expect((await site.fetch(`${CONTENT}/${originalKey}`, { headers: RANGE })).status).toBe(200);
 
     // The moderator: Requests, the row, Approve, then the confirm step.
-    await page.goto(`${SITE}/admin/requests`);
+    await viaHeader(page, "Admin");
+    await page.getByRole("link", { name: "Requests" }).click();
+    await page.waitForURL(/\/admin\/requests$/);
     await openRow(page, "(42300)");
     await approveAndRemove(page);
     await expect
@@ -100,11 +103,15 @@ describe("removal journeys", () => {
     expect((await site.fetch(`${CONTENT}/${originalKey}`)).status).toBe(404);
 
     // The reader's pages answer 410 for the work and for a chapter.
-    const work = await reader.goto(`${SITE}/works/42300`);
+    const work = await byAddress(reader, "/works/42300", "a removed work is listed nowhere");
     expect(work?.status()).toBe(410);
     await expect.poll(() => reader.locator("main").innerText()).toContain("removed");
     expect(await reader.locator("main").innerText()).not.toContain(chapterSentence(42300, 1));
-    const chapter = await reader.goto(`${SITE}/works/42300/chapters/1`);
+    const chapter = await byAddress(
+      reader,
+      "/works/42300/chapters/1",
+      "a removed work is listed nowhere",
+    );
     expect(chapter?.status()).toBe(410);
 
     // What web asked Cloudflare to purge: the work's tag, its images' prefix, its original.
@@ -133,7 +140,7 @@ describe("removal journeys", () => {
   it("Approving a takedown removes the work", async () => {
     const { site } = running;
     const mod = await signedIn(site, { email: requesterEmail("mod-takedown"), role: "moderator" });
-    const page = await mod.context.newPage();
+    const page = await startAtHome(mod.context);
     const work = await seedReadableWork(site, {
       ao3WorkId: 42301,
       title: "Synthetic Work 42301",
@@ -159,7 +166,9 @@ describe("removal journeys", () => {
     expect((await site.fetch(`${CONTENT}/${imageKey}`, { headers: RANGE })).status).toBe(200);
     expect((await site.fetch(`${CONTENT}/${originalKey}`, { headers: RANGE })).status).toBe(200);
 
-    await page.goto(`${SITE}/admin/takedowns`);
+    await viaHeader(page, "Admin");
+    await page.getByRole("link", { name: "Takedowns" }).click();
+    await page.waitForURL(/\/admin\/takedowns$/);
     await openRow(page, "(42301)");
     await approveAndRemove(page);
     await expect

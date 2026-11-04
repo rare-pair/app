@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { useJourneySite } from "../harness/journey";
 import { SITE } from "../harness/site";
 import { seedLaunched, waitlistEmailCount, waitlistLink } from "../harness/waitlist";
+import { byAddress, startAtHome, viaFooter } from "../harness/walk";
 
 // This suite uses none of the AO3 work ids set aside for it (42400-42499): a wait list needs no work.
 // The launch email goes on a queue with no sink here, so the unsubscribe journey seeds its row.
@@ -12,8 +13,7 @@ describe("wait list journey", () => {
   it("A visitor joins and confirms by the emailed link", async () => {
     const { site } = running;
     const email = "join@example.test";
-    const page = await (await site.newContext()).newPage();
-    await page.goto(`${SITE}/`);
+    const page = await startAtHome(await site.newContext());
     expect(await page.locator("h1").innerText()).toBe("rarepair is coming soon");
     await page.getByLabel("Email address").fill(email);
     await Promise.all([
@@ -22,7 +22,8 @@ describe("wait list journey", () => {
     ]);
     expect(await page.locator("h1").innerText()).toBe("Check your email to confirm");
 
-    await page.goto(await waitlistLink(site, email));
+    const emailed = new URL(await waitlistLink(site, email));
+    await byAddress(page, emailed.pathname + emailed.search, "an emailed confirmation link");
     expect(await page.locator("h1").innerText()).toBe("Confirm your address");
     // Opening the link uses nothing up: a mail scanner's prefetch can't confirm anyone.
     const opened = await site.db
@@ -49,9 +50,9 @@ describe("wait list journey", () => {
   it("A launch email's unsubscribe link removes the address", async () => {
     const { site } = running;
     const email = "unsub@example.test";
-    const link = await seedLaunched(site, email);
+    const link = new URL(await seedLaunched(site, email));
     const page = await (await site.newContext()).newPage();
-    await page.goto(link);
+    await byAddress(page, link.pathname + link.search, "an unsubscribe link in the launch email");
     expect(await page.locator("h1").innerText()).toBe("Unsubscribe");
     const held = () =>
       site.db.selectFrom("waitlist").select("email").where("email", "=", email).executeTakeFirst();
@@ -68,8 +69,10 @@ describe("wait list journey", () => {
   it("A second join and a used link answer as the first do", async () => {
     const { site } = running;
     const email = "repeat@example.test";
-    const page = await (await site.newContext()).newPage();
+    const page = await startAtHome(await site.newContext());
     const join = async () => {
+      // The home page itself, where the form is: after the emailed links the page is elsewhere,
+      // and one new page for each join would add recordings.
       await page.goto(`${SITE}/`);
       await page.getByLabel("Email address").fill(email);
       const [response] = await Promise.all([
@@ -87,7 +90,8 @@ describe("wait list journey", () => {
         .executeTakeFirstOrThrow();
 
     expect(await join()).toBe(200);
-    const link = await waitlistLink(site, email);
+    const emailed = new URL(await waitlistLink(site, email));
+    const linkPath = emailed.pathname + emailed.search;
     const first = await row();
 
     // The same page, and no second email: the address was sent one inside the hour.
@@ -98,7 +102,7 @@ describe("wait list journey", () => {
     expect(second.confirm_sent_at).toEqual(first.confirm_sent_at);
     expect(await waitlistEmailCount(site, email)).toBe(1);
 
-    await page.goto(link);
+    await byAddress(page, linkPath, "an emailed confirmation link");
     await Promise.all([
       page.waitForEvent("load"),
       page.getByRole("button", { name: "Confirm" }).click(),
@@ -112,7 +116,7 @@ describe("wait list journey", () => {
     expect(await waitlistEmailCount(site, email)).toBe(1);
 
     // The used link shows its button again, and refuses when it is pressed.
-    await page.goto(link);
+    await byAddress(page, linkPath, "the same emailed confirmation link, used");
     // Nothing logged so far was a refusal: only the one below is expected.
     await site.assertClean();
     const [refused] = await Promise.all([
@@ -137,8 +141,8 @@ describe("wait list journey", () => {
 
   it("Before launch the footer's Remove link and the not-found search are disabled", async () => {
     const { site } = running;
-    const page = await (await site.newContext()).newPage();
-    await page.goto(`${SITE}/about`);
+    const page = await startAtHome(await site.newContext());
+    await viaFooter(page, "About");
     const footer = page.locator("footer");
     for (const name of ["Remove my work", "Copyright notice"]) {
       const link = footer.getByText(name, { exact: true });
@@ -159,7 +163,11 @@ describe("wait list journey", () => {
     expect(focused).not.toContain("Remove my work");
     expect(focused).not.toContain("Copyright notice");
 
-    const response = await page.goto(`${SITE}/waitlist`);
+    const response = await byAddress(
+      page,
+      "/waitlist",
+      "a typed address: the closed route a no-JavaScript visitor could still reach",
+    );
     expect(response?.status()).toBe(404);
     await page.getByText("Search the archive").waitFor();
     expect(await page.locator("#q").isDisabled()).toBe(true);

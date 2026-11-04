@@ -1,4 +1,4 @@
-import type { BrowserContext, Page } from "playwright";
+import type { BrowserContext, Page, Response } from "playwright";
 import { SITE } from "./site";
 
 // How a journey gets about the way a person does: from the home page, by the links on it.
@@ -36,7 +36,7 @@ export const viaFooter = (page: Page, name: string) => clickIn(page, "contentinf
  * required so every direct address in a journey gives its reason, and a search for
  * `byAddress` lists them.
  */
-export async function byAddress(page: Page, path: string, why: string): Promise<void> {
+export async function byAddress(page: Page, path: string, why: string): Promise<Response | null> {
   if (why.trim() === "") throw new Error(`byAddress(${path}) needs the reason for the address`);
-  await page.goto(`${SITE}${path}`);
+  return page.goto(`${SITE}${path}`);
 }
