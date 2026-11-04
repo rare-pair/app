@@ -92,12 +92,27 @@ const emptyNotice: Notice = {
 };
 
 /**
- * The page without JavaScript: one paragraph, no markup inside it. It lists what the form
- * asks for, with the two statements in the form's own words, so a notice sent to `notices`
- * can carry the same elements. Draft copy.
+ * How to send a notice by email: what the form asks for, with the two statements in its own
+ * words, so a notice sent to `notices` can carry the same elements. Plain text with no
+ * markup, for the page without JavaScript and for a refusal. Draft copy.
  */
+const byEmail = (notices: string) =>
+  `To send a copyright notice by email instead, write to ${escapeHtml(notices)} and include: (1) the work here, by its address or number; (2) the copyrighted work you say is infringed; (3) the material you say infringes it, and where on the work it is; (4) your name, address, telephone number and email address; (5) this statement: ${escapeHtml(GOOD_FAITH)} (6) this statement: ${escapeHtml(ACCURACY_AUTHORITY)} (7) your full name, as your signature. A person reads that mailbox, and a notice sent there does not reach the online queue, so it can take longer to be seen.`;
+
+/** The page without JavaScript: one paragraph, no markup inside it. */
 const noscriptMessage = (notices: string) =>
-  `This form needs JavaScript, for its anti-spam check. To send a copyright notice without it, email ${escapeHtml(notices)} and include: (1) the work here, by its address or number; (2) the copyrighted work you say is infringed; (3) the material you say infringes it, and where on the work it is; (4) your name, address, telephone number and email address; (5) this statement: ${escapeHtml(GOOD_FAITH)} (6) this statement: ${escapeHtml(ACCURACY_AUTHORITY)} (7) your full name, as your signature. A person reads that mailbox, and a notice sent there does not reach the online queue, so it can take longer to be seen.`;
+  `This form needs JavaScript, for its anti-spam check. ${byEmail(notices)}`;
+
+/** Under a refusal that stops the form working, so a visitor whose check is blocked can still send a notice. */
+const fallbackMessage = (notices: string) =>
+  `If this keeps happening, the form may not work for you. ${byEmail(notices)}`;
+
+/** What a page of the form shows besides its fields: what was typed, an error, and the email fallback. */
+interface PageState {
+  notice?: Notice;
+  error?: string;
+  fallback?: boolean;
+}
 
 /**
  * The form. Every typed value is escaped. A form that comes back keeps what was typed, so
@@ -106,18 +121,15 @@ const noscriptMessage = (notices: string) =>
  * JavaScript nothing can be submitted.
  */
 const dmcaPage = (
-  nonce: string,
-  siteKey: string,
-  notices: string,
-  notice: Notice = emptyNotice,
-  error?: string,
+  { nonce, siteKey, notices }: { nonce: string; siteKey: string; notices: string },
+  { notice = emptyNotice, error, fallback = false }: PageState = {},
 ) =>
   layout(
     "Copyright notice",
     `<p class="draft">Draft: this text has not been proofread yet.</p>
-${error === undefined ? "" : `<p role="alert">${escapeHtml(error)}</p>\n`}<noscript><p>${noscriptMessage(notices)}</p></noscript>
-<p>Use this form to tell us that a work here infringes your copyright. A notice that leaves something out is still kept, and a moderator looks at it, but it may not be enough for us to act on. This is not legal advice.</p>
+${error === undefined ? "" : `<p role="alert">${escapeHtml(error)}</p>\n`}${fallback ? `<p>${fallbackMessage(notices)}</p>\n` : ""}<noscript><p>${noscriptMessage(notices)}</p></noscript>
 <form id="dmca" class="dmca-form" method="post" action="/dmca" hidden>
+<p>Use this form to tell us that a work here infringes your copyright. A notice that leaves something out is still kept, and a moderator looks at it, but it may not be enough for us to act on. This is not legal advice.</p>
 <label for="work">The work here (its address, or its number)</label>
 <input id="work" name="work" type="text" maxlength="${MAX_WORK}" required value="${escapeHtml(notice.work)}">
 <label for="copyrighted_work">The copyrighted work you say is infringed (up to ${MAX_FIELD} characters)</label>
@@ -150,7 +162,15 @@ const receivedPage = () =>
 
 /** `GET /dmca`: the form, for anyone. */
 export const showDmcaForm = (c: DmcaContext) =>
-  c.html(dmcaPage(c.get("nonce"), c.env.TURNSTILE_SITE_KEY, c.env.NOTICES_EMAIL), 200, NO_STORE);
+  c.html(
+    dmcaPage({
+      nonce: c.get("nonce"),
+      siteKey: c.env.TURNSTILE_SITE_KEY,
+      notices: c.env.NOTICES_EMAIL,
+    }),
+    200,
+    NO_STORE,
+  );
 
 /** Each text field, with line breaks as one (a browser sends CRLF) and NULs, which Postgres text can't hold, dropped. */
 const text = (form: URLSearchParams, name: string) =>
@@ -158,25 +178,28 @@ const text = (form: URLSearchParams, name: string) =>
 
 /**
  * `POST /dmca`, behind `sameOriginOnly`: stores a notice, once its Turnstile token
- * passes. The client's limit is counted before the body is read, so a flood costs neither.
- * Every refusal gives the form back with what was typed and a fresh widget.
+ * passes. The client's limit is counted first, before any check. Every refusal, the limit's
+ * 429 included, gives the form back with what was typed and a fresh widget.
  */
 export async function submitDmca(c: DmcaContext) {
   const clientIp = c.req.header("cf-connecting-ip") ?? null;
-  if (await isLimited(c.env.DMCA_IP_LIMIT, await ipKey("dmca", clientIp))) {
-    return tooManyRequests(DMCA_WINDOW_SECONDS);
-  }
+  const limited = await isLimited(c.env.DMCA_IP_LIMIT, await ipKey("dmca", clientIp));
 
-  const nonce = c.get("nonce");
-  const siteKey = c.env.TURNSTILE_SITE_KEY;
-  const page = (notice: Notice, error: string) =>
-    dmcaPage(nonce, siteKey, c.env.NOTICES_EMAIL, notice, error);
+  const where = {
+    nonce: c.get("nonce"),
+    siteKey: c.env.TURNSTILE_SITE_KEY,
+    notices: c.env.NOTICES_EMAIL,
+  };
+  const page = (state: PageState) => dmcaPage(where, state);
 
+  // The body is bounded, so it is read even when the client is over its limit: a long notice
+  // comes back in the form instead of being lost. One too large for that gets the plain 429.
   const form = await readForm(c.req.raw, MAX_DMCA_BODY);
+  if (limited && form === null) return tooManyRequests(DMCA_WINDOW_SECONDS);
   // Nothing of it is shown back: the form comes again empty.
   if (form === null) {
     const error = "That notice was too large. Please try again.";
-    return c.html(page(emptyNotice, error), 413, NO_STORE);
+    return c.html(page({ error }), 413, NO_STORE);
   }
   const notice: Notice = {
     work: text(form, "work"),
@@ -187,7 +210,16 @@ export async function submitDmca(c: DmcaContext) {
     goodFaith: form.get("good_faith") === "yes",
     accuracyAuthority: form.get("accuracy_authority") === "yes",
   };
-  const back = (error: string) => c.html(page(notice, error), 400, NO_STORE);
+  const back = (error: string) => c.html(page({ notice, error }), 400, NO_STORE);
+
+  if (limited) {
+    const wait = DMCA_WINDOW_SECONDS;
+    const error = `Too many requests in a short time. Your notice is kept below: please try again in ${wait} seconds.`;
+    return c.html(page({ notice, error, fallback: true }), 429, {
+      ...NO_STORE,
+      "Retry-After": String(wait),
+    });
+  }
 
   // Before any field is looked at, so nothing is stored or answered for a post that isn't
   // solved; what was typed still comes back.
@@ -197,10 +229,13 @@ export async function submitDmca(c: DmcaContext) {
     action: TURNSTILE_ACTIONS.dmca,
     remoteIp: clientIp,
   });
-  if (turnstile === "failed") return back("The anti-spam check did not pass. Please try again.");
+  if (turnstile === "failed") {
+    const error = "The anti-spam check did not pass. Please try again.";
+    return c.html(page({ notice, error, fallback: true }), 400, NO_STORE);
+  }
   if (turnstile === "unavailable") {
     const error = "The anti-spam check is not answering just now. Please try again in a minute.";
-    return c.html(page(notice, error), 503, NO_STORE);
+    return c.html(page({ notice, error, fallback: true }), 503, NO_STORE);
   }
 
   // The server checks, since a form can be posted by hand.
@@ -227,7 +262,7 @@ export async function submitDmca(c: DmcaContext) {
     if (!work) {
       // The form comes back with what was typed, so a mistaken address costs no retyping.
       const error = "That work is not in the archive, so nothing was sent.";
-      return c.html(page(notice, error), 404, NO_STORE);
+      return c.html(page({ notice, error }), 404, NO_STORE);
     }
     await db
       .insertInto("takedowns")

@@ -172,6 +172,7 @@ describe("17-reports-and-dmca: DMCA", () => {
       expect(res.headers.get("cache-control")).toBe("no-store");
       const html = await res.text();
       expect(html).toContain("The anti-spam check did not pass.");
+      expect(html).toContain(`write to ${env.NOTICES_EMAIL} and include`);
       // Everything typed comes back, with a fresh widget.
       expect(html).toContain(marker);
       expect(html).toContain("x8 The whole text of the work named above");
@@ -219,6 +220,7 @@ describe("17-reports-and-dmca: DMCA", () => {
     expect(res.headers.get("cache-control")).toBe("no-store");
     const html = await res.text();
     expect(html).toContain("The anti-spam check is not answering just now.");
+    expect(html).toContain(`write to ${env.NOTICES_EMAIL} and include`);
     expect(html).toContain(marker);
     expect(html).toContain('class="cf-turnstile"');
     expect(await noticesFrom(marker)).toEqual([]);
@@ -242,6 +244,59 @@ describe("17-reports-and-dmca: DMCA", () => {
     }
     const res = await postNotice({ ...COMPLETE, "cf-turnstile-response": "" }, { ip });
     expect(res.status).toBe(429);
+  });
+
+  it("A long notice over the limit comes back in the form, with a fresh widget and the address", async () => {
+    await windowHeadroom(60);
+    const ip = freshIp();
+    for (let i = 0; i < DMCA_IP_LIMIT; i++) {
+      await postNotice({ ...COMPLETE, work: String(UNKNOWN) }, { ip });
+    }
+    const long = `x8 ${"b".repeat(3990)}`;
+    const marker = `x8-limit-keep-${crypto.randomUUID()}`;
+    const res = await postNotice(
+      {
+        ...COMPLETE,
+        copyrighted_work: long,
+        infringing_material: long,
+        contact: `${marker} ${long}`,
+        signature: "x8 Pat Example",
+      },
+      { ip },
+    );
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("60");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const html = await res.text();
+    expect(html).toContain("Too many requests");
+    expect(html.split(long).length - 1).toBe(3);
+    expect(html).toContain(marker);
+    expect(html).toMatch(/name="good_faith" value="yes" checked/);
+    expect(html).toMatch(/name="accuracy_authority" value="yes" checked/);
+    expect(html).toContain('class="cf-turnstile"');
+    expect(html).toContain(`write to ${env.NOTICES_EMAIL} and include`);
+    expect(await noticesFrom(marker)).toEqual([]);
+  });
+
+  it("A body too large to keep gets the plain 429 over the limit", async () => {
+    await windowHeadroom(60);
+    const ip = freshIp();
+    for (let i = 0; i < DMCA_IP_LIMIT; i++) {
+      await postNotice({ ...COMPLETE, work: String(UNKNOWN) }, { ip });
+    }
+    const res = await postNotice({ ...COMPLETE, contact: "c".repeat(300 * 1024) }, { ip });
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("60");
+    expect(await res.text()).not.toContain('class="cf-turnstile"');
+  });
+
+  it("The intro to the form is hidden with it, so without JavaScript nothing points at a missing form", async () => {
+    const html = await (await fetchW("/dmca")).text();
+    const open = html.indexOf('<form id="dmca"');
+    const intro = html.indexOf("Use this form to tell us");
+    expect(open).toBeGreaterThan(-1);
+    expect(intro).toBeGreaterThan(open);
+    expect(html.indexOf("</form>")).toBeGreaterThan(intro);
   });
 
   it("The page without JavaScript names the notices address and what a notice needs", async () => {
