@@ -67,7 +67,7 @@ describe("Hyperdrive connections", () => {
     ["a chapter", `/works/${LIVE}/chapters/1`],
     ["the whole work", `/works/${LIVE}/full`],
     ["the warnings screen", `/works/${LIVE}/warnings`],
-  ])("Public pages read through the cached connection: %s", async (_name, path) => {
+  ])("Signed-out public pages read through the cached connection: %s", async (_name, path) => {
     const working = await fetchWith(path, {}, NO_EDGE_CACHE);
     expect(working.status).toBeLessThan(400);
     const uncachedBroken = await fetchWith(path, { HYPERDRIVE: unreachable }, NO_EDGE_CACHE);
