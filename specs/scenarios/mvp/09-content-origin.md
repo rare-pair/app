@@ -49,6 +49,7 @@ Relates to: docs/ARCHITECTURE.md § System overview, § Why these pieces (Two la
 - GIVEN the content Worker
 - WHEN a request asks it for a chapter fragment or an app page
 - THEN it does not serve chapter HTML; chapters are only rendered on `rarepair.fans`
+- AND the one other path it serves is the `robots.txt` in specs/scenarios/mvp/24-crawler-and-agent-blocking.md
 
 ### Removed work's images and downloads stop being served
 - GIVEN work W whose images and original download have been fetched and edge-cached

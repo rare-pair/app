@@ -114,13 +114,13 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Chapter rendering, Name an
 ### Hidden work's chapters and entire work return 451
 - GIVEN work H hidden after reader reports
 - WHEN anyone opens any `/works/:id/chapters/:n` or `/works/:id/full` of H
-- THEN the response status is 451
+- THEN the response status is 451, except for a declared automated client, which gets the 403 in specs/scenarios/mvp/24-crawler-and-agent-blocking.md
 - AND the page says only "Temporarily hidden after reader reports", with no chapter text or other details
 
 ### Removed work's chapters and entire work return 410
 - GIVEN work R in status `removed`
 - WHEN anyone opens any `/works/:id/chapters/:n` or `/works/:id/full` of R
-- THEN the response status is 410
+- THEN the response status is 410, except for a declared automated client, which gets the 403 in specs/scenarios/mvp/24-crawler-and-agent-blocking.md
 - AND the page says "This work has been removed" with no details
 
 ### Chapter number out of range
