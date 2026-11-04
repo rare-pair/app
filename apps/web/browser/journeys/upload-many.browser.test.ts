@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import {
   sendFiles,
   uploadFilesThroughPage,
@@ -45,6 +45,8 @@ describe("upload journeys", () => {
     // Hold the PUT, so the page has to show an upload under way.
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
+    // A failed assertion must not leave the PUT held, or closing the page would wait on it.
+    onTestFinished(() => release());
     await page.route(`https://${R2_HOST}/**`, async (route) => {
       await held;
       await route.continue();

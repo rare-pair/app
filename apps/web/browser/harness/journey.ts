@@ -70,7 +70,7 @@ export async function sendFiles(page: Page, files: EpubFile[]): Promise<void> {
 
 /**
  * Sends `files` as `sendFiles` does and waits until every row says it was accepted or that we
- * already have it. Returns the ids of the user's newest `files.length` uploads, in no set
+ * already have it. Returns the ids of the `files.length` uploads it made, in no set
  * order. Follow with `site.waitForUpload(id)` for each.
  */
 export async function uploadFilesThroughPage(
@@ -79,6 +79,11 @@ export async function uploadFilesThroughPage(
   userId: string,
   files: EpubFile[],
 ): Promise<string[]> {
+  const idsOf = async () =>
+    (await site.db.selectFrom("uploads").select("id").where("user_id", "=", userId).execute()).map(
+      ({ id }) => id,
+    );
+  const before = new Set(await idsOf());
   await sendFiles(page, files);
   const rows = page.locator("#files li");
   await expect.poll(() => rows.count()).toBe(files.length);
@@ -87,14 +92,10 @@ export async function uploadFilesThroughPage(
       .poll(() => rows.nth(i).innerText())
       .toMatch(/Uploaded\.|We already have this one\./);
   }
-  const ids = await site.db
-    .selectFrom("uploads")
-    .select("id")
-    .where("user_id", "=", userId)
-    .orderBy("created_at", "desc")
-    .limit(files.length)
-    .execute();
-  return ids.map(({ id }) => id);
+  const added = (await idsOf()).filter((id) => !before.has(id));
+  // Every row asked for a URL, so each file has an upload of its own.
+  expect(added).toHaveLength(files.length);
+  return added;
 }
 
 /**

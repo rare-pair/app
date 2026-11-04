@@ -117,10 +117,13 @@ describe("on a running site", () => {
   describe("newContext", () => {
     it("with javaScript off, runs none of a page's scripts", async () => {
       const probe = async (javaScript?: boolean) => {
-        const page = await (await site.newContext({ javaScript })).newPage();
+        const context = await site.newContext({ javaScript });
+        const page = await context.newPage();
         await page.goto(`${SITE}/login`);
         // The login page loads Turnstile's script, which stands in as `window.turnstile`.
-        return page.evaluate(() => "turnstile" in window);
+        const ran = await page.evaluate(() => "turnstile" in window);
+        await context.close();
+        return ran;
       };
       expect(await probe()).toBe(true);
       expect(await probe(false)).toBe(false);

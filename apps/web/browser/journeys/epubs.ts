@@ -17,7 +17,7 @@ export type GeneratedEpub = {
   rewritten?: number[];
 };
 
-/** Five paragraphs of five numbered sentences: 50+ words, so a small edit stays under 10%. */
+/** Five paragraphs of five numbered sentences, about 300 words: a small edit stays under 10%. */
 function chapterText(workId: number, n: number, rewritten: boolean): string[] {
   return Array.from({ length: 5 }, (_, p) =>
     Array.from({ length: 5 }, (_, s) => {
