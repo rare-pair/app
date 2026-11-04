@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emailsTo, fetchW, PASSING_TOKEN, postLogin } from "./helpers";
+import { emailsTo, fetchW, LOGIN_TOKEN, postLogin } from "./helpers";
 
 // Runs in the "prelaunch" project, with PRELAUNCH on as wrangler.jsonc deploys it.
 // Sign-in stays open before launch, so an admin can sign in for the first time.
@@ -13,7 +13,7 @@ describe("01-auth-magic-link before launch", () => {
 
     const res = await postLogin({
       email: "prelaunch-admin@example.test",
-      "cf-turnstile-response": PASSING_TOKEN,
+      "cf-turnstile-response": LOGIN_TOKEN,
     });
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("<h1>Check your email</h1>");

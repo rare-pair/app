@@ -21,7 +21,7 @@ export default defineConfig({
             main: "./src/worker.ts",
             miniflare: {
               compatibilityDate: "2026-08-01",
-              queueConsumers: ["email"],
+              queueConsumers: ["email", "email-bulk"],
               // No test reaches a real provider: a fetch that a test didn't stub gets this.
               outboundService: () =>
                 new Response("outbound network blocked in tests", { status: 599 }),
@@ -29,6 +29,7 @@ export default defineConfig({
                 // Throwaway test values, not credentials.
                 RESEND_API_KEY: "re_test_not_a_real_key",
                 MAIL_FROM: "rarepair <sign-in@mail.example.test>",
+                BULK_INTERVAL_SECONDS: "0",
               },
             },
           }),

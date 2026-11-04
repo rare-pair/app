@@ -10,3 +10,4 @@ export type {
   SeriesRef,
   Stats,
 } from "./types";
+export { BYLINE_AMBIGUOUS, BYLINE_MISSING } from "./byline";

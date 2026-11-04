@@ -3,6 +3,7 @@
 // tests reach it through the same `pg` driver `createDb` uses in production.
 // PGlite is a dev dependency here: a workspace importing this lists it too.
 import { PGlite, type ExecProtocolOptionsStream } from "@electric-sql/pglite";
+import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import type { Kysely } from "kysely";
 import { createDb } from "./client";
@@ -66,7 +67,8 @@ class OneCycleAtATime extends PGlite {
 /** A fresh, empty database. With `migrate: false`, no migration is applied. */
 export async function createTestDb(options: TestDbOptions = {}): Promise<TestDb> {
   // Not `OneCycleAtATime.create()`: PGlite's factory always builds the base class.
-  const lite = new OneCycleAtATime();
+  // pg_trgm backs fuzzy search; migration 0008 runs `create extension` for it.
+  const lite = new OneCycleAtATime({ extensions: { pg_trgm } });
   await lite.waitReady;
   const server = new PGLiteSocketServer({
     db: lite,

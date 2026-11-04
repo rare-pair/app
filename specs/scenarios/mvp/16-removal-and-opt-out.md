@@ -40,29 +40,66 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Author identity), § Data 
 - WHEN it renders
 - THEN it says plainly that no proof of identity is asked for, because there is nothing to check against while AO3 is down
 
-### Remove request by the work's URL here hides it at once
+### Remove request by the work's URL here hides it once confirmed
 - GIVEN live work W
 - WHEN a visitor submits `/remove` with W's URL on this site, a contact email, a short statement and a passing Turnstile token
-- THEN a `remove_work` request is stored
-- AND W is hidden at once
+- THEN a `remove_work` request is stored, unconfirmed, and W stays live
+- AND one confirmation email with a single-use link goes to the contact email through the mailer queue
+- WHEN the requester opens the link and presses its button
+- THEN the request is confirmed, W is hidden and its `request_works` row is written
 - AND the request awaits moderator review
 
-### Remove request by AO3 URL hides it at once
+### Remove request by AO3 URL hides it once confirmed
 - GIVEN live work W
-- WHEN a visitor submits `/remove` with `archiveofourown.org/works/12345`, a contact email, a statement and a passing Turnstile token
-- THEN W is hidden at once
+- WHEN a visitor submits `/remove` with `archiveofourown.org/works/12345`, a contact email, a statement and a passing Turnstile token, then confirms it by the emailed link
+- THEN W is hidden once the link is confirmed, and not before
 
 ### Remove request for an AO3 work not in the archive stores nothing
 - GIVEN no work in the archive with AO3 URL `archiveofourown.org/works/99999`
 - WHEN a visitor submits `/remove` with that URL, a contact email, a statement and a passing Turnstile token
-- THEN no request is stored and nothing is hidden
+- THEN no request is stored, no email is sent and nothing is hidden
 - AND the confirmation page says the work isn't in the archive and suggests opting out the pseud instead
 
 ### Confirmation page for a work
 - GIVEN a remove request for W just submitted by a requester who isn't blocked
 - WHEN the confirmation page renders
-- THEN it says "Your request was received; a moderator will review it and email you."
+- THEN it says "Check your email: we've sent a link to the address you gave. Open it and press the button to confirm your request. The link works once, for 7 days, and nothing happens until you confirm."
 - AND it says nothing about whether the work is hidden, so it reads the same as a blocked requester's
+
+### Confirmation link opens a page with a button and changes nothing
+- GIVEN an unconfirmed request and its emailed link
+- WHEN anything opens the link with a GET, as a mail scanner does
+- THEN the page shows only a Confirm button that posts the token, and the request stays unconfirmed
+- AND nothing is hidden
+
+### A confirmation link works once and expires
+- GIVEN an emailed confirmation link
+- WHEN it is used a second time, or more than 7 days after the email was sent, or its request was rejected by a moderator, or its token was never issued
+- THEN one page says the link has been used or has expired, or was never valid
+- AND nothing is hidden or written, and a press from another site is refused
+
+### Confirmation answers are the same whatever the work's status
+- GIVEN requests for a live work, a hidden work and a removed work
+- WHEN each is submitted and then confirmed
+- THEN the submit pages are identical, the emails differ only by their token, and the confirmed pages are identical
+- AND none says whether the work is live, hidden or removed
+
+### Moderators see unconfirmed requests, marked
+- GIVEN a request whose requester has not confirmed it
+- WHEN a moderator opens the requests queue or the request
+- THEN it is listed as pending and marked unconfirmed
+- AND a confirmed request carries no mark
+
+### Approve needs a confirmed request
+- GIVEN a pending removal request or opt-out whose requester has not confirmed it
+- WHEN a moderator opens it, or posts its approve
+- THEN no Approve form is offered, only Reject, and the post is refused with the item left unchanged
+- AND the related-requests table marks it unconfirmed too
+
+### An unconfirmed opt-out blocks nothing at ingest
+- GIVEN an opt-out for pseud P that is not confirmed
+- WHEN an upload by P is ingested
+- THEN it is not rejected with `opted_out`, because no active `optouts` row exists until the requester confirms
 
 ### Hidden work shows a temporary-hide page
 - GIVEN W hidden after a removal request
@@ -75,17 +112,20 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Author identity), § Data 
 - WHEN anyone opens W2
 - THEN the response is 451 with "Temporarily hidden after a removal request", because opt-outs come through `/remove`
 
-### Opt-out by pseud hides every existing work
+### Opt-out by pseud hides every existing work once confirmed
 - GIVEN works W, W2 and W3 by pseud P and work X by another pseud
 - WHEN a visitor submits `/remove` with pseud P instead of a work, a contact email, a statement and a passing Turnstile token
-- THEN an `opt_out` request and an active `optouts` row for P's `pseud_norm` are stored
-- AND W, W2 and W3 are hidden at once
+- THEN an `opt_out` request is stored, unconfirmed, with no `optouts` row, and W, W2 and W3 stay live
+- AND one confirmation email with a single-use link goes to the contact email
+- WHEN the requester opens the link and presses its button
+- THEN an active `optouts` row for P's `pseud_norm` is stored
+- AND W, W2 and W3 are hidden and their `request_works` rows are written
 - AND X is unaffected
 
 ### Confirmation page for an opt-out
 - GIVEN an opt-out for pseud P just submitted by a requester who isn't blocked
 - WHEN the confirmation page renders
-- THEN it says "Your request was received; a moderator will review it and email you."
+- THEN it says "Check your email: we've sent a link to the address you gave. Open it and press the button to confirm your request. The link works once, for 7 days, and nothing happens until you confirm."
 - AND it says nothing about whether any work is hidden, so it reads the same as a blocked requester's
 
 ### Opt-out blocks future uploads
@@ -114,8 +154,44 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Author identity), § Data 
 - WHEN an upload whose byline pseud is `Moon_Child` is ingested
 - THEN it is not rejected with `opted_out`, because punctuation is kept in `pseud_norm`
 
-### Moderator confirms an opt-out
-- GIVEN a pending opt-out request for P
+### Opt-out checks the OPF creator when the preface byline is blank
+- GIVEN an active opt-out for pseud P
+- AND an upload whose preface byline names nobody (a link whose text is a space or a zero-width character) and whose OPF `dc:creator` is P
+- WHEN the upload is ingested
+- THEN it is rejected with `opted_out`
+
+### Opt-out checks an OPF creator the preface byline doesn't name
+- GIVEN an active opt-out for pseud P
+- AND an upload whose preface byline names Q and whose OPF `dc:creator` entries are Q and P
+- WHEN the upload is ingested
+- THEN it is rejected with `opted_out`
+
+### Opt-out checks every name of a byline with no profile links
+- GIVEN an active opt-out for pseud P
+- AND an upload whose byline has no profile links and reads "Q and P"
+- WHEN the upload is ingested
+- THEN it is rejected with `opted_out`
+
+### A file the lists refuse is recorded, not retried
+- GIVEN an upload whose byline holds a value the opt-out table can't take (a NUL byte)
+- WHEN the upload is ingested
+- THEN it ends `parse_failed` with a fixed error code at the process stage, and is acknowledged
+- AND nothing is saved
+- AND a failure to read the lists at all is still retried
+
+### A long byline is checked in one query
+- GIVEN an active opt-out for the last of 70,000 pseuds in a byline
+- WHEN the upload is ingested
+- THEN it is rejected with `opted_out`
+
+### An AO3 work ID that is not a work key is refused
+- GIVEN an upload whose AO3 work ID is `0`, has a leading zero (`041520`) or is past int4
+- WHEN the upload is ingested
+- THEN it ends `parse_failed` with `bad_work_id`
+- AND a takedown of work 41520 does not reject the file with the ID `041520`
+
+### Moderator approves an opt-out
+- GIVEN a pending opt-out request for P that its requester has confirmed
 - WHEN a moderator approves it
 - THEN the opt-out stays active and P's works stay hidden
 
@@ -165,7 +241,7 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Author identity), § Data 
 ### Blocked requester sees the same confirmation
 - GIVEN requester B, blocked by contact email and IP hash
 - WHEN B submits a request to remove live work X, or an opt-out for pseud P, with a passing Turnstile token
-- THEN the confirmation page is identical to an unblocked requester's: "Your request was received; a moderator will review it and email you."
+- THEN the confirmation page is identical to an unblocked requester's: "Check your email: we've sent a link to the address you gave. Open it and press the button to confirm your request. The link works once, for 7 days, and nothing happens until you confirm."
 - AND nothing on the page reveals that B is blocked
 
 ### Requests record a hashed IP

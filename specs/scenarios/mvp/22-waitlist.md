@@ -121,24 +121,23 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Wait list), § Wait list, 
 - AND no log line, in the web Worker or the mailer, contains the address or a link
 
 ### The launch send emails each confirmed address once
-- GIVEN confirmed and unconfirmed addresses on the wait list, and a signed-in account with the `admin` role
-- WHEN that account starts the launch send from the admin area, with `PRELAUNCH` on or off
-- THEN each confirmed address with `notified_at` empty gets `notified_at` set and a launch email put on the `email-bulk` queue, in batches
-- AND a batch whose enqueue fails has `notified_at` cleared again, so it is picked up again
+- GIVEN confirmed and unconfirmed addresses on the wait list, and the operator's launch send script with its secrets in the environment
+- WHEN the script runs
+- THEN each confirmed address with `notified_at` empty gets `notified_at` set, the hash of a fresh unsubscribe token stored, and one launch email put on the `email-bulk` queue as JSON, in batches
+- AND a batch whose enqueue fails has `notified_at` cleared again, so the next run picks it up
 - AND unconfirmed addresses get no email
-- AND starting the launch send again, at the same time or later, puts no address on the queue a second time
-- AND a moderator without the `admin` role, or anyone signed out, gets 404
+- AND running it again, at the same time or later, puts no address on the queue a second time
 
-### The launch send finishes by itself, however long the list
-- GIVEN 100,000 confirmed addresses and a started launch send
-- WHEN it runs
-- THEN each invocation queues at most a fixed number of batches, within the Workers per-invocation subrequest and CPU limits, and a scheduled step carries on until no confirmed address has `notified_at` empty
-- AND the admin area shows how many confirmed addresses are still waiting to be queued
+### The launch send script resumes where it stopped
+- GIVEN more confirmed addresses than one batch, and a run that stopped partway
+- WHEN the script is run again
+- THEN only the addresses with `notified_at` empty are put on the queue
+- AND it reports how many confirmed addresses are still waiting, 0 when the run has finished
 
 ### A launch email that can't be sent is tried again
 - GIVEN a launch email that both providers refuse until the queue dead-letters it
 - WHEN the web Worker takes it off the `email-bulk` dead-letter queue
-- THEN that address's `notified_at` is cleared, so the launch send queues it again
+- THEN that address's `notified_at` is cleared, so the next run of the launch send script queues it again
 - AND the message is not kept on the dead-letter queue, and nothing prints its address to logs
 
 ### The launch send is spread out
@@ -162,10 +161,11 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Wait list), § Wait list, 
 - AND the link keeps working with `PRELAUNCH` off, and a `POST` with a token whose row is already gone (unsubscribed or purged) also answers 200
 
 ### The wait list is deleted after the launch send
-- GIVEN the launch send has finished
-- WHEN an account with the `admin` role runs the wait list purge from the admin area
-- THEN every `waitlist` row is deleted, confirmed or not
-- AND the purge refuses to run while any confirmed address still has `notified_at` empty, or the launch send queued its last batch less than a day ago (so a dead-lettered email can still come back), unless it is explicitly forced
+- GIVEN the launch send has finished, and the operator's purge script (`scripts/waitlist-purge.mjs`) has `DATABASE_URL` in its environment
+- WHEN the operator runs it
+- THEN every `waitlist` row is deleted, confirmed or not, and the script prints how many
+- AND it refuses, deleting nothing, while any confirmed address still has `notified_at` empty, or the newest `notified_at` is less than 24 hours old (so a dead-lettered email can still come back), unless run with `--force`
+- AND a list with no confirmed address is purged, an empty list succeeds with 0, and the script prints no address and no raw error
 
 ### After launch the archive takes over
 - GIVEN `PRELAUNCH` is off

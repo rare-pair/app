@@ -1,7 +1,7 @@
 import { createDb } from "@archive/db";
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
-import { emailsTo, fetchW, PASSING_TOKEN, postLogin } from "./helpers";
+import { emailsTo, fetchW, LOGIN_TOKEN, postLogin } from "./helpers";
 
 // /admin is open before launch (ARCHITECTURE, Wait list), so the operator can
 // moderate then: the gate, not the coming-soon redirect, decides. Text is synthetic.
@@ -11,7 +11,7 @@ afterAll(() => db.destroy());
 
 /** Signs `email` in through the Worker with `role`, and returns its session cookie. A4 (#24) brings the shared one. */
 async function signIn(email: string, role: string | null): Promise<string> {
-  expect((await postLogin({ email, "cf-turnstile-response": PASSING_TOKEN })).status).toBe(200);
+  expect((await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN })).status).toBe(200);
   const [sent] = await emailsTo(email);
   const token = new URL(sent!.url).searchParams.get("token")!;
   const res = await postLogin({ token, next: "/" }, { url: "/login/confirm" });

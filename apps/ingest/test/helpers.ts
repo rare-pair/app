@@ -1,4 +1,4 @@
-import { createDb, getLiveWork, insertUpload, type Database } from "@archive/db";
+import { createDb, getLiveWork, insertUpload, searchLiveWorks, type Database } from "@archive/db";
 import { seedWork, type SeedWorkOptions } from "@archive/db/seed";
 import { processEpub, type ParsedWork } from "@archive/epub";
 import { createExecutionContext, createMessageBatch, getQueueResult } from "cloudflare:test";
@@ -47,6 +47,16 @@ export async function pendingUpload(bytes: Uint8Array | null): Promise<string> {
   return id;
 }
 
+/** Bans the account that made `pendingUpload`'s upload `id`, as a moderator's ban sets it. */
+export const banUploader = (id: string) =>
+  withDb((db) =>
+    db
+      .updateTable("user")
+      .set({ banned_at: sql<Date>`now()` })
+      .where("id", "=", `ingest-${id}`)
+      .execute(),
+  );
+
 /** The upload's row, as the job leaves it. */
 export const uploadRow = (id: string) =>
   withDb((db) =>
@@ -57,13 +67,20 @@ export const uploadRow = (id: string) =>
       .executeTakeFirstOrThrow(),
   );
 
-/** Runs the queue handler on one batch of message bodies, and returns the queue's result. */
+/**
+ * Runs the queue handler on one batch of message bodies from `queue` (the ingest queue unless
+ * given), and returns the queue's result.
+ */
 export async function deliver(
   bodies: unknown[],
-  { attempts = 1, handler = worker }: { attempts?: number; handler?: Handler } = {},
+  {
+    attempts = 1,
+    handler = worker,
+    queue = "ingest",
+  }: { attempts?: number; handler?: Handler; queue?: string } = {},
 ) {
   const batch = createMessageBatch(
-    "ingest",
+    queue,
     bodies.map((body, i) => ({ id: `msg-${i}`, timestamp: new Date(1000), attempts, body })),
   );
   const ctx = createExecutionContext();
@@ -246,9 +263,25 @@ export const beforePut =
   (hook: (key: string) => Promise<void>): NonNullable<Steps["bucket"]> =>
   (real) => ({
     get: real.get.bind(real),
+    delete: real.delete.bind(real),
+    list: real.list.bind(real),
     put: async (key, value, options) => {
       await hook(key);
       return real.put(key, value, options);
+    },
+  });
+
+/** The bucket step: the real bucket, running `hook` with each key after its `put` has landed. */
+export const afterPut =
+  (hook: (key: string) => Promise<void>): NonNullable<Steps["bucket"]> =>
+  (real) => ({
+    get: real.get.bind(real),
+    delete: real.delete.bind(real),
+    list: real.list.bind(real),
+    put: async (key, value, options) => {
+      const out = await real.put(key, value, options);
+      await hook(key);
+      return out;
     },
   });
 
@@ -347,4 +380,189 @@ export async function bucketKeys(prefix: string): Promise<string[]> {
 export async function bucketText(key: string): Promise<string | null> {
   const object = await env.BUCKET.get(key);
   return object === null ? null : object.text();
+}
+
+/** SHA-256 of `bytes` as lowercase hex, the key an image is stored under. */
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Synthetic image bytes: the file signature of `type`, then `fill` repeated, so each `fill`
+ * hashes differently. Enough for the processor's sniff, not a decodable image.
+ */
+export function imageBytes(type: "png" | "jpeg" | "gif" | "webp", fill: string): Uint8Array {
+  const head = {
+    png: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+    jpeg: [0xff, 0xd8, 0xff, 0xe0],
+    gif: [0x47, 0x49, 0x46, 0x38, 0x39, 0x61],
+    webp: [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50],
+  }[type];
+  return new Uint8Array([...head, ...new TextEncoder().encode(fill.repeat(16))]);
+}
+
+/**
+ * A synthetic epub of AO3 work `workId` whose one chapter shows each of `images`, by file
+ * name, as an `img`. Each is a manifest item of its own, so two names may hold the same bytes.
+ */
+export function epubWithImages(
+  workId: number,
+  images: Record<string, { mediaType: string; data: Uint8Array }>,
+  pseud?: string,
+): Uint8Array {
+  const body = Object.keys(images)
+    .map((name) => `<p>pic <img src="images/${name}" alt="${name}"/></p>`)
+    .join("");
+  return ao3Epub({
+    workId,
+    pseud,
+    files: [{ name: "pics_split_001.xhtml", body: `<div id="chapters">${body}</div>` }],
+    extraManifest: Object.entries(images).map(([name, i]) => ({
+      href: `images/${name}`,
+      mediaType: i.mediaType,
+      data: i.data,
+    })),
+  });
+}
+
+/** The bytes and content type of the object at `key`, or null. */
+export async function bucketObject(
+  key: string,
+): Promise<{ bytes: Uint8Array; contentType: string | undefined } | null> {
+  const object = await env.BUCKET.get(key);
+  if (object === null) return null;
+  return {
+    bytes: new Uint8Array(await object.arrayBuffer()),
+    contentType: object.httpMetadata?.contentType,
+  };
+}
+
+/** The AO3 work IDs a search finds, as the web Worker would read them. */
+export const searchedIds = (query: string) =>
+  withDb(async (db) => (await searchLiveWorks(db, query)).works.map((w) => w.work.ao3_work_id));
+
+/**
+ * Uploads a stub epub of `work`'s AO3 ID and runs its job with `work` as the processor's
+ * answer, through the real save. `steps` replace or watch the other steps. Returns the
+ * upload's id and row, and the queue's result.
+ */
+export async function ingestParsed(work: ParsedWork, steps: Partial<Steps> = {}) {
+  const id = await pendingUpload(ao3Epub({ workId: Number(work.ao3WorkId) }));
+  const { handler } = watchedWorker({ process: async () => work, ...steps });
+  const result = await deliver([{ upload_id: id }], { handler });
+  return { id, row: await uploadRow(id), result };
+}
+
+/**
+ * A rendezvous for `parties` jobs: each `await meet()` returns once all of them are there. Hung
+ * on the bucket step, it holds every job after its reads and before its transaction.
+ */
+export function rendezvous(parties: number) {
+  let arrived = 0;
+  let open = () => {};
+  const everyone = new Promise<void>((resolve) => (open = resolve));
+  return async () => {
+    if (++arrived >= parties) open();
+    await everyone;
+  };
+}
+
+/** The bucket step: the real bucket, holding each job at its `originals/` write on `meet`. */
+export const meetBeforeOriginal = (meet: () => Promise<void>): NonNullable<Steps["bucket"]> =>
+  beforePut(async (key) => {
+    if (key.startsWith("originals/")) await meet();
+  });
+
+/**
+ * The work's pointer and every version row, each with its chapters' numbers and keys, as the
+ * database holds them.
+ */
+export const versionsOf = (ao3WorkId: number) =>
+  withDb(async (db) => {
+    const work = await db
+      .selectFrom("works")
+      .select(["id", "current_version_id", "status"])
+      .where("ao3_work_id", "=", ao3WorkId)
+      .executeTakeFirstOrThrow();
+    const versions = await db
+      .selectFrom("work_versions")
+      .select([
+        "id",
+        "upload_id",
+        "source",
+        "source_upload_id",
+        "review_reasons",
+        "checked_at",
+        "r2_prefix",
+        "chapter_count",
+        "chapter_total",
+        "tags",
+        "authors",
+        "title",
+        "summary_html",
+        "rating",
+        "language",
+        "words",
+        "complete",
+        "published_at",
+        "updated_at",
+        "raw_meta",
+        "hold_reason",
+      ])
+      .where("work_id", "=", work.id)
+      .execute();
+    const chapters = await db
+      .selectFrom("chapters")
+      .select(["version_id", "n", "r2_key"])
+      .where("work_id", "=", work.id)
+      .orderBy("n")
+      .execute();
+    return {
+      workId: work.id,
+      status: work.status,
+      current: work.current_version_id,
+      versions: versions.map((v) => ({
+        ...v,
+        chapterNumbers: chapters.filter((c) => c.version_id === v.id).map((c) => c.n),
+        chapterKeys: chapters.filter((c) => c.version_id === v.id).map((c) => c.r2_key),
+      })),
+    };
+  });
+
+/** Marks the version checked, as a moderator's approval does. */
+export const checkVersion = (versionId: string | null) =>
+  withDb((db) =>
+    db
+      .updateTable("work_versions")
+      .set({ checked_at: new Date() })
+      .where("id", "=", versionId ?? "")
+      .execute(),
+  );
+
+/** Makes the work hidden, as a moderator does. */
+export const hideWork = (ao3WorkId: number) =>
+  withDb((db) =>
+    db
+      .updateTable("works")
+      .set({ status: "hidden", hidden_cause: "moderator" })
+      .where("ao3_work_id", "=", ao3WorkId)
+      .execute(),
+  );
+
+/** Sets the work's status, as a moderator's removal or a restore does. */
+export const setWorkStatus = (ao3WorkId: number, status: "live" | "removed") =>
+  withDb((db) =>
+    db.updateTable("works").set({ status }).where("ao3_work_id", "=", ao3WorkId).execute(),
+  );
+
+/**
+ * Uploads `epub` and runs its job with the real processor and the real save. `steps` replace
+ * or watch the other steps. Returns the upload's id and row, and the queue's result.
+ */
+export async function ingestReal(epub: Uint8Array, steps: Partial<Steps> = {}) {
+  const id = await pendingUpload(epub);
+  const { handler } = watchedWorker(steps);
+  const result = await deliver([{ upload_id: id }], { handler });
+  return { id, row: await uploadRow(id), result };
 }

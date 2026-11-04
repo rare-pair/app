@@ -62,7 +62,13 @@ describe("20-site-chrome-and-legal", () => {
 
   it("The terms and privacy pages say what the archive does", async () => {
     expect(await htmlOf("/terms")).toMatch(/removal|remove/i);
-    expect(await htmlOf("/privacy")).toMatch(/wait list/i);
+    const privacy = await htmlOf("/privacy");
+    expect(privacy).toMatch(/wait list/i);
+    expect(privacy).toMatch(/confirmation email/i);
+    expect(privacy).toMatch(/wait list form/i);
+    expect(privacy).toMatch(/user agent/i);
+    expect(privacy).toMatch(/network address/i);
+    expect(privacy).toMatch(/remoteip/i);
   });
 
   it("Footer links to removal", async () => {

@@ -2,23 +2,29 @@
 // fragment from R2, in order, into one page (ARCHITECTURE, Reading). It streams so a
 // long work never sits in the isolate's memory: one chunk at a time per reader.
 
-import { createDb, getLiveWork } from "@archive/db";
+import { createDb, getLiveWork, getWorkAvailability } from "@archive/db";
+import { cachedFragments } from "./edge-cache";
 import { escapeHtml, layoutAround } from "./pages";
 import {
   chapterTitle,
   isFragmentKey,
   positiveInt,
+  readerBar,
   unavailable,
   type ReaderContext,
 } from "./reader";
+import { positionScriptTag } from "./position";
 import { reviewNotice } from "./review-notice";
+import { settingsScriptTag } from "./settings";
+import { warningsRedirect } from "./warnings";
+import { withheldResponse } from "./withheld";
 
 /** A fragment's bytes, or null when the key is missing. Anything with R2's `get`. */
 export interface FragmentSource {
   get(key: string): Promise<{ body: ReadableStream<Uint8Array> } | null>;
 }
 
-/** One chapter fragment's body from R2, unread. R7's cache goes in here. */
+/** One chapter fragment's body, unread: from R2, or the cache in front of it. */
 export const openFragment = async (bucket: FragmentSource, key: string) =>
   (await bucket.get(key))?.body ?? null;
 
@@ -109,15 +115,20 @@ export async function showFull(c: ReaderContext) {
   const id = positiveInt(c.req.param("id"));
   if (id === null) return c.notFound();
 
-  // One query, so one connection. A hidden or removed work's answer goes here (R3).
+  // Two sequential queries at most, so one connection. A hidden or removed work answers
+  // 451 or 410 here, before anything about its chapters is read.
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
   let live;
+  let withheld;
   try {
     live = await getLiveWork(db, id);
+    if (!live) withheld = await getWorkAvailability(db, id);
   } finally {
     c.executionCtx.waitUntil(db.destroy());
   }
-  if (!live) return c.notFound();
+  if (!live) return withheld ? withheldResponse(c, withheld) : c.notFound();
+  const gate = warningsRedirect(c, live, `/works/${id}/full`);
+  if (gate) return gate;
 
   // Chapter HTML comes only from fragments the sanitizer wrote, under works/ and this
   // version's own prefix. Every key is checked before anything is read or sent.
@@ -133,7 +144,9 @@ export async function showFull(c: ReaderContext) {
   // with no chapters can't be read either.
   const [head, ...rest] = chapters;
   if (!head) return unavailable(c);
-  const bucket = c.env.BUCKET;
+  // The same fragments every reader gets, from the Worker's cache when a chapter page has
+  // put them there.
+  const bucket = cachedFragments(caches.default, c.env.BUCKET, id, version.id, chapters);
   const first = await openFragment(bucket, head.r2_key).catch((error: Error) => {
     logFailure(error);
     return null;
@@ -147,12 +160,18 @@ export async function showFull(c: ReaderContext) {
   }
 
   const workTitle = live.work.title.trim() || "Untitled work";
-  const { before, after } = layoutAround(`${workTitle}, entire work`, "", bar(workTitle));
+  // The settings script comes straight after the bar, not deferred, so the live
+  // controls work before a long work has finished streaming.
+  const { before, after } = layoutAround(
+    `${workTitle}, entire work`,
+    "",
+    `${readerBar(workTitle, `/works/${id}/full`)}\n${settingsScriptTag(c.get("nonce"), "async")}${positionScriptTag(c.get("nonce"), c.var.session, "async")}`,
+  );
   // The fragments are trusted markup only because the sanitizer wrote them; they go in
   // unescaped. The chapter headings' ids stay stable: links may point at them. The
   // markup between two fragments goes out as one part.
   const heading = (ch: { n: number; title: string }) =>
-    `<h2 class="chapter-title" id="chapter-${ch.n}">${escapeHtml(chapterTitle(ch))}</h2>\n<article class="chapter">`;
+    `<h2 class="chapter-title" id="chapter-${ch.n}">${escapeHtml(chapterTitle(ch))}</h2>\n<article class="chapter" aria-labelledby="chapter-${ch.n}">`;
   const parts: Part[] = [`${before}${reviewNotice(version)}${heading(head)}`, first];
   // Each later chapter keeps only its key and the bucket for the life of the stream.
   for (const ch of rest) {
@@ -164,7 +183,3 @@ export async function showFull(c: ReaderContext) {
   );
   return c.body(streamParts(parts), 200, headers);
 }
-
-/** The slim top bar, as on a chapter page: the work title, the page's one h1, and settings. */
-const bar = (workTitle: string) =>
-  `<div class="reader-bar"><h1>${escapeHtml(workTitle)}</h1><a href="/settings/reader">Reader settings</a></div>`;

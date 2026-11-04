@@ -19,6 +19,8 @@ export interface UserTable {
   // Our fields (ARCHITECTURE, Data model).
   role: string | null;
   upload_quota_used: Generated<number>;
+  /** The UTC day `upload_quota_used` counts, as `YYYY-MM-DD`. NULL until the first confirmed upload. */
+  upload_quota_day: ColumnType<string | null, string | null | undefined, string | null>;
   banned_at: Timestamp | null;
   /** NULL until a new account accepts the terms. */
   terms_accepted_at: Timestamp | null;
@@ -98,7 +100,10 @@ export type UploadStatus =
   | "too_large"
   | "not_ao3"
   | "opted_out"
-  | "parse_failed";
+  | "parse_failed"
+  | "over_quota"
+  | "work_removed"
+  | "account_banned";
 
 export interface WorkTable {
   id: Generated<string>;
@@ -123,8 +128,10 @@ export interface WorkTable {
   current_version_id: string | null;
   /** Preface labels the parser doesn't understand yet. Write it with `JSON.stringify`. */
   raw_meta: ColumnType<Record<string, string>, string | undefined, string>;
-  /** Filled by search, not here. */
+  /** A tsvector over `search_text`. Filled by `refreshWorkSearch`, in SQL, never as a bound string. */
   search: string | null;
+  /** The title, bylines, tags and summary text the trigram index reads. Filled by `refreshWorkSearch`. */
+  search_text: string | null;
 }
 
 export interface WorkAuthorTable {
@@ -139,17 +146,58 @@ export interface WorkAuthorTable {
 export interface WorkVersionTable {
   id: Generated<string>;
   work_id: string;
-  upload_id: string;
+  /** The upload that made this version. NULL for a backfill version, which has none of its own. */
+  upload_id: string | null;
+  /** `upload`, or `backfill` for a version the re-sanitize backfill re-made from a stored original. */
+  source: ColumnType<VersionSource, VersionSource | undefined, VersionSource>;
+  /** A backfill version's original: the upload whose `originals/<id>.epub` it was re-made from. NULL for an upload's version. */
+  source_upload_id: string | null;
   chapter_count: number;
   /** The planned total as this version's preface gave it. NULL when unknown. */
   chapter_total: number | null;
-  /** `works/<ao3_work_id>/<upload_id>/`, with the trailing slash. */
+  /** `works/<ao3_work_id>/<upload_id>/`, or `works/<ao3_work_id>/<id>/` for a backfill version, with the trailing slash. */
   r2_prefix: string;
   created_at: CreatedTimestamp;
   /** From the parser. Non-empty, with `checked_at` still NULL, shows the "may be imperfect" notice. */
   review_reasons: ColumnType<string[], string[] | undefined, string[]>;
   /** Set when a moderator approves the version. */
   checked_at: Timestamp | null;
+  /** This version's tags in the file's order, as ingest read them. NULL before migration 0010. Write it with `JSON.stringify`. */
+  tags: ColumnType<VersionTag[] | null, string | null | undefined, string | null>;
+  /** This version's byline in the file's order. NULL before migration 0010. Write it with `JSON.stringify`. */
+  authors: ColumnType<VersionAuthor[] | null, string | null | undefined, string | null>;
+  // This version's own copy of the `works` columns that describe it, as ingest read them from
+  // its file: NULL for a field the file lacked (words, the updated date and `complete` are
+  // derived when it doesn't state them), and on every version saved before migration 0012
+  // that wasn't then current. `works` holds the current version's.
+  title: string | null;
+  summary_html: string | null;
+  rating: string | null;
+  language: string | null;
+  words: number | null;
+  complete: boolean | null;
+  published_at: Timestamp | null;
+  updated_at: Timestamp | null;
+  /** Write it with `JSON.stringify`. */
+  raw_meta: ColumnType<Record<string, string> | null, string | null | undefined, string | null>;
+  /** Why ingest held this version for review. NULL for a version it didn't hold, and for one held before migration 0012. */
+  hold_reason: HoldReason | null;
+}
+
+/** What made a version: an upload, or the re-sanitize backfill (migration 0016). */
+export type VersionSource = "upload" | "backfill";
+
+/** `decideVersion`'s reasons for holding a newer version (ARCHITECTURE, EPUB processor step 7). */
+export type HoldReason = "chapters_changed" | "tags_changed" | "authors_changed";
+
+export interface VersionTag {
+  type: TagType;
+  name: string;
+}
+
+export interface VersionAuthor {
+  pseud: string;
+  user: string | null;
 }
 
 export interface ChapterTable {
@@ -187,6 +235,8 @@ export interface UploadTable {
   bytes: number;
   status: ColumnType<UploadStatus, UploadStatus | undefined, UploadStatus>;
   lease_until: Timestamp | null;
+  /** When a confirm counted this upload against the daily quota; NULL until then. */
+  quota_counted_at: ColumnType<Date | null, Date | string | null | undefined, Date | string | null>;
   error_stage: string | null;
   error: string | null;
   work_id: string | null;
@@ -220,6 +270,18 @@ export interface TakedownTable {
   /** The moderator who acted. */
   resolved_by: string | null;
   created_at: CreatedTimestamp;
+  // The notice's statutory elements (17 U.S.C. 512(c)(3)(A)). `basis` names the copyrighted
+  // work and `requester` is the contact information. Empty or false when the notice left it out.
+  /** The typed full name that signs the notice. */
+  signature: Generated<string>;
+  /** What the allegedly infringing material is, beyond the work named by `work_id`. */
+  infringing_material: Generated<string>;
+  /** The good-faith statement, made. */
+  good_faith: Generated<boolean>;
+  /** The accuracy and authority statement, under penalty of perjury, made. */
+  accuracy_authority: Generated<boolean>;
+  /** A statutory element is missing. Set by the writer. */
+  incomplete: Generated<boolean>;
 }
 
 /** A remove-my-work or opt-out request from `/remove`. */
@@ -237,6 +299,12 @@ export interface RequestTable {
   status: Generated<string>;
   /** Never the raw IP. */
   ip_hash: string;
+  /** SHA-256 hex of the emailed confirmation token; null once confirmed (or for an old request). */
+  confirm_token_hash: string | null;
+  /** When the confirmation email was queued: the link lasts 7 days from it. */
+  confirm_sent_at: Timestamp | null;
+  /** When the requester confirmed. Null until then: nothing is hidden before it. */
+  confirmed_at: Timestamp | null;
   created_at: CreatedTimestamp;
 }
 
@@ -251,6 +319,12 @@ export interface OptoutTable {
   created_at: CreatedTimestamp;
 }
 
+/** A work a removal request hid: written only when that request's own hide changed it. */
+export interface RequestWorkTable {
+  request_id: string;
+  work_id: string;
+}
+
 /** Matches a later request by email or by IP hash, and a report by its account's email. */
 export interface RequesterBlockTable {
   id: Generated<string>;
@@ -259,6 +333,19 @@ export interface RequesterBlockTable {
   ip_hash: string | null;
   /** The moderator who blocked. */
   created_by: string;
+  created_at: CreatedTimestamp;
+}
+
+/** One row per moderation action (ARCHITECTURE, Data model). Ids only: no reader data. */
+export interface ModerationActionTable {
+  id: Generated<string>;
+  /** The acting moderator or admin. */
+  moderator_id: string;
+  action: string;
+  target_kind: string;
+  /** The target row's own id. No foreign key: it points at different tables. */
+  target_id: string;
+  note: string | null;
   created_at: CreatedTimestamp;
 }
 
@@ -281,6 +368,16 @@ export interface WaitlistTable {
   created_at: CreatedTimestamp;
 }
 
+/** Where the periodic sweep (apps/sweep) stopped: one row, `id` 1. */
+export interface SweepStateTable {
+  id: ColumnType<number, never, never>;
+  /** The R2 key the next run lists after, past the last folder swept. NULL for the first folder. */
+  after: string | null;
+  /** The folder a run is sweeping, cleared when it ends. Set at a run's start: the last one was killed there. */
+  current: string | null;
+  updated_at: CreatedTimestamp;
+}
+
 export interface Database {
   user: UserTable;
   session: SessionTable;
@@ -297,7 +394,10 @@ export interface Database {
   reports: ReportTable;
   takedowns: TakedownTable;
   requests: RequestTable;
+  request_works: RequestWorkTable;
   optouts: OptoutTable;
   requester_blocks: RequesterBlockTable;
+  moderation_actions: ModerationActionTable;
   waitlist: WaitlistTable;
+  sweep_state: SweepStateTable;
 }

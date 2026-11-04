@@ -54,7 +54,8 @@ function oneShot(opts: {
   workId: number;
   title: string;
   published: string;
-  byline?: string;
+  bylineHtml?: string;
+  creators?: string[];
   authors: Expected["authors"];
   relationships: string[];
   characters: string[];
@@ -87,7 +88,8 @@ function oneShot(opts: {
     spec: {
       workId: opts.workId,
       title: opts.title,
-      byline: opts.byline,
+      bylineHtml: opts.bylineHtml,
+      creators: opts.creators,
       extraDl,
       stats: `Published: ${opts.published} Chapters: 1/1 Words: ${words}`,
       files: [
@@ -125,7 +127,8 @@ const FIXTURES: Fixture[] = [
     workId: 1000102,
     title: "Synthetic One-Shot Two",
     published: "2021-07-08",
-    byline: "Anonymous",
+    bylineHtml: "Anonymous",
+    creators: ["Anonymous"],
     authors: [{ pseudSha: sha("Anonymous"), userSha: null }],
     relationships: [],
     characters: ["Char Three"],

@@ -4,10 +4,19 @@ import { fetchW, STRICT, withoutNonce } from "./helpers";
 // Runs in the "open" project: wrangler.jsonc with PRELAUNCH "off", the archive open.
 
 describe("22-waitlist", () => {
-  it("With PRELAUNCH off, / gets no frame-src allowance and no page redirects", async () => {
-    // No home page exists yet, so / is the not-found page, with the strict policy only.
+  it("After launch the archive takes over", async () => {
+    // The home page has no wait list form, no Turnstile widget, and no redirect to a wait list.
     const home = await fetchW("/");
-    expect(home.status).toBe(404);
+    expect(home.headers.get("location")).toBeNull();
+    const html = await home.text();
+    expect(html).not.toMatch(/action="\/waitlist"|cf-turnstile|wait list/i);
+    expect(withoutNonce(home.headers.get("content-security-policy"))).toBe(STRICT);
+  });
+
+  it("With PRELAUNCH off, / gets no frame-src allowance and no page redirects", async () => {
+    // / is the home page, with the strict policy only.
+    const home = await fetchW("/");
+    expect(home.status).toBe(200);
     expect(withoutNonce(home.headers.get("content-security-policy"))).toBe(STRICT);
     expect(await home.text()).not.toMatch(/cf-turnstile|wait list|woff2/i);
 

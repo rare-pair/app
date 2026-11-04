@@ -189,6 +189,50 @@ describe("mailer logs", () => {
   });
 });
 
+// Resend's permissive batch answer: the accepted emails in `data`, the refused ones in `errors`
+// by their index in the request. The shape is from resend-node's batch types.
+const withRefused = (refused: number[]) => (emails: unknown[]) =>
+  Response.json(
+    {
+      data: emails.flatMap((_, i) => (refused.includes(i) ? [] : [{ id: `resend-${i}` }])),
+      errors: refused.map((index) => ({ index, message: "invalid to reader2@example.test" })),
+    },
+    { status: 202 },
+  );
+
+describe("one refused address", () => {
+  it("One refused address does not stop the others in its batch", async () => {
+    const calls = stubResend(withRefused([1]));
+    const logs = captureLogs();
+
+    const result = await consume([signIn(1), signIn(2), signIn(3)]);
+
+    expect(calls).toHaveLength(1);
+    expect(result.explicitAcks.sort()).toEqual(["msg-0", "msg-1", "msg-2"]);
+    expect(result.retryMessages).toEqual([]);
+    const text = logs.join("\n");
+    expect(text).toContain("email.refused");
+    expect(text).toContain("resend-0");
+    expect(text).not.toContain("resend-1");
+  });
+
+  it("The refused email is acked with an outcome-only log line, no address, link or error text", async () => {
+    stubResend(withRefused([0, 2]));
+    const logs = captureLogs();
+
+    await consume([signIn(1), signIn(2), signIn(3)]);
+
+    const refused = logs.filter((l) => l.includes("email.refused"));
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).toContain('"count":2');
+    const text = logs.join("\n");
+    expect(text).not.toMatch(/@example\.test/);
+    expect(text).not.toMatch(/https?:\/\//);
+    expect(text).not.toContain("invalid to");
+    expect(text).not.toContain("link-");
+  });
+});
+
 describe("test setup", () => {
   it("a fetch no test stubbed never reaches Resend", async () => {
     const res = await fetch(RESEND_BATCH, { method: "POST", body: "[]" });
@@ -258,5 +302,31 @@ describe("mailer failures", () => {
     const [sent] = calls[0]!.emails as { text: string }[];
     expect(sent!.text).not.toContain("\nInjected line");
     expect(sent!.text).toContain("https://rarepair.fans/login/confirm?token=xInjected%20line");
+  });
+});
+
+describe("16-removal-and-opt-out", () => {
+  it("A removal confirmation email goes through Resend with its link", async () => {
+    const calls = stubResend(accepted);
+    const link = "https://rarepair.fans/remove/confirm?token=req-1";
+
+    const result = await consume([
+      { kind: "removal-confirm", to: "requester1@example.test", url: link },
+      // The wrong page for the kind is never sent.
+      {
+        kind: "removal-confirm",
+        to: "requester2@example.test",
+        url: "https://rarepair.fans/login/confirm?token=req-2",
+      },
+    ]);
+
+    expect(calls).toHaveLength(1);
+    // SAFETY: each email the mailer renders carries these fields.
+    const sent = calls[0]!.emails as { to: string; text: string }[];
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.to).toBe("requester1@example.test");
+    expect(sent[0]!.text).toContain(link);
+    expect(result.explicitAcks).toHaveLength(2);
+    expect(result.retryMessages).toEqual([]);
   });
 });

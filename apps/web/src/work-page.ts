@@ -2,14 +2,19 @@
 // metadata in the set order (FRONTEND-DISCOVERY, Typographic system: title,
 // author, rating and warnings, fandom, summary, tags, stats), then its chapters.
 
-import { createDb, getLiveWork, type LiveWork } from "@archive/db";
+import { createDb, getLiveWork, getWorkAvailability, type LiveWork } from "@archive/db";
 import type { Context } from "hono";
+import { originalUrl } from "./content-host";
 import type { Bindings } from "./env";
 import { escapeHtml, layout } from "./pages";
+import { continueHref, loadPosition, type Position } from "./position";
 import type { SecurityVariables } from "./security";
+import type { SessionVariables } from "./session";
+import { tidySummary } from "./summary";
 import { TAG_LABELS, tagHref, type LinkedType } from "./tag-links";
+import { withheldResponse } from "./withheld";
 
-type WorkContext = Context<{ Bindings: Bindings; Variables: SecurityVariables }>;
+type WorkContext = Context<{ Bindings: Bindings; Variables: SecurityVariables & SessionVariables }>;
 
 type Tag = LiveWork["tags"][number];
 
@@ -29,15 +34,17 @@ const isLinked = (tag: Tag): tag is Tag & { type: LinkedType } =>
   Object.hasOwn(TAG_LABELS, tag.type);
 
 /**
- * The original epub on the content host, `originals/<one segment>` as apps/content
- * serves it. The segment is the upload that made this version, the third part of
- * its prefix (`works/<ao3_work_id>/<upload_id>/`). Provisional: #119 settles the key.
+ * The reader's place, as a link: to the saved chapter or the entire-work page, with the
+ * saved percentage in the fragment. Nothing when there is no saved place, or its chapter
+ * isn't in the current version. The page itself never moves the reader.
  */
-const originalHref = (r2Prefix: string) =>
-  `https://content.rarepair.fans/originals/${encodeURIComponent(r2Prefix.split("/")[2] ?? "")}`;
+const continueLink = (live: LiveWork, position: Position | null) =>
+  position === null || (position.n !== null && !live.chapters.some((ch) => ch.n === position.n))
+    ? ""
+    : `<p class="continue"><a href="${continueHref(live.work.ao3_work_id, position)}">Continue where you left off</a></p>\n`;
 
 /** The work page's markup. Every stored string is escaped except the summary, sanitized at ingest. */
-export function workPage(live: LiveWork): string {
+export function workPage(live: LiveWork, position: Position | null = null): string {
   const { work, authors, tags, chapters, version } = live;
   // The reading pages go by the AO3 work ID too, a number, so safe in an href.
   const base = `/works/${work.ao3_work_id}`;
@@ -65,11 +72,12 @@ export function workPage(live: LiveWork): string {
     work.title,
     `<p class="authors">by ${byline}</p>
 <p class="rating-warnings">${ratingLine}</p>
-${block("p", "fandoms", fandoms.map(tagLink).join(", "))}${block("section", "summary", work.summary_html ?? "")}${block("p", "tags", listed.map(tagLink).join(", "))}<p class="stats">${stats.join(" · ")}</p>
-${needsCheck ? `<p class="review-notice">Chapters may be imperfect; a moderator will check.</p>\n` : ""}<ol class="chapters">${chapters.map((ch) => `<li><a href="${base}/chapters/${ch.n}">${escapeHtml(ch.title)}</a></li>`).join("")}</ol>
+${block("p", "fandoms", fandoms.map(tagLink).join(", "))}${block("section", "summary", tidySummary(work.summary_html ?? ""))}${block("p", "tags", listed.map(tagLink).join(", "))}<p class="stats">${stats.join(" · ")}</p>
+${needsCheck ? `<p class="review-notice">Chapters may be imperfect; a moderator will check.</p>\n` : ""}${continueLink(live, position)}<ol class="chapters">${chapters.map((ch) => `<li><a href="${base}/chapters/${ch.n}">${escapeHtml(ch.title)}</a></li>`).join("")}</ol>
 <p class="full"><a href="${base}/full">Read the entire work on one page</a></p>
-<p class="download"><a href="${originalHref(version.r2_prefix)}">Download original epub</a></p>
+<p class="download"><a href="${originalUrl(version.original_upload_id)}.epub">Download original epub</a></p>
 <p class="report"><a href="${base}/report">Report</a></p>
+<p class="remove"><a href="/remove?work=${work.ao3_work_id}">Ask for this to be removed</a></p>
 <p class="unofficial">rarepair is an unofficial stopgap, not the original archive: this copy is here while the original is offline.</p>
 <p class="original"><a href="https://archiveofourown.org/works/${work.ao3_work_id}">The original work</a>, where the credit belongs. The link works again once the original archive is back.</p>`,
   );
@@ -85,8 +93,13 @@ export async function showWork(c: WorkContext) {
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString });
   try {
     const live = await getLiveWork(db, id);
-    if (!live) return c.notFound();
-    return c.html(workPage(live));
+    if (live) {
+      const position = await loadPosition(c.env.POSITIONS, c.var.session, id);
+      return c.html(workPage(live, position));
+    }
+    // Hidden and removed works have their own answer; anything else is no page.
+    const withheld = await getWorkAvailability(db, id);
+    return withheld ? withheldResponse(c, withheld) : c.notFound();
   } finally {
     c.executionCtx.waitUntil(db.destroy());
   }

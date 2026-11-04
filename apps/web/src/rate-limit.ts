@@ -2,10 +2,26 @@
 // controls), shared by every limited route: sign-in now, then uploads, search, removal
 // requests and the wait list. Each route passes its own binding and key.
 
+import type { Context } from "hono";
 import { tooManyRequestsPage } from "./pages";
 
 /** The sign-in limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
 export const LOGIN_WINDOW_SECONDS = 60;
+
+/** The wait list limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
+export const WAITLIST_WINDOW_SECONDS = 60;
+
+/** The notice form's limit window, as wrangler.jsonc sets it: the binding doesn't say. */
+export const DMCA_WINDOW_SECONDS = 60;
+
+/** The removal form's limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
+export const REMOVE_WINDOW_SECONDS = 60;
+
+/** The upload limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
+export const UPLOAD_WINDOW_SECONDS = 60;
+
+/** The search limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
+export const SEARCH_WINDOW_SECONDS = 60;
 
 /**
  * A limiter key: a hex SHA-256 of the value under its prefix, so the limiter is never handed
@@ -54,7 +70,7 @@ function ipv6Groups(address: string): string[] | null {
  * address. Anything that isn't an address stands for itself, so it never shares a real
  * address's count.
  */
-function clientOf(address: string): string {
+export function clientOf(address: string): string {
   if (IPV4.test(address)) return address;
   const groups = ipv6Groups(address);
   if (groups === null) return `not an address: ${address}`;
@@ -79,6 +95,12 @@ export const ipKey = (scope: string, address: string | null) =>
 /** A limit's key for an email address, however it was spelt: trimmed and lowercased. */
 export const emailKey = (scope: string, address: string) =>
   hashKey(`${scope}-email:`, address.trim().toLowerCase());
+
+/**
+ * A limit's key for a signed-in user, from the user's id as is: an id is not an email address,
+ * so it isn't trimmed or lowercased.
+ */
+export const userKey = (scope: string, userId: string) => hashKey(`${scope}-user:`, userId);
 
 /**
  * Whether `key` is over its limit in the current window. When the binding fails the request
@@ -110,5 +132,17 @@ export function tooManyRequests(seconds: number): Response {
       "Retry-After": String(wait),
       "Cache-Control": "no-store",
     },
+  });
+}
+
+/**
+ * A 429 for a script endpoint: `{ error, retryAfter }` as JSON, `Retry-After` the same whole
+ * number of seconds (rounded up, at least one), and `no-store`.
+ */
+export function tooManyRequestsJson(c: Context, error: string, seconds: number): Response {
+  const retryAfter = Math.max(1, Math.ceil(seconds));
+  return c.json({ error, retryAfter }, 429, {
+    "Cache-Control": "no-store",
+    "Retry-After": String(retryAfter),
   });
 }

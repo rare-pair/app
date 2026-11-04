@@ -8,7 +8,8 @@ import {
   emailsTo,
   fetchW,
   nonceOf,
-  PASSING_TOKEN,
+  LOGIN_TOKEN,
+  UPLOAD_TOKEN,
   postLogin,
   signIn,
   STRICT,
@@ -309,7 +310,7 @@ describe("01-auth-magic-link", () => {
   it("Before accepting, an upload request gets no row and no URL", async () => {
     const email = "terms-upload@example.test";
     const cookie = await signIn(email);
-    const fields = { size: "1000", "cf-turnstile-response": PASSING_TOKEN };
+    const fields = { size: "1000", "cf-turnstile-response": UPLOAD_TOKEN };
 
     // The upload page's script can't follow a redirect, so it gets a 401 to act on.
     const res = await postLogin(fields, { url: "/uploads", headers: { cookie } });
@@ -349,7 +350,7 @@ describe("01-auth-magic-link", () => {
       .execute();
 
     // Signing in again through a new emailed link, from the work page.
-    expect((await postLogin({ email, "cf-turnstile-response": PASSING_TOKEN })).status).toBe(200);
+    expect((await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN })).status).toBe(200);
     const sent = await emailsTo(email, { atLeast: 2 });
     const token = new URL(sent.at(-1)!.url).searchParams.get("token")!;
     const confirmed = await postLogin({ token, next: WORK_PAGE }, { url: "/login/confirm" });

@@ -18,6 +18,9 @@ export const fetchW = (input: string, init: RequestInit = {}) =>
 export const STRICT =
   "default-src 'self'; script-src 'nonce-{n}' 'strict-dynamic'; style-src 'self'; img-src 'self' https://content.rarepair.fans; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 export const TURNSTILE = `${STRICT}; frame-src https://challenges.cloudflare.com`;
+// /upload alone may also send to the R2 account's S3 host: the page PUTs files there.
+// The account id is vitest.config.ts's throwaway one.
+export const UPLOAD_CSP = `${TURNSTILE}; connect-src 'self' https://test0000000000000000000000000acct.r2.cloudflarestorage.com`;
 
 /** The nonce in a CSP header, or null when there is none. */
 export const nonceOf = (csp: string | null) => csp?.match(/'nonce-([^']*)'/)?.[1] ?? null;
@@ -30,6 +33,34 @@ export const withoutNonce = (csp: string | null) =>
 export async function deliveredEmails(): Promise<unknown[]> {
   // SAFETY: the sink answers with the JSON array of message bodies it was delivered.
   return (await (await env.EMAIL_SINK.fetch("https://email-sink/")).json()) as unknown[];
+}
+
+/** A purge_cache request the Worker made, as vitest.config.ts's purge stand-in recorded it. */
+export type PurgeRequest = {
+  zone: string;
+  /** Whether it carried the test purge token. */
+  authorized: boolean;
+  body: { tags?: string[]; prefixes?: string[]; files?: string[] };
+};
+
+/**
+ * Every purge_cache request so far, from every test file in the run (files share the
+ * stand-in, so filter by your own work IDs and upload IDs).
+ */
+export async function purgeRequests(): Promise<PurgeRequest[]> {
+  // SAFETY: the stand-in answers with the JSON array of the requests it recorded.
+  return (await (await fetch("https://purge-log.test/")).json()) as PurgeRequest[];
+}
+
+/** Makes the next purge of `tag` fail: with an HTTP status, or a 200 with `success: false`. */
+export async function failNextPurge(tag: string, fail: number | "not-accepted") {
+  await fetch("https://purge-log.test/", { method: "POST", body: JSON.stringify({ tag, fail }) });
+}
+
+/** Every message the `ingest` queue has delivered so far, from vitest.config.ts's ingest-sink. */
+export async function deliveredIngest(): Promise<unknown[]> {
+  // SAFETY: the sink answers with the JSON array of message bodies it was delivered.
+  return (await (await env.INGEST_SINK.fetch("https://ingest-sink/")).json()) as unknown[];
 }
 
 /**
@@ -50,8 +81,42 @@ export async function emailsTo(to: string, { atLeast = 1 } = {}): Promise<EmailM
   }
 }
 
-// The token vitest.config.ts's siteverify stand-in passes, as Cloudflare's test secret does.
-export const PASSING_TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
+/**
+ * The confirmation link the removal form emailed to `to`: waits for the one message and
+ * returns its token. `nth` picks among several (0 is the first), for an address that asked twice.
+ */
+export async function removalTokenFor(to: string, nth = 0): Promise<string> {
+  const mine = (await emailsTo(to, { atLeast: nth + 1 })).filter(
+    (m) => m.kind === "removal-confirm",
+  );
+  const link = URL.parse(mine[nth]?.url ?? "");
+  expect(link?.pathname).toBe("/remove/confirm");
+  return link?.searchParams.get("token") ?? "";
+}
+
+/** The browser's press of the confirm button: a same-origin form POST of the token. */
+export const postConfirmRemoval = (token: string) =>
+  fetchW("/remove/confirm", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      origin: BASE,
+      "sec-fetch-site": "same-origin",
+    },
+    body: new URLSearchParams({ token }).toString(),
+  });
+
+/** Opens the emailed link and presses the button, for `to`'s first removal email. */
+export async function confirmRemoval(to: string, nth = 0): Promise<Response> {
+  return postConfirmRemoval(await removalTokenFor(to, nth));
+}
+
+// The tokens vitest.config.ts's siteverify stand-in passes, one for each form: the dummy
+// token as solved under that form's action. The other forms refuse it.
+export const LOGIN_TOKEN = "XXXX.DUMMY.TOKEN.XXXX#login";
+export const WAITLIST_TOKEN = "XXXX.DUMMY.TOKEN.XXXX#waitlist";
+export const UPLOAD_TOKEN = "XXXX.DUMMY.TOKEN.XXXX#upload";
+export const REMOVE_TOKEN = "XXXX.DUMMY.TOKEN.XXXX#remove";
 
 /** The headers a browser on rarepair.fans sends with the sign-in form. */
 const LOGIN_HEADERS = {
@@ -105,7 +170,7 @@ export async function signIn(
   { next = "/", acceptTerms: accept = false }: { next?: string; acceptTerms?: boolean } = {},
 ): Promise<string> {
   const before = (await emailsTo(email, { atLeast: 0 })).length;
-  expect((await postLogin({ email, "cf-turnstile-response": PASSING_TOKEN })).status).toBe(200);
+  expect((await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN })).status).toBe(200);
   const sent = await emailsTo(email, { atLeast: before + 1 });
   const token = new URL(sent.at(-1)!.url).searchParams.get("token")!;
   const res = await postLogin({ token, next }, { url: "/login/confirm" });
@@ -122,7 +187,13 @@ export async function acceptTerms(cookie: string, next = "/") {
   return res;
 }
 
-export { LOGIN_EMAIL_LIMIT, LOGIN_IP_LIMIT } from "./limits";
+export {
+  DMCA_IP_LIMIT,
+  LOGIN_EMAIL_LIMIT,
+  LOGIN_IP_LIMIT,
+  REMOVE_EMAIL_LIMIT,
+  REMOVE_IP_LIMIT,
+} from "./limits";
 
 /**
  * Waits, if need be, for a window of `periodSeconds` with at least 20 seconds left in it, time

@@ -25,7 +25,7 @@ fandoms and pseuds in it are invented placeholders.
 | Home page | Leads with search. Popular fandoms and recently added works go below |
 | Original AO3 link | A live link with a note that it works again once AO3 is back. Nothing changes automatically when AO3 returns; redirecting works to AO3 is part of a later wind-down the operator starts by hand |
 | Discovery output | This doc plus low-fidelity clickable wireframes |
-| Coming-soon typography | The coming-soon page and the other wait list pages are set in Fraunces, with IBM Plex Mono for labels and buttons. Both are self-hosted on `rarepair.fans` as their publishers' own woff2 files, unmodified, with their OFL licences beside them. They aren't subset or renamed by us, because IBM Plex's licence reserves the name "Plex". Never a third-party font host. Every other page keeps the system stacks (*Typographic system*) |
+| Coming-soon typography | The coming-soon page and the other wait list pages are set in Fraunces, with IBM Plex Mono for labels and buttons. Both are self-hosted on `rarepair.fans` as their publishers' own woff2 files, unmodified, with their OFL licences beside them. They aren't subset or renamed internally by us, because IBM Plex's licence reserves the name "Plex". Only their file names are ours, content-hashed. Never a third-party font host. Every other page keeps the system stacks (*Typographic system*) |
 
 ## Principles
 
@@ -104,11 +104,14 @@ Reading never requires an account (ARCHITECTURE, *Auth*).
    give a contact email and a short statement. Turnstile runs alongside, so
    this needs JavaScript; with it off, the page says so and gives the
    moderators' contact address.
-3. Every requester sees the same confirmation: "Your request was received; a
-   moderator will review it and email you." Nothing on the page depends on
-   whether the work was hidden, so it never reveals that a requester is
-   blocked. (An unblocked request still hides the work at once; the work page
-   shows that, not the confirmation.)
+3. Every requester sees the same page: "Check your email: we've sent a link to
+   the address you gave. Open it and press the button to confirm your request.
+   The link works once, for 7 days, and nothing happens until you confirm."
+   Nothing on the page depends on whether the work was hidden, so it never
+   reveals that a requester is blocked. The link opens a page with one button;
+   pressing it confirms the request, and only then is the work hidden (the
+   work page shows that, not the confirmation). A used, expired or unknown
+   link gets one page that says so.
    A form missing a contact email, or a work or pseud, comes back with a 400
    and the errors marked. If they gave an AO3 URL for a work that isn't in
    the archive, nothing is stored, and the page says so and suggests opting
@@ -133,8 +136,11 @@ Reading never requires an account (ARCHITECTURE, *Auth*).
    requests from the same email or IP, so a mass-hiding spree can be undone at
    once. A *Works to check* item has approve (clears the notice or publishes the
    held version), make version current, hide and remove.
-3. A work's admin page lists every version (date, uploader, chapter count)
-   with "Make current". Only moderators can roll back.
+3. A work's admin page lists every version (date, uploader, chapter count, hold
+   reason, review reasons and whether they are checked) with "Make current" and
+   "Approve" (a held version, or the current version with an unchecked notice),
+   and, while a "This version is wrong" report is open, its count and a form that
+   closes them. Only moderators can roll back.
 4. Anyone else gets a 404 for every `/admin` URL.
 
 ## Page inventory
@@ -148,12 +154,12 @@ without it. Elsewhere the
 | Page | URL | Who | Without JS | JS adds |
 | --- | --- | --- | --- | --- |
 | Coming soon | `/` while `PRELAUNCH` is on | all | What rarepair is and what opens; `<noscript>` message: joining the wait list needs JavaScript | Email form with Turnstile, "check your email to confirm", error states |
-| Confirm wait list | `/waitlist/confirm?token=…` | all | "Confirm" button (POST form), then "You're on the list"; used, expired or unknown links say so, with a link to `/` | — |
+| Confirm wait list | `/waitlist/confirm?token=…` | all | "Confirm" button (POST form), then "You're on the list"; used, expired or unknown links say so, with a link to `/`; after launch every link says the archive is open, with a link to `/` | — |
 | Home / browse | `/` | all | Search box, popular fandoms, recently added | — |
 | Search results | `/search?q=…` | all | GET form, paged results, filter form | — |
 | Fandom / tag listing | `/tags/:slug` | all | Paged works, sort and filter as a GET form | — |
 | Work page | `/works/:id` | all | Full metadata, chapter list, links; the "may be imperfect" notice when it applies | — |
-| Warnings screen | `/works/:id/warnings` | all | Shown on first entry to any reading page of a warned or Not Rated work, then remembered for the session; Continue link to the page asked for, plus a turn-off checkbox when signed in (saved to the account) | — |
+| Warnings screen | `/works/:id/warnings` | all | Shown on first entry to any reading page of a warned or Not Rated work, then remembered for the session; Continue button (a POST form) to the page asked for, plus a turn-off checkbox when signed in (saved to the account) | — |
 | Chapter reader | `/works/:id/chapters/:n` | all | Chapter, nav, settings link; the "may be imperfect" notice when it applies | Settings without reload, saves position |
 | Entire work | `/works/:id/full` | all | All chapters on one page; the "may be imperfect" notice when it applies | Saves position |
 | Reader settings | `/settings/reader` | all | POST form sets a cookie, then redirects back; signed-in readers also get the warnings on/off choice, saved to their account | Applied live from the reader |
@@ -161,12 +167,12 @@ without it. Elsewhere the
 | Confirm sign-in | `/login/confirm?token=…` | all | "Sign in" button (POST form); used, expired or unknown links redirect to `/login` with a message | — |
 | Accept terms | `/welcome/terms` | new accounts, once | Terms summary, link to `/terms`, Accept button (POST form); every other signed-in page redirects here until accepted | — |
 | Upload | `/upload` | signed in | `<noscript>` message: uploading needs JavaScript | Turnstile, then direct-to-R2 upload with progress, one or more files |
-| My uploads | `/me/uploads` | signed in | Status list that refreshes itself with `<meta http-equiv="refresh">` while anything is processing | Updates in place |
-| Remove my work / opt out | `/remove` (`?work=:id` prefills) | all | `<noscript>` message with the moderators' contact address | Request form with Turnstile, then a confirmation page that is the same for every requester |
+| My uploads | `/me/uploads` | signed in | Status list; with JS it updates in place, without JS a `<meta http-equiv="refresh">` inside `<noscript>` reloads it while anything is processing | Updates in place |
+| Remove my work / opt out | `/remove` (`?work=:id` prefills) | all | `<noscript>` message with the moderators' contact address | Request form with Turnstile, then a "check your email" page that is the same for every requester. The emailed link is `/remove/confirm?token=` (a button page, then a confirmed page, or one page for a used, expired or unknown link) |
 | Report | `/works/:id/report` | signed in (others are redirected to sign in, carrying `next`) | Form, then a confirmation page | — |
 | DMCA notice | `/dmca` | all | Statutory notice form | — |
 | Moderation queues | `/admin/{reports,takedowns,requests,works}` | moderator (404 for anyone else) | Tables with detail pages; `/admin/works` is *Works to check* | — |
-| Work admin | `/admin/works/:id` | moderator (404 for anyone else) | Every version (date, uploader, chapter count) with "Make current"; approve, hide, remove | — |
+| Work admin | `/admin/works/:id` | moderator (404 for anyone else) | Every version (date, uploader, chapter count, hold and review reasons) with "Make current" and "Approve"; close wrong-version reports, hide, remove | — |
 | About / terms / privacy | `/about`, `/terms`, `/privacy` | all | Static | — |
 | Hidden work | `/works/:id`, every chapter URL and `/full` (451) | all | One line naming the cause: "Temporarily hidden after a removal request", "Temporarily hidden after reader reports" or "Temporarily hidden by a moderator", with no details. Left out of search, listings and the home page | — |
 | Removed work | `/works/:id`, every chapter URL and `/full` (410) | all | "This work has been removed", with no details | — |
@@ -194,10 +200,11 @@ updated to match.
    POST that sets the cookie and redirects back. With JS on, a script flips the
    attributes and writes the cookie. The script is served from `'self'` with
    the page's nonce.
-3. **Upload status without JS.** *My uploads* refreshes itself with a
-   `<meta http-equiv="refresh" content="5">` while any upload is processing,
-   and drops it once nothing is. CSP doesn't block that, and it needs no
-   script.
+3. **Upload status without JS.** *My uploads* puts a
+   `<meta http-equiv="refresh" content="5">` inside `<noscript>` in the head
+   while any upload is processing, and drops it once nothing is, so it applies
+   only without JS. CSP doesn't block that, and it needs no script. With JS
+   the page polls `GET /uploads/:id` and updates in place instead.
 
 ## Typographic system
 
@@ -245,7 +252,9 @@ decoration in a minimal design. They're bold text with labels spelled out.
      updated
 
   Line 2 is never truncated. On a phone, the warnings wrap onto as many lines
-  as they need.
+  as they need. On a card, a summary's links show as plain text, so none takes
+  keyboard focus inside the clamped part, and its headings show as bold text,
+  so a card adds no heading of its own to the page's outline.
 - **Tag list.** A comma-separated inline list in small type. Every tag is a link.
   The type (relationship, character, freeform) is shown by its position and a
   visually hidden label, not by colour.

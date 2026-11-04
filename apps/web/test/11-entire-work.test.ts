@@ -136,7 +136,11 @@ const htmlOf = async (path: string) => {
 
 /** Every chapter article's markup, in page order. */
 const articlesOf = (html: string) =>
-  [...html.matchAll(/<article class="chapter">([\s\S]*?)<\/article>/g)].map(([, a = ""]) => a);
+  [
+    ...html.matchAll(
+      /<article class="chapter" aria-labelledby="chapter-[0-9]+">([\s\S]*?)<\/article>/g,
+    ),
+  ].map(([, a = ""]) => a);
 
 /** A response body's chunks as they arrive, into `into`, which keeps them if it fails. */
 const readChunks = async (res: Response, into: Uint8Array[] = []) => {
@@ -168,7 +172,7 @@ describe("11-reader-and-csp", () => {
     // Each under its own heading, escaped, with a stable anchor; no title is its number.
     const headings = [
       ...html.matchAll(
-        /<h2 class="chapter-title" id="chapter-(\d+)">([^<]*)<\/h2>\n<article class="chapter">/g,
+        /<h2 class="chapter-title" id="chapter-(\d+)">([^<]*)<\/h2>\n<article class="chapter" aria-labelledby="chapter-\1">/g,
       ),
     ].map(([, n, title]) => [n, title]);
     expect(headings).toEqual([
@@ -181,9 +185,18 @@ describe("11-reader-and-csp", () => {
     // The slim bar: the work title is the one chrome h1; the chapter's own h1 is content.
     const chrome = articles.reduce((page, a) => page.replace(a, ""), html);
     expect(chrome.match(/<h1\b[^>]*>[\s\S]*?<\/h1>/g)).toEqual([`<h1>${TITLE_ESCAPED}</h1>`]);
-    expect(chrome).toMatch(/<div class="reader-bar"><h1>[^<]*<\/h1><a href="\/settings\/reader">/);
-    // No chapter select, no frame, no epub engine, no summary; a way back to the work.
-    expect(html).not.toMatch(/<select|<iframe/i);
+    // The settings link comes back to the entire work (R5).
+    expect(chrome).toMatch(
+      new RegExp(
+        `<div class="reader-bar"><h1>[^<]*</h1><a href="/settings/reader\\?next=%2Fworks%2F${W}%2Ffull">`,
+      ),
+    );
+    // No chapter select, no frame, no epub engine, no summary; a way back to the work. The
+    // bar's selects are the reader settings' (R5), not a chapter select.
+    expect(html).not.toMatch(/<nav class="chapter-nav"|<iframe/i);
+    const settingsForm = chrome.match(/<form class="reader-settings"[\s\S]*?<\/form>/)?.[0] ?? "";
+    expect(chrome.replace(settingsForm, "")).not.toMatch(/<select/i);
+    for (const article of articles) expect(article).not.toMatch(/<select/i);
     expect(html).not.toContain("A seeded summary");
     expect(chrome.slice(chrome.lastIndexOf("</article>"))).toContain(`<a href="/works/${W}">`);
   });
@@ -243,7 +256,7 @@ describe("entire work", () => {
       expect(res.headers.get("cache-control"), id).toBe("no-store");
       const html = await res.text();
       expect(html, id).toContain("<h1>Page not found</h1>");
-      expect(html, id).not.toContain('<article class="chapter">');
+      expect(html, id).not.toContain('<article class="chapter"');
     }
   });
 
@@ -307,6 +320,30 @@ describe("entire work", () => {
     const chunks = await readChunks(await fetchW(fullUrl(BIG)));
     expect(chunks.length).toBeGreaterThan(2);
     const html = await new Blob(chunks).text();
+    expect(articlesOf(html)).toEqual([BIG_HTML]);
+  });
+
+  it("The entire work streams the same for a reader with settings", async () => {
+    // A settings cookie sends the page through the settings rewriter (R5), which must
+    // keep each promise above: HEAD has no body, a missing chapter still errors the
+    // stream, and a large fragment still arrives in chunks with its bytes.
+    const headers = { cookie: "__Host-reader=theme=dark" };
+    const head = await fetchW(fullUrl(W), { method: "HEAD", headers });
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
+
+    const missing = await fetchW(fullUrl(MISSING_LATER), { headers });
+    expect(missing.status).toBe(200);
+    const seen: Uint8Array[] = [];
+    await expect(readChunks(missing, seen)).rejects.toBeInstanceOf(Error);
+    const partial = await new Blob(seen).text();
+    expect(partial).toContain("R4-LATER-2-TEXT");
+    expect(partial).not.toContain("</main>");
+
+    const chunks = await readChunks(await fetchW(fullUrl(BIG), { headers }));
+    expect(chunks.length).toBeGreaterThan(2);
+    const html = await new Blob(chunks).text();
+    expect(html).toMatch(/^<!doctype html>\n<html lang="en" data-theme="dark">/);
     expect(articlesOf(html)).toEqual([BIG_HTML]);
   });
 });

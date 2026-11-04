@@ -2,8 +2,15 @@ import { describe, expect, it } from "vitest";
 import { verifyTurnstile, type TurnstileCheck } from "../src/turnstile";
 
 const SITEVERIFY = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
-// Cloudflare's published always-pass test secret and dummy token.
-const SECRET = "1x0000000000000000000000000000000AA";
+// A throwaway secret that is none of Cloudflare's published test secrets, so the action is checked.
+const SECRET = "test-only-turnstile-secret";
+// Cloudflare's published test secrets (always passes, always fails, token already spent).
+const CLOUDFLARE_TEST_SECRETS = [
+  "1x0000000000000000000000000000000AA",
+  "2x0000000000000000000000000000000AA",
+  "3x0000000000000000000000000000000AA",
+];
+// Cloudflare's published dummy token.
 const TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
 
 interface Call {
@@ -27,13 +34,15 @@ function siteverify(reply: (init: RequestInit) => Response | Promise<Response>) 
 interface Reply {
   success?: boolean | string;
   hostname?: string;
+  action?: unknown;
   "error-codes"?: string[];
 }
 
 const answer = (body: Reply) => () => Response.json(body);
-const check = (fetch: TurnstileCheck["fetch"]) => ({
+const check = (fetch: TurnstileCheck["fetch"]): TurnstileCheck => ({
   secret: SECRET,
   hostname: "rarepair.fans",
+  action: "login",
   remoteIp: "192.0.2.1",
   fetch,
 });
@@ -45,7 +54,9 @@ describe("19-surge-controls-and-quotas", () => {
     );
     expect(await verifyTurnstile("not-a-passing-token", check(failing.fetch))).toBe("failed");
 
-    const missing = siteverify(answer({ success: true, hostname: "rarepair.fans" }));
+    const missing = siteverify(
+      answer({ success: true, hostname: "rarepair.fans", action: "login" }),
+    );
     for (const token of [null, ""]) {
       expect(await verifyTurnstile(token, check(missing.fetch))).toBe("failed");
     }
@@ -56,7 +67,7 @@ describe("19-surge-controls-and-quotas", () => {
 
 describe("verifyTurnstile", () => {
   it("passes a token Cloudflare accepts for this host", async () => {
-    const cf = siteverify(answer({ success: true, hostname: "rarepair.fans" }));
+    const cf = siteverify(answer({ success: true, hostname: "rarepair.fans", action: "login" }));
     expect(await verifyTurnstile(TOKEN, check(cf.fetch))).toBe("passed");
 
     expect(cf.calls).toHaveLength(1);
@@ -70,20 +81,20 @@ describe("verifyTurnstile", () => {
   });
 
   it("leaves out remoteip when the client address is unknown", async () => {
-    const cf = siteverify(answer({ success: true, hostname: "rarepair.fans" }));
+    const cf = siteverify(answer({ success: true, hostname: "rarepair.fans", action: "login" }));
     expect(await verifyTurnstile(TOKEN, { ...check(cf.fetch), remoteIp: null })).toBe("passed");
     expect(cf.calls[0]!.body.has("remoteip")).toBe(false);
   });
 
   it("fails a token solved on another host", async () => {
-    const cf = siteverify(answer({ success: true, hostname: "evil.example" }));
+    const cf = siteverify(answer({ success: true, hostname: "evil.example", action: "login" }));
     expect(await verifyTurnstile(TOKEN, check(cf.fetch))).toBe("failed");
   });
 
   it("fails anything but success: true", async () => {
     for (const reply of [
-      { success: "true", hostname: "rarepair.fans" },
-      { hostname: "rarepair.fans" },
+      { success: "true", hostname: "rarepair.fans", action: "login" },
+      { hostname: "rarepair.fans", action: "login" },
     ]) {
       const cf = siteverify(answer(reply));
       expect(await verifyTurnstile(TOKEN, check(cf.fetch))).toBe("failed");
@@ -91,7 +102,7 @@ describe("verifyTurnstile", () => {
   });
 
   it("fails a token over 2048 characters without asking Cloudflare", async () => {
-    const cf = siteverify(answer({ success: true, hostname: "rarepair.fans" }));
+    const cf = siteverify(answer({ success: true, hostname: "rarepair.fans", action: "login" }));
     expect(await verifyTurnstile("x".repeat(2049), check(cf.fetch))).toBe("failed");
     expect(cf.calls).toEqual([]);
     // 2048 is still a token Cloudflare is asked about.
@@ -124,5 +135,31 @@ describe("verifyTurnstile", () => {
       const odd = siteverify(() => new Response(body, { status: 200 }));
       expect(await verifyTurnstile(TOKEN, check(odd.fetch))).toBe("unavailable");
     }
+  });
+
+  it("fails a token solved for another form's action", async () => {
+    const cf = siteverify(answer({ success: true, hostname: "rarepair.fans", action: "waitlist" }));
+    expect(await verifyTurnstile(TOKEN, check(cf.fetch))).toBe("failed");
+  });
+
+  it("fails a reply with no action, or one that isn't a string", async () => {
+    for (const action of [undefined, null, 7, ["login"], { name: "login" }, "LOGIN", ""]) {
+      const cf = siteverify(answer({ success: true, hostname: "rarepair.fans", action }));
+      expect(await verifyTurnstile(TOKEN, check(cf.fetch))).toBe("failed");
+    }
+  });
+
+  it("skips the action under Cloudflare's published test secrets", async () => {
+    // Their dummy flow may report no action, or "test", whatever the widget set.
+    for (const secret of CLOUDFLARE_TEST_SECRETS) {
+      for (const action of [undefined, "test"]) {
+        const cf = siteverify(answer({ success: true, hostname: "rarepair.fans", action }));
+        expect(await verifyTurnstile(TOKEN, { ...check(cf.fetch), secret })).toBe("passed");
+      }
+    }
+    // The host is still checked.
+    const cf = siteverify(answer({ success: true, hostname: "evil.example" }));
+    const [secret = ""] = CLOUDFLARE_TEST_SECRETS;
+    expect(await verifyTurnstile(TOKEN, { ...check(cf.fetch), secret })).toBe("failed");
   });
 });

@@ -2,8 +2,9 @@
 // needs an account (ARCHITECTURE, Author requests & takedowns, Reports). No
 // script and no Turnstile, so it works with JavaScript off.
 
-import { createDb } from "@archive/db";
+import { createDb, hideWork, isBanned } from "@archive/db";
 import type { Context, MiddlewareHandler } from "hono";
+import { blockedReporterIds } from "./blocked-reporters";
 import type { Bindings } from "./env";
 import { readForm } from "./login";
 import { escapeHtml, forbiddenPage, layout } from "./pages";
@@ -20,6 +21,9 @@ type Db = ReturnType<typeof createDb>;
 
 const MAX_INT4 = 2_147_483_647;
 
+/** Open reports from this many distinct accounts hide a work (ARCHITECTURE, Reports). */
+const REPORTERS_TO_HIDE = 3;
+
 /**
  * The reasons a reader can give, by the `kind` stored. Only `wrong_version` is
  * named in the docs: moderators' *Works to check* and the auto-hide count read it
@@ -33,7 +37,7 @@ const REASONS = {
 } as const;
 
 /** An AO3 work ID from the URL: plain decimal digits, within Postgres's int4. */
-function workId(text: string | undefined): number | null {
+export function workId(text: string | undefined): number | null {
   if (text === undefined || !/^[1-9]\d{0,9}$/.test(text)) return null;
   const value = Number(text);
   return value <= MAX_INT4 ? value : null;
@@ -48,20 +52,6 @@ const liveWork = (db: Db, ao3WorkId: number) =>
     .where("status", "=", "live")
     .where("current_version_id", "is not", null)
     .executeTakeFirst();
-
-/**
- * Whether the account is banned. Read from the database, not the session: the
- * session's user has no `banned_at`, and a ban must hold at once. An account with
- * no row can't report either.
- */
-const isBanned = async (db: Db, userId: string) => {
-  const user = await db
-    .selectFrom("user")
-    .select("banned_at")
-    .where("id", "=", userId)
-    .executeTakeFirst();
-  return user === undefined || user.banned_at !== null;
-};
 
 /** Report pages that hold what the reader typed, or depend on who they are, stay out of caches. */
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -212,6 +202,17 @@ export async function submitReport(c: ReportContext) {
         body: details.trim() === "" ? null : details,
       })
       .execute();
+    // The count is inside the hiding UPDATE: a read could come from Hyperdrive's
+    // cache and miss the report just stored.
+    // Accounts that match a blocked requester by IP hash don't count; by email, the count
+    // itself skips them (blocked-reporters.ts).
+    const ignoreReporters = await blockedReporterIds(
+      db,
+      c.env.IP_HASH_KEY,
+      work.id,
+      session.user.id,
+    );
+    await hideWork(db, work.id, "reports", { minReporters: REPORTERS_TO_HIDE, ignoreReporters });
     return c.html(reportedPage(reason), 200, NO_STORE);
   } finally {
     c.executionCtx.waitUntil(db.destroy());

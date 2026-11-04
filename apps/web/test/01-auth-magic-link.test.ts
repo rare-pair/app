@@ -15,7 +15,7 @@ import {
   LOGIN_IP_LIMIT,
   loginRequest,
   nonceOf,
-  PASSING_TOKEN,
+  LOGIN_TOKEN,
   postLogin,
   windowHeadroom,
 } from "./helpers";
@@ -42,7 +42,7 @@ let sentinels = 0;
  */
 async function queuedFor(to: string): Promise<boolean> {
   const sentinel = `sentinel-${++sentinels}@example.test`;
-  const res = await postLogin({ email: sentinel, "cf-turnstile-response": PASSING_TOKEN });
+  const res = await postLogin({ email: sentinel, "cf-turnstile-response": LOGIN_TOKEN });
   expect(res.status).toBe(200);
   expect(await emailsTo(sentinel)).toHaveLength(1);
   // Any body addressed to `to`, even one the mailer would refuse.
@@ -107,7 +107,9 @@ describe("01-auth-magic-link", () => {
     // The page it was opened from comes back after sign-in.
     expect(html).toMatch(/<input\b[^>]*type="hidden"[^>]*name="next"[^>]*value="\/works\/1"/);
     // Turnstile alongside: the widget, with the site key from wrangler.jsonc, and its script.
-    expect(html).toContain('<div class="cf-turnstile" data-sitekey="1x00000000000000000000AA">');
+    expect(html).toContain(
+      '<div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-action="login">',
+    );
     expect(html).toContain(
       `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" nonce="${nonce}"`,
     );
@@ -133,7 +135,7 @@ describe("01-auth-magic-link", () => {
     const res = await postLogin({
       email: "queued@example.test",
       next: "/works/1",
-      "cf-turnstile-response": PASSING_TOKEN,
+      "cf-turnstile-response": LOGIN_TOKEN,
     });
     expect(res.status).toBe(200);
 
@@ -160,7 +162,7 @@ describe("01-auth-magic-link", () => {
     const elsewhere = await postLogin(
       {
         email: "queued-elsewhere@example.test",
-        "cf-turnstile-response": `${PASSING_TOKEN}@web.internal.example`,
+        "cf-turnstile-response": `${LOGIN_TOKEN}@web.internal.example`,
       },
       { url: "https://web.internal.example/login" },
     );
@@ -172,7 +174,7 @@ describe("01-auth-magic-link", () => {
   it("Check-your-email page sets expectations", async () => {
     const res = await postLogin({
       email: "expectations@example.test",
-      "cf-turnstile-response": PASSING_TOKEN,
+      "cf-turnstile-response": LOGIN_TOKEN,
     });
     expect(res.status).toBe(200);
     const html = await res.text();
@@ -189,7 +191,7 @@ describe("01-auth-magic-link", () => {
       // Solved, but for another host than the one the form was posted to.
       [
         "other-host-turnstile@example.test",
-        { "cf-turnstile-response": `${PASSING_TOKEN}@evil.example` },
+        { "cf-turnstile-response": `${LOGIN_TOKEN}@evil.example` },
       ],
     ];
     for (const [email, turnstile] of cases) {
@@ -197,6 +199,8 @@ describe("01-auth-magic-link", () => {
       const res = await postLogin({ email, next: "/works/1", ...turnstile });
 
       expect(res.status).toBe(400);
+      // The form holds what was typed, so no cache keeps it.
+      expect(res.headers.get("cache-control")).toBe("no-store");
       const html = await res.text();
       // The form again, with an error, keeping what was typed and where to go back to.
       expect(formTag(html)).not.toBeNull();
@@ -218,7 +222,7 @@ describe("01-auth-magic-link", () => {
     ];
     for (const [email, headers] of cases) {
       const before = await verificationIds();
-      const res = await postLogin({ email, "cf-turnstile-response": PASSING_TOKEN }, { headers });
+      const res = await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN }, { headers });
       expect(res.status).toBe(403);
       await expectNothingCreated(email, before);
     }
@@ -230,7 +234,7 @@ describe("01-auth-magic-link", () => {
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         email: "no-headers@example.test",
-        "cf-turnstile-response": PASSING_TOKEN,
+        "cf-turnstile-response": LOGIN_TOKEN,
       }).toString(),
     });
     expect(bare.status).toBe(403);
@@ -239,7 +243,7 @@ describe("01-auth-magic-link", () => {
 
   it("An oversized sign-in request is refused before it is read", async () => {
     // A form body of exactly `bytes` bytes, passing Turnstile.
-    const prefix = `email=oversized%40example.test&cf-turnstile-response=${PASSING_TOKEN}&padding=`;
+    const prefix = `email=oversized%40example.test&cf-turnstile-response=${LOGIN_TOKEN}&padding=`;
     const formOf = (bytes: number) => prefix + "x".repeat(bytes - prefix.length);
     // The same, as a stream of unknown length, so no Content-Length is sent.
     const streamOf = (text: string) => {
@@ -258,6 +262,7 @@ describe("01-auth-magic-link", () => {
     for (const body of [formOf(16 * 1024 + 1), streamOf(formOf(16 * 1024 + 1))]) {
       const res = await postLogin({}, { body });
       expect(res.status).toBe(413);
+      expect(res.headers.get("cache-control")).toBe("no-store");
       const html = await res.text();
       expect(formTag(html)).not.toBeNull();
       expect(html).not.toContain("oversized");
@@ -287,6 +292,7 @@ describe("01-auth-magic-link", () => {
       "cf-turnstile-response": "siteverify-down",
     });
     expect(res.status).toBe(503);
+    expect(res.headers.get("cache-control")).toBe("no-store");
     const html = await res.text();
     expect(formTag(html)).not.toBeNull();
     expect(html).toContain('<p role="alert">');
@@ -295,7 +301,7 @@ describe("01-auth-magic-link", () => {
 
   it("Requesting a link for the longest address the mailer sends to works", async () => {
     expect(LONGEST_EMAIL).toHaveLength(254);
-    const res = await postLogin({ email: LONGEST_EMAIL, "cf-turnstile-response": PASSING_TOKEN });
+    const res = await postLogin({ email: LONGEST_EMAIL, "cf-turnstile-response": LOGIN_TOKEN });
     expect(res.status).toBe(200);
     expect(await emailsTo(LONGEST_EMAIL)).toHaveLength(1);
   });
@@ -304,8 +310,9 @@ describe("01-auth-magic-link", () => {
     // Also none at all, and a well-formed one a character longer than the mailer sends to.
     for (const email of ["not-an-address", "", `a${LONGEST_EMAIL}`]) {
       const before = await verificationIds();
-      const res = await postLogin({ email, "cf-turnstile-response": PASSING_TOKEN });
+      const res = await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN });
       expect(res.status).toBe(400);
+      expect(res.headers.get("cache-control")).toBe("no-store");
       const html = await res.text();
       expect(formTag(html)).not.toBeNull();
       expect(html).toContain('<p role="alert">Enter a valid email address.</p>');
@@ -321,7 +328,7 @@ describe("01-auth-magic-link", () => {
     // Even for an address it hasn't asked for, with a passing check.
     const before = await verificationIds();
     const res = await postLogin(
-      { email: "per-ip@example.test", "cf-turnstile-response": PASSING_TOKEN },
+      { email: "per-ip@example.test", "cf-turnstile-response": LOGIN_TOKEN },
       { headers: { "cf-connecting-ip": ip } },
     );
     await expectTooManyRequests(res);
@@ -329,13 +336,13 @@ describe("01-auth-magic-link", () => {
 
     // A cross-site request from it is still refused as one, before the limit is asked.
     const crossSite = await postLogin(
-      { email: "per-ip@example.test", "cf-turnstile-response": PASSING_TOKEN },
+      { email: "per-ip@example.test", "cf-turnstile-response": LOGIN_TOKEN },
       { headers: { "cf-connecting-ip": ip, origin: "https://evil.example" } },
     );
     expect(crossSite.status).toBe(403);
     // Another IP is not held up.
     const other = await postLogin(
-      { email: "per-ip@example.test", "cf-turnstile-response": PASSING_TOKEN },
+      { email: "per-ip@example.test", "cf-turnstile-response": LOGIN_TOKEN },
       { headers: { "cf-connecting-ip": freshIp() } },
     );
     expect(other.status).toBe(200);
@@ -346,7 +353,7 @@ describe("01-auth-magic-link", () => {
     const email = `per-email-${crypto.randomUUID()}@example.test`;
     // The limit's worth of links, each asked for from another IP (postLogin's fresh one).
     for (let i = 0; i < LOGIN_EMAIL_LIMIT; i++) {
-      const res = await postLogin({ email, "cf-turnstile-response": PASSING_TOKEN });
+      const res = await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN });
       expect(res.status).toBe(200);
     }
     expect(await emailsTo(email, { atLeast: LOGIN_EMAIL_LIMIT })).toHaveLength(LOGIN_EMAIL_LIMIT);
@@ -355,7 +362,7 @@ describe("01-auth-magic-link", () => {
     const before = await verificationIds();
     const res = await postLogin({
       email: ` ${email.toUpperCase()} `,
-      "cf-turnstile-response": PASSING_TOKEN,
+      "cf-turnstile-response": LOGIN_TOKEN,
     });
     await expectTooManyRequests(res);
     // No token, however the address would have been stored: matched in any case and
@@ -374,7 +381,7 @@ describe("01-auth-magic-link", () => {
   it("Sign-in requests with no address are refused as such, not counted together", async () => {
     await windowHeadroom(LOGIN_WINDOW_SECONDS);
     for (let i = 0; i <= LOGIN_EMAIL_LIMIT; i++) {
-      const res = await postLogin({ email: " ", "cf-turnstile-response": PASSING_TOKEN });
+      const res = await postLogin({ email: " ", "cf-turnstile-response": LOGIN_TOKEN });
       expect(res.status).toBe(400);
       expect(await res.text()).toContain('<p role="alert">Enter a valid email address.</p>');
     }
@@ -387,7 +394,7 @@ describe("01-auth-magic-link", () => {
       const res = await postLogin({ email, "cf-turnstile-response": "a-failing-token" });
       expect(res.status).toBe(400);
     }
-    const res = await postLogin({ email, "cf-turnstile-response": PASSING_TOKEN });
+    const res = await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN });
     expect(res.status).toBe(200);
   });
 });
@@ -408,7 +415,7 @@ describe("19-surge-controls-and-quotas", () => {
     const ip = freshIp();
     await fillIpLimit(ip);
     const res = await postLogin(
-      { email: "surge-per-ip@example.test", "cf-turnstile-response": PASSING_TOKEN },
+      { email: "surge-per-ip@example.test", "cf-turnstile-response": LOGIN_TOKEN },
       { headers: { "cf-connecting-ip": ip } },
     );
 
@@ -447,7 +454,7 @@ describe("Sign-in failures", () => {
       const ctx = createExecutionContext();
       const request = loginRequest({
         email: "logged-nowhere@example.test",
-        "cf-turnstile-response": PASSING_TOKEN,
+        "cf-turnstile-response": LOGIN_TOKEN,
       });
       status = (await app.fetch(request, refusing, ctx)).status;
       await waitOnExecutionContext(ctx);
@@ -471,7 +478,7 @@ describe("Sign-in failures", () => {
     const broken = { ...env, LOGIN_IP_LIMIT: failing, LOGIN_EMAIL_LIMIT: failing };
     const request = loginRequest({
       email: "limiter-down@example.test",
-      "cf-turnstile-response": PASSING_TOKEN,
+      "cf-turnstile-response": LOGIN_TOKEN,
     });
     const ip = request.headers.get("cf-connecting-ip") ?? "no client address";
     let status = 0;

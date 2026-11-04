@@ -1,13 +1,18 @@
 import { createDb } from "@archive/db";
+import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
+import { sql } from "kysely";
 import { afterAll, describe, expect, it } from "vitest";
+import app from "../src/index";
 import {
+  BASE,
   fetchW,
+  TURNSTILE,
   nonceOf,
-  PASSING_TOKEN,
+  UPLOAD_TOKEN,
   postLogin,
   signIn as signInAs,
-  TURNSTILE,
+  UPLOAD_CSP,
   withoutNonce,
 } from "./helpers";
 
@@ -71,7 +76,7 @@ describe("01-auth-magic-link", () => {
     expect(page.headers.get("location")).toBe("/login?next=%2Fupload");
     expect(page.headers.get("cache-control")).toBe("no-store");
 
-    const res = await requestUpload({ size: "1000", "cf-turnstile-response": PASSING_TOKEN });
+    const res = await requestUpload({ size: "1000", "cf-turnstile-response": UPLOAD_TOKEN });
     await expectRefused(res, 401);
   });
 });
@@ -80,7 +85,7 @@ describe("02-upload-handshake", () => {
   it("Upload request returns a presigned PUT URL", async () => {
     const { userId, cookie } = await signIn("u1-presigned@example.test");
     const res = await requestUpload(
-      { size: "123456", "cf-turnstile-response": PASSING_TOKEN },
+      { size: "123456", "cf-turnstile-response": UPLOAD_TOKEN },
       { cookie },
     );
     expect(res.status).toBe(200);
@@ -104,7 +109,7 @@ describe("02-upload-handshake", () => {
   it("Declared size of exactly 25 MB is accepted", async () => {
     const { userId, cookie } = await signIn("u1-exactly-25@example.test");
     const res = await requestUpload(
-      { size: "26214400", "cf-turnstile-response": PASSING_TOKEN },
+      { size: "26214400", "cf-turnstile-response": UPLOAD_TOKEN },
       { cookie },
     );
     expect(res.status).toBe(200);
@@ -117,7 +122,7 @@ describe("02-upload-handshake", () => {
   it("Declared size over 25 MB is refused", async () => {
     const { userId, cookie } = await signIn("u1-over-25@example.test");
     const res = await requestUpload(
-      { size: "26214401", "cf-turnstile-response": PASSING_TOKEN },
+      { size: "26214401", "cf-turnstile-response": UPLOAD_TOKEN },
       { cookie },
     );
     expect(await expectRefused(res, 413)).toMatch(/over the 25 MB limit/);
@@ -125,11 +130,11 @@ describe("02-upload-handshake", () => {
   });
 
   it("Upload request without a session is refused", async () => {
-    const res = await requestUpload({ size: "1000", "cf-turnstile-response": PASSING_TOKEN });
+    const res = await requestUpload({ size: "1000", "cf-turnstile-response": UPLOAD_TOKEN });
     await expectRefused(res, 401);
     // A cookie that names no session is no session.
     const forged = await requestUpload(
-      { size: "1000", "cf-turnstile-response": PASSING_TOKEN },
+      { size: "1000", "cf-turnstile-response": UPLOAD_TOKEN },
       { cookie: "__Secure-better-auth.session_token=forged.value" },
     );
     await expectRefused(forged, 401);
@@ -156,7 +161,7 @@ describe("02-upload-handshake", () => {
 
   it("A declared size that is not a positive whole number is refused", async () => {
     const { userId, cookie } = await signIn("u1-bad-size@example.test");
-    const token = { "cf-turnstile-response": PASSING_TOKEN };
+    const token = { "cf-turnstile-response": UPLOAD_TOKEN };
     await expectRefused(await requestUpload(token, { cookie }), 400);
     for (const size of ["", "abc", "-1", "0", "1.5", "1e3", " 12", "0x10"]) {
       await expectRefused(await requestUpload({ ...token, size }, { cookie }), 400);
@@ -166,7 +171,7 @@ describe("02-upload-handshake", () => {
 
   it("An upload request from another site is refused", async () => {
     const { userId, cookie } = await signIn("u1-cross-site@example.test");
-    const fields = { size: "1000", "cf-turnstile-response": PASSING_TOKEN };
+    const fields = { size: "1000", "cf-turnstile-response": UPLOAD_TOKEN };
     for (const headers of [
       { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
       { origin: "https://www.rarepair.fans", "sec-fetch-site": "same-site" },
@@ -183,7 +188,7 @@ describe("02-upload-handshake", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
     const csp = res.headers.get("content-security-policy");
-    expect(withoutNonce(csp)).toBe(TURNSTILE);
+    expect(withoutNonce(csp)).toBe(UPLOAD_CSP);
 
     const html = await res.text();
     const noscript = html.match(/<noscript>([\s\S]*?)<\/noscript>/)?.[1] ?? "";
@@ -191,10 +196,41 @@ describe("02-upload-handshake", () => {
     // Nothing on the page can send a file without the script: no form posts anywhere.
     expect(html).not.toMatch(/<form\b[^>]*\baction=/i);
     expect(html).toMatch(/<input[^>]*type="file"[^>]*accept="\.epub,application\/epub\+zip"/);
-    expect(html).toContain('<div class="cf-turnstile" data-sitekey="1x00000000000000000000AA">');
+    expect(html).toContain(
+      '<div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-action="upload">',
+    );
     const scripts = html.match(/<script\b[^>]*>/g) ?? [];
     expect(scripts.length).toBeGreaterThan(0);
     for (const tag of scripts) expect(tag).toContain(`nonce="${nonceOf(csp)}"`);
+  });
+
+  it("An account id that is not letters and digits adds nothing to the policy", async () => {
+    const { cookie } = await signIn("u3-bad-account@example.test");
+    const ctx = createExecutionContext();
+    const res = await app.fetch(
+      new Request(`${BASE}/upload`, { headers: { cookie } }),
+      { ...env, R2_ACCOUNT_ID: "acct.example; script-src *" },
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(res.status).toBe(200);
+    expect(withoutNonce(res.headers.get("content-security-policy"))).toBe(TURNSTILE);
+  });
+
+  it("The upload page's script is served with the page's nonce and nothing else is let in", async () => {
+    const { cookie } = await signIn("u3-script-tag@example.test");
+    const res = await fetchW("/upload", { headers: { cookie } });
+    const html = await res.text();
+    const tag = html.match(/<script src="(\/assets\/upload\.[0-9a-f]+\.js)"[^>]*>/);
+    expect(tag).not.toBeNull();
+    expect(tag![0]).toContain(`nonce="${nonceOf(res.headers.get("content-security-policy"))}"`);
+    const script = await fetchW(tag![1]!);
+    expect(script.status).toBe(200);
+    expect(script.headers.get("content-type")).toMatch(/^text\/javascript/);
+    expect(script.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(script.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    // Only the page's own address and R2's: nothing else the script could send a file to.
+    expect(res.headers.get("content-security-policy")).not.toMatch(/connect-src[^;]*\*/);
   });
 
   it("The upload page has the site's chrome", async () => {
@@ -224,5 +260,104 @@ describe("19-surge-controls-and-quotas", () => {
     const res = await requestUpload({ size: "1000", "cf-turnstile-response": "bad" }, { cookie });
     expect(await expectRefused(res, 400)).toMatch(/anti-spam check did not pass/);
     expect(await uploadsOf(userId)).toEqual([]);
+  });
+});
+
+// U4: today's confirmed uploads are counted at `/complete` (02-upload-confirm.test.ts), so
+// `POST /uploads` only refuses early, when the quota is already spent.
+const NEW_LIMIT = Number(env.UPLOAD_QUOTA_NEW);
+const TRUSTED_LIMIT = Number(env.UPLOAD_QUOTA_TRUSTED);
+// The database's UTC day, the clock the quota itself uses, not the JS clock.
+const today = sql<string>`(now() at time zone 'utc')::date`;
+const setUsedToday = (userId: string, used: number) =>
+  db
+    .updateTable("user")
+    .set({ upload_quota_used: used, upload_quota_day: today })
+    .where("id", "=", userId)
+    .execute();
+
+describe("02-upload-handshake: the daily quota", () => {
+  it("Upload request over the daily quota is refused", async () => {
+    const { userId, cookie } = await signIn("u4-over-quota@example.test");
+    await setUsedToday(userId, NEW_LIMIT);
+    const res = await requestUpload(
+      { size: "1000", "cf-turnstile-response": UPLOAD_TOKEN },
+      { cookie },
+    );
+    const error = await expectRefused(res.clone(), 429);
+    expect(error).toMatch(/midnight UTC/);
+    const seconds = Number(res.headers.get("retry-after"));
+    expect(Number.isInteger(seconds)).toBe(true);
+    expect(seconds).toBeGreaterThanOrEqual(1);
+    expect(seconds).toBeLessThanOrEqual(86400);
+    // SAFETY: POST /uploads answers JSON.
+    expect(((await res.json()) as { retryAfter?: number }).retryAfter).toBe(seconds);
+    expect(await uploadsOf(userId)).toEqual([]);
+  });
+});
+
+describe("19-surge-controls-and-quotas: asking while quota is left", () => {
+  it("Daily quota allows uploads up to the limit", async () => {
+    const { userId, cookie } = await signIn("u4-ask-last@example.test");
+    await setUsedToday(userId, NEW_LIMIT - 1);
+    const res = await requestUpload(
+      { size: "1000", "cf-turnstile-response": UPLOAD_TOKEN },
+      { cookie },
+    );
+    expect(res.status).toBe(200);
+    expect(await uploadsOf(userId)).toHaveLength(1);
+  });
+
+  it("Daily quota refuses uploads past the limit", async () => {
+    const { userId, cookie } = await signIn("u4-ask-past@example.test");
+    await setUsedToday(userId, NEW_LIMIT + 5);
+    const res = await requestUpload(
+      { size: "1000", "cf-turnstile-response": UPLOAD_TOKEN },
+      { cookie },
+    );
+    await expectRefused(res, 429);
+    expect(res.headers.get("retry-after")).toMatch(/^[1-9][0-9]*$/);
+  });
+
+  it("a trusted user is asked past the new-account limit", async () => {
+    const { userId, cookie } = await signIn("u4-ask-trusted@example.test");
+    await db.updateTable("user").set({ role: "admin" }).where("id", "=", userId).execute();
+    await setUsedToday(userId, NEW_LIMIT);
+    const open = await requestUpload(
+      { size: "1000", "cf-turnstile-response": UPLOAD_TOKEN },
+      { cookie },
+    );
+    expect(open.status).toBe(200);
+    await setUsedToday(userId, TRUSTED_LIMIT);
+    await expectRefused(
+      await requestUpload({ size: "1000", "cf-turnstile-response": UPLOAD_TOKEN }, { cookie }),
+      429,
+    );
+  });
+
+  it("an earlier day's use is no use today", async () => {
+    const { userId, cookie } = await signIn("u4-ask-new-day@example.test");
+    await db
+      .updateTable("user")
+      .set({ upload_quota_used: NEW_LIMIT, upload_quota_day: "2000-01-01" })
+      .where("id", "=", userId)
+      .execute();
+    const res = await requestUpload(
+      { size: "1000", "cf-turnstile-response": UPLOAD_TOKEN },
+      { cookie },
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("a request that fails an earlier check is answered by that check, not the quota", async () => {
+    const { userId, cookie } = await signIn("u4-ask-order@example.test");
+    await setUsedToday(userId, NEW_LIMIT);
+    const big = await requestUpload(
+      { size: "26214401", "cf-turnstile-response": UPLOAD_TOKEN },
+      { cookie },
+    );
+    await expectRefused(big, 413);
+    const bad = await requestUpload({ size: "1000", "cf-turnstile-response": "bad" }, { cookie });
+    await expectRefused(bad, 400);
   });
 });

@@ -10,16 +10,24 @@ import {
   walk,
   type ElementNode,
 } from "./dom";
+import { splitNames } from "./byline";
 import { collapseWhitespace, decodeEntities } from "./entities";
 import type { Author, SeriesRef, Stats } from "./types";
 
 // AO3 preface -> metadata. Fields are matched by label text, never by class:
 // calibre renames classes. Only a few semantic hooks (ids, `byline`) survive.
 
+interface ParsedByline {
+  authors: Author[];
+  bylineAmbiguous: boolean;
+}
+
 export interface Preface {
   workId: string | null;
   title: string | null;
   authors: Author[];
+  /** The byline had no profile links and split into several names: the split is a guess. */
+  bylineAmbiguous: boolean;
   rating: string | null;
   warnings: string[];
   categories: string[];
@@ -152,7 +160,7 @@ function parseStats(text: string, rawMeta: Record<string, string>): Stats {
   return stats;
 }
 
-function parseAuthors(prefaces: ElementNode[]): Author[] {
+function parseAuthors(prefaces: ElementNode[]): ParsedByline {
   let byline: ElementNode | null = null;
   for (const region of prefaces) {
     byline =
@@ -165,7 +173,7 @@ function parseAuthors(prefaces: ElementNode[]): Author[] {
       );
     if (byline) break;
   }
-  if (!byline) return [];
+  if (!byline) return { authors: [], bylineAmbiguous: false };
   const links = findAll(
     byline,
     (el) =>
@@ -173,13 +181,13 @@ function parseAuthors(prefaces: ElementNode[]): Author[] {
   );
   if (links.length === 0) {
     // e.g. "by Anonymous": names with no profile links.
-    return cleanText(byline)
-      .replace(/^by\s+/i, "")
-      .split(/,\s*|\s+and\s+/)
-      .filter(Boolean)
-      .map((pseud) => ({ pseud, user: null }));
+    const names = splitNames(cleanText(byline).replace(/^by(?:\s+|$)/i, ""));
+    return {
+      authors: names.map((pseud) => ({ pseud, user: null })),
+      bylineAmbiguous: names.length > 1,
+    };
   }
-  return links.map((a) => {
+  const authors = links.map((a) => {
     const m = /\/users\/([^/?#]+)/.exec(href(a));
     let user: string | null = null;
     if (m) {
@@ -194,6 +202,7 @@ function parseAuthors(prefaces: ElementNode[]): Author[] {
     if (user && pseud.endsWith(` (${user})`)) pseud = pseud.slice(0, -(user.length + 3));
     return { pseud, user };
   });
+  return { authors, bylineAmbiguous: false };
 }
 
 /** The blockquote following a `<p>Summary</p>`-style label inside `scope`. */
@@ -304,7 +313,7 @@ export function parsePreface(roots: readonly ElementNode[]): Preface {
   return {
     workId: findWorkId(prefaces),
     title: h1 ? cleanText(h1) || null : null,
-    authors: parseAuthors(prefaces),
+    ...parseAuthors(prefaces),
     rating: tags.rating[0] ?? null,
     warnings: tags.warnings,
     categories: tags.categories,

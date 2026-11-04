@@ -1,0 +1,217 @@
+import type { Database } from "@archive/db";
+import type { FragmentBucket } from "@archive/db/seed";
+import { createTestDb } from "@archive/db/testing";
+import type { Kysely } from "kysely";
+import type { RequestInit, Response } from "miniflare";
+import { chromium, type Browser, type BrowserContext } from "playwright";
+import { inject } from "vitest";
+import { parseMessage, type EmailMessage } from "../../../mailer/src/message";
+import { CONTENT_HOST } from "../../src/content-host";
+import { SITE } from "../../src/signin";
+import { DUMMY_TOKEN } from "../../test/stand-ins";
+import { startWorker } from "./worker";
+
+/** Where the browser visits: the real site's origin, mapped to the local Worker. */
+export { SITE };
+const HOST = new URL(SITE).host;
+// Stood in for in the browser, never fetched: Turnstile's script, and the image host.
+const TURNSTILE_SCRIPT = "https://challenges.cloudflare.com/turnstile/v0/api.js";
+const CONTENT = `https://${CONTENT_HOST}/`;
+/**
+ * Turnstile's script, standing in: every widget is solved at once with Cloudflare's dummy
+ * token under the widget's action, which test/stand-ins.ts's siteverify passes. As the real
+ * script does, it adds the token to the widget's form as `cf-turnstile-response` and calls
+ * the widget's `data-callback` with it, and `turnstile.getResponse()` and `reset()` work. It
+ * draws no frame.
+ */
+const TURNSTILE_STUB = /* js */ `
+const tokens = [];
+window.turnstile = { getResponse: () => tokens[0], reset: () => {} };
+const solve = () => {
+  for (const widget of document.querySelectorAll(".cf-turnstile")) {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "cf-turnstile-response";
+    input.value = ${JSON.stringify(`${DUMMY_TOKEN}#`)} + (widget.dataset.action || "");
+    widget.append(input);
+    tokens.push(input.value);
+    // As the real widget does once solved: call the page's data-callback with the token.
+    const callback = window[widget.dataset.callback || ""];
+    if (typeof callback === "function") callback(input.value);
+  }
+};
+// The script loads async, so it may run before the widgets are parsed: wait for them.
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", solve);
+else solve();
+`;
+// A transparent 1x1 PNG, for every image on the content host.
+const PIXEL = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+  "base64",
+);
+
+export type Viewport = { width: number; height: number };
+
+/**
+ * The viewport `BROWSER_VIEWPORT` names, as `<width>x<height>` ("360x640"), or 1280 by 800
+ * when it is unset. Throws on anything else, so a typo never runs the suite at the default.
+ */
+export function viewportFromEnv(value = process.env.BROWSER_VIEWPORT): Viewport {
+  if (value === undefined || value === "") return { width: 1280, height: 800 };
+  const match = /^(\d+)x(\d+)$/.exec(value);
+  if (match === null) throw new Error(`BROWSER_VIEWPORT must look like 360x640, not "${value}"`);
+  return { width: Number(match[1]), height: Number(match[2]) };
+}
+
+export type SiteOptions = {
+  /** PRELAUNCH as wrangler.jsonc deploys it (true), or the archive open (false, the default). */
+  prelaunch?: boolean;
+  /** Default: `viewportFromEnv()`. */
+  viewport?: Viewport;
+};
+
+export type ContextOptions = {
+  /**
+   * The client address the Worker sees (`cf-connecting-ip`), for its rate limits. Default: a
+   * new one for each context, so contexts never share a limit.
+   */
+  ip?: string;
+};
+
+/** The running site: the Worker, its database and bucket, and a browser to visit it with. */
+export type Site = {
+  /** The database the Worker reads, for seeding. */
+  db: Kysely<Database>;
+  /** The Worker's R2 bucket, for seeding fragments. */
+  bucket: FragmentBucket;
+  /**
+   * A new browser context on the site, with the stand-ins for third parties: Turnstile's
+   * script solves every widget at once, and every content-host image is a 1x1 PNG. Any other
+   * request off the site is refused and recorded in `offSite`.
+   */
+  newContext: (options?: ContextOptions) => Promise<BrowserContext>;
+  /** Every off-site URL a page asked for that has no stand-in. */
+  offSite: string[];
+  /** A request to the Worker from Node, outside the browser; redirects are returned. */
+  fetch: (path: string, init?: RequestInit) => Promise<Response>;
+  /** Every email the Worker has queued so far, parsed (apps/mailer's message shape). */
+  emails: () => Promise<EmailMessage[]>;
+  close: () => Promise<void>;
+};
+
+// One /24 of TEST-NET-3 per process, counted, so each context gets an address of its own.
+let nextIp = 0;
+/** A client address no other context in this run has. */
+export const freshIp = () => {
+  nextIp += 1;
+  return `203.0.${Math.floor(nextIp / 250) % 256}.${(nextIp % 250) + 1}`;
+};
+
+/**
+ * Headless Chromium. With `port`, it resolves the site's host to the local Worker there, so it
+ * visits the real origin: the Worker's same-origin checks, __Secure- cookies and CSP all hold.
+ * Fails, saying how to install it, when Playwright's Chromium is missing.
+ */
+export async function launchChromium(port?: number): Promise<Browser> {
+  try {
+    return await chromium.launch({
+      args: port === undefined ? [] : [`--host-resolver-rules=MAP ${HOST} 127.0.0.1:${port}`],
+    });
+  } catch (error) {
+    // A missing browser must fail the run, never skip it.
+    if (error instanceof Error && error.message.includes("Executable doesn't exist")) {
+      throw new Error(
+        "Playwright's Chromium is not installed. Run `npx playwright install chromium` " +
+          "(on Linux CI, `npx playwright install --with-deps chromium`), then run again.",
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Starts the site: a migrated test database, the web Worker on it in Miniflare (from the
+ * run's bundle, global-setup.ts), and headless Chromium. Close it in `afterAll`.
+ */
+export async function startSite({
+  prelaunch = false,
+  viewport = viewportFromEnv(),
+}: SiteOptions = {}): Promise<Site> {
+  const t = await createTestDb({ maxConnections: 64 });
+  let worker: Awaited<ReturnType<typeof startWorker>> | undefined;
+  let browser: Browser | undefined;
+  /** Stops whatever has started, each part even if another fails to stop. */
+  const stop = async () => {
+    try {
+      await browser?.close();
+    } finally {
+      try {
+        await worker?.mf.dispose();
+      } finally {
+        await t.close();
+      }
+    }
+  };
+  let parts;
+  try {
+    worker = await startWorker({
+      bundle: inject("workerBundle"),
+      databaseUrl: t.connectionString,
+      prelaunch,
+    });
+    browser = await launchChromium(worker.port);
+    parts = {
+      mf: worker.mf,
+      chromium: browser,
+      bucket: await worker.mf.getR2Bucket("BUCKET"),
+      emailSink: await worker.mf.getWorker("email-sink"),
+    };
+  } catch (error) {
+    await stop();
+    throw error;
+  }
+  const { mf, chromium: running, bucket, emailSink } = parts;
+  const offSite: string[] = [];
+
+  async function newContext({ ip = freshIp() }: ContextOptions = {}) {
+    const context = await running.newContext({
+      viewport,
+      // Miniflare's certificate is self-signed.
+      ignoreHTTPSErrors: true,
+      reducedMotion: "reduce",
+      extraHTTPHeaders: { "cf-connecting-ip": ip },
+    });
+    await context.route(
+      (url) => url.host !== HOST,
+      async (route) => {
+        const url = route.request().url();
+        if (url.startsWith(TURNSTILE_SCRIPT)) {
+          await route.fulfill({ contentType: "text/javascript", body: TURNSTILE_STUB });
+        } else if (url.startsWith(CONTENT)) {
+          await route.fulfill({ contentType: "image/png", body: PIXEL });
+        } else {
+          offSite.push(url);
+          await route.abort("blockedbyclient");
+        }
+      },
+    );
+    return context;
+  }
+
+  return {
+    db: t.db,
+    bucket,
+    newContext,
+    offSite,
+    fetch: (path, init = {}) =>
+      mf.dispatchFetch(new URL(path, SITE).toString(), { redirect: "manual", ...init }),
+    async emails() {
+      const res = await emailSink.fetch("https://email-sink/");
+      // SAFETY: the sink answers with the JSON array of message bodies it was delivered.
+      const bodies = (await res.json()) as unknown[];
+      return bodies.map(parseMessage).filter((m): m is EmailMessage => m !== null);
+    },
+    close: stop,
+  };
+}

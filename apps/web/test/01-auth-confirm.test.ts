@@ -1,7 +1,7 @@
 import { createDb } from "@archive/db";
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
-import { emailsTo, fetchW, PASSING_TOKEN, postLogin, STRICT, withoutNonce } from "./helpers";
+import { emailsTo, fetchW, LOGIN_TOKEN, postLogin, STRICT, withoutNonce } from "./helpers";
 
 // A2's cases from 01-auth-magic-link (and one from 09-content-origin): the emailed
 // link's confirm page, and the POST that signs in. A1's cases are in 01-auth-magic-link.test.ts.
@@ -13,7 +13,7 @@ afterAll(() => db.destroy());
 
 /** Requests a sign-in link for `email` from /login, and returns the link it emails. */
 async function signInLink(email: string, next?: string): Promise<URL> {
-  const fields = { email, "cf-turnstile-response": PASSING_TOKEN };
+  const fields = { email, "cf-turnstile-response": LOGIN_TOKEN };
   expect((await postLogin(next === undefined ? fields : { ...fields, next })).status).toBe(200);
   const emails = await emailsTo(email);
   return new URL(emails.at(-1)!.url);

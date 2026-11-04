@@ -1,0 +1,259 @@
+import { createDb } from "@archive/db";
+import { processEpub } from "@archive/epub";
+import { env } from "cloudflare:workers";
+import type { KyselyPlugin } from "kysely";
+import { describe, expect, it } from "vitest";
+import { ao3Epub } from "../../../packages/epub/test/helpers";
+import { runJob } from "../src/job";
+import {
+  addOptOut,
+  addTakedown,
+  deliver,
+  expectNotOptedOut,
+  expectOptedOut,
+  freshAo3WorkId,
+  ingestEpub,
+  ingestParsed,
+  ingestReal,
+  ingestUpload,
+  parsedWork,
+  pendingUpload,
+  seededWork,
+  token,
+  uploadRow,
+  versionsOf,
+  watchedWorker,
+  workExists,
+} from "./helpers";
+
+// AO3 work ids 41500-41599 are this file's; every other upload takes a `freshAo3WorkId`. Each
+// case opts out a pseud of its own, with a token, as file 16 does: an opt-out stays in the
+// database every test file shares. Synthetic text only.
+
+const link = (name: string, text = name) =>
+  `<a href="http://archiveofourown.org/users/${name}/pseuds/${name}" rel="author">${text}</a>`;
+
+/** An epub of `workId` whose byline is `bylineHtml` and whose OPF names `creators`. */
+const withByline = (workId: number, bylineHtml: string, creators: string[]) =>
+  ao3Epub({ workId, bylineHtml, creators });
+
+/** A job whose processor answers with a byline of `pseuds` (too many to spread), and a stub save. */
+async function ingestByline(pseuds: string[]) {
+  const id = await pendingUpload(ao3Epub({ workId: freshAo3WorkId() }));
+  const saved: string[] = [];
+  const { handler } = watchedWorker({
+    process: async (bytes) => ({
+      ...(await processEpub(bytes)),
+      authors: pseuds.map((pseud) => ({ pseud, user: null })),
+    }),
+    save: async (upload) => void saved.push(upload.id),
+  });
+  const result = await deliver([{ upload_id: id }], { handler });
+  return { id, row: await uploadRow(id), saved, result };
+}
+
+describe("21-opt-out-hardening: a blank preface byline", () => {
+  it("Opt-out checks the OPF creator when the preface byline is blank", async () => {
+    const t = token();
+    await addOptOut(`ghost${t}`);
+    const workId = 41500;
+
+    for (const blank of [" ", "&#x200B;"]) {
+      const epub = withByline(workId, link("x", blank), [`Ghost${t}`]);
+      expectOptedOut(await ingestUpload(epub));
+    }
+    expect(await workExists(workId)).toBe(false);
+  });
+
+  it("Opt-out checks an OPF creator the preface byline doesn't name", async () => {
+    const t = token();
+    await addOptOut(`ghost${t}`);
+
+    const epub = withByline(41501, link("real"), ["real", `Ghost${t}`]);
+    expectOptedOut(await ingestUpload(epub));
+  });
+
+  it("Opt-out checks every name of a byline with no profile links", async () => {
+    const t = token();
+    await addOptOut(`pepper${t}`);
+
+    const epub = withByline(41502, `Salt${t} and Pepper${t}`, []);
+    expectOptedOut(await ingestUpload(epub));
+  });
+
+  it("checks each name of one OPF creator that holds several", async () => {
+    const t = token();
+    await addOptOut(`pepper${t}`);
+
+    const epub = withByline(41503, link("x", " "), [`Salt${t}, Pepper${t}`]);
+    expectOptedOut(await ingestUpload(epub));
+  });
+});
+
+describe("21-opt-out-hardening: an empty or ambiguous byline goes live, flagged", () => {
+  it("An empty byline goes live with byline_missing", async () => {
+    const workId = 41510;
+    const { row } = await ingestReal(withByline(workId, link("x", " "), []));
+
+    expect(row.status).toBe("live");
+    const { versions, status } = await versionsOf(workId);
+    expect(status).toBe("live");
+    expect(versions).toHaveLength(1);
+    expect(versions[0]?.review_reasons).toEqual(["byline_missing"]);
+    expect(versions[0]?.hold_reason).toBeNull();
+  });
+
+  it("A byline that can only be split ambiguously goes live with byline_ambiguous", async () => {
+    const workId = 41511;
+    const { row } = await ingestReal(withByline(workId, "Salt and Pepper", []));
+
+    expect(row.status).toBe("live");
+    const { versions } = await versionsOf(workId);
+    expect(versions[0]?.review_reasons).toEqual(["byline_ambiguous"]);
+    expect(versions[0]?.authors).toEqual([
+      { pseud: "Salt", user: null },
+      { pseud: "Pepper", user: null },
+    ]);
+  });
+
+  it("A one-name byline and a byline of profile links carry no byline code", async () => {
+    const one = await ingestReal(withByline(41512, "Anonymous", ["Anonymous"]));
+    const links = await ingestReal(
+      withByline(41513, `${link("a")}, ${link("b", "Salt and Pepper")}`, ["a", "Salt and Pepper"]),
+    );
+
+    expect(one.row.status).toBe("live");
+    expect(links.row.status).toBe("live");
+    expect((await versionsOf(41512)).versions[0]?.review_reasons).toEqual([]);
+    expect((await versionsOf(41513)).versions[0]?.review_reasons).toEqual([]);
+  });
+
+  it("An update with an ambiguous byline goes live, flagged", async () => {
+    const workId = 41514;
+    const byline = (stats: string) =>
+      ao3Epub({ workId, stats, bylineHtml: "Salt and Pepper", creators: [] });
+    await ingestReal(byline("Published: 2020-01-02 Words: 12"));
+
+    const { row } = await ingestReal(byline("Published: 2020-01-02 Updated: 2020-02-02 Words: 12"));
+
+    expect(row.status).toBe("live");
+    const { versions, current } = await versionsOf(workId);
+    expect(versions).toHaveLength(2);
+    expect(versions.find((v) => v.id === current)?.review_reasons).toEqual(["byline_ambiguous"]);
+  });
+
+  it("An opted-out ambiguous byline is refused, not saved", async () => {
+    const t = token();
+    await addOptOut(`pepper${t}`);
+
+    expectOptedOut(await ingestUpload(withByline(41515, `Salt${t} and Pepper${t}`, [])));
+    expect(await workExists(41515)).toBe(false);
+  });
+});
+
+describe("21-opt-out-hardening: a hostile value in the file", () => {
+  it("A long byline is checked in one query", async () => {
+    const t = token();
+    await addOptOut(`last${t}`);
+    // A file this size is not a real one: a byline has no cap of its own (#543).
+    const crowd = Array.from({ length: 70_000 }, (_, i) => `crowd ${t} ${i}`);
+
+    expectOptedOut(await ingestByline([...crowd, `Last${t}`]));
+    expectNotOptedOut(await ingestByline(crowd));
+  });
+
+  it.each([
+    ["0", "a zero"],
+    ["2147483648", "past an int4"],
+  ])("An AO3 work ID of %s (%s) ends parse_failed with bad_work_id", async (id) => {
+    const { row } = await ingestParsed(parsedWork({ ao3WorkId: id }));
+
+    expect(row.status).toBe("parse_failed");
+    expect(row.error_stage).toBe("save");
+    expect(row.error).toBe("bad_work_id");
+  });
+
+  it("An AO3 work ID with a leading zero is not the work it spells", async () => {
+    // Read as a number, "041520" is work 41520, whose takedown would block a different file.
+    const seeded = await seededWork({ ao3WorkId: 41520, status: "removed" });
+    await addTakedown(seeded.workId, "removed");
+
+    const { row } = await ingestParsed(parsedWork({ ao3WorkId: "041520" }));
+
+    expect(row.status).toBe("parse_failed");
+    expect(row.error).toBe("bad_work_id");
+    // The removed work is as it was.
+    const after = await versionsOf(41520);
+    expect(after.status).toBe("removed");
+    expect(after.versions).toHaveLength(1);
+  });
+
+  it("A takedown of the work with that exact ID still blocks it", async () => {
+    const seeded = await seededWork({ ao3WorkId: 41521, status: "removed" });
+    await addTakedown(seeded.workId, "removed");
+
+    expectOptedOut(await ingestEpub(41521));
+  });
+});
+
+describe("21-opt-out-hardening: a list that can't be read, and a backfill", () => {
+  it("A list that can't be read is retried with the lease released, and nothing is saved", async () => {
+    const id = await pendingUpload(ao3Epub({ workId: freshAo3WorkId() }));
+    const saved: string[] = [];
+    // A lost connection can't be made to happen to the real database: it fails every query
+    // on the opt-out table, as pg's class 08 errors do.
+    const lostOptOuts: KyselyPlugin = {
+      transformQuery: ({ node }) => {
+        if (JSON.stringify(node).includes('"optouts"')) {
+          throw Object.assign(new Error("connection lost"), { code: "08006" });
+        }
+        return node;
+      },
+      transformResult: ({ result }) => Promise.resolve(result),
+    };
+    const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
+    try {
+      const verdict = await runJob(
+        {
+          db: db.withPlugin(lostOptOuts),
+          bucket: env.BUCKET,
+          process: (bytes) => processEpub(bytes),
+          save: async (upload) => void saved.push(upload.id),
+        },
+        id,
+        1,
+      );
+
+      expect(verdict).toBe("retry");
+    } finally {
+      await db.destroy();
+    }
+    const row = await uploadRow(id);
+    expect(row.status).toBe("pending");
+    expect(row.lease_until).toBeNull();
+    expect(saved).toEqual([]);
+  });
+
+  it("A backfill whose original the lists refuse is acked and leaves the version alone", async () => {
+    const workId = freshAo3WorkId();
+    await ingestReal(ao3Epub({ workId }));
+    const before = await versionsOf(workId);
+    const { handler } = watchedWorker({
+      process: async (bytes) => ({
+        ...(await processEpub(bytes)),
+        authors: [{ pseud: `Moon${String.fromCharCode(0)}Child`, user: null }],
+      }),
+    });
+
+    const result = await deliver([{ work_id: before.workId, version_id: before.current }], {
+      handler,
+      queue: "ingest-backfill",
+    });
+
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    expect(result.retryMessages).toEqual([]);
+    const after = await versionsOf(workId);
+    expect(after.current).toBe(before.current);
+    expect(after.versions).toHaveLength(1);
+  });
+});

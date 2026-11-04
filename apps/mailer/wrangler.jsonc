@@ -1,5 +1,6 @@
 {
-  // Mailer Worker: consumes the email queue and sends sign-in emails (ARCHITECTURE, Auth, Email).
+  // Mailer Worker: consumes the email queue and sends sign-in emails, and the email-bulk queue's
+  // paced launch emails (ARCHITECTURE, Auth, Email).
   // It only sends: no Hyperdrive, KV, R2 or D1 binding, and no routes.
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "rarepair-mailer",
@@ -25,7 +26,33 @@
         // wrangler queues update email-dlq --message-retention-period-secs 86400
         "dead_letter_queue": "email-dlq",
       },
+      {
+        // The launch email only (ARCHITECTURE, Wait list), paced by BULK_INTERVAL_SECONDS below.
+        // A batch of 50 each interval is 5 emails a second and one Resend call every ten
+        // seconds, far under its per-second API limit, which leaves room for sign-in emails.
+        "queue": "email-bulk",
+        "max_batch_size": 50,
+        "max_batch_timeout": 5,
+        // Required for the pacing: a second consumer instance would send in parallel.
+        "max_concurrency": 1,
+        // Not time-sensitive: a refused batch waits five minutes, twice, then dead-letters to
+        // email-bulk-dlq, which the web Worker consumes to queue the address again.
+        "max_retries": 2,
+        "retry_delay": 300,
+        // Retention of email-bulk itself (4 days by default) must outlast the whole send:
+        // the list size divided by the batch size, times the interval. Raise it before launch:
+        // wrangler queues update email-bulk --message-retention-period-secs <seconds>
+        // The dead-letter queue's retention must be one day at most, also set outside this file:
+        // wrangler queues update email-bulk-dlq --message-retention-period-secs 86400
+        "dead_letter_queue": "email-bulk-dlq",
+      },
     ],
+  },
+  "vars": {
+    // Seconds the email-bulk consumer waits between batches. Configuration, not a promise:
+    // check it against Resend's current per-second limit before the launch send. A missing or
+    // invalid value falls back to 10, in src/pace.ts.
+    "BULK_INTERVAL_SECONDS": "10",
   },
   // Set with `wrangler secret put`. MAIL_FROM stays here until the sending subdomain is chosen.
   "secrets": { "required": ["RESEND_API_KEY", "MAIL_FROM"] },

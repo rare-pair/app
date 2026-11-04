@@ -1,13 +1,32 @@
 import { describe, expect, it, vi } from "vitest";
 import { experimental_readRawConfig } from "wrangler";
 import {
+  DMCA_WINDOW_SECONDS,
   emailKey,
   ipKey,
   isLimited,
   LOGIN_WINDOW_SECONDS,
+  REMOVE_WINDOW_SECONDS,
   tooManyRequests,
+  SEARCH_WINDOW_SECONDS,
+  UPLOAD_WINDOW_SECONDS,
+  userKey,
+  WAITLIST_WINDOW_SECONDS,
 } from "../src/rate-limit";
-import { LOGIN_EMAIL_LIMIT, LOGIN_IP_LIMIT } from "./limits";
+import {
+  DMCA_IP_LIMIT,
+  LOGIN_EMAIL_LIMIT,
+  LOGIN_IP_LIMIT,
+  REMOVE_EMAIL_LIMIT,
+  REMOVE_IP_LIMIT,
+  SEARCH_IP_LIMIT,
+  SEARCH_USER_LIMIT,
+  UPLOAD_IP_LIMIT,
+  UPLOAD_USER_LIMIT,
+  WAITLIST_EMAIL_LIMIT,
+  WAITLIST_FLOOR_MIN_MS,
+  WAITLIST_IP_LIMIT,
+} from "./limits";
 
 /** The sign-in limit's key for a client address, or for a request without one. */
 const loginIp = (address: string | null) => ipKey("login", address);
@@ -106,6 +125,20 @@ describe("emailKey", () => {
   });
 });
 
+describe("userKey", () => {
+  it("keys a user on the id as given, apart from other users and other limits", async () => {
+    const key = await userKey("upload", "user-1");
+    expect(await userKey("upload", "user-1")).toBe(key);
+    expect(await userKey("upload", "User-1")).not.toBe(key);
+    expect(await userKey("upload", "user-2")).not.toBe(key);
+    expect(await userKey("other", "user-1")).not.toBe(key);
+    expect(key).toMatch(/^[0-9a-f]{64}$/);
+    expect(key).not.toContain("user-1");
+    // The same text as an IP can't share a counter.
+    expect(await userKey("upload", "192.0.2.1")).not.toBe(await ipKey("upload", "192.0.2.1"));
+  });
+});
+
 describe("isLimited", () => {
   it("is limited only when the binding says the request is over", async () => {
     expect(await isLimited({ limit: async () => ({ success: true }) }, "k")).toBe(false);
@@ -143,11 +176,30 @@ describe("the rate limits in wrangler.jsonc", () => {
   const { rawConfig } = experimental_readRawConfig({ config: "wrangler.jsonc" });
   const limits: Limit[] = rawConfig.ratelimits ?? [];
 
-  it("are the sign-in limits the tests and Retry-After assume", () => {
+  it("are the limits the tests and Retry-After assume", () => {
     expect(Object.fromEntries(limits.map(({ name, simple }) => [name, simple]))).toEqual({
       LOGIN_IP_LIMIT: { limit: LOGIN_IP_LIMIT, period: LOGIN_WINDOW_SECONDS },
       LOGIN_EMAIL_LIMIT: { limit: LOGIN_EMAIL_LIMIT, period: LOGIN_WINDOW_SECONDS },
+      WAITLIST_IP_LIMIT: { limit: WAITLIST_IP_LIMIT, period: WAITLIST_WINDOW_SECONDS },
+      WAITLIST_EMAIL_LIMIT: { limit: WAITLIST_EMAIL_LIMIT, period: WAITLIST_WINDOW_SECONDS },
+      DMCA_IP_LIMIT: { limit: DMCA_IP_LIMIT, period: DMCA_WINDOW_SECONDS },
+      REMOVE_IP_LIMIT: { limit: REMOVE_IP_LIMIT, period: REMOVE_WINDOW_SECONDS },
+      REMOVE_EMAIL_LIMIT: { limit: REMOVE_EMAIL_LIMIT, period: REMOVE_WINDOW_SECONDS },
+      UPLOAD_USER_LIMIT: { limit: UPLOAD_USER_LIMIT, period: UPLOAD_WINDOW_SECONDS },
+      UPLOAD_IP_LIMIT: { limit: UPLOAD_IP_LIMIT, period: UPLOAD_WINDOW_SECONDS },
+      SEARCH_IP_LIMIT: { limit: SEARCH_IP_LIMIT, period: SEARCH_WINDOW_SECONDS },
+      SEARCH_USER_LIMIT: { limit: SEARCH_USER_LIMIT, period: SEARCH_WINDOW_SECONDS },
     });
+  });
+
+  it("let two users each spend half the upload IP limit, which the upload test relies on", () => {
+    expect(UPLOAD_IP_LIMIT % 2).toBe(0);
+    expect(UPLOAD_IP_LIMIT / 2).toBeLessThanOrEqual(UPLOAD_USER_LIMIT);
+  });
+
+  it("set the wait list's response-time floor no lower than the least the design allows", () => {
+    const floor = Number(rawConfig.vars?.WAITLIST_FLOOR_MS);
+    expect(floor).toBeGreaterThanOrEqual(WAITLIST_FLOOR_MIN_MS);
   });
 
   it("each have their own namespace, so none shares another's counters", () => {

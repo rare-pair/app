@@ -5,11 +5,13 @@ import { sql, type Kysely } from "kysely";
 // Pure and dependency-free: this is all of apps/mailer the Worker bundles.
 import { isSendableAddress } from "../../mailer/src/message";
 import type { Bindings } from "./env";
-import { MAX_EMAIL, readForm } from "./login";
+import { floorOf, padTo } from "./floor";
+import { MAX_EMAIL, NO_STORE, readForm } from "./login";
 import { isPrelaunch } from "./prelaunch";
+import { emailKey, ipKey, isLimited, tooManyRequests, WAITLIST_WINDOW_SECONDS } from "./rate-limit";
 import type { SecurityVariables } from "./security";
 import { isSameOrigin, SITE } from "./signin";
-import { verifyTurnstile } from "./turnstile";
+import { TURNSTILE_ACTIONS, verifyTurnstile } from "./turnstile";
 import {
   comingSoonPage,
   waitlistCheckEmailPage,
@@ -24,7 +26,7 @@ type WaitlistContext = Context<{ Bindings: Bindings; Variables: SecurityVariable
 const MAX_CONFIRMATIONS = 3;
 
 /** A new confirmation token: 32 random bytes, base64url, so it goes in a link as it is. */
-const newToken = () =>
+export const newToken = () =>
   btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
     .replaceAll("+", "-")
     .replaceAll("/", "_")
@@ -106,12 +108,27 @@ async function claimConfirmation(
 
 /**
  * `POST /waitlist`, before launch: queues one confirmation email (ARCHITECTURE, Wait list).
- * The checks run as `POST /login`'s do: the origin, before the body is read; then
- * Turnstile; then the address. The reply is the same page whether or not an email went.
+ * Every answer comes after the floor (src/floor.ts), whatever happened, so how long it took
+ * can't show whether an address is on the list (#216). Only the 404 once the archive is
+ * open isn't held: nothing is joined then.
  */
 export async function joinWaitlist(c: WaitlistContext) {
   if (!isPrelaunch(c.env)) return c.notFound();
+  return padTo(floorOf(c.env.WAITLIST_FLOOR_MS), () => join(c));
+}
+
+/**
+ * The checks run as `POST /login`'s do: the origin, then the IP's limit, both before the body
+ * is read; then Turnstile; then the address, then its limit. The reply is the same page
+ * whether or not an email went.
+ */
+async function join(c: WaitlistContext) {
   if (!isSameOrigin(c.req.raw.headers)) return c.html(waitlistForbiddenPage(), 403);
+  // Before the body is read or Turnstile is asked, so a flood costs neither.
+  const clientIp = c.req.header("cf-connecting-ip") ?? null;
+  if (await isLimited(c.env.WAITLIST_IP_LIMIT, await ipKey("waitlist", clientIp))) {
+    return tooManyRequests(WAITLIST_WINDOW_SECONDS);
+  }
 
   const nonce = c.get("nonce");
   const siteKey = c.env.TURNSTILE_SITE_KEY;
@@ -119,7 +136,7 @@ export async function joinWaitlist(c: WaitlistContext) {
   if (form === null) {
     // Nothing of it is shown back: the form comes again empty.
     const error = "That request was too large. Please try again.";
-    return c.html(comingSoonPage(nonce, siteKey, { error }), 413);
+    return c.html(comingSoonPage(nonce, siteKey, { error }), 413, NO_STORE);
   }
   const typed = form.get("email") ?? "";
   // What was typed comes back in the form, unless it's too long to be an address.
@@ -127,12 +144,14 @@ export async function joinWaitlist(c: WaitlistContext) {
     c.html(
       comingSoonPage(nonce, siteKey, { email: typed.length > MAX_EMAIL ? "" : typed, error }),
       status,
+      NO_STORE,
     );
 
   const turnstile = await verifyTurnstile(form.get("cf-turnstile-response"), {
     secret: c.env.TURNSTILE_SECRET_KEY,
     hostname: new URL(c.req.url).hostname,
-    remoteIp: c.req.header("cf-connecting-ip") ?? null,
+    action: TURNSTILE_ACTIONS.waitlist,
+    remoteIp: clientIp,
   });
   if (turnstile === "failed") {
     return formAgain(400, "The anti-spam check did not pass. Please try again.");
@@ -146,6 +165,10 @@ export async function joinWaitlist(c: WaitlistContext) {
 
   const email = typed.trim().toLowerCase();
   if (!isSendableAddress(email)) return formAgain(400, "Enter a valid email address.");
+  // Only a solved check can spend an address's limit, so nobody can use up another's.
+  if (await isLimited(c.env.WAITLIST_EMAIL_LIMIT, await emailKey("waitlist", email))) {
+    return tooManyRequests(WAITLIST_WINDOW_SECONDS);
+  }
 
   const token = newToken();
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString });

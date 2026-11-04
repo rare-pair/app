@@ -1,13 +1,13 @@
 import { createDb } from "@archive/db";
 import { seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   BASE,
   emailsTo,
   fetchW,
   nonceOf,
-  PASSING_TOKEN,
+  LOGIN_TOKEN,
   postLogin,
   signIn as signInAs,
   STRICT,
@@ -45,6 +45,17 @@ beforeAll(async () => {
   await seedWork(db, { ao3WorkId: REMOVED, status: "removed", tags: [...X4_TAGS] });
 });
 afterAll(() => db.destroy());
+
+// These cases report W from many accounts, and the third hides it (17-report-auto-hide
+// tests that). Each case starts with W live again, so it can be reported and shown.
+const makeWLive = async () => {
+  await db
+    .updateTable("works")
+    .set({ status: "live", hidden_cause: null })
+    .where("ao3_work_id", "=", W)
+    .execute();
+};
+beforeEach(makeWLive);
 
 /** Signs `email` in through the Worker, accepting the terms, and returns its session cookie. */
 const signIn = (email: string) => signInAs(email, { acceptTerms: true });
@@ -154,7 +165,7 @@ describe("17-reports-and-dmca", () => {
     const form = await (await fetchW(login.pathname + login.search)).text();
     expect(form).toContain(`<input type="hidden" name="next" value="${REPORT}">`);
     const next = login.searchParams.get("next")!;
-    const asked = await postLogin({ email, next, "cf-turnstile-response": PASSING_TOKEN });
+    const asked = await postLogin({ email, next, "cf-turnstile-response": LOGIN_TOKEN });
     expect(asked.status).toBe(200);
     const [sent] = await emailsTo(email);
     const link = new URL(sent!.url);
@@ -314,6 +325,8 @@ describe("report form checks", () => {
     // The form counts a line break as one character, and a browser submits it as CRLF.
     const lines = `${"a".repeat(999)}\r\n${"b".repeat(1000)}`;
     expect((await postReport({ reason: "other", details: lines }, { cookie })).status).toBe(200);
+    // The first report may have been W's third account's: show W again for the second.
+    await makeWLive();
     // 2000 characters of three UTF-8 bytes each, percent-encoded: about 18 KB of body.
     const wide = "字".repeat(2000);
     expect((await postReport({ reason: "other", details: wide }, { cookie })).status).toBe(200);

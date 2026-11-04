@@ -4,13 +4,25 @@ import { admin } from "./admin";
 import { assetRoute } from "./assets";
 import { confirmSignIn, showConfirm } from "./confirm";
 import type { Bindings } from "./env";
+import { showDmcaForm, submitDmca } from "./dmca";
 import { showFull } from "./full";
+import { MY_UPLOADS_SCRIPT, MY_UPLOADS_SCRIPT_PATH } from "./my-uploads-script";
+import { POSITION_SCRIPT, POSITION_SCRIPT_PATH, savePosition } from "./position";
+import { continueWarnings, showWarnings } from "./warnings";
+import { homePage } from "./home";
+import { deadLetteredLaunchEmails } from "./launch-dead-letter";
 import { showTagListing } from "./listing";
+import { showSearch } from "./search";
 import { requestSignIn, showSignIn } from "./login";
 import { jumpToChapter, showChapter } from "./reader";
 import { sameOriginOnly, showReportForm, submitReport } from "./report";
-import { aboutPage, notFoundPage, privacyPage, termsPage, turnstilePage } from "./pages";
-import { closedBeforeLaunch, isPrelaunch } from "./prelaunch";
+import { aboutPage, notFoundPage, privacyPage, termsPage } from "./pages";
+import { showRemoveForm, submitRemove } from "./remove";
+import { confirmRemove, showRemoveConfirm } from "./remove-confirm";
+import { pageState } from "./page-state";
+import { SETTINGS_SCRIPT, SETTINGS_SCRIPT_PATH } from "./reader-settings";
+import { UPLOAD_SCRIPT, UPLOAD_SCRIPT_PATH } from "./upload-script";
+import { closedBeforeLaunch, disableClosedLinks, isPrelaunch } from "./prelaunch";
 import {
   contentSecurityPolicy,
   strictTransportSecurity,
@@ -18,11 +30,17 @@ import {
   type SecurityVariables,
 } from "./security";
 import { requireSignIn, sessionMiddleware, type SessionVariables } from "./session";
+import { saveSettings, SETTINGS_PATH, showSettings } from "./settings";
 import { STYLESHEET, STYLESHEET_PATH } from "./styles";
 import { acceptTerms, showTerms, termsGate, WELCOME_TERMS } from "./terms";
+import { showMyUploads } from "./my-uploads";
 import { requestUpload, sameOriginUpload, showUpload } from "./upload";
+import { completeUpload } from "./upload-complete";
+import { showUploadStatus } from "./upload-status";
 import { joinWaitlist } from "./waitlist";
+import { confirmWaitlist, showWaitlistConfirm } from "./waitlist-confirm";
 import { comingSoonPage } from "./waitlist-pages";
+import { showWaitlistUnsubscribe, unsubscribeWaitlist } from "./waitlist-unsubscribe";
 import { showWork } from "./work-page";
 
 const app = new Hono<{
@@ -39,11 +57,22 @@ app.use(closedBeforeLaunch);
 app.use(contentSecurityPolicy);
 // Before the session, so a cross-site upload or report is refused without a lookup.
 app.post("/uploads", sameOriginUpload);
+app.post("/uploads/:id/complete", sameOriginUpload);
 app.post("/works/:id/report", sameOriginOnly);
+app.post("/works/:id/position", sameOriginOnly);
+app.post("/works/:id/warnings", sameOriginOnly);
+app.post("/remove", sameOriginOnly);
+app.post("/remove/confirm", sameOriginOnly);
+app.post("/dmca", sameOriginOnly);
 // The session, once, for every page; routes read c.var.session and never mount it
 // again. Static files skip it, and the lookup's database connection with it. Then
 // an account that hasn't accepted the terms is sent to accept them.
 app.use(except("/assets/*", sessionMiddleware, termsGate));
+// The reader's settings, on every page. Inside the CSP, which keys on what it returns,
+// and after the terms gate, never in front of it.
+app.use(pageState);
+// Before launch, links to closed pages are shown disabled.
+app.use(disableClosedLinks);
 
 // The moderation area: every /admin URL goes through its gate (admin.ts).
 app.route("/admin", admin);
@@ -51,11 +80,11 @@ app.route("/admin", admin);
 // The wait list pages' fonts and stylesheet. S1 serves its own stylesheet elsewhere under /assets/.
 app.get("/assets/waitlist/*", assetRoute);
 
-// The coming-soon page before launch. After it there is no home page yet.
-app.get("/", (c) =>
+// The coming-soon page before launch, the home page after it.
+app.get("/", async (c) =>
   isPrelaunch(c.env)
     ? c.html(comingSoonPage(c.get("nonce"), c.env.TURNSTILE_SITE_KEY))
-    : c.notFound(),
+    : c.html(await homePage(c.env, c.executionCtx)),
 );
 app.get("/login", showSignIn);
 app.post("/login", requestSignIn);
@@ -64,16 +93,36 @@ app.post("/login/confirm", confirmSignIn);
 app.get(WELCOME_TERMS, requireSignIn, showTerms);
 app.post(WELCOME_TERMS, acceptTerms);
 app.post("/waitlist", joinWaitlist);
+app.get("/waitlist/confirm", showWaitlistConfirm);
+app.post("/waitlist/confirm", confirmWaitlist);
+app.get("/waitlist/unsubscribe", showWaitlistUnsubscribe);
+app.post("/waitlist/unsubscribe", unsubscribeWaitlist);
 // After launch, a stale link to the form goes home. Before it, nothing is at GET /waitlist.
 app.get("/waitlist", (c) => (isPrelaunch(c.env) ? c.notFound() : c.redirect("/", 302)));
 app.get("/upload", showUpload);
 app.post("/uploads", requestUpload);
-app.get("/remove", (c) => c.html(turnstilePage("Request removal", c.get("nonce"))));
+app.post("/uploads/:id/complete", completeUpload);
+app.get("/uploads/:id", showUploadStatus);
+app.get("/me/uploads", requireSignIn, showMyUploads);
+app.get("/remove", showRemoveForm);
+app.post("/remove", submitRemove);
+app.get("/remove/confirm", showRemoveConfirm);
+app.post("/remove/confirm", confirmRemove);
+app.get("/dmca", showDmcaForm);
+app.post("/dmca", submitDmca);
 
 // The reader. Closed before launch, like every /works/ page.
 app.get("/works/:id/chapters/:n", showChapter);
 app.get("/works/:id/chapters", jumpToChapter);
 app.get("/works/:id/full", showFull);
+// A signed-in reader's saved place, posted by the position script.
+app.post("/works/:id/position", savePosition);
+app.get("/works/:id/warnings", showWarnings);
+app.post("/works/:id/warnings", continueWarnings);
+
+// Reader settings, signed in or not. Closed before launch, like the reader.
+app.get(SETTINGS_PATH, showSettings);
+app.post(SETTINGS_PATH, saveSettings);
 
 app.get("/about", (c) => c.html(aboutPage()));
 app.get("/terms", (c) => c.html(termsPage()));
@@ -84,11 +133,48 @@ app.get("/works/:id", showWork);
 app.get("/works/:id/report", showReportForm);
 app.post("/works/:id/report", submitReport);
 app.get("/tags/:type/:name", showTagListing);
+app.get("/search", showSearch);
 
 // The URL carries a hash of the content, so the response never changes under it.
 app.get(STYLESHEET_PATH, (c) =>
   c.body(STYLESHEET, 200, {
     "Content-Type": "text/css; charset=utf-8",
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+  }),
+);
+
+// The reader settings script, likewise hashed. Loaded with the page's nonce.
+app.get(SETTINGS_SCRIPT_PATH, (c) =>
+  c.body(SETTINGS_SCRIPT, 200, {
+    "Content-Type": "text/javascript; charset=utf-8",
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+  }),
+);
+
+// The reading position script, likewise hashed. Loaded with the page's nonce.
+app.get(POSITION_SCRIPT_PATH, (c) =>
+  c.body(POSITION_SCRIPT, 200, {
+    "Content-Type": "text/javascript; charset=utf-8",
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+  }),
+);
+
+// The My uploads script, likewise hashed. Loaded with the page's nonce.
+app.get(MY_UPLOADS_SCRIPT_PATH, (c) =>
+  c.body(MY_UPLOADS_SCRIPT, 200, {
+    "Content-Type": "text/javascript; charset=utf-8",
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+  }),
+);
+
+// The upload page's script, likewise hashed. Loaded with the page's nonce.
+app.get(UPLOAD_SCRIPT_PATH, (c) =>
+  c.body(UPLOAD_SCRIPT, 200, {
+    "Content-Type": "text/javascript; charset=utf-8",
     "Cache-Control": "public, max-age=31536000, immutable",
     "X-Content-Type-Options": "nosniff",
   }),
@@ -110,4 +196,9 @@ app.onError((error, c) => {
   return c.text("Internal Server Error", 500);
 });
 
-export default app;
+// Hono's `fetch` is bound to the app, so it can sit in this object. `queue` takes the
+// email-bulk-dlq batches (wrangler.jsonc consumers).
+export default {
+  fetch: app.fetch,
+  queue: deadLetteredLaunchEmails,
+} satisfies ExportedHandler<Bindings>;

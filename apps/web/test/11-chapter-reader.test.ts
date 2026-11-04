@@ -52,6 +52,18 @@ afterAll(() => db.destroy());
 
 const chapterUrl = (id: number, n: number | string) => `/works/${id}/chapters/${n}`;
 
+// The selectors of the notes rule in styles.ts, one by one (same text as the CSS).
+const NOTE_SELECTORS = [
+  "article.chapter > p:first-child:has(+ blockquote)",
+  "article.chapter > p:first-child + blockquote",
+  "article.chapter > div:first-child > p:first-child:has(+ blockquote)",
+  "article.chapter > div:first-child > p:first-child + blockquote",
+  "article.chapter > p:has(+ blockquote:last-child)",
+  "article.chapter > p + blockquote:last-child",
+  "article.chapter > div:last-child > p:has(+ blockquote:last-child)",
+  "article.chapter > div:last-child > p + blockquote:last-child",
+];
+
 /** The markup between `<article class="chapter">` and its closing tag, or null. */
 const articleOf = (html: string) =>
   html.match(/<article class="chapter">([\s\S]*)<\/article>/)?.[1] ?? null;
@@ -63,6 +75,10 @@ const aroundArticle = (html: string) => {
   expect(start).toBeGreaterThan(-1);
   return { top: html.slice(0, start), bottom: html.slice(end) };
 };
+
+/** The chapter navs' markup, without the reader bar's settings controls (R5). */
+const navsOf = (html: string) =>
+  (html.match(/<nav class="chapter-nav"[\s\S]*?<\/nav>/g) ?? []).join("\n");
 
 /** The text of every link to `href`. */
 const linksTo = (html: string, href: string) =>
@@ -115,8 +131,10 @@ describe("11-reader-and-csp", () => {
     expect(three).toContain('<h2 class="chapter-title">Chapter 3</h2>');
     expect(three).toContain('<option value="3" selected>3. Chapter 3</option>');
     expect(html).not.toMatch(/<iframe/i);
-    // No client-side epub engine: the page runs no script at all yet.
-    expect(html).not.toMatch(/<script/i);
+    // No client-side epub engine: the page's one script is the reader settings (R5).
+    expect(html.match(/<script\b[^>]*>/gi)).toEqual([
+      expect.stringMatching(/^<script src="\/assets\/reader-settings\.[0-9a-f]+\.js" nonce="/),
+    ]);
   });
 
   it("Script that gets past the sanitizer does not run", async () => {
@@ -131,8 +149,13 @@ describe("11-reader-and-csp", () => {
     expect(nonce).toBeTruthy();
     const html = await res.text();
     expect(articleOf(html)).toContain("<script>window.INJECTED = 1</script>");
-    expect(html.match(/<script\b[^>]*>/g)).toEqual(["<script>"]);
-    expect(html).not.toContain(`nonce="${nonce}"`);
+    // The injected script has no nonce; the page's nonce is only on its own settings script (R5).
+    expect(html.match(/<script\b[^>]*>/g)).toEqual([
+      expect.stringMatching(/^<script src="\/assets\/reader-settings\./),
+      "<script>",
+    ]);
+    expect(html.split(`nonce="${nonce}"`)).toHaveLength(2);
+    expect(articleOf(html)).not.toContain("nonce=");
   });
 
   it("Chapter content is contained", async () => {
@@ -150,7 +173,7 @@ describe("11-reader-and-csp", () => {
     for (const [end, html] of Object.entries({ top, bottom })) {
       expect(linksTo(html, chapterUrl(W, 2)), end).toEqual([expect.stringMatching(/previous/i)]);
       expect(linksTo(html, chapterUrl(W, 4)), end).toEqual([expect.stringMatching(/next/i)]);
-      const selects = html.match(/<select\b[\s\S]*?<\/select>/g) ?? [];
+      const selects = navsOf(html).match(/<select\b[\s\S]*?<\/select>/g) ?? [];
       expect(selects, end).toHaveLength(1);
       const select = selects[0] ?? "";
       const options = [...select.matchAll(/<option value="(\d+)"/g)].map(([, n]) => n);
@@ -161,7 +184,7 @@ describe("11-reader-and-csp", () => {
 
   it("Chapter select works without JS", async () => {
     const html = await htmlOf(chapterUrl(W, 3));
-    const forms = [...html.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/g)].flatMap(
+    const forms = [...navsOf(html).matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/g)].flatMap(
       ([, attrs = "", inner = ""]) => (inner.includes("<select") ? [{ attrs, inner }] : []),
     );
     expect(forms).toHaveLength(2);
@@ -190,8 +213,10 @@ describe("11-reader-and-csp", () => {
   });
 
   it("Notes surround the chapter text", async () => {
-    // The order half. The smaller, muted style needs a hook the sanitizer strips today
-    // (filed as its own issue).
+    // The order half, then the style half. The sanitizer drops class and id, so the notes
+    // are styled by position: the selectors below must match the served structure (a label
+    // <p> then a <blockquote>, first or last in the chapter). Workerd doesn't paint, so this
+    // shows the rules exist for that structure; the browser half is a live check.
     const html = await htmlOf(chapterUrl(W, 2));
     const article = articleOf(html) ?? "";
     const notes = article.indexOf("W-TWO-NOTES");
@@ -200,8 +225,19 @@ describe("11-reader-and-csp", () => {
     expect(notes).toBeGreaterThan(-1);
     expect(text).toBeGreaterThan(notes);
     expect(endNotes).toBeGreaterThan(text);
+    expect(article.startsWith("<p>Chapter Notes</p><blockquote>")).toBe(true);
+    expect(article.endsWith("</blockquote>")).toBe(true);
+    expect(article).toContain("<p>Chapter End Notes</p><blockquote>");
     // seedWork's summary is "A seeded summary.": the reader doesn't repeat it.
     expect(html).not.toContain("A seeded summary");
+    // Chapter notes and end notes: smaller and muted, at every position the shape allows.
+    const css = await stylesheetOf(html);
+    for (const selector of NOTE_SELECTORS) {
+      const bodies = rulesFor(css, selector);
+      expect(bodies, selector).toHaveLength(1);
+      expect(bodies[0], selector).toMatch(/font-size:\s*0\.85em;/);
+      expect(bodies[0], selector).toMatch(/color:\s*var\(--muted\);/);
+    }
   });
 
   it("Slim top bar", async () => {
@@ -210,7 +246,10 @@ describe("11-reader-and-csp", () => {
     const bar = main.match(/<div class="reader-bar">([\s\S]*?)<\/div>/)?.[1] ?? "";
     // The work title is the page's one h1, in the bar, escaped; the settings link beside it.
     expect(bar).toContain(`<h1>${TITLE_ESCAPED}</h1>`);
-    expect(bar).toMatch(/<a href="\/settings\/reader">[^<]+<\/a>/);
+    // The link comes back to this chapter when the settings are saved (R5).
+    expect(bar).toMatch(
+      /<a href="\/settings\/reader\?next=%2Fworks%2F20001%2Fchapters%2F3">[^<]+<\/a>/,
+    );
     expect(html.match(/<h1\b/g)).toHaveLength(1);
     expect(html).not.toContain("<b>reader</b>");
     // It comes before the chapter and its nav, and it scrolls away: nothing pins it.
@@ -270,7 +309,12 @@ describe("11-reader-and-csp", () => {
       chapters: [{ html: "<p>V1-ONE</p>" }, { html: "<p>V1-TWO</p>" }, { html: "<p>V1-THREE</p>" }],
     });
     await putFragments(env.BUCKET, first.fragments);
-    expect(articleOf(await htmlOf(chapterUrl(20002, 2)))).toBe("<p>V1-TWO</p>");
+    // A reader with a settings cookie skips the 60 s edge cache of the page (R7), so only
+    // the fragment cache, keyed by version, stands between the two reads.
+    const reader = { headers: { cookie: "__Host-reader=theme=dark" } };
+    const readChapter = async (n: number) =>
+      articleOf(await (await fetchW(chapterUrl(20002, n), reader)).text());
+    expect(await readChapter(2)).toBe("<p>V1-TWO</p>");
 
     const second = await seedVersion(db, first, {
       chapters: [{ html: "<p>V2-ONE</p>" }, { html: "<p>V2-TWO</p>" }],
@@ -278,7 +322,7 @@ describe("11-reader-and-csp", () => {
     await putFragments(env.BUCKET, second.fragments);
 
     // The new version's fragment, from its own prefix.
-    expect(articleOf(await htmlOf(chapterUrl(20002, 2)))).toBe("<p>V2-TWO</p>");
+    expect(await readChapter(2)).toBe("<p>V2-TWO</p>");
     expect(second.chapterKeys[1]?.startsWith(second.r2Prefix)).toBe(true);
     expect(second.r2Prefix).not.toBe(first.r2Prefix);
     // The old version's fragments are untouched.
@@ -287,7 +331,7 @@ describe("11-reader-and-csp", () => {
     );
     expect(oldBodies).toEqual(["<p>V1-ONE</p>", "<p>V1-TWO</p>", "<p>V1-THREE</p>"]);
     // The new version has two chapters, so the old third one is past the last.
-    expect((await fetchW(chapterUrl(20002, 3))).status).toBe(404);
+    expect((await fetchW(chapterUrl(20002, 3), reader)).status).toBe(404);
   });
 
   it("First chapter has no previous link", async () => {
@@ -295,7 +339,7 @@ describe("11-reader-and-csp", () => {
     expect(html).not.toMatch(/rel="prev"|>Previous/i);
     expect(linksTo(html, chapterUrl(W, 0))).toEqual([]);
     expect(linksTo(html, chapterUrl(W, 2))).toHaveLength(2);
-    expect(html.match(/<select\b/g)).toHaveLength(2);
+    expect(navsOf(html).match(/<select\b/g)).toHaveLength(2);
   });
 
   it("Last chapter has no next link", async () => {
@@ -303,7 +347,7 @@ describe("11-reader-and-csp", () => {
     expect(html).not.toMatch(/rel="next"|>Next/i);
     expect(linksTo(html, chapterUrl(W, 6))).toEqual([]);
     expect(linksTo(html, chapterUrl(W, 4))).toHaveLength(2);
-    expect(html.match(/<select\b/g)).toHaveLength(2);
+    expect(navsOf(html).match(/<select\b/g)).toHaveLength(2);
   });
 });
 
@@ -326,7 +370,7 @@ describe("chapter reader", () => {
     await putFragments(env.BUCKET, one.fragments);
     const html = await htmlOf(chapterUrl(20004, 1));
     expect(html).not.toMatch(/rel="prev"|rel="next"/);
-    const selects = html.match(/<select\b[\s\S]*?<\/select>/g) ?? [];
+    const selects = navsOf(html).match(/<select\b[\s\S]*?<\/select>/g) ?? [];
     expect(selects).toHaveLength(2);
     for (const select of selects) expect(select.match(/<option\b/g)).toHaveLength(1);
   });

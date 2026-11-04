@@ -23,7 +23,28 @@ function messageIds(body: unknown): string[] {
   });
 }
 
-// Resend's batch API: one call for up to 100 emails.
+// The request indexes of the emails a permissive batch dropped, from `errors[].index`. Only the
+// index is read: `errors[].message` may echo the address, so it is never touched.
+// oxlint-disable-next-line deslop/no-unknown-parameters -- the raw answer body; checking it is this function's job
+function rejectedIndexes(body: unknown, count: number): number[] {
+  // SAFETY: the optional chain reads `errors` off any value, and the next line checks it.
+  const errors = (body as { errors?: unknown } | null)?.errors;
+  if (!Array.isArray(errors)) return [];
+  const entries: unknown[] = errors;
+  const indexes = entries.flatMap((e) => {
+    // SAFETY: the same for each entry's `index`, which the next lines check.
+    const index = (e as { index?: unknown } | null)?.index;
+    // oxlint-disable-next-line deslop/no-runtime-typeof -- how an untrusted index is checked before it is used
+    return typeof index === "number" && Number.isInteger(index) && index >= 0 && index < count
+      ? [index]
+      : [];
+  });
+  return [...new Set(indexes)];
+}
+
+// Resend's batch API: one call for up to 100 emails. In permissive mode a bad email is dropped
+// and reported in `errors` instead of failing the whole call (resend-node's batch types; the
+// API reference doesn't document it).
 // https://resend.com/docs/api-reference/emails/send-batch-emails
 export function resendSender(
   apiKey: string,
@@ -37,7 +58,11 @@ export function resendSender(
       try {
         res = await fetcher(BATCH_URL, {
           method: "POST",
-          headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            "content-type": "application/json",
+            "x-batch-validation": "permissive",
+          },
           body: JSON.stringify(emails),
           signal: AbortSignal.timeout(timeoutMs),
         });
@@ -48,7 +73,10 @@ export function resendSender(
       if (res.ok) {
         // Accepted, so it is sent even when the answer can't be read: retrying would send it twice.
         const body: unknown = await res.json().catch(() => null);
-        return { outcome: "sent", ids: messageIds(body) };
+        const rejected = rejectedIndexes(body, emails.length);
+        return rejected.length > 0
+          ? { outcome: "sent", ids: messageIds(body), rejected }
+          : { outcome: "sent", ids: messageIds(body) };
       }
       // The body is never read on failure: providers echo the recipient in error messages.
       await res.body?.cancel().catch(() => {});

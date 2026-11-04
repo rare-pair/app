@@ -33,9 +33,32 @@
   // Chapter fragments, which the reader reads under works/ only. The same bucket
   // apps/content serves images and originals from.
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "rarepair" }],
-  // Sign-in emails, sent by apps/mailer.
+  // Reading positions: one `pos:<user id>:<work id>` key per signed-in reader and work, holding a
+  // chapter number and a scroll percentage, expiring after a year (src/position.ts). The id is a
+  // placeholder, like Hyperdrive's, until the operator creates the namespace
+  // (wrangler kv namespace create POSITIONS); tests use a local one.
+  "kv_namespaces": [{ "binding": "POSITIONS", "id": "00000000000000000000000000000000" }],
+  // Sign-in emails, sent by apps/mailer. This Worker also consumes email-bulk-dlq, where a launch
+  // email both providers refused lands: src/launch-dead-letter.ts clears its address's
+  // notified_at so the launch send queues it again (ARCHITECTURE, Wait list). Retention is
+  // one day at most, set outside this file:
+  // wrangler queues update email-bulk-dlq --message-retention-period-secs 86400
   "queues": {
-    "producers": [{ "binding": "EMAIL", "queue": "email" }],
+    // `ingest` is the upload queue apps/ingest consumes: POST /uploads/:id/complete sends to it.
+    "producers": [
+      { "binding": "EMAIL", "queue": "email" },
+      { "binding": "INGEST", "queue": "ingest" },
+    ],
+    "consumers": [
+      {
+        "queue": "email-bulk-dlq",
+        "max_batch_size": 100,
+        "max_batch_timeout": 5,
+        // A database outage retries the batch for ten minutes before it is dropped.
+        "max_retries": 10,
+        "retry_delay": 60,
+      },
+    ],
   },
   // The Workers rate-limiting binding on POST /login (ARCHITECTURE, Surge controls): per client
   // IP and per email address, each over a 60-second window. src/rate-limit.ts keeps the period
@@ -45,6 +68,63 @@
   "ratelimits": [
     { "name": "LOGIN_IP_LIMIT", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
     { "name": "LOGIN_EMAIL_LIMIT", "namespace_id": "1002", "simple": { "limit": 3, "period": 60 } },
+    // POST /waitlist, the same way. Set like sign-in's, to be revisited before launch: a shared
+    // office or school IP on launch day may want a higher IP limit.
+    {
+      "name": "WAITLIST_IP_LIMIT",
+      "namespace_id": "1040",
+      "simple": { "limit": 10, "period": 60 },
+    },
+    {
+      "name": "WAITLIST_EMAIL_LIMIT",
+      "namespace_id": "1041",
+      "simple": { "limit": 3, "period": 60 },
+    },
+    // POST /dmca, per client IP only: the form has no Turnstile (it must work without
+    // JavaScript) and no address to key on. A first value, to be revisited with the others.
+    // 1035, from the removal-requests block, clear of the ids /remove will take from 1030.
+    { "name": "DMCA_IP_LIMIT", "namespace_id": "1035", "simple": { "limit": 5, "period": 60 } },
+    // POST /remove, per client IP and per contact email. The IP is counted before the form is
+    // read; the email only once Turnstile passes and the address is valid, so an unsolved post
+    // can't spend someone else's address. Instant hiding has no proof of identity behind it,
+    // so these are its defence against abuse. First values (IP 5, email 3), to be revisited
+    // before launch: a shared office or school IP may want a higher IP limit.
+    { "name": "REMOVE_IP_LIMIT", "namespace_id": "1030", "simple": { "limit": 5, "period": 60 } },
+    {
+      "name": "REMOVE_EMAIL_LIMIT",
+      "namespace_id": "1031",
+      "simple": { "limit": 3, "period": 60 },
+    },
+    // POST /uploads, per signed-in user and per client IP. The first unit of each is counted
+    // before the form is read, so a flood costs neither a body nor a Turnstile check, and a
+    // refused request counts. A batch spends one unit per file, the rest once its sizes are
+    // checked and before Turnstile, so a batch of ten takes ten of the user's 20 and of the
+    // IP's 40. First values (user 20, IP 40), to be revisited before launch: a shared office
+    // or school IP may want a higher IP limit. The Postgres count is the daily quota (ARCHITECTURE, Surge
+    // controls); this binding is only approximate and per location.
+    {
+      "name": "UPLOAD_USER_LIMIT",
+      "namespace_id": "1010",
+      "simple": { "limit": 20, "period": 60 },
+    },
+    { "name": "UPLOAD_IP_LIMIT", "namespace_id": "1011", "simple": { "limit": 40, "period": 60 } },
+    // GET /search, per signed-in user and per client IP. Counted once the query is known to be
+    // non-blank and before the search queries the database, so a refused search runs no query
+    // of its own (a request with a cookie has had its session looked up by then);
+    // each results page spends one, the bare form none. A signed-out search is keyed on its IP
+    // only. Values: user 60, IP 30 a minute, as the operator set them for launch. A shared
+    // office or school IP may hit the IP limit first. Approximate and per location, like the
+    // others.
+    {
+      "name": "SEARCH_IP_LIMIT",
+      "namespace_id": "1020",
+      "simple": { "limit": 30, "period": 60 },
+    },
+    {
+      "name": "SEARCH_USER_LIMIT",
+      "namespace_id": "1021",
+      "simple": { "limit": 60, "period": 60 },
+    },
   ],
   "vars": {
     // "on" until the archive opens (ARCHITECTURE, Wait list): / is the coming-soon
@@ -58,17 +138,46 @@
     // The bucket presigned upload URLs PUT into, under uploads/ (src/presign.ts). It must be
     // the BUCKET binding's bucket_name above, which /complete and ingest read uploads from.
     "R2_BUCKET": "rarepair",
+    // The least time POST /waitlist takes to answer, in milliseconds, so how long it took
+    // can't show whether an address is on the list (#216). It must be longer than the
+    // slowest path (insert, update, queue send, over Hyperdrive to Neon): a floor can't hide
+    // a path slower than itself. 2000 is a first value, to be checked against measured
+    // Hyperdrive timing before launch.
+    "WAITLIST_FLOOR_MS": "2000",
+    // Where the removal form's <noscript> message sends a visitor without JavaScript. A
+    // placeholder on the reserved example.invalid domain. The operator deploys with the
+    // moderators' real address in its place (`wrangler deploy --var MODERATORS_EMAIL:...`);
+    // the repo's code, notes and tests never hold one.
+    "MODERATORS_EMAIL": "moderators@example.invalid",
+    // The most uploads an account may confirm in a UTC day (src/quota.ts): the new-account
+    // tier, which every account but a moderator or admin gets, and the trusted tier of
+    // moderators and admins. ARCHITECTURE (Surge controls) sets them before launch from load
+    // testing; these are first values, to be revisited then.
+    "UPLOAD_QUOTA_NEW": "20",
+    "UPLOAD_QUOTA_TRUSTED": "100",
+    // The rarepair.fans zone, whose cache a work's removal purges (src/purge.ts): its pages and
+    // fragments, and content.rarepair.fans's image and download URLs (a custom domain on the
+    // same zone), in case the zone caches them. Not a secret. A placeholder: the operator deploys with the real id in its place
+    // (`wrangler deploy --var CLOUDFLARE_ZONE_ID:...`). Under the placeholder every purge
+    // fails, and the remove says so.
+    "CLOUDFLARE_ZONE_ID": "00000000000000000000000000000000",
   },
-  // Set with `wrangler secret put`. The R2 ones sign upload URLs: an R2 API token with Object
+  // Set with `wrangler secret put`. IP_HASH_KEY keys the HMAC of a requester's stored network
+  // address (src/ip-hash.ts): a long random value, kept for as long as stored hashes are
+  // matched, since changing it orphans them. The R2 ones sign upload URLs: an R2 API token with Object
   // Read and Write on the rarepair bucket only. Only its secret key is secret: every issued URL
   // shows the access key id and the account id, which are here only to keep them out of the repo.
+  // CLOUDFLARE_PURGE_TOKEN is the Cloudflare API token a removal purges the cache with: permission
+  // Zone > Cache Purge > Purge, on the rarepair.fans zone only.
   "secrets": {
     "required": [
       "BETTER_AUTH_SECRET",
       "TURNSTILE_SECRET_KEY",
+      "IP_HASH_KEY",
       "R2_ACCOUNT_ID",
       "R2_ACCESS_KEY_ID",
       "R2_SECRET_ACCESS_KEY",
+      "CLOUDFLARE_PURGE_TOKEN",
     ],
   },
 }

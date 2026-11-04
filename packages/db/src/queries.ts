@@ -5,12 +5,16 @@ import { jsonArrayFrom } from "kysely/helpers/postgres";
 import type {
   ChapterTable,
   Database,
+  HiddenCause,
   TagTable,
   TagType,
+  UploadStatus,
   WorkTable,
   WorkVersionTable,
 } from "./schema";
+import { inTransaction, logModerationAction } from "./moderation-actions";
 import { compareCodeUnits, normalizeTagName } from "./tags";
+import { copyVersionToWork } from "./version-copy";
 
 /** A work's own fields, as a page shows them. */
 export type WorkSummary = Pick<
@@ -45,12 +49,18 @@ export interface LiveWork {
     | "created_at"
     | "review_reasons"
     | "checked_at"
-  >;
+  > & {
+    /**
+     * The upload whose original, originals/<id>.epub, the version was made from: its own, or
+     * for a backfill version the one it was re-made from.
+     */
+    original_upload_id: string;
+  };
   /** The current version's chapters, by number. */
   chapters: Pick<Selectable<ChapterTable>, "n" | "title" | "words" | "r2_key">[];
 }
 
-const SUMMARY = [
+export const SUMMARY = [
   "works.id",
   "works.ao3_work_id",
   "works.title",
@@ -67,6 +77,33 @@ const SUMMARY = [
 ] as const;
 
 const MAX_INT4 = 2_147_483_647;
+
+/** Why a work is withheld from readers: hidden for a cause, or removed. */
+export type WorkAvailability = { status: "hidden"; cause: HiddenCause } | { status: "removed" };
+
+/**
+ * Whether a work is withheld, by its AO3 work ID: its status and hide cause and
+ * nothing else, so a removed work answers even once its version rows are purged.
+ * Null for a `live` or `processing` work, an unknown one or an ID that is no int4.
+ * This is the one place a page learns "hidden" or "removed".
+ */
+export async function getWorkAvailability(
+  db: Kysely<Database>,
+  ao3WorkId: number,
+): Promise<WorkAvailability | null> {
+  if (!Number.isInteger(ao3WorkId) || ao3WorkId < 1 || ao3WorkId > MAX_INT4) return null;
+  const row = await db
+    .selectFrom("works")
+    .select(["works.status", "works.hidden_cause"])
+    .where("works.ao3_work_id", "=", ao3WorkId)
+    .executeTakeFirst();
+  if (row?.status === "removed") return { status: "removed" };
+  // The schema's check makes hidden_cause non-null exactly while hidden.
+  if (row?.status === "hidden" && row.hidden_cause !== null) {
+    return { status: "hidden", cause: row.hidden_cause };
+  }
+  return null;
+}
 
 /**
  * A `live` work by its AO3 work ID, with its authors, tags and current
@@ -95,6 +132,13 @@ export async function getLiveWork(
       "work_versions.review_reasons",
       "work_versions.checked_at",
     ])
+    .select((eb) =>
+      // The schema's check gives every version one or the other.
+      eb.fn
+        .coalesce("work_versions.upload_id", "work_versions.source_upload_id")
+        .$notNull()
+        .as("original_upload_id"),
+    )
     .select((eb) => [
       jsonArrayFrom(
         eb
@@ -128,6 +172,7 @@ export async function getLiveWork(
     created_at,
     review_reasons,
     checked_at,
+    original_upload_id,
     authors,
     tags,
     chapters,
@@ -149,6 +194,7 @@ export async function getLiveWork(
       created_at,
       review_reasons,
       checked_at,
+      original_upload_id,
     },
     chapters: chapters.sort((a, b) => a.n - b.n),
   };
@@ -156,6 +202,39 @@ export async function getLiveWork(
 
 /** A work as a listing's card shows it. */
 export type ListedWork = Pick<LiveWork, "work" | "authors" | "tags">;
+
+/** A card's byline and tags, as sub-selects of the `works` row they hang from. */
+export const bylineAndTags = (eb: ExpressionBuilder<Database, "works">) => [
+  jsonArrayFrom(
+    eb
+      .selectFrom("work_authors")
+      .select(["work_authors.pseud", "work_authors.ao3_user", "work_authors.position"])
+      .whereRef("work_authors.work_id", "=", "works.id"),
+  ).as("authors"),
+  jsonArrayFrom(
+    eb
+      .selectFrom("work_tags")
+      .innerJoin("tags", "tags.id", "work_tags.tag_id")
+      .select(["tags.id", "tags.type", "tags.name", "tags.name_norm", "work_tags.position"])
+      .whereRef("work_tags.work_id", "=", "works.id"),
+  ).as("tags"),
+];
+
+export type CardRow = WorkSummary & {
+  authors: { pseud: string; ao3_user: string | null; position: number }[];
+  tags: (Pick<Selectable<TagTable>, "id" | "type" | "name" | "name_norm"> & { position: number })[];
+};
+
+/** A row with its sub-selects as a listed work. As in getLiveWork, json_agg's order isn't promised, so the lists are sorted here. */
+export const asListed = ({ authors, tags, ...work }: CardRow): ListedWork => ({
+  work,
+  authors: authors
+    .sort((a, b) => a.position - b.position)
+    .map(({ pseud, ao3_user }) => ({ pseud, ao3_user })),
+  tags: tags
+    .sort((a, b) => a.position - b.position)
+    .map(({ id, type, name, name_norm }) => ({ id, type, name, name_norm })),
+});
 
 /**
  * The names a listing of `name` matches: `name` under the tag rule, and `name`
@@ -224,14 +303,14 @@ export interface ListingOptions {
   pageSize?: number;
 }
 
-const PAGE_SIZE = 20;
+export const PAGE_SIZE = 20;
 
-const isCount = (n: number) => Number.isSafeInteger(n) && n >= 1;
+export const isCount = (n: number) => Number.isSafeInteger(n) && n >= 1;
 
 type WorksWhere = ExpressionBuilder<Database, "works">;
 
 /** The work carries a tag of this type whose `name_norm` is one of `keys`. */
-const tagged = (eb: WorksWhere, type: TagType, keys: string[]) =>
+export const tagged = (eb: WorksWhere, type: TagType, keys: string[]) =>
   eb.exists(
     eb
       .selectFrom("work_tags")
@@ -242,7 +321,7 @@ const tagged = (eb: WorksWhere, type: TagType, keys: string[]) =>
       .where("tags.type", "=", type),
   );
 
-const rated = (eb: WorksWhere, rating: string) =>
+export const rated = (eb: WorksWhere, rating: string) =>
   rating === NOT_RATED
     ? eb.or([
         eb("works.rating", "=", rating),
@@ -302,36 +381,12 @@ export async function listLiveWorksByTag(
   const rows = await db
     .selectFrom(pageRows.as("works"))
     .selectAll("works")
-    .select((eb) => [
-      jsonArrayFrom(
-        eb
-          .selectFrom("work_authors")
-          .select(["work_authors.pseud", "work_authors.ao3_user", "work_authors.position"])
-          .whereRef("work_authors.work_id", "=", "works.id"),
-      ).as("authors"),
-      jsonArrayFrom(
-        eb
-          .selectFrom("work_tags")
-          .innerJoin("tags", "tags.id", "work_tags.tag_id")
-          .select(["tags.id", "tags.type", "tags.name", "tags.name_norm", "work_tags.position"])
-          .whereRef("work_tags.work_id", "=", "works.id"),
-      ).as("tags"),
-    ])
+    .select(bylineAndTags)
     // A subquery's order isn't kept, so the page is put in order again.
     .orderBy(byKey, (ob) => ob.desc().nullsLast())
     .orderBy("works.ao3_work_id")
     .execute();
-  // As in getLiveWork, json_agg's order isn't promised, so the lists are sorted here.
-  const works = rows.map(({ authors, tags, ...work }) => ({
-    work,
-    authors: authors
-      .sort((a, b) => a.position - b.position)
-      .map(({ pseud, ao3_user }) => ({ pseud, ao3_user })),
-    tags: tags
-      .sort((a, b) => a.position - b.position)
-      .map(({ id, type, name, name_norm }) => ({ id, type, name, name_norm })),
-  }));
-  return { works, total };
+  return { works: rows.map(asListed), total };
 }
 
 /**
@@ -348,4 +403,610 @@ export async function insertUpload(
     .returning("id")
     .executeTakeFirstOrThrow();
   return { id: row.id, status: "pending" };
+}
+
+/** The upload `/complete` needs to act on: its R2 key and where it stands. */
+export interface OwnUpload {
+  id: string;
+  r2_key: string;
+  status: UploadStatus;
+}
+
+/** The upload with this id if `userId` made it, else null: another user's is no different from none. */
+export async function getUploadOf(
+  db: Kysely<Database>,
+  id: string,
+  userId: string,
+): Promise<OwnUpload | null> {
+  const row = await db
+    .selectFrom("uploads")
+    .select(["id", "r2_key", "status"])
+    .where("id", "=", id)
+    .where("user_id", "=", userId)
+    .executeTakeFirst();
+  return row ?? null;
+}
+
+/**
+ * Stores a `pending` upload's SHA-256 (lowercase hex), and marks it `duplicate` of work W when
+ * an earlier upload with that hash was ingested into W while W is `live` or `hidden`
+ * (ARCHITECTURE, Ingestion pipeline, step 3). An earlier upload still `pending` or `processing`,
+ * rejected, or whose work was removed gives no match. Returns W's id as `duplicateOf`, or null
+ * for no match; returns null itself, writing nothing, when the upload isn't `pending`.
+ */
+export async function recordUploadHash(
+  db: Kysely<Database>,
+  id: string,
+  sha256: string,
+): Promise<{ duplicateOf: string | null } | null> {
+  return db.transaction().execute(async (trx) => {
+    const stored = await trx
+      .updateTable("uploads")
+      .set({ sha256 })
+      .where("id", "=", id)
+      .where("status", "=", "pending")
+      .returning("id")
+      .executeTakeFirst();
+    if (stored === undefined) return null;
+    const match = await trx
+      .selectFrom("uploads")
+      .innerJoin("works", "works.id", "uploads.work_id")
+      .select("works.id as work_id")
+      .where("uploads.sha256", "=", sha256)
+      .where("uploads.id", "!=", id)
+      .where("uploads.status", "in", ["live", "held_for_review", "duplicate"])
+      .where("works.status", "in", ["live", "hidden"])
+      // The same upload every time two works match.
+      .orderBy("uploads.created_at")
+      .orderBy("uploads.id")
+      .limit(1)
+      .executeTakeFirst();
+    if (match === undefined) return { duplicateOf: null };
+    await trx
+      .updateTable("uploads")
+      .set({ status: "duplicate", work_id: match.work_id })
+      .where("id", "=", id)
+      .execute();
+    return { duplicateOf: match.work_id };
+  });
+}
+
+/** Marks a `pending` upload `too_large`. False when it wasn't `pending`. */
+export async function rejectOversizedUpload(db: Kysely<Database>, id: string): Promise<boolean> {
+  const row = await db
+    .updateTable("uploads")
+    .set({ status: "too_large" })
+    .where("id", "=", id)
+    .where("status", "=", "pending")
+    .returning("id")
+    .executeTakeFirst();
+  return row !== undefined;
+}
+
+/**
+ * Marks a `pending` upload `over_quota`. False when it wasn't `pending`, or when a confirm has
+ * counted it against the quota: a parallel confirm of the same upload that won its use must
+ * not have its upload rejected, nor its object deleted, by one that lost.
+ */
+export async function rejectOverQuotaUpload(
+  db: Kysely<Database>,
+  id: string,
+  userId: string,
+): Promise<boolean> {
+  const row = await db
+    .updateTable("uploads")
+    .set({ status: "over_quota" })
+    .where("id", "=", id)
+    .where("user_id", "=", userId)
+    .where("status", "=", "pending")
+    .where("quota_counted_at", "is", null)
+    .returning("id")
+    .executeTakeFirst();
+  return row !== undefined;
+}
+
+// The UTC calendar day, as Postgres counts it: the quota's day, whatever the session's zone.
+const TODAY_UTC = sql<string>`(now() at time zone 'utc')::date`;
+
+/**
+ * A user's role and how many uploads they have confirmed today (the UTC day), or null for no
+ * such user. A count left from an earlier day, or never dated, reads as zero.
+ */
+export async function getUploadQuota(
+  db: Kysely<Database>,
+  userId: string,
+): Promise<{ role: string | null; usedToday: number } | null> {
+  const row = await db
+    .selectFrom("user")
+    .select([
+      "role",
+      "upload_quota_used",
+      sql<boolean>`upload_quota_day = ${TODAY_UTC}`.as("today"),
+    ])
+    .where("id", "=", userId)
+    .executeTakeFirst();
+  if (row === undefined) return null;
+  return { role: row.role, usedToday: row.today ? row.upload_quota_used : 0 };
+}
+
+/**
+ * Counts one confirmed upload against today's quota of `limit`, and says whether it fit. One
+ * conditional UPDATE, so under concurrency the row lock makes the rest re-check the count the
+ * winner left: no more than `limit` ever succeed. The first use of a new UTC day starts the
+ * count at one. False for a spent quota, a limit under one, or an unknown user.
+ */
+export async function useUploadQuota(
+  db: Kysely<Database>,
+  userId: string,
+  limit: number,
+): Promise<boolean> {
+  const row = await db
+    .updateTable("user")
+    .set({
+      upload_quota_used: sql`case when upload_quota_day = ${TODAY_UTC} then upload_quota_used + 1 else 1 end`,
+      upload_quota_day: TODAY_UTC,
+    })
+    .where("id", "=", userId)
+    // A new day fits a limit of one or more; today's fits while the count is under it.
+    .where(
+      sql<boolean>`((${limit}::int >= 1 and upload_quota_day is distinct from ${TODAY_UTC})
+        or (upload_quota_day = ${TODAY_UTC} and upload_quota_used < ${limit}::int))`,
+    )
+    .returning("id")
+    .executeTakeFirst();
+  return row !== undefined;
+}
+
+/**
+ * Counts a pending upload against its owner's daily quota of `limit`, once. `counted` took a
+ * use; `already` means an earlier or parallel confirm of the same upload took it, so nothing
+ * more is counted (the upload's row is locked by the claim, so two confirms of one upload
+ * can't both count it); `spent` means the quota had no use left, and nothing was changed;
+ * `gone` means the upload isn't this user's pending one (another request rejected it).
+ */
+export async function countUploadQuota(
+  db: Kysely<Database>,
+  userId: string,
+  uploadId: string,
+  limit: number,
+): Promise<"counted" | "already" | "spent" | "gone"> {
+  return db.transaction().execute(async (trx) => {
+    const claimed = await trx
+      .updateTable("uploads")
+      .set({ quota_counted_at: sql<Date>`now()` })
+      .where("id", "=", uploadId)
+      .where("user_id", "=", userId)
+      // An upload another request has rejected is never counted, nor queued after it.
+      .where("status", "=", "pending")
+      .where("quota_counted_at", "is", null)
+      .returning("id")
+      .executeTakeFirst();
+    if (claimed === undefined) {
+      const row = await trx
+        .selectFrom("uploads")
+        .select("status")
+        .where("id", "=", uploadId)
+        .where("user_id", "=", userId)
+        .executeTakeFirst();
+      return row?.status === "pending" ? "already" : "gone";
+    }
+    if (await useUploadQuota(trx, userId, limit)) return "counted";
+    // Not counted: the claim is undone, in the same transaction.
+    await trx
+      .updateTable("uploads")
+      .set({ quota_counted_at: null })
+      .where("id", "=", uploadId)
+      .where("user_id", "=", userId)
+      .execute();
+    return "spent";
+  });
+}
+
+/**
+ * Gives back the use `countUploadQuota` took for this upload, for a confirm that counted and
+ * then failed to queue it. The use is returned to the day it was taken on: when that day has
+ * passed, the new day's count is left alone. Does nothing for an upload that wasn't counted.
+ */
+export async function refundUploadQuota(
+  db: Kysely<Database>,
+  userId: string,
+  uploadId: string,
+): Promise<void> {
+  await db.transaction().execute(async (trx) => {
+    // The upload row is locked first, the order countUploadQuota takes its locks in. Only a
+    // still-pending upload is refunded: one ingest has taken keeps its use.
+    const counted = await trx
+      .selectFrom("uploads")
+      // As text: the driver would read a date into a local-time Date, shifting the day.
+      .select(sql<string>`((quota_counted_at at time zone 'utc')::date)::text`.as("day"))
+      .where("id", "=", uploadId)
+      .where("user_id", "=", userId)
+      .where("status", "=", "pending")
+      .where("quota_counted_at", "is not", null)
+      .forUpdate()
+      .executeTakeFirst();
+    if (counted === undefined) return;
+    await trx
+      .updateTable("user")
+      .set({ upload_quota_used: sql`upload_quota_used - 1` })
+      .where("id", "=", userId)
+      .where("upload_quota_used", ">", 0)
+      .where(sql<boolean>`upload_quota_day = ${counted.day}::date`)
+      .execute();
+    await trx
+      .updateTable("uploads")
+      .set({ quota_counted_at: null })
+      .where("id", "=", uploadId)
+      .execute();
+  });
+}
+
+export interface PopularFandom {
+  /** How the live works spell it, the first by code unit when they differ. */
+  name: string;
+  name_norm: string;
+  /** How many live works carry it. */
+  count: number;
+}
+
+const POPULAR_FANDOMS = 10;
+const RECENT_WORKS = 12;
+
+/**
+ * The fandoms the most live works carry, most first, each fandom being one
+ * `name_norm`; ties by `name_norm`, by byte order. Only live works count, so a
+ * fandom only hidden or removed works use, and its spelling, never shows.
+ */
+export async function listPopularFandoms(
+  db: Kysely<Database>,
+  limit = POPULAR_FANDOMS,
+): Promise<PopularFandom[]> {
+  const rows = await db
+    .selectFrom("tags")
+    .innerJoin("work_tags", "work_tags.tag_id", "tags.id")
+    .innerJoin("works", "works.id", "work_tags.work_id")
+    .select((eb) => [
+      "tags.name_norm",
+      eb.fn.count<string>("works.id").distinct().as("count"),
+      sql<string[]>`array_agg(distinct tags.name)`.as("names"),
+    ])
+    .where("works.status", "=", "live")
+    .where("tags.type", "=", "fandom")
+    // A fandom that folds to nothing has no listing to link to.
+    .where("tags.name_norm", "<>", "")
+    .groupBy("tags.name_norm")
+    .orderBy("count", "desc")
+    .orderBy(sql`tags.name_norm collate "C"`)
+    .limit(isCount(limit) ? limit : POPULAR_FANDOMS)
+    .execute();
+  return rows.map(({ name_norm, count, names }) => ({
+    // By code unit, not by the database's collation.
+    name: names.sort(compareCodeUnits)[0] ?? name_norm,
+    name_norm,
+    count: Number(count),
+  }));
+}
+
+/**
+ * The `live` works by when their first version was added here, newest first
+ * (a later version doesn't make a work newer), with their bylines and tags.
+ */
+export async function listRecentLiveWorks(
+  db: Kysely<Database>,
+  limit = RECENT_WORKS,
+): Promise<ListedWork[]> {
+  const rows = await db
+    .selectFrom("works")
+    .innerJoin(
+      (eb) =>
+        eb
+          .selectFrom("work_versions")
+          .select([
+            "work_versions.work_id",
+            (e) => e.fn.min("work_versions.created_at").as("added_at"),
+          ])
+          .groupBy("work_versions.work_id")
+          .as("first"),
+      (join) => join.onRef("first.work_id", "=", "works.id"),
+    )
+    .select(SUMMARY)
+    .select(bylineAndTags)
+    .where("works.status", "=", "live")
+    .orderBy("first.added_at", "desc")
+    // AO3 work ID last, highest first: a total order, so a tie (one transaction
+    // adds many works at one instant) reads the same each time.
+    .orderBy("works.ao3_work_id", "desc")
+    .limit(isCount(limit) ? limit : RECENT_WORKS)
+    .execute();
+  return rows.map(asListed);
+}
+
+/**
+ * How many distinct accounts have an open report that counts toward hiding the
+ * work, as a SQL expression. A `wrong_version` report never counts, and an
+ * account counts once however often it reports. A reporter whose account email matches a
+ * blocked requester (any case) never counts, nor does one in `ignore`: the accounts the
+ * caller found to match a block by IP hash, which needs the `IP_HASH_KEY` secret and so
+ * can't be done here (web's blocked-reporters.ts, which `submitReport` calls). This is
+ * the one place the count is made.
+ */
+const countedReporters = (workId: string, ignore: string[]) => sql<number>`(
+  select count(distinct reports.reporter_id) from reports
+  where reports.work_id = ${workId} and reports.status = 'open' and reports.kind <> 'wrong_version'
+    and reports.reporter_id <> all(${ignore}::text[])
+    and not exists (
+      select 1 from requester_blocks b join "user" u on lower(b.contact_email) = lower(u.email)
+      where u.id = reports.reporter_id
+    )
+)`;
+
+/**
+ * Whether a moderator has blocked this requester: a block names the contact email (any
+ * case) or the IP hash. Pass `ipHash: null` for a request with no known address (web's
+ * fixed `unknown` marker), which matches nothing, so blocking one never blocks all of them.
+ */
+export async function isRequesterBlocked(
+  db: Kysely<Database>,
+  who: { email: string; ipHash: string | null },
+): Promise<boolean> {
+  const row = await db
+    .selectFrom("requester_blocks")
+    .select("id")
+    .where((eb) =>
+      eb.or([
+        eb(sql<string>`lower(contact_email)`, "=", sql<string>`lower(${who.email})`),
+        ...(who.ipHash === null ? [] : [eb("ip_hash", "=", who.ipHash)]),
+      ]),
+    )
+    .limit(1)
+    .executeTakeFirst();
+  return row !== undefined;
+}
+
+/**
+ * Hides a `live` work with its cause, in one UPDATE that sets the status and
+ * the cause together, as the schema's check requires. True when it hid it. A
+ * hidden or removed work is left as it is, so no cause is overwritten, with one
+ * exception: a moderator's hide takes over a hidden work's cause (a moderator has
+ * looked at it, so an auto-hide no longer decides when it comes back). A work a
+ * moderator already hid is left too: that hide returns false.
+ *
+ * With `minReporters`, the work is hidden only when that many accounts have
+ * counted reports (see `countedReporters`; `ignoreReporters` are account ids it skips). The count sits inside the UPDATE,
+ * not in a read before it: reads may come from Hyperdrive's cache and miss the
+ * report just stored, but writes never do.
+ *
+ * With `actor`, the acting moderator's user id, it also logs the hide
+ * (`logModerationAction`) when it changed the work, in the same transaction, or
+ * in the caller's when `db` is one. No row for a hide that changed nothing, and
+ * none for the automatic hide, which has no moderator.
+ */
+export async function hideWork(
+  db: Kysely<Database>,
+  workId: string,
+  cause: HiddenCause,
+  options: { minReporters?: number; ignoreReporters?: string[]; actor?: string } = {},
+): Promise<boolean> {
+  // The log row needs a transaction; the automatic hide is one UPDATE and needs none.
+  const hide = async (trx: Kysely<Database>): Promise<boolean> => {
+    let update = trx
+      .updateTable("works")
+      .set({ status: "hidden", hidden_cause: cause })
+      .where("id", "=", workId)
+      .where("status", "in", cause === "moderator" ? ["live", "hidden"] : ["live"]);
+    if (cause === "moderator") {
+      // A work a moderator already hid is left as it is: nothing changed, so no row.
+      update = update.where((eb) =>
+        eb.not(eb.and([eb("status", "=", "hidden"), eb("hidden_cause", "=", "moderator")])),
+      );
+    }
+    if (options.minReporters !== undefined) {
+      update = update.where(
+        sql<boolean>`${countedReporters(workId, options.ignoreReporters ?? [])} >= ${options.minReporters}`,
+      );
+    }
+    const result = await update.executeTakeFirst();
+    if (result.numUpdatedRows === 0n) return false;
+    if (options.actor !== undefined) {
+      await logModerationAction(trx, {
+        moderatorId: options.actor,
+        action: "hide",
+        targetKind: "work",
+        targetId: workId,
+      });
+    }
+    return true;
+  };
+  return options.actor === undefined ? hide(db) : inTransaction(db, hide);
+}
+
+/**
+ * Makes a `hidden` work `live` again and clears its cause, in one UPDATE (the
+ * schema's check allows a cause only while hidden), then closes the work's open
+ * reports in the same transaction, so they stop counting toward `hideWork`'s
+ * reporter count and the next report doesn't hide it again. True when it
+ * restored it. With `cause`, only a work hidden for that cause comes back (a
+ * rejected removal request lifts its own hide, not a moderator's). With
+ * `noPendingRequests`, it stays hidden while any confirmed request for it is pending. A live or
+ * removed work is left as it is (a hidden work always has
+ * a current version: the schema's check, so it can't come back without one).
+ *
+ * With `actor`, the acting moderator's user id, it also logs the restore when it
+ * restored the work (see `hideWork`). It runs in the caller's transaction when
+ * `db` is one, so a handler can make it part of a larger action.
+ */
+export async function restoreWork(
+  db: Kysely<Database>,
+  workId: string,
+  options: { cause?: HiddenCause; noPendingRequests?: boolean; actor?: string } = {},
+): Promise<boolean> {
+  return inTransaction(db, async (trx) => {
+    let update = trx
+      .updateTable("works")
+      .set({ status: "live", hidden_cause: null })
+      .where("id", "=", workId)
+      .where("status", "=", "hidden");
+    if (options.cause !== undefined) update = update.where("hidden_cause", "=", options.cause);
+    // In the UPDATE itself, so two moderators deciding the last two requests at once
+    // can't each see the other's as pending and leave the work hidden.
+    if (options.noPendingRequests === true) {
+      update = update.where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom("requests")
+              .select("requests.id")
+              .where("requests.work_id", "=", workId)
+              .where("requests.status", "=", "pending")
+              // One still waiting for its emailed confirmation hid nothing.
+              .where("requests.confirmed_at", "is not", null),
+          ),
+        ),
+      );
+    }
+    const result = await update.executeTakeFirst();
+    if (result.numUpdatedRows === 0n) return false;
+    await trx
+      .updateTable("reports")
+      .set({ status: "closed" })
+      .where("work_id", "=", workId)
+      .where("status", "=", "open")
+      .execute();
+    if (options.actor !== undefined) {
+      await logModerationAction(trx, {
+        moderatorId: options.actor,
+        action: "restore",
+        targetKind: "work",
+        targetId: workId,
+      });
+    }
+    return true;
+  });
+}
+
+/** Closes a work's open `wrong_version` reports and returns how many it closed. Logs nothing. */
+export async function closeOpenWrongVersionReports(
+  db: Kysely<Database>,
+  workId: string,
+): Promise<number> {
+  const closed = await db
+    .updateTable("reports")
+    .set({ status: "closed" })
+    .where("work_id", "=", workId)
+    .where("kind", "=", "wrong_version")
+    .where("status", "=", "open")
+    .executeTakeFirst();
+  return Number(closed.numUpdatedRows);
+}
+
+/**
+ * Makes one of a work's versions current: moves `current_version_id` to it and makes the
+ * work describe it (`copyVersionToWork`: its non-NULL columns, its byline and tags, the
+ * search text), in one transaction. True when the version is current afterwards. A removed
+ * work, or one ingest is still finishing (it sets the version itself), is left as it is:
+ * false. A version already current is left as it is: true, with nothing written. Otherwise the
+ * work's row is locked (for no key update, the lock ingest's compare-and-swap takes) before
+ * any tag row, and every change to the work comes with the pointer's move, so a replace, hold
+ * or duplicate that read the old pointer fails its pointer check and decides again. The work's
+ * open `wrong_version` reports close with the move (they were about the replaced version). It doesn't check
+ * the version's upload: the caller decides whether a held version may become current (only
+ * an approval makes one current).
+ *
+ * With `actor`, the acting moderator's user id, it also logs `make_current` on the version
+ * when the pointer moved. It runs in the caller's transaction when `db` is one.
+ */
+export async function makeVersionCurrent(
+  db: Kysely<Database>,
+  workId: string,
+  versionId: string,
+  options: { actor?: string } = {},
+): Promise<boolean> {
+  return inTransaction(db, async (trx) => {
+    const work = await trx
+      .selectFrom("works")
+      .select("current_version_id")
+      .where("id", "=", workId)
+      .where("status", "in", ["live", "hidden"])
+      .forNoKeyUpdate()
+      .executeTakeFirst();
+    if (work === undefined) return false;
+    // Nothing changes, so nothing is written or logged: a copy without a pointer move would
+    // change the facts an ingest decided on without failing its pointer check.
+    if (work.current_version_id === versionId) return true;
+    await trx
+      .updateTable("works")
+      .set({ current_version_id: versionId })
+      .where("id", "=", workId)
+      .execute();
+    await copyVersionToWork(trx, workId, versionId);
+    // Reports that this version is wrong were about the one it replaces.
+    await closeOpenWrongVersionReports(trx, workId);
+    if (options.actor !== undefined) {
+      await logModerationAction(trx, {
+        moderatorId: options.actor,
+        action: "make_current",
+        targetKind: "version",
+        targetId: versionId,
+      });
+    }
+    return true;
+  });
+}
+
+/** What `removeWork` did, and the uploads whose raw files go from R2 with the work. */
+export interface RemovedWork {
+  /**
+   * `removed` now, `already_removed` before (nothing changed, so no log row), or
+   * `processing`: an ingest job is still saving it, so it was left as it is.
+   */
+  outcome: "removed" | "already_removed" | "processing";
+  /** The work's AO3 work ID, which keys its objects under `works/`. */
+  ao3WorkId: number;
+  /** Every upload of the work, with its raw file's key (`uploads.r2_key`). Empty while processing. */
+  uploads: { id: string; r2_key: string }[];
+}
+
+/**
+ * Sets a `live` or `hidden` work `removed`, clearing its hidden cause (the schema's
+ * check allows one only while hidden), and logs the moderator's remove in the same
+ * transaction. The uploads are read in it too, so the caller deletes from R2 what
+ * this transaction saw, after it commits (a failed delete then leaves a removed work
+ * with leftover bytes, never a live one with missing ones). The upload and version
+ * rows stay. Null when there is no such work.
+ */
+export async function removeWork(
+  db: Kysely<Database>,
+  workId: string,
+  actor: string,
+): Promise<RemovedWork | null> {
+  return inTransaction(db, async (trx) => {
+    // Locked, so a concurrent remove waits and then sees this one's status.
+    const work = await trx
+      .selectFrom("works")
+      .select(["status", "ao3_work_id"])
+      .where("id", "=", workId)
+      .forNoKeyUpdate()
+      .executeTakeFirst();
+    if (!work) return null;
+    const ao3WorkId = work.ao3_work_id;
+    if (work.status === "processing") return { outcome: "processing", ao3WorkId, uploads: [] };
+    const uploads = await trx
+      .selectFrom("uploads")
+      .select(["id", "r2_key"])
+      .where("work_id", "=", workId)
+      .execute();
+    if (work.status === "removed") return { outcome: "already_removed", ao3WorkId, uploads };
+    await trx
+      .updateTable("works")
+      .set({ status: "removed", hidden_cause: null })
+      .where("id", "=", workId)
+      .execute();
+    await logModerationAction(trx, {
+      moderatorId: actor,
+      action: "remove",
+      targetKind: "work",
+      targetId: workId,
+    });
+    return { outcome: "removed", ao3WorkId, uploads };
+  });
 }

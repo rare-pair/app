@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BASE, fetchW, PASSING_TOKEN, STRICT, withoutNonce } from "./helpers";
+import { BASE, fetchW, WAITLIST_TOKEN, STRICT, withoutNonce } from "./helpers";
 
 // Runs in the "open" project: PRELAUNCH off, the archive open.
 
@@ -14,7 +14,7 @@ describe("22-waitlist after launch", () => {
       },
       body: new URLSearchParams({
         email: "after-launch@example.test",
-        "cf-turnstile-response": PASSING_TOKEN,
+        "cf-turnstile-response": WAITLIST_TOKEN,
       }).toString(),
     });
     expect(res.status).toBe(404);

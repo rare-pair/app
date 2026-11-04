@@ -82,6 +82,52 @@ describe("Resend batch sender", () => {
     expect(await sender.sendBatch([email])).toEqual({ outcome: "sent", ids });
   });
 
+  it("asks for permissive batch validation", async () => {
+    let headers: Headers | undefined;
+    const fetcher: typeof fetch = async (_input, init) => {
+      headers = new Headers(init?.headers);
+      return Response.json({ data: [{ id: "resend-1" }] });
+    };
+    await resendSender("re_test_key", fetcher).sendBatch([email]);
+    expect(headers?.get("x-batch-validation")).toBe("permissive");
+  });
+
+  // The permissive answer shape is from resend-node's batch types; Resend's API reference
+  // doesn't document it. `index` is the position in the request.
+  it("an accepted batch reports the emails Resend refused by their index, never their text", async () => {
+    const sender = resendSender(
+      "re_test_key",
+      answering(() =>
+        Response.json(
+          {
+            data: [{ id: "resend-1" }, { id: "resend-3" }],
+            errors: [{ index: 1, message: "bad reader@example.test" }],
+          },
+          { status: 202 },
+        ),
+      ),
+    );
+    const result = await sender.sendBatch([email, email, email]);
+    expect(result).toEqual({ outcome: "sent", ids: ["resend-1", "resend-3"], rejected: [1] });
+  });
+
+  it("keeps only whole-number indexes inside the batch from the errors", async () => {
+    const sender = resendSender(
+      "re_test_key",
+      answering(() =>
+        Response.json({
+          data: [],
+          errors: [null, { index: "0" }, { index: -1 }, { index: 1.5 }, { index: 3 }, { index: 2 }],
+        }),
+      ),
+    );
+    expect(await sender.sendBatch([email, email, email])).toEqual({
+      outcome: "sent",
+      ids: [],
+      rejected: [2],
+    });
+  });
+
   it.each([400, 401, 403, 422])("a %i is a failure, not a refusal", async (status) => {
     const sender = resendSender(
       "re_test_key",

@@ -18,10 +18,12 @@ export const STYLESHEET = `:root {
   --accent: #0b5cad;
   --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --reading: Charter, "Bitstream Charter", "Iowan Old Style", Georgia, serif;
+  --reading-size: 18px;
 }
 
+/* The system's preference holds only until the reader chooses a theme (R5). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --ink: #e8e8e3;
     --paper: #151515;
     --muted: #a3a39d;
@@ -109,10 +111,18 @@ h2 {
 }
 
 .banner a,
-footer a {
+footer a,
+.chapters a {
   display: inline-block;
   min-height: 24px;
   line-height: 24px;
+}
+
+/* A link to a page that isn't open yet: no href, so no hover or focus state. */
+footer a[aria-disabled="true"] {
+  color: var(--muted);
+  cursor: not-allowed;
+  text-decoration: none;
 }
 
 .draft {
@@ -138,6 +148,12 @@ button {
   padding: calc(var(--space) * 2) calc(var(--space) * 4);
 }
 
+input[type="search"]:disabled,
+button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
 footer {
   padding-top: calc(var(--space) * 4);
   padding-bottom: calc(var(--space) * 8);
@@ -150,6 +166,7 @@ footer {
    its edge, so the padding keeps focus rings inside it. */
 article.chapter {
   font-family: var(--reading);
+  font-size: var(--reading-size);
   line-height: 1.6;
   max-width: 66ch;
   contain: content;
@@ -177,6 +194,21 @@ article.chapter table {
   display: block;
   max-width: 100%;
   overflow-x: auto;
+}
+
+/* Chapter notes (first in the chapter) and end notes (last): a label <p> then a
+   <blockquote>. The sanitizer drops class and id, so they are matched by position; a real
+   quote block placed the same way is styled the same (accepted, ARCHITECTURE Reading). */
+article.chapter > p:first-child:has(+ blockquote),
+article.chapter > p:first-child + blockquote,
+article.chapter > div:first-child > p:first-child:has(+ blockquote),
+article.chapter > div:first-child > p:first-child + blockquote,
+article.chapter > p:has(+ blockquote:last-child),
+article.chapter > p + blockquote:last-child,
+article.chapter > div:last-child > p:has(+ blockquote:last-child),
+article.chapter > div:last-child > p + blockquote:last-child {
+  font-size: 0.85em;
+  color: var(--muted);
 }
 
 /* The slim top bar scrolls away with the page: it is never sticky or fixed. */
@@ -207,9 +239,39 @@ article.chapter table {
   margin: calc(var(--space) * 4) 0;
 }
 
+/* The form is a flex item and the select is as wide as its longest option (a long chapter
+   title): without min-width: 0 neither shrinks below that, and the page scrolls sideways. */
+.chapter-nav form {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .chapter-nav select {
   font: inherit;
   max-width: 100%;
+  min-width: 0;
+}
+
+/* My uploads: rows like work cards; the badge is text in bold, never colour alone. */
+.upload-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.upload-list li {
+  padding: calc(var(--space) * 3) 0;
+  border-bottom: 1px solid var(--rule);
+  overflow-wrap: anywhere;
+}
+
+.upload-message {
+  margin: 0;
+}
+
+.badge {
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 /* Work cards (FRONTEND-DISCOVERY, Work card): sections by whitespace and a hairline. */
@@ -256,15 +318,6 @@ article.chapter table {
 
 .card-summary > * {
   margin: 0;
-}
-
-/* A summary's headings look like its text, not a card title or the page's
-   (screen readers still list them: #250). */
-.card-summary :is(h1, h2, h3, h4, h5, h6) {
-  margin: 0;
-  font-size: inherit;
-  font-weight: inherit;
-  line-height: inherit;
 }
 
 /* An image takes about one of the three lines rather than its own height. */
@@ -324,11 +377,40 @@ article.chapter table {
   font: inherit;
 }
 
+.dmca-form > label {
+  display: block;
+  margin-top: calc(var(--space) * 3);
+}
+
+.dmca-form input[type="text"],
+.dmca-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  margin: var(--space) 0;
+  font: inherit;
+}
+
+.dmca-form label.check {
+  display: flex;
+  gap: calc(var(--space) * 2);
+  align-items: flex-start;
+  min-height: 24px;
+}
+
+.dmca-form button {
+  margin-top: calc(var(--space) * 4);
+}
+
 /* any page */
 
 /* A word longer than the line, such as a tag or a URL, breaks rather than scrolling sideways. */
 main {
   overflow-wrap: anywhere;
+}
+
+/* The upload page's bars: never wider than a narrow screen. */
+progress {
+  max-width: 100%;
 }
 
 /* Text for screen readers only, such as a tag's type. */
@@ -343,6 +425,87 @@ main {
   clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
+}
+
+/* Reader settings (R5): attributes on <html> from the settings cookie or the settings
+   script. Themes set the colours; size, spacing and face change only the chapter. */
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #e8e8e3;
+  --paper: #151515;
+  --muted: #a3a39d;
+  --rule: #3a3a36;
+  --accent: #7ab4f0;
+}
+
+/* Draft palette for the operator to proof; text, muted text and links pass AA on the paper. */
+:root[data-theme="sepia"] {
+  color-scheme: light;
+  --ink: #433422;
+  --paper: #f4ecd8;
+  --muted: #6b5a43;
+  --rule: #d9cdb3;
+  --accent: #8a4b12;
+}
+
+html[data-size="s"] {
+  --reading-size: 16px;
+}
+
+html[data-size="m"] {
+  --reading-size: 18px;
+}
+
+html[data-size="l"] {
+  --reading-size: 20px;
+}
+
+html[data-size="xl"] {
+  --reading-size: 23px;
+}
+
+html[data-leading="compact"] article.chapter {
+  line-height: 1.45;
+}
+
+html[data-leading="normal"] article.chapter {
+  line-height: 1.6;
+}
+
+html[data-leading="relaxed"] article.chapter {
+  line-height: 1.8;
+}
+
+html[data-face="sans"] {
+  --reading: var(--ui);
+}
+
+/* The settings controls: in the reader bar only once the script shows them. */
+.reader-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--space) * 2) calc(var(--space) * 4);
+  align-items: center;
+}
+
+.reader-settings[hidden] {
+  display: none;
+}
+
+.reader-settings select {
+  font: inherit;
+}
+
+.flash {
+  margin: 0;
+  padding: calc(var(--space) * 2) calc(var(--space) * 4);
+  border-bottom: 1px solid var(--rule);
+  text-align: center;
 }
 
 /* Listing sort and filters, and its pages (FRONTEND-DISCOVERY, Pagination): rows that wrap at 360px. */
@@ -385,10 +548,53 @@ main {
 .pager [aria-current="page"] {
   font-weight: bold;
 }
+
+/* the removal form (X1): a field a line, full width, a wrong one marked by more than colour */
+
+.remove-form label {
+  display: block;
+  margin-top: calc(var(--space) * 4);
+}
+
+.remove-form input[type="email"],
+.remove-form input[type="text"],
+.remove-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  margin: var(--space) 0;
+  font: inherit;
+}
+
+.remove-form [aria-invalid="true"] {
+  border: 2px solid currentColor;
+}
+
+.field-error {
+  margin: var(--space) 0 0;
+  font-weight: 600;
+}
+
+.field-error::before {
+  content: "Error: ";
+}
+
+.remove-form .cf-turnstile,
+.remove-form button {
+  margin-top: calc(var(--space) * 4);
+}
+
+.fandom-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--space) * 2) calc(var(--space) * 4);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
 `;
 
 // FNV-1a, enough to give each version of the stylesheet its own URL.
-const fnv1a = (text: string) => {
+export const fnv1a = (text: string) => {
   let hash = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193);

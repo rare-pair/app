@@ -65,8 +65,11 @@ export interface ParsedWork {
 }
 
 export interface ProcessOptions {
-  /** Prefix for rewritten image URLs: `src` becomes `${imageBase}${key}`. Default "". */
-  imageBase?: string;
+  /**
+   * Prefix for rewritten image URLs: `src` becomes `${imageBase}${key}`. Default "". A function
+   * is called once with the AO3 work ID the preface names, for a prefix that holds it.
+   */
+  imageBase?: string | ((ao3WorkId: string) => string);
   /**
    * Receives the bytes of each image the output references, once per key, in
    * the same order as `ParsedWork.images`. Keeps `ParsedWork` free of binary data.

@@ -16,12 +16,13 @@ import {
 import type { Context } from "hono";
 import type { Bindings } from "./env";
 import { escapeHtml, layout } from "./pages";
-import { TAG_LABELS, tagHref } from "./tag-links";
+import { tidySummary, withoutLinks } from "./summary";
+import { TAG_LABELS, TAG_NAMES, tagHref } from "./tag-links";
 
 const WORDS = new Intl.NumberFormat("en-US");
 
 /** Works per page. */
-const PAGE_SIZE = 20;
+export const PAGE_SIZE = 20;
 
 /**
  * A listing's short cache (14 and 19, "Listings are briefly cached"), on a 200 only.
@@ -38,7 +39,7 @@ const PAGES_AROUND = 2;
  * The page asked for. Anything but digits is the first page, as is 0. Digits
  * too many for a safe integer stay a number past every last page.
  */
-const pageOf = (raw: string | undefined) =>
+export const pageOf = (raw: string | undefined) =>
   raw !== undefined && /^\d+$/.test(raw) ? Math.max(1, Number(raw)) : 1;
 
 /** The sort and filters a listing is shown with: what its URL asks for, less anything unknown. */
@@ -53,7 +54,7 @@ interface ListingQuery {
 }
 
 /** A query parameter, or a select's option: a value and its text. */
-type Pair = [string, string];
+export type Pair = [string, string];
 
 /** The types a listing can be narrowed by, the first the form's default. */
 const NARROWING_TYPES = ["freeform", "fandom", "relationship", "character"] as const;
@@ -62,7 +63,13 @@ type NarrowingType = (typeof NARROWING_TYPES)[number];
 const SORTS: Record<ListingSort, string> = { updated: "Updated date", words: "Word count" };
 
 /** The ratings a work card shows; a work with none shows as "Not Rated". */
-const RATINGS = ["General Audiences", "Teen And Up Audiences", "Mature", "Explicit", NOT_RATED];
+export const RATINGS = [
+  "General Audiences",
+  "Teen And Up Audiences",
+  "Mature",
+  "Explicit",
+  NOT_RATED,
+];
 
 const isSort = (raw: string | undefined): raw is ListingSort =>
   raw !== undefined && Object.hasOwn(SORTS, raw);
@@ -130,17 +137,15 @@ export async function showTagListing(c: Context<{ Bindings: Bindings }>) {
     const last = Math.max(1, Math.ceil(total / PAGE_SIZE));
     if (page > last) return c.notFound();
     const href = (n: number) => listingHref(type, name, paramsOf(query, n));
-    const list =
-      works.length === 0
-        ? "<p>No works match these filters.</p>"
-        : `<ol class="work-list" role="list">\n${works.map(workCard).join("\n")}\n</ol>`;
+    const list = works.length === 0 ? "<p>No works match these filters.</p>" : workList(works);
     // Spellings of the tags share one canonical page: their folded names, with no
     // redirect, since folding a folded name again can change it.
     const tagNorm = query.tag && tagNameKeys(query.tag.type, query.tag.name)[0];
     const canonical = `<link rel="canonical" href="${listingHref(type, nameNorm, paramsOf(query, page, tagNorm))}">`;
     return c.html(
       layout(
-        heading,
+        // The name, then its type, so two pages with one name read differently.
+        `${heading} (${TAG_NAMES[type].toLowerCase()})`,
         `${filterForm(listingHref(type, name, []), query)}\n${list}\n${pager(href, page, last)}`,
         canonical,
       ),
@@ -153,7 +158,7 @@ export async function showTagListing(c: Context<{ Bindings: Bindings }>) {
 }
 
 /** A labelled select, with the option whose value is `chosen` selected. */
-const select = (id: string, name: string, label: string, options: Pair[], chosen: string) =>
+export const select = (id: string, name: string, label: string, options: Pair[], chosen: string) =>
   `<p><label for="${id}">${label}</label> <select id="${id}" name="${name}">${options
     .map(
       ([value, text]) =>
@@ -196,9 +201,10 @@ function listingHref(type: TagType, name: string, params: Pair[]): string {
 /**
  * Previous, the page numbers and next, all real links; the current page is
  * marked and not a link. Page numbers are the first, the last and those within
- * PAGES_AROUND of the current one, with a gap shown between runs.
+ * PAGES_AROUND of the current one, with a gap shown between runs. `href` returns a
+ * value already escaped for an attribute.
  */
-function pager(href: (n: number) => string, page: number, last: number): string {
+export function pager(href: (n: number) => string, page: number, last: number): string {
   if (last === 1) return "";
   const numbers = [
     ...new Set([
@@ -232,14 +238,17 @@ const hasContent = (html: string) =>
   /<img\b/.test(html) ||
   /[^\s\p{Cf}]/u.test(html.replace(/<[^<>]*>/g, "").replace(BLANK_ENTITY, ""));
 
-// A tag that folds to nothing has no listing, so it is shown without a link.
+// The type is announced by a hidden label, inside the link so it is part of the
+// link's name (FRONTEND-DISCOVERY, Tag list). A tag that folds to nothing has no
+// listing, so it is shown without a link.
 const tagLinks = (tags: ListedWork["tags"]) =>
   tags
-    .map((t) =>
-      t.name_norm === ""
-        ? escapeHtml(t.name)
-        : `<a href="${tagHref(t.type, t.name_norm)}">${escapeHtml(t.name)}</a>`,
-    )
+    .map((t) => {
+      const label = `<span class="visually-hidden">${TAG_NAMES[t.type]}: </span>`;
+      return t.name_norm === ""
+        ? `${label}${escapeHtml(t.name)}`
+        : `<a href="${tagHref(t.type, t.name_norm)}">${label}${escapeHtml(t.name)}</a>`;
+    })
     .join(", ");
 
 /** How many relationships, and how many characters, a card names before "+n more". */
@@ -265,12 +274,13 @@ const cardTags = (
     .join(" · ");
 
 /**
- * The summary as the sanitizer left it, whole: the stylesheet clamps it to three
- * lines. The server can't tell how many lines it takes, so "more" always follows.
+ * The summary whole: the stylesheet clamps it to three lines. The server can't
+ * tell how many lines it takes, so "more" always follows. Its links are text, since
+ * a link in the clamped-away part would still take keyboard focus.
  */
 const summary = (html: string | null, href: string, title: string) =>
   html && hasContent(html)
-    ? `<div class="card-summary">${html}</div>\n<p class="card-more"><a href="${href}" aria-label="more of ${escapeHtml(title)}">more</a></p>`
+    ? `<div class="card-summary">${withoutLinks(tidySummary(html))}</div>\n<p class="card-more"><a href="${href}" aria-label="more of ${escapeHtml(title)}">more</a></p>`
     : "";
 
 /** Words, chapters as posted/total ("?" when the total is unknown), completion, last updated. */
@@ -294,8 +304,12 @@ const lastUpdated = ({ updated_at, published_at }: ListedWork["work"]) => {
 const line = (className: string, html: string) =>
   html ? `<p class="${className}">${html}</p>` : "";
 
+/** Work cards as a list. */
+export const workList = (works: ListedWork[]) =>
+  `<ol class="work-list" role="list">\n${works.map(workCard).join("\n")}\n</ol>`;
+
 /** The six lines, in order: title and author, rating and warnings, fandoms, summary, tags, stats. */
-function workCard({ work, authors, tags }: ListedWork): string {
+export function workCard({ work, authors, tags }: ListedWork): string {
   const href = `/works/${work.ao3_work_id}`;
   const ofType = (type: TagType) => tags.filter((t) => t.type === type);
   // Spelled out in bold, never a colour or a symbol, and never clamped.

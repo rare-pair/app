@@ -3,7 +3,7 @@ import { seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SESSION_COOKIE } from "../src/auth";
-import { emailsTo, fetchW, PASSING_TOKEN, postLogin } from "./helpers";
+import { emailsTo, fetchW, LOGIN_TOKEN, postLogin } from "./helpers";
 
 // One database serves every test file in the run, and each queue lists every open
 // item in it. So this file keeps to AO3 work IDs 14000 to 14099, gives every row a
@@ -20,7 +20,7 @@ afterAll(() => db.destroy());
  * session.test.ts's: A4 (#24) brings the shared one to helpers.ts.
  */
 async function signIn(email: string, role: string | null): Promise<string> {
-  expect((await postLogin({ email, "cf-turnstile-response": PASSING_TOKEN })).status).toBe(200);
+  expect((await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN })).status).toBe(200);
   const [sent] = await emailsTo(email);
   const token = new URL(sent!.url).searchParams.get("token")!;
   const res = await postLogin({ token, next: "/" }, { url: "/login/confirm" });
@@ -176,6 +176,7 @@ describe("18 moderation", () => {
           statement: "mod1-removal-statement",
           ip_hash: "mod1-ip-hash",
           created_at: "2001-07-01T00:00:00Z",
+          confirmed_at: "2001-07-01T00:05:00Z",
         },
         {
           kind: "opt_out",
@@ -184,6 +185,7 @@ describe("18 moderation", () => {
           statement: "mod1-opt-out-statement",
           ip_hash: "mod1-ip-hash",
           created_at: "2001-07-02T00:00:00Z",
+          confirmed_at: "2001-07-02T00:05:00Z",
         },
       ])
       .execute();
@@ -203,6 +205,37 @@ describe("18 moderation", () => {
       "mod1-opt-out@example.test",
       "mod1-opt-out-statement",
     ]);
+  });
+
+  it("Requests queue marks a request still waiting for its emailed confirmation", async () => {
+    await db
+      .insertInto("requests")
+      .values([
+        {
+          kind: "remove_work",
+          work_id: workId,
+          contact_email: "mod1-unconfirmed@example.test",
+          statement: "mod1-unconfirmed-statement",
+          ip_hash: "mod1-ip-hash",
+          created_at: "2001-07-03T00:00:00Z",
+          confirm_token_hash: "mod1-unconfirmed-hash",
+          confirm_sent_at: "2001-07-03T00:00:00Z",
+        },
+        {
+          kind: "remove_work",
+          work_id: workId,
+          contact_email: "mod1-confirmed@example.test",
+          statement: "mod1-confirmed-statement",
+          ip_hash: "mod1-ip-hash",
+          created_at: "2001-07-04T00:00:00Z",
+          confirmed_at: "2001-07-04T00:05:00Z",
+        },
+      ])
+      .execute();
+    const html = await (await get("/admin/requests", moderator)).text();
+    // Still listed, as pending, and marked in its Kind cell; a confirmed one carries no mark.
+    expect(rowWith(html, "mod1-unconfirmed-statement")[1]).toBe("remove_work (unconfirmed)");
+    expect(rowWith(html, "mod1-confirmed-statement")[1]).toBe("remove_work");
   });
 
   it("Items created at the same time are listed in id order", async () => {
@@ -303,13 +336,6 @@ describe("18 moderation", () => {
     ]);
   });
 
-  it("Works to check is an empty table for now", async () => {
-    const html = await (await get("/admin/works", moderator)).text();
-    expect(html).toMatch(/<th scope="col">/);
-    expect(html).toContain("This queue is not built yet.");
-    expect(html).not.toContain("Nothing waiting.");
-  });
-
   it("Stored text is escaped", async () => {
     await db
       .insertInto("requests")
@@ -374,7 +400,9 @@ function rowWith(html: string, marker: string): string[] {
   const rows = html.match(/<tr><td>.*?<\/tr>/g) ?? [];
   const [row, ...others] = rows.filter((r) => r.includes(marker));
   expect(others, marker).toEqual([]);
-  return [...(row ?? "").matchAll(/<td>(.*?)<\/td>/g)].map((m) => m[1] ?? "");
+  return [...(row ?? "").matchAll(/<td>(.*?)<\/td>/g)].map((m) =>
+    (m[1] ?? "").replace(/^<a href="[^"]*">(.*)<\/a>$/, "$1"),
+  );
 }
 
 /** The page any unknown URL gets. */

@@ -1,48 +1,6 @@
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
-
-const SITEVERIFY = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
-// Cloudflare's published Turnstile test values: the always-pass secret and the dummy token.
-const TURNSTILE_SECRET_KEY = "1x0000000000000000000000000000000AA";
-const DUMMY_TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
-
-/**
- * The Worker's outbound network in tests: siteverify passes the dummy token under
- * the test secret, as Cloudflare does, and everything else is blocked. Cloudflare
- * reports such a token as solved on "localhost"; this stand-in reports the host
- * the test chooses, so the host check can be tested. The dummy token passes for
- * rarepair.fans, or for the host after an "@" ("XXXX.DUMMY.TOKEN.XXXX@other.example");
- * "siteverify-down" gets a 503; any other token fails.
- */
-async function outbound(request: Request): Promise<Response> {
-  if (request.url !== SITEVERIFY) {
-    return new Response("outbound network blocked in tests", { status: 599 });
-  }
-  const form = new URLSearchParams(await request.text());
-  const [token, hostname = "rarepair.fans"] = (form.get("response") ?? "").split("@");
-  if (token === "siteverify-down") return new Response("unavailable", { status: 503 });
-  if (form.get("secret") === TURNSTILE_SECRET_KEY && token === DUMMY_TOKEN) {
-    return Response.json({ success: true, hostname, "error-codes": [] });
-  }
-  return Response.json({ success: false, "error-codes": ["invalid-input-response"] });
-}
-
-// Stands in for apps/mailer as the `email` queue's consumer, and answers a fetch
-// with every message body it has been delivered. One message a batch, delivered at once.
-const EMAIL_SINK = /* js */ `
-const delivered = [];
-export default {
-  async queue(batch) {
-    for (const message of batch.messages) {
-      delivered.push(message.body);
-      message.ack();
-    }
-  },
-  async fetch() {
-    return Response.json(delivered);
-  },
-};
-`;
+import { outbound, SECRETS, sink } from "./test/stand-ins";
 
 /**
  * The Worker in workerd, as wrangler.jsonc deploys it, with `bindings` over its
@@ -56,26 +14,9 @@ const worker = (bindings: Record<string, string> = {}) =>
     miniflare: {
       hyperdrives: { HYPERDRIVE: inject("databaseUrl") },
       outboundService: outbound,
-      bindings: {
-        // Throwaway test values, not credentials.
-        BETTER_AUTH_SECRET: "test-only-auth-value-not-used-anywhere-else",
-        TURNSTILE_SECRET_KEY,
-        // Presigning makes no request, so these are never sent anywhere.
-        R2_ACCOUNT_ID: "test0000000000000000000000000acct",
-        R2_ACCESS_KEY_ID: "test-only-access-key-id",
-        R2_SECRET_ACCESS_KEY: "test-only-secret-access-key",
-        ...bindings,
-      },
-      serviceBindings: { EMAIL_SINK: "email-sink" },
-      workers: [
-        {
-          name: "email-sink",
-          modules: true,
-          script: EMAIL_SINK,
-          compatibilityDate: "2026-08-01",
-          queueConsumers: { email: { maxBatchSize: 1, maxBatchTimeout: 0 } },
-        },
-      ],
+      bindings: { ...SECRETS, ...bindings },
+      serviceBindings: { EMAIL_SINK: "email-sink", INGEST_SINK: "ingest-sink" },
+      workers: [sink("email-sink", "email"), sink("ingest-sink", "ingest")],
     },
   }));
 
@@ -97,6 +38,11 @@ export default defineConfig({
   // plugin's conditions here too. The node project doesn't inherit them.
   ssr: { resolve: { conditions: ["workerd", "worker", "module", "browser"] } },
   test: {
+    // Each file's first request loads the Worker's module graph again (about 2 s a file), and
+    // those loads queue behind one another, so N files started at once wait about N x 2 s.
+    // The whole run takes no longer for fewer at once, but the wait stays well under the
+    // timeout when two runs share the machine (#359).
+    maxWorkers: 4,
     projects: [
       {
         test: {
@@ -118,7 +64,9 @@ export default defineConfig({
       {
         // Before launch: wrangler.jsonc as it deploys, PRELAUNCH on. As in `open`, the
         // database, secrets, outbound network and email sink are the test stand-ins.
-        plugins: [worker()],
+        // The wait list's response-time floor is shortened, so each join doesn't wait out the
+        // deployed one; the floor tests set their own, and a Node test checks the deployed value.
+        plugins: [worker({ WAITLIST_FLOOR_MS: "50" })],
         test: {
           name: "prelaunch",
           include: ["test/**/*.prelaunch.test.ts"],

@@ -47,12 +47,12 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (step 5), § EPUB process
 ### My uploads refreshes itself while something is processing (no JS)
 - GIVEN user U with at least one upload in `processing` and JavaScript off
 - WHEN U opens `/me/uploads`
-- THEN the page includes `<meta http-equiv="refresh" content="5">`
+- THEN the page includes `<meta http-equiv="refresh" content="5">` inside `<noscript>`, so it applies only without JS (with JS the page updates in place instead)
 
 ### My uploads stops refreshing when nothing is processing
 - GIVEN user U whose uploads are all live, held, duplicate or rejected
 - WHEN U opens `/me/uploads`
-- THEN the page has no `<meta http-equiv="refresh">`
+- THEN the page has no `<meta http-equiv="refresh">`, in `<noscript>` or elsewhere
 
 ### My uploads updates in place with JS
 - GIVEN user U with an upload in `processing` and JavaScript on

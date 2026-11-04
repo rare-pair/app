@@ -1,11 +1,12 @@
 // The shared layout every app page goes through, and the pages built on it:
-// the sign-in pages, the Turnstile placeholders (U3 and X1 replace them), the not-found page
-// and the static about, terms and privacy pages.
+// the sign-in pages, the not-found page and the static about, terms and privacy pages.
 
 import { TURNSTILE_ORIGIN } from "./security";
 import { LINK_LIFETIME_MINUTES } from "./signin";
 import { STYLESHEET_PATH } from "./styles";
+import { TURNSTILE_ACTIONS } from "./turnstile";
 import { EPUB_TYPE, MAX_UPLOAD_MB } from "./upload-limit";
+import { UPLOAD_SCRIPT_PATH } from "./upload-script";
 
 export const TURNSTILE_API = `${TURNSTILE_ORIGIN}/turnstile/v0/api.js`;
 
@@ -61,31 +62,26 @@ ${heading}
 `,
   after: `
 </main>
-<footer><a href="/remove">Remove my work</a> · <a href="/about">About</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></footer>
+<footer><a href="/remove">Remove my work</a> · <a href="/dmca">Copyright notice</a> · <a href="/about">About</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></footer>
 </body>
 </html>`,
 });
 
-/** A page with a Turnstile check: the challenge script carries the page nonce. */
-export const turnstilePage = (title: string, nonce: string) =>
-  layout(
-    title,
-    `<noscript><p>This page needs JavaScript for its anti-spam check. Reading works without it.</p></noscript>`,
-    `<script src="${TURNSTILE_API}" nonce="${escapeHtml(nonce)}" async defer></script>`,
-  );
+/** The search box, shared by the home page and the not-found page. */
+export const SEARCH_FORM = `<form role="search" method="get" action="/search">
+<label for="q">Search the archive</label>
+<input type="search" id="q" name="q">
+<button type="submit">Search</button>
+</form>`;
 
 export const notFoundPage = () =>
   layout(
     "Page not found",
     `<p>That page does not exist. Try a search, or go back to <a href="/">the home page</a>.</p>
-<form role="search" method="get" action="/search">
-<label for="q">Search the archive</label>
-<input type="search" id="q" name="q">
-<button type="submit">Search</button>
-</form>`,
+${SEARCH_FORM}`,
   );
 
-const DRAFT = `<p class="draft">Draft: this text has not been proofread yet.</p>`;
+export const DRAFT = `<p class="draft">Draft: this text has not been proofread yet.</p>`;
 
 // Drafts for the operator to proof before launch. They describe provenance
 // without naming the original archive or its organisation (branding rule).
@@ -135,12 +131,12 @@ export const privacyPage = () =>
     `${DRAFT}
 <p>This is what we keep about you.</p>
 <ul>
-<li>Signing in uses an email link. We keep your email address and no password.</li>
+<li>Signing in uses an email link. We keep your email address and no password. Each session also keeps the network address and browser (user agent) it was started from, for as long as the session lasts.</li>
 <li>Accepted uploads are public. We do not publish your email address.</li>
 <li>Removal and opt-out requests keep a hashed form of the requester's network address, to limit abuse.</li>
-<li>The wait list: before launch, if you join it, we keep your email address to send you one launch email. We delete your address once the launch emails have been sent, or sooner if you unsubscribe.</li>
+<li>The wait list: before launch, if you join it, we keep only your email address, hashed confirmation and unsubscribe tokens and the times we emailed you. We send you a confirmation email, and one launch email. We delete the list once the launch emails have been sent, or sooner if you unsubscribe.</li>
 <li>We store the settings and reading position you save, to bring them back next time.</li>
-<li>Our anti-spam check, provided by Cloudflare, runs on the sign-in, upload and removal pages.</li>
+<li>Our anti-spam check, provided by Cloudflare, runs on the sign-in, upload and removal pages and, before launch, on the wait list form on the coming-soon home page. Each check sends the visitor's network address (Turnstile's <code>remoteip</code>) to Cloudflare.</li>
 </ul>`,
   );
 
@@ -169,7 +165,7 @@ export const signInPage = (nonce: string, form: SignInForm) =>
 <label for="email">Email address</label>
 <input id="email" type="email" name="email" autocomplete="email" maxlength="254" required value="${escapeHtml(form.email ?? "")}">
 <input type="hidden" name="next" value="${escapeHtml(form.next)}">
-<div class="cf-turnstile" data-sitekey="${escapeHtml(form.siteKey)}"></div>
+<div class="cf-turnstile" data-sitekey="${escapeHtml(form.siteKey)}" data-action="${TURNSTILE_ACTIONS.login}"></div>
 <button type="submit">Email me a sign-in link</button>
 </form>
 <script nonce="${escapeHtml(nonce)}">document.getElementById("sign-in").hidden = false;</script>
@@ -179,8 +175,9 @@ export const signInPage = (nonce: string, form: SignInForm) =>
 
 /**
  * The upload page, signed in. Like the sign-in form it starts `hidden` and a nonced
- * script shows it. It is no form: the page's script asks `POST /uploads` for a URL and
- * PUTs the file to R2 itself, so without JavaScript nothing on it can send a file.
+ * script shows it. It is no form: the page's script asks `POST /uploads` once for a URL
+ * for each file picked and PUTs each to R2 itself, so without JavaScript nothing on it can
+ * send a file.
  */
 export const uploadPage = (nonce: string, siteKey: string) =>
   layout(
@@ -189,10 +186,13 @@ export const uploadPage = (nonce: string, siteKey: string) =>
 <div id="upload" hidden>
 <label for="file">EPUB files, ${MAX_UPLOAD_MB} MB at most each</label>
 <input id="file" type="file" name="file" accept=".epub,${EPUB_TYPE}" multiple>
-<div class="cf-turnstile" data-sitekey="${escapeHtml(siteKey)}"></div>
-<button type="button">Upload</button>
+<div class="cf-turnstile" data-sitekey="${escapeHtml(siteKey)}" data-action="${TURNSTILE_ACTIONS.upload}"></div>
+<button id="send" type="button">Upload</button>
+<p id="message" role="status"></p>
+<ul id="files"></ul>
 </div>
-<script nonce="${escapeHtml(nonce)}">document.getElementById("upload").hidden = false;</script>`,
+<script nonce="${escapeHtml(nonce)}">document.getElementById("upload").hidden = false;</script>
+<script src="${UPLOAD_SCRIPT_PATH}" nonce="${escapeHtml(nonce)}" defer></script>`,
     `<script src="${TURNSTILE_API}" nonce="${escapeHtml(nonce)}" async defer></script>`,
   );
 

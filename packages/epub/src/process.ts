@@ -1,3 +1,4 @@
+import { resolveByline } from "./byline";
 import { splitChapters, type SpineDoc } from "./chapters";
 import { hasClass, nodeBudget, numberTree, parseHtml, type ElementNode } from "./dom";
 import { collapseWhitespace } from "./entities";
@@ -113,7 +114,11 @@ async function run(
   const candidates = await collectImages(files, pkg.manifest);
   files.clear(); // everything still needed is now parsed or held by `candidates`
   const used = new Map<string, ImageCandidate>();
-  const imageBase = options.imageBase ?? "";
+  const imageBase =
+    // oxlint-disable-next-line deslop/no-runtime-typeof -- tells the string | function option union apart
+    typeof options.imageBase === "function"
+      ? options.imageBase(ao3WorkId)
+      : (options.imageBase ?? "");
   // Before anything is serialized, so links in the summary and notes resolve too.
   const split = splitChapters(docs, pkg.navPoints);
   // The reader takes only digits with no leading zero, within Postgres's int4:
@@ -172,6 +177,10 @@ async function run(
   // content warning depends on it.
   if (preface.rating === null) reviewReasons.push("missing_rating");
 
+  // Who the opt-out check reads, and a code when that is a guess or empty: see `resolveByline`.
+  const byline = resolveByline(preface.authors, preface.bylineAmbiguous, opf.creators);
+  reviewReasons.push(...byline.reviewReasons);
+
   const stats = preface.stats;
   if (chapters.length !== stats.chapters.posted) {
     reviewReasons.push(
@@ -184,10 +193,7 @@ async function run(
   const work: ParsedWork = {
     ao3WorkId,
     title,
-    authors:
-      preface.authors.length > 0
-        ? preface.authors
-        : opf.creators.map((pseud) => ({ pseud, user: null })),
+    authors: byline.authors,
     rating: preface.rating,
     warnings: preface.warnings,
     categories: preface.categories,

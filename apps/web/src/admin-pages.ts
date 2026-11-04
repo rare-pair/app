@@ -6,11 +6,30 @@ import { escapeHtml, layout } from "./pages";
 /** The most rows a queue shows, oldest first. Docs are silent on paging. */
 export const QUEUE_LIMIT = 200;
 
-/** One table row's cells, as text: each is escaped here. */
-export type Row = string[];
+/**
+ * One table row's cells, as text: each is escaped here. `href`, a path this app builds
+ * from ids, makes the first cell a link to the row's detail page.
+ */
+export type Row = { cells: string[]; href?: string };
 
 export const REPORT_COLUMNS = ["Created", "Work", "Kind", "Details"];
-export const TAKEDOWN_COLUMNS = ["Created", "Work", "Requester", "Basis"];
+export const TAKEDOWN_COLUMNS = [
+  "Created",
+  "Work",
+  "Requester",
+  "Basis",
+  "Material",
+  "Signature",
+  "Statements",
+  "Incomplete",
+];
+/**
+ * " (unconfirmed)" for a request still waiting for its requester's emailed confirmation (X3b,
+ * #487), else nothing. It stays in the queue, pending, but has hidden nothing.
+ */
+export const unconfirmedMark = (confirmedAt: Date | null) =>
+  confirmedAt === null ? " (unconfirmed)" : "";
+
 export const REQUEST_COLUMNS = ["Created", "Kind", "Work or pseud", "Contact email", "Statement"];
 export const WORK_COLUMNS = ["Created", "Work", "Reason"];
 
@@ -26,6 +45,15 @@ const nav = `<nav aria-label="Moderation queues"><ul>${QUEUES.map((q) => `<li><a
 /** `/admin`: the four queues. */
 export const adminHomePage = () => layout("Moderation", nav);
 
+/** A row's cells, the first one a link when the row has an `href`. */
+const rowHtml = (row: Row) =>
+  `<tr>${row.cells
+    .map((text, i) => {
+      const cell = escapeHtml(text);
+      return `<td>${i === 0 && row.href !== undefined ? `<a href="${escapeHtml(row.href)}">${cell}</a>` : cell}</td>`;
+    })
+    .join("")}</tr>`;
+
 /**
  * A queue: its table, oldest first, with headings even when empty. `rows` may hold
  * one more than QUEUE_LIMIT, which says the queue has more than it shows. `empty`
@@ -39,9 +67,7 @@ export function queuePage(
 ) {
   const shown = rows.slice(0, QUEUE_LIMIT);
   const head = columns.map((name) => `<th scope="col">${escapeHtml(name)}</th>`).join("");
-  const body = shown
-    .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`)
-    .join("\n");
+  const body = shown.map(rowHtml).join("\n");
   const note =
     shown.length === 0
       ? `<p>${escapeHtml(empty)}</p>\n`
@@ -59,5 +85,231 @@ ${body}
 </tbody>
 </table>
 ${note}`,
+  );
+}
+
+/** The names for a work's status on an item page: its status, and the cause while hidden. */
+export const workStatusText = (status: string, hiddenCause: string | null) =>
+  hiddenCause === null ? status : `${status} (${hiddenCause})`;
+
+/**
+ * An item's detail page: its fields as a list, then the actions each as a form.
+ * `actions` is trusted markup from this file (`workActions`, `rejectForm`).
+ */
+export function itemPage(title: string, fields: [string, string][], actions: string) {
+  const list = fields
+    .map(([name, value]) => `<dt>${escapeHtml(name)}</dt><dd>${escapeHtml(value)}</dd>`)
+    .join("\n");
+  return layout(title, `${nav}\n<dl>\n${list}\n</dl>\n${actions}`);
+}
+
+/**
+ * Where an action's page may link back to: an item's own page, or a work's admin page.
+ * `from` is a form field, so anything else is dropped.
+ */
+export const safeFrom = (from: string | null | undefined) =>
+  from !== null &&
+  from !== undefined &&
+  /^\/admin\/((reports|takedowns|requests)\/[\w%-]+|works\/\d{1,10})$/.test(from)
+    ? from
+    : null;
+
+/** The hidden field that carries `from` through an action's form, or nothing. */
+const fromInput = (from: string | null) =>
+  from === null ? "" : `<input type="hidden" name="from" value="${escapeHtml(from)}">`;
+
+/**
+ * The hide, restore and remove forms for a work, by its AO3 work ID, posting to
+ * `/admin/works/:id/hide`, `/restore` and `/remove` (which asks to confirm first).
+ * MOD4's work page includes the same forms.
+ * `from` is the page to link back to afterwards, or null.
+ */
+export function workActions(ao3WorkId: number, from: string | null) {
+  const back = fromInput(from);
+  const form = (action: string, label: string) =>
+    `<form method="post" action="/admin/works/${ao3WorkId}/${action}">${back}<button type="submit">${label}</button></form>`;
+  return `${form("hide", "Hide work")}\n${form("restore", "Restore work")}\n${form("remove", "Remove work")}`;
+}
+
+/**
+ * The step before a remove, which can't be undone: names the work and posts the
+ * remove again with `confirm`, carrying `from` on.
+ */
+export function removeConfirmPage(title: string, ao3WorkId: number, from: string | null) {
+  return layout(
+    "Remove work",
+    `${nav}
+<p>Remove ${escapeHtml(title)} (${ao3WorkId})? Its pages answer 410 and its files are deleted. Any pending copyright notice on it is marked removed, and its AO3 work ID goes on the takedown list. This can't be undone.</p>
+<form method="post" action="/admin/works/${ao3WorkId}/remove">${fromInput(from)}<input type="hidden" name="confirm" value="yes"><button type="submit">Remove work for good</button></form>`,
+  );
+}
+
+/** A form that rejects a takedown or a request, by the row's own id. */
+export const rejectForm = (queue: "takedowns" | "requests", id: string, label = "Reject") =>
+  `<form method="post" action="${escapeHtml(`/admin/${queue}/${encodeURIComponent(id)}/reject`)}"><button type="submit">${escapeHtml(label)}</button></form>`;
+
+/**
+ * A form that starts an approve of a takedown or a request, which removes its work; the next
+ * page asks to confirm. `label` is for an approve that removes nothing (confirming an opt-out).
+ */
+export const approveForm = (
+  queue: "takedowns" | "requests",
+  id: string,
+  label = "Approve and remove work",
+) =>
+  `<form method="post" action="${escapeHtml(`/admin/${queue}/${encodeURIComponent(id)}/approve`)}"><button type="submit">${escapeHtml(label)}</button></form>`;
+
+/** A form that restores the works this request and its related removal requests hid. */
+export const restoreRelatedForm = (id: string) =>
+  `<form method="post" action="${escapeHtml(`/admin/requests/${encodeURIComponent(id)}/restore-related`)}"><button type="submit">Restore related works (rejects their pending requests)</button></form>`;
+
+/** A form that blocks the request's requester by contact email and IP hash. */
+export const blockRequesterForm = (id: string) =>
+  `<form method="post" action="${escapeHtml(`/admin/requests/${encodeURIComponent(id)}/block`)}"><button type="submit">Block requester</button></form>`;
+
+export const RELATED_COLUMNS = ["Created", "Kind", "Work or pseud", "Status"];
+
+/**
+ * The other requests from the same contact email or IP, as a table under the request's own
+ * fields, each row linking to its page; nothing but a line saying so when there are none.
+ * `more` says the list is cut at QUEUE_LIMIT.
+ */
+export function relatedTable(rows: Row[], more: boolean) {
+  if (rows.length === 0) return "<p>No other requests from the same contact email or IP.</p>";
+  const head = RELATED_COLUMNS.map((name) => `<th scope="col">${escapeHtml(name)}</th>`).join("");
+  return `<table>
+<caption>Requests from the same contact email or IP, oldest first</caption>
+<thead><tr>${head}</tr></thead>
+<tbody>
+${rows.map(rowHtml).join("\n")}
+</tbody>
+</table>${more ? `\n<p>Showing the oldest ${QUEUE_LIMIT}.</p>` : ""}`;
+}
+
+/** The step before an approve, which removes the work for good: names the work and posts the approve again with `confirm`. */
+export function approveConfirmPage(
+  queue: "takedowns" | "requests",
+  id: string,
+  title: string,
+  ao3WorkId: number,
+  incomplete = false,
+) {
+  const warning = incomplete
+    ? "\n<p>This notice is incomplete: it lacks a required element. You can still approve it.</p>"
+    : "";
+  return layout(
+    "Approve and remove work",
+    `${nav}${warning}
+<p>Approve this ${queue === "takedowns" ? "takedown" : "request"} and remove ${escapeHtml(title)} (${ao3WorkId})? Its pages answer 410 and its files are deleted. This can't be undone.</p>
+<form method="post" action="${escapeHtml(`/admin/${queue}/${encodeURIComponent(id)}/approve`)}"><input type="hidden" name="confirm" value="yes"><button type="submit">Approve and remove work for good</button></form>`,
+  );
+}
+
+/**
+ * What an action did, said from what its write returned: a re-read could come from
+ * Hyperdrive's cache and show the old state. `back` is the page to return to.
+ */
+export function resultPage(message: string, back: string | null) {
+  const link = back === null ? "" : `<p><a href="${escapeHtml(back)}">Back to the item</a></p>`;
+  return layout("Done", `${nav}\n<p>${escapeHtml(message)}</p>\n${link}`);
+}
+
+/** One version of a work, as its admin page lists it. */
+export type VersionRow = {
+  id: string;
+  added: string;
+  uploader: string;
+  /** The uploader's account id, for the "Ban uploader" form; null when it can't be banned. */
+  uploaderId: string | null;
+  /** The uploader's account is banned: the row says so in place of the form. */
+  banned: boolean;
+  chapters: number;
+  current: boolean;
+  /** Held for review: only a moderator's approval makes it current (MOD3). */
+  held: boolean;
+  /** Why ingest held it (its `hold_reason`, kept after an approval), or null. */
+  holdReason: string | null;
+  /** What ingest flagged for a moderator to check; empty when nothing. */
+  reviewReasons: string[];
+  /** A moderator has checked it (`checked_at` is set). */
+  checked: boolean;
+};
+
+/** The state column: why a version is held, and its review reasons and whether they are checked. */
+function versionState(v: VersionRow) {
+  const parts: string[] = [];
+  if (v.held) parts.push(`Held for review: ${v.holdReason ?? "no reason given"}`);
+  if (v.reviewReasons.length > 0) {
+    parts.push(`Review reasons: ${v.reviewReasons.join(", ")}`);
+    parts.push(v.checked ? "Checked" : "Not checked");
+  }
+  return escapeHtml(parts.join(". "));
+}
+
+/**
+ * Whether the version has something for "Approve": a held version (approving publishes it),
+ * or the current one whose review reasons nobody has checked (approving ends the notice,
+ * the rule at review-notice.ts).
+ */
+const needsApproval = (v: VersionRow) =>
+  v.held || (v.current && v.reviewReasons.length > 0 && !v.checked);
+
+/** The "Close wrong-version reports" form and the count it closes, or nothing. */
+function wrongVersionReports(ao3WorkId: number, open: number) {
+  if (open === 0) return "";
+  return `<p>Open reports that a version is wrong: ${open}</p>
+<form method="post" action="/admin/works/${ao3WorkId}/reports/close"><button type="submit">Close wrong-version reports</button></form>`;
+}
+
+/**
+ * A work's admin page, the detail page of Works to check: its status and every version,
+ * oldest first, each with its hold reason and review reasons, a "Make current" form unless it
+ * is held for review, and an "Approve" form where there is something to approve; the current
+ * one is marked. With open "This version is wrong" reports, their count and a form that
+ * closes them. The uploader is the
+ * account's email: moderators only, on admin pages only, with a "Ban uploader" form, or
+ * "Banned" once it is (neither for a moderator or an admin). `actions` is `workActions`.
+ */
+export function workAdminPage(
+  title: string,
+  ao3WorkId: number,
+  status: string,
+  versions: VersionRow[],
+  actions: string,
+  openWrongVersionReports: number,
+) {
+  const approve = (v: VersionRow) =>
+    needsApproval(v)
+      ? `<form method="post" action="/admin/works/${ao3WorkId}/approve"><input type="hidden" name="version" value="${escapeHtml(v.id)}"><button type="submit">Approve</button></form>`
+      : "";
+  const makeCurrent = (v: VersionRow) =>
+    v.held
+      ? approve(v)
+      : `${v.current ? "Current " : ""}<form method="post" action="/admin/works/${ao3WorkId}/current"><input type="hidden" name="version" value="${escapeHtml(v.id)}"><button type="submit">Make current</button></form>${approve(v)}`;
+  const banForm = (v: VersionRow) => {
+    if (v.banned) return " Banned";
+    if (v.uploaderId === null) return "";
+    const action = `/admin/users/${encodeURIComponent(v.uploaderId)}/ban`;
+    return `<form method="post" action="${escapeHtml(action)}">${fromInput(`/admin/works/${ao3WorkId}`)}<button type="submit">Ban uploader</button></form>`;
+  };
+  const rows = versions
+    .map(
+      (v) =>
+        `<tr><td>${escapeHtml(v.added)}</td><td>${escapeHtml(v.uploader)}${banForm(v)}</td><td>${v.chapters}</td><td>${versionState(v)}</td><td>${makeCurrent(v)}</td></tr>`,
+    )
+    .join("\n");
+  return layout(
+    `${title} (${ao3WorkId})`,
+    `${nav}
+<p>Status: ${escapeHtml(status)}</p>
+<table>
+<caption>Versions, oldest first</caption>
+<thead><tr><th scope="col">Added</th><th scope="col">Uploader</th><th scope="col">Chapters</th><th scope="col">Check</th><th scope="col">Action</th></tr></thead>
+<tbody>
+${rows}
+</tbody>
+</table>
+${wrongVersionReports(ao3WorkId, openWrongVersionReports)}
+${actions}`,
   );
 }

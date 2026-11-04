@@ -26,6 +26,7 @@ const expected = {
     updated_at: { type: "timestamptz", nullable: false },
     role: { type: "text", nullable: true },
     upload_quota_used: { type: "int4", nullable: false },
+    upload_quota_day: { type: "date", nullable: true },
     banned_at: { type: "timestamptz", nullable: true },
     terms_accepted_at: { type: "timestamptz", nullable: true },
     warnings_off: { type: "bool", nullable: false },

@@ -82,14 +82,22 @@ describe("16-removal-and-opt-out", () => {
     await expectRejected(`Sun Child ${t}`, `Moon Child ${t}`);
   });
 
-  it("never saves an upload whose opt-out check fails", async () => {
-    // Postgres refuses a NUL in text, so the opt-out query itself fails.
-    const { row, saved, result } = await ingestEpub(freshAo3WorkId(), `Moon\u0000Child ${token()}`);
+  it("A file the lists refuse is recorded, not retried", async () => {
+    // Postgres refuses a NUL in text, so the opt-out query itself fails: for this file only, so
+    // it is recorded (it was retried before #275). A list that can't be read at all is still
+    // retried: see optout-hardening.node.test.ts.
+    const { row, saved, result } = await ingestEpub(
+      freshAo3WorkId(),
+      `Moon${String.fromCharCode(0)}Child ${token()}`,
+    );
 
-    // Retried with the lease released, as for Postgres being down; never past the check.
     expect(saved).toEqual([]);
-    expect(row.status).toBe("pending");
+    expect(row.status).toBe("parse_failed");
+    expect(row.error_stage).toBe("process");
+    expect(row.error).toBe("optout_check_rejected_22021");
+    expect(row.work_id).toBeNull();
     expect(row.lease_until).toBeNull();
-    expect(result.retryMessages).toEqual([{ msgId: "msg-0" }]);
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    expect(result.retryMessages).toEqual([]);
   });
 });

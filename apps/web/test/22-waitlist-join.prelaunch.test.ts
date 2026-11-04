@@ -11,8 +11,10 @@ import {
   deliveredEmails,
   emailsTo,
   fetchW,
+  freshIp,
   nonceOf,
-  PASSING_TOKEN,
+  LOGIN_TOKEN,
+  WAITLIST_TOKEN,
   postLogin,
   TURNSTILE,
   withoutNonce,
@@ -38,17 +40,20 @@ const FORM_HEADERS = {
 
 const HSTS = "max-age=31536000; includeSubDomains";
 
-/** Submits the wait list form; `headers` are added over a browser's. */
+/**
+ * Submits the wait list form from a fresh IP, so only a test that sets `cf-connecting-ip`
+ * itself meets the per-IP limit; `headers` are added over a browser's.
+ */
 const postWaitlist = (fields: Record<string, string>, headers: Record<string, string> = {}) =>
   fetchW("/waitlist", {
     method: "POST",
-    headers: { ...FORM_HEADERS, ...headers },
+    headers: { ...FORM_HEADERS, "cf-connecting-ip": freshIp(), ...headers },
     body: new URLSearchParams(fields).toString(),
   });
 
 /** Joins with a passing Turnstile token. */
 const join = (email: string, headers: Record<string, string> = {}) =>
-  postWaitlist({ email, "cf-turnstile-response": PASSING_TOKEN }, headers);
+  postWaitlist({ email, "cf-turnstile-response": WAITLIST_TOKEN }, headers);
 
 const rowOf = (email: string) =>
   db.selectFrom("waitlist").selectAll().where("email", "=", email).executeTakeFirst();
@@ -68,7 +73,7 @@ let sentinels = 0;
  */
 async function queuedForEach(addresses: string[]): Promise<number[]> {
   const sentinel = `waitlist-sentinel-${++sentinels}-${crypto.randomUUID().slice(0, 8)}@example.test`;
-  const res = await postLogin({ email: sentinel, "cf-turnstile-response": PASSING_TOKEN });
+  const res = await postLogin({ email: sentinel, "cf-turnstile-response": LOGIN_TOKEN });
   expect(res.status).toBe(200);
   await emailsTo(sentinel);
   const bodies = (await deliveredEmails()).map((body) => JSON.stringify(body));
@@ -132,6 +137,15 @@ describe("22-waitlist", () => {
 
   it("Joining twice tells nobody anything", async () => {
     const email = fresh("twice");
+    // This joins one address more often than its limit allows in a minute, to test the
+    // resend rules: so its joins run with that limit open. The limit has its own tests.
+    const unlimited: RateLimit = { limit: async () => ({ success: true }) };
+    const join = async (typed: string) =>
+      (
+        await runLogged(joinRequest({ email: typed, "cf-turnstile-response": WAITLIST_TOKEN }), {
+          WAITLIST_EMAIL_LIMIT: unlimited,
+        })
+      ).res;
 
     const first = await join(email);
     const page = { status: first.status, body: await first.text() };
@@ -237,7 +251,7 @@ describe("22-waitlist", () => {
     const email = fresh("too-large");
     const res = await postWaitlist({
       email,
-      "cf-turnstile-response": PASSING_TOKEN,
+      "cf-turnstile-response": WAITLIST_TOKEN,
       padding: "x".repeat(16 * 1024),
     });
     expect(res.status).toBe(413);
@@ -268,7 +282,7 @@ describe("22-waitlist", () => {
       ...'<>()",;:\\[]'.split("").map((ch) => `${local}${ch}x@example.test`),
     ];
     for (const email of refused) {
-      const res = await postWaitlist({ email, "cf-turnstile-response": PASSING_TOKEN });
+      const res = await postWaitlist({ email, "cf-turnstile-response": WAITLIST_TOKEN });
       expect(res.status, JSON.stringify(email)).toBe(400);
       const html = await res.text();
       expectFormAgain(res, html);
@@ -280,15 +294,15 @@ describe("22-waitlist", () => {
       const domain = `@${edge}.test`;
       return `${"a".repeat(length - domain.length)}${domain}`;
     };
-    const longest = await postWaitlist({ email: at(254), "cf-turnstile-response": PASSING_TOKEN });
+    const longest = await postWaitlist({ email: at(254), "cf-turnstile-response": WAITLIST_TOKEN });
     expect(longest.status).toBe(200);
     expect(await rowOf(at(254))).toBeDefined();
-    const tooLong = await postWaitlist({ email: at(255), "cf-turnstile-response": PASSING_TOKEN });
+    const tooLong = await postWaitlist({ email: at(255), "cf-turnstile-response": WAITLIST_TOKEN });
     expect(tooLong.status).toBe(400);
     expect(await rowOf(at(255))).toBeUndefined();
 
     // No field is missing a check: with no address at all, it's refused the same way.
-    const none = await postWaitlist({ "cf-turnstile-response": PASSING_TOKEN });
+    const none = await postWaitlist({ "cf-turnstile-response": WAITLIST_TOKEN });
     expect(none.status).toBe(400);
 
     const rows = await db
@@ -334,7 +348,7 @@ describe("22-waitlist", () => {
     const res = await fetchW("/waitlist", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ email, "cf-turnstile-response": PASSING_TOKEN }).toString(),
+      body: new URLSearchParams({ email, "cf-turnstile-response": WAITLIST_TOKEN }).toString(),
     });
     expect(res.status).toBe(403);
     expect(await rowOf(email)).toBeUndefined();
@@ -365,7 +379,7 @@ async function runLogged(request: Request, bindings: Partial<Cloudflare.Env> = {
 const joinRequest = (fields: Record<string, string>, headers: Record<string, string> = {}) =>
   new Request(`${BASE}/waitlist`, {
     method: "POST",
-    headers: { ...FORM_HEADERS, ...headers },
+    headers: { ...FORM_HEADERS, "cf-connecting-ip": freshIp(), ...headers },
     body: new URLSearchParams(fields).toString(),
   });
 
@@ -399,14 +413,14 @@ describe("22-waitlist privacy", () => {
 
     // A join, a refused join and a resend, each logged nowhere by address.
     const joined = await runLogged(
-      joinRequest({ email, "cf-turnstile-response": PASSING_TOKEN }, request),
+      joinRequest({ email, "cf-turnstile-response": WAITLIST_TOKEN }, request),
     );
     expect(joined.res.status).toBe(200);
     const refused = await runLogged(joinRequest({ email, "cf-turnstile-response": "x" }, request));
     expect(refused.res.status).toBe(400);
     await anHourPasses(email);
     const resent = await runLogged(
-      joinRequest({ email, "cf-turnstile-response": PASSING_TOKEN }, request),
+      joinRequest({ email, "cf-turnstile-response": WAITLIST_TOKEN }, request),
     );
     expect(resent.res.status).toBe(200);
     const emails = await emailsTo(email, { atLeast: 2 });
@@ -444,7 +458,7 @@ describe("22-waitlist privacy", () => {
     const { queue, sent } = refusingQueue();
 
     const { res, logged } = await runLogged(
-      joinRequest({ email, "cf-turnstile-response": PASSING_TOKEN }),
+      joinRequest({ email, "cf-turnstile-response": WAITLIST_TOKEN }),
       { EMAIL: queue },
     );
 
@@ -486,7 +500,7 @@ describe("22-waitlist privacy", () => {
     const { queue, sent } = refusingQueue();
 
     const { res } = await runLogged(
-      joinRequest({ email, "cf-turnstile-response": PASSING_TOKEN }),
+      joinRequest({ email, "cf-turnstile-response": WAITLIST_TOKEN }),
       { EMAIL: queue },
     );
 
@@ -502,6 +516,8 @@ describe("22-waitlist privacy", () => {
  */
 function expectFormAgain(res: Response, html: string) {
   expect(res.headers.get("strict-transport-security")).toBe(HSTS);
+  // It may hold what was typed, so no cache keeps it.
+  expect(res.headers.get("cache-control")).toBe("no-store");
   const csp = res.headers.get("content-security-policy");
   expect(withoutNonce(csp)).toBe(TURNSTILE);
   const nonce = nonceOf(csp);

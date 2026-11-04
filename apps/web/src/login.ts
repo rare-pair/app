@@ -7,10 +7,13 @@ import { checkEmailPage, forbiddenPage, signInPage } from "./pages";
 import { emailKey, ipKey, isLimited, LOGIN_WINDOW_SECONDS, tooManyRequests } from "./rate-limit";
 import type { SecurityVariables } from "./security";
 import { isSameOrigin, safeNext } from "./signin";
-import { verifyTurnstile } from "./turnstile";
+import { TURNSTILE_ACTIONS, verifyTurnstile } from "./turnstile";
 
 // The longest address an email can be sent to (RFC 5321), as apps/mailer checks.
 export const MAX_EMAIL = 254;
+
+// For the form shown again after a refusal: it can hold what was typed, so no cache keeps it.
+export const NO_STORE = { "Cache-Control": "no-store" };
 
 type LoginContext = Context<{ Bindings: Bindings; Variables: SecurityVariables }>;
 
@@ -95,6 +98,7 @@ export async function requestSignIn(c: LoginContext) {
     return c.html(
       signInPage(c.get("nonce"), { siteKey: c.env.TURNSTILE_SITE_KEY, next: "/", error }),
       413,
+      NO_STORE,
     );
   }
   const email = form.get("email") ?? "";
@@ -110,11 +114,13 @@ export async function requestSignIn(c: LoginContext) {
         error,
       }),
       status,
+      NO_STORE,
     );
 
   const turnstile = await verifyTurnstile(form.get("cf-turnstile-response"), {
     secret: c.env.TURNSTILE_SECRET_KEY,
     hostname: new URL(c.req.url).hostname,
+    action: TURNSTILE_ACTIONS.login,
     remoteIp: clientIp,
   });
   if (turnstile === "failed") {

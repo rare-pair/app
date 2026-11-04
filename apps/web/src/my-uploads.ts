@@ -1,0 +1,102 @@
+import { createDb, type UploadStatus } from "@archive/db";
+import type { Context } from "hono";
+import type { Bindings } from "./env";
+import { escapeHtml, layout } from "./pages";
+import type { SecurityVariables } from "./security";
+import type { SessionVariables } from "./session";
+import { myUploadsScriptTag } from "./my-uploads-script";
+import { badgeLabel, inProgress, messageFor, REFRESH_SECONDS } from "./upload-badge";
+import { joinedWork, uploadStatusBody } from "./upload-status";
+
+// FRONTEND-DISCOVERY, Page inventory (My uploads). The page lists the signed-in user's
+// uploads and, with no JavaScript, refreshes itself while one is in progress.
+
+type MyUploadsContext = Context<{
+  Bindings: Bindings;
+  Variables: SecurityVariables & SessionVariables;
+}>;
+
+// The newest uploads shown, with no paging. Rows made before a confirm, and rejections,
+// aren't counted by the quota, so a long list is possible: the page says when it is cut.
+const LIST_LIMIT = 50;
+
+/** "2026-03-04 05:06 UTC" */
+const utcMinute = (at: Date) => `${at.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+
+interface Row {
+  id: string;
+  status: UploadStatus;
+  created_at: Date;
+  quota_counted_at: Date | null;
+  ao3_work_id: number | null;
+  work_status: string | null;
+  title: string | null;
+}
+
+function item(row: Row): string {
+  const link = uploadStatusBody(row, joinedWork(row)).work;
+  const name =
+    link !== null && row.title !== null && row.title.trim() !== ""
+      ? `<a href="${escapeHtml(link.url)}"><bdi>${escapeHtml(row.title)}</bdi></a>`
+      : escapeHtml(`Upload of ${utcMinute(row.created_at)}`);
+  const label = badgeLabel(row.status, row.quota_counted_at !== null);
+  const message = escapeHtml(messageFor(row.status, row.quota_counted_at !== null, link !== null));
+  // `data-polling` marks the rows the page's script polls: an unconfirmed `pending` row
+  // has the same `data-status` as a confirmed one but is not waiting for ingest.
+  const polling = inProgress(row.status, row.quota_counted_at !== null) ? " data-polling" : "";
+  return `<li data-upload-id="${escapeHtml(row.id)}" data-status="${escapeHtml(row.status)}"${polling}><span class="upload-name">${name}</span> <span class="badge">${label}</span><p class="upload-message">${message}</p></li>`;
+}
+
+/**
+ * The `/me/uploads` page, in `layout`. While some upload is in progress the head holds
+ * the page's script and, inside `<noscript>`, the meta refresh: only a browser without
+ * JavaScript reloads the page, and the script polls instead.
+ */
+export function myUploadsPage(rows: Row[], cut: boolean, nonce: string) {
+  const head = rows.some((r) => inProgress(r.status, r.quota_counted_at !== null))
+    ? `<noscript><meta http-equiv="refresh" content="${REFRESH_SECONDS}"></noscript>${myUploadsScriptTag(nonce)}`
+    : "";
+  const body =
+    rows.length === 0
+      ? `<p>You haven't uploaded anything yet. <a href="/upload">Upload a work</a>.</p>`
+      : `<ul class="upload-list" aria-live="polite">\n${rows.map(item).join("\n")}\n</ul>${
+          cut ? `\n<p>Showing your ${LIST_LIMIT} most recent uploads.</p>` : ""
+        }`;
+  return layout("My uploads", body, head);
+}
+
+/** `GET /me/uploads`: the signed-in user's uploads, newest first. Signing in is `requireSignIn`'s. */
+export async function showMyUploads(c: MyUploadsContext) {
+  // `requireSignIn` runs first, so there is a session here.
+  const user = c.var.session?.user;
+  if (user === undefined) return c.notFound();
+
+  // Set before the query, so a failure's reply is not cached either.
+  c.header("Cache-Control", "no-store");
+  const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
+  try {
+    const rows = await db
+      .selectFrom("uploads")
+      .leftJoin("works", "works.id", "uploads.work_id")
+      .select([
+        "uploads.id",
+        "uploads.status",
+        "uploads.created_at",
+        "uploads.quota_counted_at",
+        "works.ao3_work_id",
+        "works.status as work_status",
+        "works.title",
+      ])
+      .where("uploads.user_id", "=", user.id)
+      .orderBy("uploads.created_at", "desc")
+      .orderBy("uploads.id")
+      // One more than shown, to know whether the list was cut.
+      .limit(LIST_LIMIT + 1)
+      .execute();
+    return c.html(
+      myUploadsPage(rows.slice(0, LIST_LIMIT), rows.length > LIST_LIMIT, c.get("nonce")),
+    );
+  } finally {
+    c.executionCtx.waitUntil(db.destroy());
+  }
+}
