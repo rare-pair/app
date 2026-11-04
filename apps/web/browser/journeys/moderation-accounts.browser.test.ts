@@ -6,6 +6,7 @@ import {
   confirmationToken,
   expectLogged,
   insertRequest,
+  openRow,
   requesterEmail,
 } from "../harness/moderation";
 import { seedReadableWork } from "../harness/seed";
@@ -55,7 +56,7 @@ describe("account journeys", () => {
     });
 
     await page.goto(`${SITE}/admin/requests`);
-    await page.locator("tr", { hasText: "(42340)" }).getByRole("link").click();
+    await openRow(page, "(42340)");
     await page.getByRole("button", { name: "Block requester" }).click();
     await expect.poll(() => page.locator("main").innerText()).toContain("Requester blocked.");
 

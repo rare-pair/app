@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { uploadThroughPage, useJourneySite } from "../harness/journey";
-import { expectLogged, insertRequest, purgeRequests, requesterEmail } from "../harness/moderation";
+import {
+  approveAndRemove,
+  expectLogged,
+  insertRequest,
+  openRow,
+  purgeRequests,
+  requesterEmail,
+} from "../harness/moderation";
 import { seedReadableWork } from "../harness/seed";
 import { signedIn } from "../harness/sessions";
 import { SITE, type Site } from "../harness/site";
@@ -23,7 +30,7 @@ describe("removal journeys", () => {
   const IMAGE_HASH = "ab".repeat(32);
   const RANGE = { range: "bytes=0-" };
 
-  /** The id of the moderator's request, the work's database id and its upload's id. */
+  /** The work's database id, and the id and R2 key of its upload. */
   const workRow = async (site: Site, ao3WorkId: number) => {
     const work = await site.db
       .selectFrom("works")
@@ -78,9 +85,8 @@ describe("removal journeys", () => {
 
     // The moderator: Requests, the row, Approve, then the confirm step.
     await page.goto(`${SITE}/admin/requests`);
-    await page.locator("tr", { hasText: "(42300)" }).getByRole("link").click();
-    await page.getByRole("button", { name: "Approve and remove work", exact: true }).click();
-    await page.getByRole("button", { name: "Approve and remove work for good" }).click();
+    await openRow(page, "(42300)");
+    await approveAndRemove(page);
     await expect
       .poll(() => page.locator("main").innerText())
       .toContain("The work is removed and its files are deleted. Its caches are cleared.");
@@ -144,9 +150,8 @@ describe("removal journeys", () => {
     expect((await site.fetch("/works/42301")).status).toBe(200);
 
     await page.goto(`${SITE}/admin/takedowns`);
-    await page.locator("tr", { hasText: "(42301)" }).getByRole("link").click();
-    await page.getByRole("button", { name: "Approve and remove work", exact: true }).click();
-    await page.getByRole("button", { name: "Approve and remove work for good" }).click();
+    await openRow(page, "(42301)");
+    await approveAndRemove(page);
     await expect
       .poll(() => page.locator("main").innerText())
       .toContain("The work is removed and its files are deleted.");

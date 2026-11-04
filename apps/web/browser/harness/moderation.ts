@@ -1,3 +1,4 @@
+import type { Page } from "playwright";
 import { expect } from "vitest";
 import { outbound } from "../../test/stand-ins";
 import type { Site } from "./site";
@@ -53,8 +54,19 @@ export async function confirmationToken(): Promise<{ token: string; hash: string
   return { token, hash: Buffer.from(digest).toString("hex") };
 }
 
-/** A synthetic requester address. */
+/** A synthetic address for any account a journey signs in or seeds (a requester's, mostly). */
 export const requesterEmail = (name: string) => `pw6-${name}@example.test`;
+
+/** On a moderation queue, opens the row whose text holds `text`, such as a work's "(42300)". */
+export async function openRow(page: Page, text: string): Promise<void> {
+  await page.locator("tr", { hasText: text }).getByRole("link").click();
+}
+
+/** On an item's page, presses Approve and then its confirm step, which removes the work for good. */
+export async function approveAndRemove(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Approve and remove work", exact: true }).click();
+  await page.getByRole("button", { name: "Approve and remove work for good" }).click();
+}
 
 /**
  * Inserts a request as `/remove` stores it, a confirmed one by default (the requester pressed

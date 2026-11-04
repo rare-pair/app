@@ -1,7 +1,7 @@
 import { normalizePseud } from "@archive/db";
 import { describe, expect, it } from "vitest";
 import { useJourneySite } from "../harness/journey";
-import { expectLogged, insertRequest, requesterEmail } from "../harness/moderation";
+import { expectLogged, insertRequest, openRow, requesterEmail } from "../harness/moderation";
 import { seedReadableWork } from "../harness/seed";
 import { signedIn } from "../harness/sessions";
 import { SITE, type Site } from "../harness/site";
@@ -47,7 +47,7 @@ describe("restore journeys", () => {
     expect(await readerStatus(site, 42310)).toBe(451);
 
     await page.goto(`${SITE}/admin/requests`);
-    await page.locator("tr", { hasText: "(42310)" }).getByRole("link").click();
+    await openRow(page, "(42310)");
     await page.getByRole("button", { name: "Reject", exact: true }).click();
     await expect.poll(() => page.locator("main").innerText()).toContain("1 work is live again.");
 
@@ -162,7 +162,7 @@ describe("restore journeys", () => {
     });
 
     await page.goto(`${SITE}/admin/requests`);
-    await page.locator("tr", { hasText: "(42330)" }).getByRole("link").click();
+    await openRow(page, "(42330)");
     // The page lists the spree's other requests, and not the unrelated one.
     const related = page.locator("table", {
       hasText: "Requests from the same contact email or IP",
