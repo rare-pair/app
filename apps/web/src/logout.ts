@@ -68,7 +68,11 @@ export async function signOutRoute(c: LogoutContext) {
         .select("id")
         .where("id", "=", sessionId)
         .executeTakeFirst();
-      if (left !== undefined) return c.html(signOutFailedPage(), 500, NO_STORE);
+      if (left !== undefined) {
+        // Like `onError`'s line: what happened, nothing about who.
+        console.error("POST /logout: session row remained after sign-out");
+        return c.html(signOutFailedPage(), 500, NO_STORE);
+      }
     }
     // Built here: a handler's own Response doesn't keep headers set before it
     // (session.ts), and the session middleware leaves a session cookie set here alone.

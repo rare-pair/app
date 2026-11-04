@@ -288,6 +288,9 @@ describe("01-auth-magic-link sign-out", () => {
         ...env,
         HYPERDRIVE: { connectionString: "postgresql://nobody:nothing@127.0.0.1:1/none" },
       };
+      // This fails at the session lookup, before the route: it shows no success is
+      // reported and nothing is logged, not that the route's own read throws (no seam
+      // makes the read fail after the lookup and the delete succeed).
       let answered: Response | undefined;
       const logged = await consoleDuring(async () => {
         const ctx = createExecutionContext();

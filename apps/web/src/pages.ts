@@ -217,12 +217,12 @@ export const forbiddenPage = ({ signInLink = true } = {}) =>
       : `<p>That request didn't come from rarepair.</p>`,
   );
 
-/** `GET /logout` for someone signed in: only a button that posts. No script. */
-export const logoutPage = () => layout("Sign out", SIGN_OUT_FORM);
-
 const SIGN_OUT_FORM = `<form method="post" action="/logout">
 <button type="submit">Sign out</button>
 </form>`;
+
+/** `GET /logout` for someone signed in: only a button that posts. No script. */
+export const logoutPage = () => layout("Sign out", SIGN_OUT_FORM);
 
 /** `GET /logout` for someone who isn't signed in. */
 export const notSignedInPage = () =>
