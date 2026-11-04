@@ -125,9 +125,9 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 
 ### The reset stays out of the chapter
 - GIVEN any reset the site stylesheet includes
-- WHEN a chapter of W and a work card with an uploaded summary render
+- WHEN a chapter of W, a work card with an uploaded summary and that work's page render
 - THEN the chapter has the same computed styles as before for headings, lists, links, the image, the blockquote and the table, apart from the theme's colours
-- AND the summary still clamps to three lines
+- AND the summary still clamps to three lines on the card, and its lists and headings on the work page have the same computed styles as before, apart from the theme's colours
 
 ### Uploaded text cannot use DaisyUI
 - GIVEN an epub whose chapter or summary has elements with `data-theme`, `class="btn"`, `class="modal"` or `<input class="theme-controller" checked>`
@@ -200,7 +200,7 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
   | Tailwind build, `d-` class prefix, plus today's stylesheet | about 78 KB | about 12.1 KB |
   | DaisyUI's pre-built files, plus today's stylesheet, no build | 325 KB | 18 KB |
 
-- **The class prefix.** Tailwind's scan turns plain words in the source into rules, such as `stats`, `rating`, `fixed` and `hidden`. Without a prefix, the budget has almost no room left before any markup moves. A prefix leaves room, and it also ends the class-name collisions.
+- **The class prefix.** Tailwind's scan turns plain words in the source into rules, such as `stats`, `rating`, `fixed` and `hidden`. Without a prefix, the budget has almost no room left before any markup moves. DaisyUI's prefix, which is what was measured, leaves room and ends collisions with DaisyUI's classes. Collisions with Tailwind's utilities need Tailwind's own prefix.
 
 - **Measured contrast.** Measured on 5.7.50 from the theme files, not in a browser:
 
@@ -228,7 +228,8 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 - FRONTEND-DISCOVERY § Decisions so far: replace the Visual direction row with DaisyUI as the baseline, and add the browser floor and the Tailwind build. The Warnings and Branding rows stand
 - FRONTEND-DISCOVERY § Principles: 2 (text is the interface, one accent colour) and 3 (tiny CSS, with the budget above)
 - FRONTEND-DISCOVERY § Typographic system: Measure and rhythm ("not boxes") and Colour (the theme list)
-- FRONTEND-DISCOVERY § Typographic system, Scale: say whether DaisyUI's 14 px field text stands, which is off the 13/16/20 scale and makes iOS Safari zoom on focus
+- FRONTEND-DISCOVERY § Typographic system, Scale: say whether DaisyUI's 14 px field text stands, which is off the 13/16/20 scale and makes iOS Safari zoom on focus, and change spec 21's Interface type case if it does
 - FRONTEND-DISCOVERY § Reading experience: say whether navbar's height on reader pages stands, against "the only chrome is a slim top bar"
 - FRONTEND-DISCOVERY § Components: Work card, Status badge, Flash message and Pagination
 - ARCHITECTURE § Reading: the reader's theme list
+- ARCHITECTURE § MVP vs later: add this to the Later list
