@@ -83,16 +83,21 @@ footer {
 }
 
 header {
+  padding-top: calc(var(--space) * 4);
+  padding-bottom: calc(var(--space) * 4);
+}
+
+/* The site header is the page's own, a child of body: a header a chapter carries is not
+   laid out as one. */
+body > header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: calc(var(--space) * 2) calc(var(--space) * 4);
-  padding-top: calc(var(--space) * 4);
-  padding-bottom: calc(var(--space) * 4);
 }
 
-header nav {
+body > header nav {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -100,9 +105,17 @@ header nav {
   min-width: 0;
 }
 
-header nav form {
+body > header nav form {
   display: inline-flex;
   margin: 0;
+}
+
+/* Sign out sits in the row with the links, so it is no taller than they are (24 px, the
+   smallest target). */
+body > header nav button {
+  min-height: 24px;
+  padding: 0 calc(var(--space) * 2);
+  line-height: 22px;
 }
 
 .site-name {
