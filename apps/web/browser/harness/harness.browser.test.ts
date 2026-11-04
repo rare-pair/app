@@ -37,15 +37,12 @@ describe("on a running site", () => {
 
   /** What `assertClean` says, polled: Chromium reports console messages when it gets to them. */
   const complaint = (options?: CleanOptions) =>
-    expect.poll(() => {
-      try {
-        site.assertClean(options);
-        return "";
-      } catch (error) {
-        // SAFETY: assertClean throws only Errors.
-        return (error as Error).message;
-      }
-    });
+    expect.poll(() =>
+      site
+        .assertClean(options)
+        .then(() => "")
+        .catch(String),
+    );
 
   const realPage = async () => {
     const context = await site.newContext();
@@ -57,14 +54,14 @@ describe("on a running site", () => {
   describe("assertClean", () => {
     it("fails on a CSP violation, then forgets it", async () => {
       const page = await realPage();
-      site.assertClean();
+      await site.assertClean();
       await page.evaluate(() => {
         const img = document.createElement("img");
         img.src = "https://off-site.example/refused-by-csp.png";
         document.body.append(img);
       });
       await complaint().toContain("Content Security Policy");
-      expect(() => site.assertClean()).not.toThrow();
+      await expect(site.assertClean()).resolves.toBeUndefined();
     });
 
     it("fails on a console error", async () => {
@@ -99,7 +96,9 @@ describe("on a running site", () => {
         console.error("an expected error");
         console.error("an unexpected error");
       });
-      await complaint({ allow: [/an expected error/] }).toContain("an unexpected error");
+      const thrown = await site.assertClean({ allow: [/an expected error/] }).catch(String);
+      expect(thrown).toContain("an unexpected error");
+      expect(thrown).not.toContain("an expected error");
     });
 
     it("leaves the content host and Turnstile stand-in alone", async () => {
@@ -110,7 +109,7 @@ describe("on a running site", () => {
       const res = await page.goto("https://content.rarepair.fans/originals/nothing-here");
       expect(res?.status()).toBe(404);
       // The 404 is the page's own status line, and nothing else.
-      site.assertClean({ allow: [/responded with a status of 404/] });
+      await site.assertClean({ allow: [/responded with a status of 404/] });
       expect(site.offSite).not.toContain("https://content.rarepair.fans/originals/nothing-here");
     });
   });
@@ -135,22 +134,26 @@ describe("on a running site", () => {
       const forged = good.replace("uploads/pw0-good", "uploads/pw0-forged");
       expect(await put(forged)).toBe(403);
       expect(await site.bucket.head("uploads/pw0-forged")).toBeNull();
-      site.assertClean({ allow: [/status of 403/] });
+      await site.assertClean({ allow: [/status of 403/] });
     });
   });
 });
 
 describe("a journey", () => {
   const running = useJourneySite();
+  let bodyFinished = false;
 
   // The check runs in useJourneySite's afterEach, with nothing in the test to fail it.
   it.fails("fails on a console error though the test itself passes", async () => {
     const page = await (await running.site.newContext()).newPage();
     await page.goto(SITE);
-    await Promise.all([
-      page.waitForEvent("console"),
-      page.evaluate(() => console.error("a synthetic console error")),
-    ]);
+    await page.evaluate(() => console.error("a synthetic console error"));
+    bodyFinished = true;
+  });
+
+  it("failed only in that check, and closed the context the test opened", () => {
+    expect(bodyFinished).toBe(true);
+    expect(running.site.contexts()).toEqual([]);
   });
 });
 
@@ -253,7 +256,7 @@ describe("recording", () => {
       const context = await browser.newContext(recorder.contextOptions);
       recorder.watch(context);
       await context.newPage();
-      await expect(recorder.finish()).rejects.toThrow(/over 1 bytes/);
+      await expect(recorder.finish()).rejects.toThrow(/over 1\b/);
     } finally {
       await browser.close();
       await rm(dir, { recursive: true });

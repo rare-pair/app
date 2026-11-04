@@ -1,7 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Page } from "playwright";
-import { afterAll, afterEach, beforeAll, expect } from "vitest";
+import type { BrowserContext, Page } from "playwright";
+import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 import { SITE, startSite, type Site, type SiteOptions } from "./site";
 
 /** The site a journey runs on, ready once its `beforeAll` has run. */
@@ -11,7 +11,8 @@ export type JourneySite = { site: Site };
  * In the enclosing describe block, starts a site and closes it after. Every test in the block
  * then fails on a CSP violation, a console or script error or an unexpected off-site request;
  * a test expecting some, such as an error page's own status line, calls
- * `site.assertClean({ allow })` itself before it ends.
+ * `await site.assertClean({ allow })` itself before it ends. Contexts a test opened close with
+ * it, so a journey's video ends with its test.
  */
 export function useJourneySite(options?: SiteOptions): JourneySite {
   // SAFETY: filled in by beforeAll, before any test in the block reads it.
@@ -19,8 +20,19 @@ export function useJourneySite(options?: SiteOptions): JourneySite {
   beforeAll(async () => {
     running.site = await startSite(options);
   });
-  afterEach(() => {
-    if ("site" in running) running.site.assertClean();
+  let before = new Set<BrowserContext>();
+  beforeEach(() => {
+    before = new Set(running.site.contexts());
+  });
+  afterEach(async () => {
+    const { site } = running;
+    try {
+      await site.assertClean();
+    } finally {
+      // A page left open would run on, and record on, through the tests after it.
+      const opened = site.contexts().filter((context) => !before.has(context));
+      await Promise.all(opened.map((context) => context.close()));
+    }
   });
   // When startSite failed there is nothing to close, and its error is the one to see.
   afterAll(async () => {

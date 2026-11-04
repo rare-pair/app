@@ -105,7 +105,9 @@ export type Site = {
    * of the site's contexts since the last call. `allow` excuses the problems it matches.
    * `useJourneySite` (journey.ts) calls it after every test.
    */
-  assertClean: (options?: CleanOptions) => void;
+  assertClean: (options?: CleanOptions) => Promise<void>;
+  /** Every browser context open now. */
+  contexts: () => BrowserContext[];
   /** Leaves `page` out of the `BROWSER_RECORD` videos: a step of setup, not of the test. */
   dropRecording: (page: Page) => void;
   close: () => Promise<void>;
@@ -256,6 +258,7 @@ export async function startSite({
       }
     },
     assertClean: check.assertClean,
+    contexts: () => running.contexts(),
     dropRecording: (page) => recorder?.drop(page),
     close: stop,
   };

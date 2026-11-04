@@ -48,24 +48,27 @@ export function startRecorder(dir: string, maxBytes = MAX_VIDEO_BYTES) {
     },
     /**
      * Closes the contexts, which finishes their videos, and saves each under its name. Needs
-     * the browser still open. Fails, after saving them all, on any file over the limit.
+     * the browser still open. Fails, after trying them all, on any file it couldn't save or
+     * that is over the limit.
      */
     async finish() {
-      await Promise.all(contexts.map((context) => context.close()));
+      await Promise.allSettled(contexts.map((context) => context.close()));
       const taken = new Set<string>();
-      const tooBig: string[] = [];
+      const problems: string[] = [];
       for (const { video, testName } of videos.values()) {
-        if (testName !== undefined) {
-          const path = join(dir, `${videoName(testName, taken)}.webm`);
-          await video.saveAs(path);
-          const { size } = await stat(path);
-          if (size > maxBytes) tooBig.push(`${path}: ${size} bytes`);
+        try {
+          if (testName !== undefined) {
+            const path = join(dir, `${videoName(testName, taken)}.webm`);
+            await video.saveAs(path);
+            const { size } = await stat(path);
+            if (size > maxBytes) problems.push(`${path}: ${size} bytes, over ${maxBytes}`);
+          }
+          await video.delete();
+        } catch (error) {
+          problems.push(`${testName}: ${String(error)}`);
         }
-        await video.delete();
       }
-      if (tooBig.length > 0) {
-        throw new Error(`Recordings over ${maxBytes} bytes:\n${tooBig.join("\n")}`);
-      }
+      if (problems.length > 0) throw new Error(`Recordings failed:\n${problems.join("\n")}`);
     },
   };
 }
