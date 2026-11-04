@@ -860,7 +860,12 @@ origin. Work pages, listings and search stay open, so people can still find work
   honours the header (Chromium does, on a 303 too; Safari and Firefox are unchecked). Not `"cookies"`: the reader's settings live in
   cookies and outlast a sign-out. It ends only the session the cookie names: other devices stay signed in. With no session the answer is the same. `GET /logout`
   signs nobody out: it shows the button, or says the visitor isn't signed in. Better
-  Auth clears the cookie even if deleting the row failed, and the route can't tell.
+  Auth clears the cookie even if deleting the row failed and `signOut` answers success
+  either way, so the route reads the session's row by id after `signOut` (through
+  `HYPERDRIVE`; a read that a query cache could answer from before the delete would
+  mislead it, #574). If the row remains, the answer is a 500 "try again" page: no
+  cookie change, no `Clear-Site-Data`, and nothing says the person is signed out. A
+  database that can't be reached is a plain 500 the same way (#588).
   Open before launch and exempt from the terms gate.
 - **Better Auth's own rate limiter** only covers requests through
   `auth.handler`. Its default memory store is per isolate on Workers, so set

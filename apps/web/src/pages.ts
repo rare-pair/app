@@ -264,3 +264,16 @@ export const tooManyRequestsPage = (seconds: number) =>
     "Too many requests",
     `<p>There have been too many requests in a short time. Please try again in ${seconds === 1 ? "1 second" : `${seconds} seconds`}.</p>`,
   );
+
+/**
+ * `POST /logout` when the session's row is still there after the delete: nothing says
+ * the person is signed out, because they aren't. The same button posts again.
+ */
+export const signOutFailedPage = () =>
+  layout(
+    "Sign out didn't work",
+    `<p>We couldn't sign you out, and you are still signed in. Please try again.</p>
+<form method="post" action="/logout">
+<button type="submit">Sign out</button>
+</form>`,
+  );

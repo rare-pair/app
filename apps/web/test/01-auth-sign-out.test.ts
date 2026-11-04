@@ -1,7 +1,10 @@
 import { createDb } from "@archive/db";
+import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
+import { sql } from "kysely";
 import { afterAll, describe, expect, it } from "vitest";
-import { BASE, fetchW, postLogin, signIn } from "./helpers";
+import app from "../src/index";
+import { BASE, consoleDuring, fetchW, postLogin, signIn } from "./helpers";
 
 // Sign-out at /logout (OUT). Each test signs in its own account, found by address.
 
@@ -224,5 +227,84 @@ describe("01-auth-magic-link sign-out", () => {
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toBe("/");
     expect(await sessionRows(email)).toBe(0);
+  });
+
+  describe("Sign-out says so when the session row can't be deleted", () => {
+    /**
+     * Makes deleting `userId`'s session rows fail in Postgres, runs `run`, and removes the
+     * trigger. Scoped to one user: the database serves every test file at once.
+     */
+    async function whileDeleteFails(userId: string, run: () => Promise<void>) {
+      const name = `out2_${userId.replace(/\W/g, "_")}`;
+      await sql
+        .raw(
+          `CREATE FUNCTION ${name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'delete refused'; END $$;
+           CREATE TRIGGER ${name} BEFORE DELETE ON session FOR EACH ROW WHEN (OLD.user_id = '${userId}') EXECUTE FUNCTION ${name}()`,
+        )
+        .execute(db);
+      try {
+        await run();
+      } finally {
+        await sql.raw(`DROP TRIGGER ${name} ON session; DROP FUNCTION ${name}()`).execute(db);
+      }
+    }
+
+    it("A failed delete does not report a successful sign-out", async () => {
+      const email = "sign-out-delete-fails@example.test";
+      const cookie = await signIn(email, { acceptTerms: true });
+      const user = await db
+        .selectFrom("user")
+        .select("id")
+        .where("email", "=", email)
+        .executeTakeFirstOrThrow();
+
+      await whileDeleteFails(user.id, async () => {
+        const res = await postLogout(cookie);
+
+        expect(res.status).toBe(500);
+        expect(res.headers.get("location")).toBeNull();
+        expect(res.headers.get("clear-site-data")).toBeNull();
+        expect(res.headers.get("cache-control")).toBe("no-store");
+        expect(res.headers.getSetCookie()).toEqual([]);
+        const html = await res.text();
+        expect(html).toContain("try again");
+        expect(html).toContain('action="/logout"');
+        expect(html).not.toMatch(/signed out/i);
+        expect(await sessionRows(email)).toBe(1);
+        // The cookie still works, and the retry is a plain post of the same button.
+        expect((await fetchW("/me/uploads", { headers: { cookie } })).status).toBe(200);
+      });
+
+      // The database recovers: the same button now signs out.
+      const retry = await postLogout(cookie);
+      expect(retry.status).toBe(303);
+      expect(retry.headers.get("clear-site-data")).toBe('"cache"');
+      expect(await sessionRows(email)).toBe(0);
+    });
+
+    it("Sign-out with the database unreachable is not a success and logs no address", async () => {
+      const cookie = await signIn("sign-out-db-down@example.test", { acceptTerms: true });
+      const down = {
+        ...env,
+        HYPERDRIVE: { connectionString: "postgresql://nobody:nothing@127.0.0.1:1/none" },
+      };
+      let res = null as Response | null;
+      const logged = await consoleDuring(async () => {
+        const ctx = createExecutionContext();
+        const request = new Request(`${BASE}/logout`, {
+          method: "POST",
+          headers: { cookie, origin: BASE },
+        });
+        res = await app.fetch(request, down, ctx);
+        await waitOnExecutionContext(ctx);
+      });
+
+      // SAFETY: assigned in the callback above, which has run.
+      const answered = res as unknown as Response;
+      expect(answered.status).toBeGreaterThanOrEqual(500);
+      expect(answered.headers.getSetCookie()).toEqual([]);
+      expect(answered.headers.get("clear-site-data")).toBeNull();
+      expect(logged.join("\n")).not.toContain("example.test");
+    });
   });
 });

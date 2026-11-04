@@ -146,6 +146,19 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - THEN the user's `session` row is deleted
 - AND the response clears the session cookie (`Max-Age=0`, with the `Secure`, `HttpOnly` and `SameSite=Lax` it was set with, and no `Domain`) and redirects to `/` with a 303
 
+### A failed delete does not report a successful sign-out
+- GIVEN a signed-in user whose `session` row can't be deleted (Postgres refuses the delete)
+- WHEN `POST /logout` arrives from the site
+- THEN the response is a 500 page that says sign-out didn't work and asks the person to try again, with the same "Sign out" button
+- AND it sets no cookie and has no `Clear-Site-Data`, and nothing on it says the person is signed out
+- AND the session row and the cookie still work, and posting again once the database recovers signs out as usual
+
+### Sign-out with the database unreachable is not a success and logs no address
+- GIVEN a signed-in user and a database the Worker can't reach
+- WHEN `POST /logout` arrives from the site
+- THEN the response is a 5xx with no cookie change and no `Clear-Site-Data`
+- AND the log holds no email address
+
 ### Sign-out empties the browser's cache and keeps the reader's settings
 - GIVEN a signed-in user
 - WHEN `POST /logout` is answered
