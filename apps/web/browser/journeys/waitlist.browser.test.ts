@@ -150,7 +150,7 @@ describe("wait list journey", () => {
     const focused: string[] = [];
     for (let i = 0; i < 40; i++) {
       await page.keyboard.press("Tab");
-      focused.push(await page.evaluate(() => document.activeElement?.textContent?.trim() ?? ""));
+      focused.push(await page.evaluate(() => document.activeElement?.textContent.trim() ?? ""));
     }
     expect(focused).not.toContain("Remove my work");
     expect(focused).not.toContain("Copyright notice");
