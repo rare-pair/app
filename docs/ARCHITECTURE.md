@@ -496,8 +496,10 @@ Chapter text isn't indexed.
 
    **A refused upload's original is deleted.** Once the job has recorded a
    refusal (any rejection code, `account_banned` included, and a job that
-   failed for good), it deletes the one key `originals/<upload_id>.epub`, so
-   the content host stops serving a file the archive refused. The delete comes
+   failed for good; not `work_removed`, whose save already deleted it), it
+   deletes the one key `originals/<upload_id>.epub`, so the content host no
+   longer serves it from R2. A copy already in a data centre's edge cache is
+   not purged and stays until it expires. The delete comes
    after the fenced write that ends the upload, and only when that write
    matched: a job that lost its lease deletes nothing, and an ended upload
    can't be claimed again, so the delete never removes a file a takeover job
@@ -507,9 +509,11 @@ Chapter text isn't indexed.
    (the upload id, a count, never the file) and changes neither the upload's
    status nor the message's verdict, and a crash between the ending write and
    the delete leaves the file, which no cleanup rule removes (the sweep covers
-   `uploads/` prefixes and `works/` objects, not `originals/`). Only the
-   original goes: fragments and images of a refused upload are the sweep's.
-   A `duplicate`'s original is kept (below).
+   `works/` objects and the `uploads/` expiry is a lifecycle rule; neither
+   touches `originals/`). Only the original goes: fragments and images of a
+   refused upload are the sweep's. A refused upload has no version, so this
+   leaves the keep-for-re-sanitize decision intact. A `duplicate`'s original
+   is kept (below).
 
    A later upload of a known work is decided in the same transaction, from
    facts read before it (the current version's chapter text comes from R2,

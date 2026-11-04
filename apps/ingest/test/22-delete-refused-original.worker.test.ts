@@ -9,11 +9,11 @@ import { SaveRejected, saveWork } from "../src/save";
 import {
   addOptOut,
   banUploader,
-  beforePut,
   bucketKeys,
   deliver,
   parsedWork,
   pendingUpload,
+  seededWork,
   setLease,
   token,
   uploadRow,
@@ -251,28 +251,17 @@ describe("ORIG: a job that lost its lease deletes nothing a takeover shares", ()
     expect(result.explicitAcks).toEqual(["msg-0"]);
   });
 
-  it("leaves the original when the upload is taken over before the transaction", async () => {
-    const id = await pendingUpload(ao3Epub({ workId: 42710 }));
-    const { handler } = watchedWorker({
-      process: async () => parsedWork({ ao3WorkId: "42710", freeforms: [hugeTag()] }),
-      bucket: beforePut(async (key) => {
-        if (key.startsWith("originals/")) await setLease(id, "1 hour");
-      }),
-    });
-
-    await deliver([{ upload_id: id }], { handler });
-
-    expect(await bucketKeys(`originals/${id}`)).toEqual([original(id)]);
-    expect((await uploadRow(id)).status).toBe("processing");
-  });
-
-  it("can't be taken over once ended, so the delete that follows shares nothing", async () => {
+  it("deletes only after the upload is ended, and an ended upload can't be claimed", async () => {
     const id = await pendingUpload(ao3Epub({ workId: 42711 }));
     const takeover: string[] = [];
+    // SAFETY: assigned in the delete hook below, before it is read.
+    let atDelete = null as Awaited<ReturnType<typeof uploadRow>> | null;
     const { handler } = watchedWorker({
       process: async () => parsedWork({ ao3WorkId: "42711", freeforms: [hugeTag()] }),
-      // Another delivery of the same upload arrives while the delete is in flight.
       bucket: beforeDelete(async () => {
+        // The row as the delete finds it: a delete before the ending write sees `processing`.
+        atDelete = await uploadRow(id);
+        // Another delivery of the same upload arrives while the delete is in flight.
         const again = watchedWorker({ save: async (upload) => void takeover.push(upload.id) });
         await deliver([{ upload_id: id }], { handler: again.handler });
       }),
@@ -280,7 +269,48 @@ describe("ORIG: a job that lost its lease deletes nothing a takeover shares", ()
 
     await deliver([{ upload_id: id }], { handler });
 
+    expect(atDelete).toMatchObject({ status: "parse_failed", lease_until: null });
     expect(takeover).toEqual([]);
     expect(await bucketKeys(`originals/${id}`)).toEqual([]);
+  });
+});
+
+describe("ORIG: what the delete leaves alone", () => {
+  it("keeps the original of an attempt that will be retried", async () => {
+    const id = await pendingUpload(ao3Epub({ workId: 42712 }));
+    const { handler } = watchedWorker({ save: storesThenFails });
+
+    const result = await deliver([{ upload_id: id }], { handler, attempts: 1 });
+
+    expect(result.retryMessages).toEqual([{ msgId: "msg-0" }]);
+    expect((await uploadRow(id)).status).toBe("pending");
+    expect(await bucketKeys(`originals/${id}`)).toEqual([original(id)]);
+  });
+
+  it("logs nothing when a refusal had stored no original", async () => {
+    const id = await pendingUpload(ao3Epub({ workId: 42713 }));
+    await banUploader(id);
+    const log = vi.spyOn(console, "log");
+
+    await deliver([{ upload_id: id }], { handler: watchedWorker().handler });
+
+    expect(await uploadRow(id)).toMatchObject({ status: "account_banned", error_stage: "read" });
+    expect(log).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: "ingest.refused_original_deleted" }),
+    );
+  });
+
+  it("deletes a removed work's original once: the save's clean-up, not the job's ending", async () => {
+    await seededWork({ ao3WorkId: 42714, status: "removed" });
+    const id = await pendingUpload(ao3Epub({ workId: 42714 }));
+    const deletes: string[][] = [];
+    const { handler } = watchedWorker({
+      bucket: beforeDelete(async (keys) => void deletes.push(keys)),
+    });
+
+    await deliver([{ upload_id: id }], { handler });
+
+    expect(await uploadRow(id)).toMatchObject({ status: "work_removed" });
+    expect(deletes.filter((keys) => keys.includes(original(id)))).toHaveLength(1);
   });
 });

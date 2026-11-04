@@ -103,7 +103,10 @@ async function endJob(deps: JobDeps, lease: Lease, outcome: Outcome): Promise<vo
   if (!ended || outcome.status === "pending" || outcome.status === "work_removed") return;
   try {
     const deleted = await deleteOriginal(deps.bucket, lease.id);
-    console.log({ event: "ingest.refused_original_deleted", uploadId: lease.id, deleted });
+    // Silent when there was none: most refusals come before anything was stored.
+    if (deleted > 0) {
+      console.log({ event: "ingest.refused_original_deleted", uploadId: lease.id, deleted });
+    }
   } catch (error) {
     console.error({
       event: "ingest.refused_original_delete_failed",
