@@ -67,7 +67,7 @@ Every route follows the guideline, for one form throughout. Keeping the table wa
 - GIVEN Hono's built-ins refuse by throwing `HTTPException`, and `app.onError` turns every error into a 500
 - WHEN a handler throws one
 - THEN `onError` answers with its `getResponse()`, and a test on a throwaway app shows it
-- AND any other error is still a 500 that logs only the error's kind
+- AND any other error is still a 500 that logs, as today, only the method, the path with its control characters replaced, and the error's kind
 - AND the app's own handlers keep refusing by returning a response
 
 #### One same-origin guard, on every POST by default
@@ -75,6 +75,7 @@ Every route follows the guideline, for one form throughout. Keeping the table wa
 - WHEN they become one `app.on("POST", "*", ...)` ahead of the session
 - THEN a POST route is guarded by being a POST route, and a new one needs no registration
 - AND the guard acts only when `matchedRoutes` from `hono/route` shows a POST route other than its own, so a POST to a URL with no such route falls through to the same 404 as today. `/admin` must look like a URL that doesn't exist (ARCHITECTURE, *Status codes*), and a 403 on unknown URLs would give it away
+- AND an idiom check finds no route registered with a method other than `.get` or `.post`, since the guard can't see a route registered as `.all`, or under another unsafe method. A later route that needs one, such as a mounted auth handler, widens the guard in the same PR
 - AND each area keeps its refusal, from one small lookup by path, matched by whole segment as `prelaunch.ts` matches `OPEN_SECTIONS`: the forbidden page, the wait list's page, uploads' JSON, and `/admin`'s 404
 - AND the guard passes through the routes that answer without an origin check: `POST /waitlist/unsubscribe` always, since a mail provider's one-click request sends no `Origin`, and once the archive is open `POST /waitlist` (404) and `POST /waitlist/confirm` (the archive-open page, which `test/22-waitlist-confirm.test.ts` requires from another site), since both answer before reading anything
 - AND a test shows each of those still answers as it does today
@@ -130,7 +131,7 @@ Every route follows the guideline, for one form throughout. Keeping the table wa
 - AND the helper grows from the API in `test/no-js-browser.ts` (`forms`, `links`, `attr`, `scriptTags`, `h1Text`), so its three test files keep working, and the file's comment defending regular expressions goes with them
 - AND once the last batch has merged, an idiom check finds no markup literal in an assertion, outside the helper's own file
 
-The first ticket chooses the parser, by trying each in the workerd projects and counting what each costs. `packages/epub/src/dom.ts` already builds a tree over `HTMLRewriter`, but it isn't exported, it is sanitizer internals, its attributes are undecoded, and it needs workerd. A parser library is a new dev dependency, in a PR of its own since that is tier 3. `HTMLRewriter` directly is built in, but it is asynchronous, which would change every call site of the no-JS API.
+The first ticket chooses the parser, by trying each in the workerd projects and counting what each costs. `packages/epub/src/dom.ts` already builds a tree over `HTMLRewriter`, but it isn't exported, its attributes are undecoded, it needs workerd, and it is sanitizer internals, so a test built on it couldn't see what the sanitizer misreads. A parser library is a new dev dependency, in a PR of its own since that is tier 3. `HTMLRewriter` directly is built in, but it is asynchronous, which would change every call site of the no-JS API.
 
 #### A negative assertion can't pass by accident
 - GIVEN a negative such as `not.toContain('<input type="hidden" name="next"')` keeps passing once the spelling changes, whether or not the element is there
@@ -142,6 +143,7 @@ The first ticket chooses the parser, by trying each in the workerd projects and 
 - GIVEN a parser tidies what it reads, and the raw bytes are what a browser receives
 - WHEN a test checks that a hostile value can't become markup
 - THEN it uses one helper, `expectEscaped(res, value)`, which asserts on the raw body
+- AND a check that no script lacks its nonce, or that no script reaches a page from a fragment, also counts `<script` in the raw body, so a parser that reads a page differently from a browser can't hide one
 - AND sanitizer output tests in `packages/epub` and `apps/ingest` don't change
 
 ### JSX (R1)
@@ -162,7 +164,7 @@ Only `tsc` was tried against these settings. A problem with oxlint, oxfmt, Vites
 - AND the first chapter is still read before the 200, and a reader who leaves still cancels the stream, as `test/full-stream.node.test.ts` shows
 - AND the shell around the chapters comes from the same layout as every other page, not a second copy of it
 
-How to split the rendered layout around the chapters isn't settled: this case runs early because a poor answer here changes how the layout is written. `Suspense` wasn't tried, and anything it adds would have to pass the CSP.
+How to split the rendered layout around the chapters, and the `</article>` and `<article>` that open and close around each fragment, isn't settled, since JSX needs balanced tags: this case runs early because a poor answer here changes how the layout is written. Whatever it settles stays inside the module that owns unescaped HTML. `Suspense` wasn't tried, and anything it adds would have to pass the CSP.
 
 #### Each page parses the same before and after
 - GIVEN the moved assertions only show what they look at, and a dropped space or a lost attribute could pass them all
@@ -179,8 +181,12 @@ How to split the rendered layout around the chapters isn't settled: this case ru
 - AND the moved tests pass with no assertion changed, and `npm run test:browser` passes, the layout and accessibility checks included
 - AND a child moves before its parent, since a string of markup in a JSX parent comes out escaped
 - AND a component's markup props are typed `HtmlEscapedString | Promise<HtmlEscapedString>`, not `string` or `Child`, so passing one a string of markup fails `typecheck`
+- AND a `<script async>`, `<title>` or `<meta>` written in a component is checked against where it must land, since Hono JSX moves them to `<head>` and collapses repeats: `full.ts`'s settings script must stay straight after the reader bar
 - AND once every batch has merged, `escapeHtml` is gone from `apps/web/src`
-- AND one module owns unescaped HTML, exporting the doctype and the sanitized chapter fragment, and an idiom check finds `raw(` and `dangerouslySetInnerHTML` nowhere else
+- AND an idiom check finds no string or template literal holding a tag in `apps/web/src`, apart from the script and stylesheet text and the flash below, so nothing can go back to building a page from strings, with no escaping at all
+- AND one module owns unescaped HTML, exporting the doctype, the sanitized chapter fragment, and an inline script, whose text is a constant that interpolates nothing, since Hono JSX escapes a script's children: `getElementById("sign-in")` as a child would become a syntax error and leave the sign-in form hidden
+- AND a test shows the sign-in, upload, remove and wait list forms revealed with JavaScript on, in `npm run test:browser`
+- AND an idiom check finds `raw(` and `dangerouslySetInnerHTML` nowhere else
 - AND the text of the scripts and stylesheet served as strings stays as it is, since it isn't markup. A function in those files that builds a page's `<script>` tag, such as the one in `my-uploads-script.ts`, moves to JSX
 - AND `pageState`'s flash stays an `HTMLRewriter` insert with `{ html: true }`, since it rewrites a finished page and its copy comes from the app's own table
 
@@ -199,6 +205,7 @@ Whether `Cloudflare.GlobalProps`'s `mainModule` can type `exports` in place of `
 - GIVEN `consoleDuring` is in `test/helpers.ts`, which imports `cloudflare:workers`, so the `.node.test.ts` files that spy on the console can't use it, and `apps/mailer` has `captureLogs` twice
 - WHEN they move to a helper in a file with no Workers import, one per workspace
 - THEN `spyOn(console` appears in that one file per workspace
+- AND each helper records every level and prints an argument as a log would, with an error's message, stack and fields, as `consoleDuring` does: the tests that no address or link reaches a log rest on this, and `captureLogs`'s `JSON.stringify` prints an `Error` as `{}`
 
 #### Waiting on something uses `vi.waitFor` or `expect.poll`
 - GIVEN hand-written deadline loops in `test/helpers.ts`, `test/02-upload-confirm.test.ts`, `browser/harness/sessions.ts`, `site.ts` and `waitlist.ts`
@@ -289,6 +296,7 @@ Run on the pinned versions outside the repo, type checks under the repo's `tscon
 | Hono JSX: escaping | Identical to `escapeHtml` on `a&b<c>d"e'f`, in text and in attributes. A `javascript:` URL passes through unchanged |
 | Hono JSX: output | `<input .../>`, `<br/>`, and `defer=""` for a boolean attribute. `disabled={false}` is left out. `null`, `undefined`, `false` and `""` render nothing, and `0` renders `0`. A line break inside text becomes one space |
 | Hono JSX: types, under the Worker's `tsconfig` settings with `jsx` added | A component's missing or unknown prop fails. An unknown attribute on an element, such as `nmae` on `<input>`, compiles. `JSX` isn't a global, and `hono/jsx`'s `JSX` has no `Element`. A prop typed `HtmlEscapedString \| Promise<HtmlEscapedString>` refuses a string and takes JSX, while `Child` and `children` take a string and show it escaped |
+| Hono JSX: special tags | `<script async>` in `<body>` moved to `<head>`, and two with the same `src` became one. `<script defer>` stayed in place. A `<title>` and a `<meta>` in `<body>` moved to `<head>`, and the second `<title>` stayed beside the first. The `nonce` was kept. Children of `<script>` and `<style>` were escaped |
 | Hono JSX: the doctype | Can't be written as JSX. Both ``html`<!doctype html>${...}` `` and `raw("<!doctype html>")` work, and `c.html` sends either as `text/html` |
 | JSX mixed with strings | A JSX piece in a plain template gives its markup, with a cast for TypeScript. A string of markup in a JSX parent comes out escaped, and goes through with `raw` or `dangerouslySetInnerHTML` |
 | `oxlint` 1.90 | `no-restricted-imports`, `vitest/no-focused-tests` and `vitest/no-disabled-tests` catch their cases, and leave a comment and `describe.skipIf` alone. The `vitest` plugin also raised `expect-expect` warnings |
