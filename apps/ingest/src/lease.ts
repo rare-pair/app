@@ -75,14 +75,15 @@ export interface Outcome {
 
 /**
  * Records the outcome and ends the lease, only while this job still holds it: a job that
- * outlived its lease leaves the row to the job that took it over.
+ * outlived its lease leaves the row to the job that took it over. Says whether it matched: only
+ * then was the upload still this job's, and, ended with a final status, it is nobody's to claim.
  */
 export async function endLease(
   db: Kysely<Database>,
   lease: Lease,
   outcome: Outcome,
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const row = await db
     .updateTable("uploads")
     .set({
       status: outcome.status,
@@ -93,7 +94,9 @@ export async function endLease(
     .where("id", "=", lease.id)
     .where("status", "=", "processing")
     .where("lease_until", "=", lease.until)
-    .execute();
+    .returning("id")
+    .executeTakeFirst();
+  return row !== undefined;
 }
 
 /**

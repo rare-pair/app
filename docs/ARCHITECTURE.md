@@ -494,6 +494,23 @@ Chapter text isn't indexed.
    job that fails for good goes to the dead-letter queue as `parse_failed`,
    with the stage and error recorded on the upload row.
 
+   **A refused upload's original is deleted.** Once the job has recorded a
+   refusal (any rejection code, `account_banned` included, and a job that
+   failed for good), it deletes the one key `originals/<upload_id>.epub`, so
+   the content host stops serving a file the archive refused. The delete comes
+   after the fenced write that ends the upload, and only when that write
+   matched: a job that lost its lease deletes nothing, and an ended upload
+   can't be claimed again, so the delete never removes a file a takeover job
+   stored for a version that goes live. A retry that ends refused (an opt-out
+   or a ban that arrived between attempts) deletes what the earlier attempt
+   stored by the same rule. The delete is best effort: a failure is logged
+   (the upload id, a count, never the file) and changes neither the upload's
+   status nor the message's verdict, and a crash between the ending write and
+   the delete leaves the file, which no cleanup rule removes (the sweep covers
+   `uploads/` prefixes and `works/` objects, not `originals/`). Only the
+   original goes: fragments and images of a refused upload are the sweep's.
+   A `duplicate`'s original is kept (below).
+
    A later upload of a known work is decided in the same transaction, from
    facts read before it (the current version's chapter text comes from R2,
    never read under a lock). A `replace` adds the version and chapters, then
@@ -580,8 +597,8 @@ it on one written after the ban), and ingest sets it on a job whose uploader is
 banned, checked before the file is read and again, with a key-share lock on the
 account's row, in the save's transaction. A save that took that lock first
 finishes, and its upload counts as finished. A ban the save's check catches
-leaves the R2 files the job had already written, `originals/` included (a
-`work_removed` refusal deletes them; the ban's refusal leaves them). Step 2 lists which problem gives which of the first three.
+leaves the fragments and images the job had already written for the sweep, and
+deletes the upload's `originals/` file like any refusal (step 8). Step 2 lists which problem gives which of the first three.
 `not_ao3` covers any file without an AO3 preface "Posted originally" line,
 including one whose AO3 work URL is only in the OPF (step 4). `opted_out`
 covers the opt-out list and the takedown list of moderator-removed works.

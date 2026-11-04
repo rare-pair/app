@@ -14,12 +14,12 @@ import {
   type Stage,
 } from "./lease";
 import { ListCheckRejected, onRejectList } from "./lists";
-import { AccountBanned, SaveRejected, WorkRemoved, type WorkImages } from "./save";
+import { AccountBanned, deleteOriginal, SaveRejected, WorkRemoved, type WorkImages } from "./save";
 
 /** What a job needs from outside: the request's Kysely, the bucket and the two steps. */
 export interface JobDeps {
   db: Kysely<Database>;
-  bucket: Pick<R2Bucket, "get">;
+  bucket: Pick<R2Bucket, "get" | "list" | "delete">;
   /**
    * The epub processor: bytes in, a parsed work out, or an `EpubError`. It adds each image the
    * work shows to `images`, if given.
@@ -67,24 +67,49 @@ export async function runJob(deps: JobDeps, uploadId: string, attempt: number): 
       return "ack";
     }
     const final = attempt > MAX_RETRIES;
-    await endLease(
-      deps.db,
-      lease,
-      final
-        ? {
-            status: "parse_failed",
-            failure: { stage, error: errorCode(error) },
-          }
-        : { status: "pending" },
-    );
+    const ending: Outcome = final
+      ? { status: "parse_failed", failure: { stage, error: errorCode(error) } }
+      : { status: "pending" };
+    await discardOriginalAfter(deps, lease, ending, await endLease(deps.db, lease, ending));
     return "retry";
   }
   await keeper.stop();
   // Outside the job's try: if this write fails, it is not recorded as the job's own failure.
   // The message is retried and the rejection found again, unless this was the last attempt
   // (#214).
-  if (outcome !== null) await endLease(deps.db, lease, outcome);
+  if (outcome !== null) {
+    await discardOriginalAfter(deps, lease, outcome, await endLease(deps.db, lease, outcome));
+  }
   return "ack";
+}
+
+/**
+ * Deletes the refused upload's `originals/` file (#576), after the ending write that made the
+ * refusal final, and only if that write matched. The order is the safety: a matched write means
+ * no job took the upload over, and a final status can't be claimed again, so no other job can
+ * write this key after the check. A delete before the ending write leaves a window where a
+ * takeover stores the file and this job removes it from under a version that goes live. A crash
+ * between the two leaves the file. A retry (`pending`) keeps it, and so does `work_removed`,
+ * which the save already cleaned up. A failed delete is logged and changes nothing: the upload
+ * is final and its message is not retried for it.
+ */
+async function discardOriginalAfter(
+  deps: JobDeps,
+  lease: Lease,
+  outcome: Outcome,
+  ended: boolean,
+): Promise<void> {
+  if (!ended || outcome.status === "pending" || outcome.status === "work_removed") return;
+  try {
+    const deleted = await deleteOriginal(deps.bucket, lease.id);
+    console.log({ event: "ingest.refused_original_deleted", uploadId: lease.id, deleted });
+  } catch (error) {
+    console.error({
+      event: "ingest.refused_original_delete_failed",
+      uploadId: lease.id,
+      error: errorCode(error),
+    });
+  }
 }
 
 /** A banned account's upload, refused at `stage`: no retry lifts a ban (there is no unban). */
