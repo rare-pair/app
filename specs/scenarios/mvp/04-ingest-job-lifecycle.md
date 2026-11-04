@@ -88,7 +88,7 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 
 ### A refused upload's stored epub is deleted
 - GIVEN an upload whose raw epub is stored under `originals/<upload_id>.epub`
-- WHEN the job ends the upload refused: any rejection code, a save the database refused inside its transaction, a retry that ends `opted_out` or `account_banned`, or a failure for good
+- WHEN the job ends the upload refused: any rejection code, a save the database refused inside its transaction, a retry that ends `opted_out` or `account_banned`, or a failure for good (not `work_removed`, whose save already deleted its files)
 - THEN `originals/<upload_id>.epub` is deleted after the ending write, and only when that write matched
 - AND the log says what was deleted with the upload id and a count, never the file or the reader
 - AND a failed delete changes neither the upload's status nor the message's verdict

@@ -120,7 +120,7 @@ an unofficial stopgap.
     work's, an upload with no work (a refused file) and a held version's get 404, all
     with no body and `Cache-Control: no-store`. A duplicate upload follows its
     work. A cache hit needs no read. If the database can't be connected to, or can't answer,
-    within 2 s each (two client-side timeouts, one on the connection and one on the query, each shown by a test against a server that never answers and one that accepts the connection and stalls the query; there is no server-side `statement_timeout`, which pg sends as a startup parameter that Hyperdrive may not pass on), the request fails closed (a request can hold its connection for up to about 4 s before it does): 503, empty, `no-store`, nothing stored and no bytes sent.
+    within 2 s each (two client-side timeouts, one on the connection and one on the query, each shown by its own test: one against a server that never answers (the connection timeout) and one against a server that accepts the connection and stalls the query (the query timeout); there is no server-side `statement_timeout`, which pg sends as a startup parameter that Hyperdrive may not pass on; the cost is that Postgres keeps running a query the client gave up on until it finishes, and the read is a single-row lookup), the request fails closed (a request can hold its connection for up to about 4 s before it does): 503, empty, `no-store`, nothing stored and no bytes sent.
     An image is judged by its work alone: images are shared by every version of a work and keyed by their content hash, so a held version's image is served once the work is live, as an unguessable URL (only its original is refused). A refusal never names the hide cause. The connection is per request and the
     logs hold an error's class name only.
 
@@ -514,9 +514,10 @@ Chapter text isn't indexed.
    refusal (any rejection code, `account_banned` included, and a job that
    failed for good; not `work_removed`, whose save already deleted it), it
    deletes the one key `originals/<upload_id>.epub`, so the content host no
-   longer serves it from R2. The content host never served a refused upload's
-   original (an upload with no work gets 404), so no copy of it is in an edge cache
-   to purge. The delete comes
+   longer serves it from R2. The content host serves an upload's original only
+   when the upload is `live` or a `duplicate` (a refused upload gets 404 whatever its
+   work's status), so no copy of a refused upload's original is in an edge cache to
+   purge. The delete comes
    after the fenced write that ends the upload, and only when that write
    matched: a job that lost its lease deletes nothing, and an ended upload
    can't be claimed again, so the delete never removes a file a takeover job
@@ -1475,9 +1476,11 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
        misses compete with web's sign-in and admin for connections and for Neon's limit.
        Watch Neon's connection count and the Worker's 503s; if they compete, a third
        uncached config for content is the fix, with its own id here.
-  8. Not here: the real Turnstile key and the notices mailbox are set elsewhere (the DMCA
-     notices are on another branch); this list only reminds the operator they come before
-     launch.
+     If the purge does not reach those entries, the old ones end within 12 hours of
+     their store.
+
+  Not part of this list: the real Turnstile key and the notices mailbox are set elsewhere
+  (the DMCA notices are on another branch); the operator does them before launch.
 - Queries that select `now()` or another non-immutable function are never cached by Hyperdrive.
   Some reads here still select `now()` beside a read for that reason; they stay correct
   on an uncached connection and are redundant there.

@@ -98,7 +98,7 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 ### Moderator removes a work
 - GIVEN a work W
 - WHEN M uses the remove action, choosing a reason where scenario 23 asks for one
-- THEN W is `removed`, its R2 files and raw upload are deleted, and the sweep deletes anything that delete missed
+- THEN W is `removed`, its R2 files and raw upload are deleted, and the sweep deletes what that delete missed, except the cases in https://github.com/rare-pair/app/issues/592
 - AND its cached pages, fragments, images and download URLs are purged where the purge reaches them (what it cannot reach is in specs/scenarios/mvp/09-content-origin.md)
 
 ### Related requests are listed together

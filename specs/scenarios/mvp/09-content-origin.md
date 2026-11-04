@@ -128,3 +128,4 @@ Relates to: docs/ARCHITECTURE.md § System overview, § Why these pieces (Two la
 - AND a live or hidden work's files are never touched by this rule
 - AND a work with an upload still pending or processing in its folder is left for a later run
 - AND a repeat run deletes nothing more
+- AND the cases it cannot reach (a stuck upload, a duplicate's epub after a failed removal delete, an upload with no `work_id` whose prefix is gone) are tracked in https://github.com/rare-pair/app/issues/592

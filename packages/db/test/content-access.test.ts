@@ -105,9 +105,10 @@ async function readAgainst(
 }
 
 describe("createDb timeouts", () => {
-  it("A server that never answers fails the read within the query timeout", async () => {
+  it("A server that never answers fails the read within the connection timeout", async () => {
     // Accepts connections and says nothing, as a database that has stopped responding does.
-    const { failure, elapsed } = await readAgainst(() => {}, { connect: 300, query: 300 });
+    // The query timeout is long, so only the connection timeout can end the read in time.
+    const { failure, elapsed } = await readAgainst(() => {}, { connect: 300, query: 10_000 });
     expect(failure).not.toBeNull();
     expect(elapsed).toBeLessThan(3000);
   });
