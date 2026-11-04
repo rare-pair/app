@@ -70,6 +70,12 @@ Relates to: docs/ARCHITECTURE.md § System overview, § Why these pieces (Two la
 - THEN the response is 451 with no body, `Cache-Control: no-store` and `nosniff`
 - AND it has no `Set-Cookie`, and nothing is stored in the edge cache
 
+### A copy cached before a hide is served until it ages out
+- GIVEN work W is live and its image is in the data centre's cache
+- WHEN W is hidden and the image is requested again
+- THEN the cached copy is still served, as a hide does not purge
+- AND once the entry is gone, the next request is refused with 451
+
 ### A refusal names no cause
 - GIVEN work W is hidden by a removal request
 - WHEN its image is requested
@@ -100,6 +106,11 @@ Relates to: docs/ARCHITECTURE.md § System overview, § Why these pieces (Two la
 - GIVEN a duplicate upload of work W, with an original in R2
 - WHEN the original is requested while W is live, and again once W is hidden
 - THEN it is served, and then refused with 451
+
+### An image id with a leading zero is not a work
+- GIVEN a live work 42900
+- WHEN `/works/042900/img/<hash>` is requested
+- THEN the response is a 404, with no status read
 
 ### An original's key without .epub is checked the same way
 - GIVEN a hidden work's original stored under its upload id without `.epub`

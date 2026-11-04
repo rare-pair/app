@@ -119,8 +119,8 @@ an unofficial stopgap.
     work's, an upload with no work (a refused file) and a held version's get 404, all
     with no body and `Cache-Control: no-store`. A duplicate upload follows its
     work. A cache hit needs no read. If the database can't be connected to, or can't answer,
-    within 2 s each, the request fails closed: 503, empty, `no-store`, nothing stored and no bytes sent.
-    A refusal never names the hide cause. The connection is per request and the
+    within 2 s each, the request fails closed (a request can hold its connection for up to about 4 s before it does): 503, empty, `no-store`, nothing stored and no bytes sent.
+    An image is judged by its work alone: images are shared by every version of a work and keyed by their content hash, so a held version's image is served once the work is live, as an unguessable URL (only its original is refused). A refusal never names the hide cause. The connection is per request and the
     logs hold an error's class name only.
 
 ## Data model (first cut)
@@ -1349,7 +1349,7 @@ markup: its inline `style` attributes become stylesheet rules, because
   config keeps its own pool, and the web Worker uses two: before launch, check the pool
   sizes of the two configs and the ingest and sweep one against Neon's connection limit.
 - Edge cache: images and original downloads on `content.rarepair.fans` never change
-  once written, since each version has its own prefix, so the browser keeps them for
+  once written (an image's key is its content hash, an original's its upload's id), so the browser keeps them for
   a year, but a data centre keeps them for 12 hours, because a hide does not purge:
   `Cache-Control: public, max-age=31536000, immutable, s-maxage=43200`. The Cache API
   expires an entry by its `s-maxage` ahead of `max-age` (seen in the local runtime,
@@ -1431,9 +1431,10 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
   locally: the pool (a Hyperdrive config's pool is shared by every Worker on it, so
   content misses compete with web's sign-in and admin for connections and for Neon's
   limit; if they do, a third uncached config for content is the fix, with its own id
-  here) and the hit ratio (each data centre misses once per file per 12 hours, and
-  `HEAD`, `Range` and conditional requests always read, so the extra reads are
-  unknown until launch: watch Neon's connection count and the Worker's 503s).
+  here) and the hit ratio (each data centre misses once per file per 12 hours; `HEAD`, `Range` and conditional
+  requests, and every refusal (404 for a file that isn't there, 451, 503), are never
+  cached and read every time, so a scraper walking ids costs a read per request, and the
+  extra reads are unknown until launch: watch Neon's connection count and the Worker's 503s).
 - Queries that select `now()` or another non-immutable function are never cached by Hyperdrive.
   Some reads here still select `now()` beside a read for that reason; they stay correct
   on an uncached connection and are redundant there.

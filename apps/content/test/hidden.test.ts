@@ -103,6 +103,21 @@ describe("09-content-origin", () => {
     }
   });
 
+  it("A copy cached before a hide is served until it ages out", async () => {
+    const w = await seeded("live");
+    await expectServed(w.image, PNG, "live image");
+    const cached = await request(w.image);
+    expect(cached.res.status).toBe(200);
+    expect(await caches.default.match(`${ORIGIN}/${w.image}`)).toBeDefined();
+    await withDb((db) => hideWork(db, w.workId, "moderator"));
+    const stale = await request(w.image);
+    expect(stale.res.status).toBe(200);
+    expect(stale.body).toEqual(PNG);
+    // Ageing out, as the entry's 12 hours do: the entry is gone and the next request is refused.
+    await caches.default.delete(`${ORIGIN}/${w.image}`);
+    await expectRefused(w.image, 451, "hidden image once uncached");
+  });
+
   it("A refusal names no cause", async () => {
     const w = await seeded("hidden", "removal_request");
     const { res } = await request(w.image);
