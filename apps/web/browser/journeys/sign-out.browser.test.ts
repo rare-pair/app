@@ -13,7 +13,7 @@ import { SITE } from "../harness/site";
 describe("sign-out journey", () => {
   const running = useJourneySite();
 
-  it("The button signs a reader out without JavaScript and lands on the home page", async () => {
+  it("The sign-out button works without JavaScript", async () => {
     const { site } = running;
     // Signing in needs the sign-in page's script (Turnstile); the session then moves to a
     // browser with JavaScript off, which is where sign-out has to work too.

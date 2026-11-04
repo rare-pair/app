@@ -856,9 +856,9 @@ origin. Work pages, listings and search stay open, so people can still find work
   same-origin check as the sign-in forms (before the session lookup), calls
   `auth.api.signOut`: it deletes the session row and clears Better Auth's cookies with
   the attributes they were set with, and the answer is a 303 to `/`. The response also
-  carries `Clear-Site-Data: "cache"`, so a page the browser kept while signed in can't
-  come back with the signed-in header. Not `"cookies"`: the reader's settings live in
-  cookies and outlast a sign-out. With no session the answer is the same. `GET /logout`
+  carries `Clear-Site-Data: "cache"`, so a page the browser kept while signed in is fetched again, in a browser that
+  honours the header (Chromium does, on a 303 too; Safari and Firefox are unchecked). Not `"cookies"`: the reader's settings live in
+  cookies and outlast a sign-out. It ends only the session the cookie names: other devices stay signed in. With no session the answer is the same. `GET /logout`
   signs nobody out: it shows the button, or says the visitor isn't signed in. Better
   Auth clears the cookie even if deleting the row failed, and the route can't tell.
   Open before launch and exempt from the terms gate.

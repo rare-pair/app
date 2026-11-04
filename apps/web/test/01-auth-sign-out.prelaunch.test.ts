@@ -39,6 +39,9 @@ describe("01-auth-magic-link sign-out before launch", () => {
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toBe("/");
     expect(res.headers.get("clear-site-data")).toBe('"cache"');
+    expect(
+      res.headers.getSetCookie().some((c) => c.startsWith("__Secure-better-auth.session_token=;")),
+    ).toBe(true);
     expect(await rows()).toHaveLength(0);
   });
 });

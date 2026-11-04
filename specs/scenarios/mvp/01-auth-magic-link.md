@@ -145,10 +145,21 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - WHEN the "Sign out" button on `/logout` posts `POST /logout` from the site
 - THEN the user's `session` row is deleted
 - AND the response clears the session cookie (`Max-Age=0`, with the `Secure`, `HttpOnly` and `SameSite=Lax` it was set with, and no `Domain`) and redirects to `/` with a 303
-- AND the response carries `Clear-Site-Data: "cache"`, and no other value, so the reader's settings cookies stay
+
+### Sign-out empties the browser's cache and keeps the reader's settings
+- GIVEN a signed-in user
+- WHEN `POST /logout` is answered
+- THEN the response carries `Clear-Site-Data: "cache"`, and no other value
+- AND the only cookies it sets are Better Auth's, so the reader's settings cookies stay
+- AND in a browser that ignores the header, listings may still be cached for their own short lifetime (not tested; Chromium honours it)
+
+### The sign-out button works without JavaScript
+- GIVEN a signed-in user in a browser with JavaScript off
+- WHEN they press "Sign out" on `/logout`
+- THEN they land on the home page, signed out, and `/me/uploads` sends them to `/login`
 
 ### Sign-out without a session answers the same
-- GIVEN a visitor with no session cookie, or a cookie for a session that is gone
+- GIVEN a visitor with no session cookie, a forged one, or the cookie of a session that was already signed out (a second tab)
 - WHEN they post `POST /logout`
 - THEN the response is the same 303 to `/`, with the cookie cleared and `Clear-Site-Data: "cache"`, and no error
 

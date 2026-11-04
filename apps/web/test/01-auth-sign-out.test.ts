@@ -69,8 +69,10 @@ describe("01-auth-magic-link sign-out", () => {
   });
 
   it("Sign-out without a session answers the same", async () => {
-    const signedIn = await postLogout(await signIn("sign-out-same@example.test"));
-    for (const cookie of [undefined, "__Secure-better-auth.session_token=forged.value"]) {
+    const old = await signIn("sign-out-same@example.test");
+    const signedIn = await postLogout(old);
+    // The last is a second tab: a real cookie whose session was just signed out.
+    for (const cookie of [undefined, "__Secure-better-auth.session_token=forged.value", old]) {
       const res = await postLogout(cookie);
       expect(res.status).toBe(signedIn.status);
       expect(res.headers.get("location")).toBe("/");
