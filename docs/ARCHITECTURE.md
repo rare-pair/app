@@ -744,7 +744,9 @@ origin. Work pages, listings and search stay open, so people can still find work
   model names hold those letters. The www 308 and the pre-launch redirect still come
   first, since neither serves any text. Both Workers share the list. The check runs ahead of the
   session lookup, the edge cache and the work's status, so a refusal costs no
-  lookups and doesn't show whether a work is live, hidden or removed. On the
+  lookups and doesn't itself show whether a work is live, hidden or removed (the work
+  page, which stays open, still answers 451 or 410). Paths are checked in the decoded
+  form the router matches, so percent-encoding gets no way around them. On the
   content origin it answers before `caches.default`, with no body and no cookie.
 - **Only what a client declares.** Nothing is refused for looking headless, for its
   IP range or for its request rate: those would catch the real-browser journeys and
@@ -771,7 +773,11 @@ origin. Work pages, listings and search stay open, so people can still find work
   chapter pages, 10 `/full` and 10 originals, revisited with the others in Surge controls.
   Those let one address take 14,400 whole works a day, so they slow a scraper and don't
   stop one; a limit low enough to stop one would throttle readers sharing a mobile
-  carrier's address. A limiter that throws doesn't fail the read.
+  carrier's address. A limiter that throws doesn't fail the read. So that another site
+  can't spend a reader's limits with `<img>` tags or frames, a request with
+  `Sec-Fetch-Site: cross-site` and a `Sec-Fetch-Dest` other than `document` gets the 403
+  on these paths, uncounted. It can't help a scraper, which gets no text that way. Images
+  are exempt, since they aren't throttled.
 - **What this doesn't stop.** A scraper posing as a browser across many addresses is
   slowed at most, and an agent driving a person's real browser looks like that person.
   Stopping those would take a sign-in to read, which the operator ruled out on
@@ -1225,8 +1231,9 @@ markup: its inline `style` attributes become stylesheet rules, because
   cached inside the web Worker (see Reading). Work and tag listings
   get a short cache with stale-while-revalidate.
 - Observability: Workers Logs and traces are on from day one, except that the
-  content Worker's per-request invocation logs are off (its URLs carry the AO3
-  work id); its errors and metrics stay on. Track queue depth, ingest failure
+  web and content Workers' per-request invocation logs are off (their URLs carry
+  the AO3 work id, and the web Worker's the chapter too); their errors and metrics
+  stay on. Track queue depth, ingest failure
   rate and search p95 on a dashboard, with crawler refusals by reason and throttled
   reads, each counted from a log line holding only the reason.
 

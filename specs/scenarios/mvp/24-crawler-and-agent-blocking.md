@@ -14,6 +14,7 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - Zone config: one custom rule blocks `cf.client.bot` on each host's protected paths. A request it blocks gets Cloudflare's own block page and never reaches a Worker. Bot Fight Mode, Super Bot Fight Mode and Browser Integrity Check are off, since each can challenge a reader or set a cookie. AI Crawler and Agent access policies stay on allow and Bot Preference Sync stays off, since both act on the whole zone
 - Read throttles are Workers rate-limiting bindings keyed per client as in specs/scenarios/mvp/19-surge-controls-and-quotas.md (an IPv4 address, or an IPv6 /64). First values per 60 seconds, to be revisited in load testing: 120 chapter pages, 10 `/works/:id/full` and 10 originals. At those limits one address can still take 14,400 whole works a day, so the throttles slow a scraper and don't stop one
 - One read is one GET or HEAD of a chapter page, `/works/:id/full` or an original, counted before anything is looked up, whatever it answers, a redirect to the warnings screen included. `/works/:id/chapters` (the chapter select's redirect), `/works/:id/warnings` and a refused request don't count
+- A cross-site subresource request is one with `Sec-Fetch-Site: cross-site` and a `Sec-Fetch-Dest` other than `document`. Protected paths are checked in the decoded form the router matches, so a percent-encoded path gets no way around them
 
 ## Cases
 
@@ -22,6 +23,18 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - WHEN the web Worker receives it, by GET or HEAD
 - THEN the response is 403 with the plain automated-access page and no chapter text, title or other detail of the work
 - AND it has `Cache-Control: no-store`, the strict CSP and `Strict-Transport-Security`
+
+### Encoded paths are refused too
+- GIVEN a declared automated client
+- WHEN it asks for `/works/:id/%66ull`, `/works/%31/full`, `/works/:id/%63hapters/1` or `/works/:id/chapters/%31`
+- THEN the response is the 403, with no chapter text
+
+### Another site can't spend a reader's limits
+- GIVEN a page on another site that embeds chapter URLs, `/works/:id/full` or originals as images, frames or scripted requests
+- WHEN a reader's browser sends those cross-site subresource requests
+- THEN each gets the 403 with no text or bytes, and none counts against the reader's read limits
+- AND a link from another site that the reader follows to a chapter or an original is served and counted as usual
+- AND a cross-site `<img>` of an image on `content.rarepair.fans` is served, since images are not throttled
 
 ### Redirects still come first
 - GIVEN a declared automated client asking for a chapter of W
@@ -72,6 +85,12 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - WHEN the refusal is recorded
 - THEN no log line holds the URL, the work id or the client's address
 - AND traces stay as ARCHITECTURE § Why these pieces (Hosts) has them, which may record the request URL
+
+### Counting refusals does not log what people read
+- GIVEN the web Worker's logs are on so refusals can be counted
+- WHEN readers open chapters and `/works/:id/full`
+- THEN no per-request invocation log is kept, on that Worker as on the content Worker, because its URLs carry the work id and chapter number
+- AND no log line holds a reading URL or address next to a work id
 
 ### Refusals store nothing about the client
 - GIVEN a refused request on either host
@@ -190,7 +209,7 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 ### Refusals are counted by reason
 - GIVEN requests refused or throttled by either Worker
 - WHEN an operator opens the operations dashboard
-- THEN they can see how many were refused by each reason (signature, crawler list) and how many reads were throttled
+- THEN they can see how many were refused by each reason (signature, crawler list, cross-site subresource) and how many reads were throttled
 - AND each is counted from a log line holding only that reason, with no URL or address
 - AND requests the zone rule blocked are read from Security Events instead, since they never reach a Worker
 
