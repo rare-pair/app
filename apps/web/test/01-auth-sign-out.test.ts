@@ -23,8 +23,11 @@ async function sessionRows(email: string) {
 }
 
 /** POST /logout as the site's own form posts it, with `cookie` if given. */
-const postLogout = (cookie?: string, headers: Record<string, string> = {}) =>
-  postLogin({}, { url: "/logout", headers: { ...(cookie ? { cookie } : {}), ...headers } });
+function postLogout(cookie?: string, extra: Record<string, string> = {}) {
+  const headers = { ...extra };
+  if (cookie !== undefined) headers.cookie = cookie;
+  return postLogin({}, { url: "/logout", headers });
+}
 
 describe("01-auth-magic-link sign-out", () => {
   it("Sign-out ends the session and clears the cookie", async () => {
