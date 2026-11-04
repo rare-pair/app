@@ -26,7 +26,7 @@ const cacheControl = () =>
 // leading dot. The path is used as the R2 key undecoded, after the URL parser has
 // already resolved any dot segments, encoded or not.
 const SEGMENT = "[A-Za-z0-9_-][A-Za-z0-9._-]*";
-const IMAGE = /^\/works\/\d+\/img\/[0-9a-f]{64}$/;
+const IMAGE = /^\/works\/[1-9]\d*\/img\/[0-9a-f]{64}$/;
 const ORIGINAL = new RegExp(`^/originals/${SEGMENT}$`);
 
 // Ingest stores only these image types (ARCHITECTURE, EPUB processor step 6).
@@ -144,29 +144,30 @@ export default {
     // before any byte goes out. The R2 read starts with it so the check adds no round trip, but
     // nothing is sent until the status is known. A hit above needed no read: a hidden work's
     // cached copy ages out with its entry (ARCHITECTURE, Author requests & takedowns).
-    const [access, read] = await Promise.allSettled([
-      readAccess(env, ctx, subjectOf(path)),
-      env.BUCKET.get(path.slice(1)),
-    ]);
-    const object = read.status === "fulfilled" ? read.value : null;
-    // An unread object holds a connection: drop it whenever it isn't the response.
-    const drop = () => void object?.body.cancel().catch(() => undefined);
+    const reading = env.BUCKET.get(path.slice(1));
+    reading.catch(() => undefined); // handled below, or by dropped()
+    // An unread object holds a connection: whatever isn't the response is dropped.
+    const dropped = () => void reading.then((o) => o?.body.cancel()).catch(() => undefined);
     // A failed read goes out through respond(), empty and uncached, and a status that could
-    // not be read refuses the file however the R2 read went.
-    if (access.status === "rejected") {
-      logFailure("status read", access.reason);
-      drop();
+    // not be read refuses the file however the R2 read goes. A refusal doesn't wait on R2.
+    let access: ContentAccess;
+    try {
+      access = await readAccess(env, ctx, subjectOf(path));
+    } catch (error) {
+      logFailure("status read", error);
+      dropped();
       return respond(null, 503, { "Cache-Control": "no-store" });
     }
-    if (access.value === "hidden") {
-      drop();
-      return hiddenResponse();
+    if (access !== "serve") {
+      dropped();
+      return access === "hidden" ? hiddenResponse() : notFound();
     }
-    if (access.value === "refuse") {
-      drop();
-      return notFound();
+    let object: R2ObjectBody | null;
+    try {
+      object = await reading;
+    } catch {
+      return respond(null, 503, { "Cache-Control": "no-store" });
     }
-    if (read.status === "rejected") return respond(null, 503, { "Cache-Control": "no-store" });
     if (!object) return notFound();
 
     // Stored disposition is never echoed. An original's type is fixed; an image keeps

@@ -34,7 +34,7 @@ export async function getImageAccess(
  * Whether the original of upload `uploadId` may be served. It follows its work's status, and
  * only a `live` or `duplicate` upload is public: a held version's is never (404 to the public),
  * and an upload with no work (refused, or still in flight) has no status to follow, so it is
- * refused. A hidden work refuses every upload it has, held ones included.
+ * refused. Those answer 404 whatever their work's status, so the answer says nothing about it.
  */
 export async function getOriginalAccess(
   db: Kysely<Database>,
@@ -47,7 +47,7 @@ export async function getOriginalAccess(
     .where("uploads.id", "=", uploadId)
     .executeTakeFirst();
   if (!row?.work_status) return "refuse";
-  if (row.work_status === "hidden") return "hidden";
+  // Only a published upload says anything about its work: a held one is a 404 either way.
   const published = row.upload_status === "live" || row.upload_status === "duplicate";
   return published ? byWorkStatus(row.work_status) : "refuse";
 }

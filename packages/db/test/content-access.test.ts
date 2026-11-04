@@ -45,12 +45,12 @@ describe("getOriginalAccess", () => {
     expect(await getOriginalAccess(t.db, work.uploadId)).toBe("hidden");
   });
 
-  it("Refuses a held version's upload, but a hidden work refuses it as hidden", async () => {
+  it("Refuses a held version's upload, whether its work is live or hidden", async () => {
     const work = await seedWork(t.db);
     const held = await seedVersion(t.db, work, { current: false });
     expect(await getOriginalAccess(t.db, held.uploadId)).toBe("refuse");
     await hideWork(t.db, work.workId, "moderator");
-    expect(await getOriginalAccess(t.db, held.uploadId)).toBe("hidden");
+    expect(await getOriginalAccess(t.db, held.uploadId)).toBe("refuse");
   });
 
   it("Refuses an unknown upload, an upload with no work, and a removed work's", async () => {

@@ -118,8 +118,8 @@ an unofficial stopgap.
     only a `live` work's files: a hidden work's get 451, and a removed or unknown
     work's, an upload with no work (a refused file) and a held version's get 404, all
     with no body and `Cache-Control: no-store`. A duplicate upload follows its
-    work. A cache hit needs no read. If the database can't be read within 2 s, the
-    request fails closed: 503, empty, `no-store`, nothing stored and no bytes sent.
+    work. A cache hit needs no read. If the database can't be connected to, or can't answer,
+    within 2 s each, the request fails closed: 503, empty, `no-store`, nothing stored and no bytes sent.
     A refusal never names the hide cause. The connection is per request and the
     logs hold an error's class name only.
 

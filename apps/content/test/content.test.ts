@@ -197,6 +197,8 @@ describe("09-content-origin", () => {
       "",
       "works/42900/work",
       "works/abc/img/x",
+      // A leading zero would be a second spelling of the work, and a second cache key.
+      `works/0${WORK_AO3_ID}/img/${"0".repeat(64)}`,
       "works/42900/img/a/b",
       "works/42900/img/",
       "works/42900/img/..%2f01J9ZQ4K7M3XYV8T2W5R6N0B1C%2f1.html",
