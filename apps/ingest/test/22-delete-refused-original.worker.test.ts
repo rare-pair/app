@@ -260,7 +260,7 @@ describe("ORIG: a job that lost its lease deletes nothing a takeover shares", ()
       process: async () => parsedWork({ ao3WorkId: "42711", freeforms: [hugeTag()] }),
       bucket: beforeDelete(async () => {
         // The row as the delete finds it: a delete before the ending write sees `processing`.
-        atDelete = await uploadRow(id);
+        atDelete ??= await uploadRow(id);
         // Another delivery of the same upload arrives while the delete is in flight.
         const again = watchedWorker({ save: async (upload) => void takeover.push(upload.id) });
         await deliver([{ upload_id: id }], { handler: again.handler });
