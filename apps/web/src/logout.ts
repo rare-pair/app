@@ -61,17 +61,14 @@ export async function signOutRoute(c: LogoutContext) {
       headers: c.req.raw.headers,
       returnHeaders: true,
     });
-    // `signOut` answers success whether or not the delete worked, so ask the table. Fresh
-    // read of the row's id (the middleware's lookup): see the doc comment.
+    // `signOut` answers success whether or not the delete worked, so ask the table.
     if (sessionId !== undefined) {
       const left = await db
         .selectFrom("session")
         .select("id")
         .where("id", "=", sessionId)
         .executeTakeFirst();
-      if (left !== undefined) {
-        return c.html(signOutFailedPage(), 500, NO_STORE);
-      }
+      if (left !== undefined) return c.html(signOutFailedPage(), 500, NO_STORE);
     }
     // Built here: a handler's own Response doesn't keep headers set before it
     // (session.ts), and the session middleware leaves a session cookie set here alone.

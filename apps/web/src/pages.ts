@@ -218,13 +218,11 @@ export const forbiddenPage = ({ signInLink = true } = {}) =>
   );
 
 /** `GET /logout` for someone signed in: only a button that posts. No script. */
-export const logoutPage = () =>
-  layout(
-    "Sign out",
-    `<form method="post" action="/logout">
+export const logoutPage = () => layout("Sign out", SIGN_OUT_FORM);
+
+const SIGN_OUT_FORM = `<form method="post" action="/logout">
 <button type="submit">Sign out</button>
-</form>`,
-  );
+</form>`;
 
 /** `GET /logout` for someone who isn't signed in. */
 export const notSignedInPage = () =>
@@ -273,7 +271,5 @@ export const signOutFailedPage = () =>
   layout(
     "Sign out didn't work",
     `<p>We couldn't sign you out, and you are still signed in. Please try again.</p>
-<form method="post" action="/logout">
-<button type="submit">Sign out</button>
-</form>`,
+${SIGN_OUT_FORM}`,
   );
