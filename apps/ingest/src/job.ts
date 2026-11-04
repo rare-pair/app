@@ -77,22 +77,20 @@ export async function runJob(deps: JobDeps, uploadId: string, attempt: number): 
     const ending: Outcome = final
       ? { status: "parse_failed", failure: { stage, error: errorCode(error) } }
       : { status: "pending" };
-    await discardOriginalAfter(deps, lease, ending, await endLease(deps.db, lease, ending));
+    await endJob(deps, lease, ending);
     return "retry";
   }
   await keeper.stop();
   // Outside the job's try: if this write fails, it is not recorded as the job's own failure.
   // The message is retried and the rejection found again, unless this was the last attempt
   // (#214).
-  if (outcome !== null) {
-    await discardOriginalAfter(deps, lease, outcome, await endLease(deps.db, lease, outcome));
-  }
+  if (outcome !== null) await endJob(deps, lease, outcome);
   return "ack";
 }
 
 /**
- * Deletes the refused upload's `originals/` file (#576), after the ending write that made the
- * refusal final, and only if that write matched. The order is the safety: a matched write means
+ * Records the outcome and ends the lease, then deletes the refused upload's `originals/` file
+ * (#576), only if the ending write matched. The order is the safety: a matched write means
  * no job took the upload over, and a final status can't be claimed again, so no other job can
  * write this key after the check. A delete before the ending write leaves a window where a
  * takeover stores the file and this job removes it from under a version that goes live. A crash
@@ -100,12 +98,8 @@ export async function runJob(deps: JobDeps, uploadId: string, attempt: number): 
  * which the save already cleaned up. A failed delete is logged and changes nothing: the upload
  * is final and its message is not retried for it.
  */
-async function discardOriginalAfter(
-  deps: JobDeps,
-  lease: Lease,
-  outcome: Outcome,
-  ended: boolean,
-): Promise<void> {
+async function endJob(deps: JobDeps, lease: Lease, outcome: Outcome): Promise<void> {
+  const ended = await endLease(deps.db, lease, outcome);
   if (!ended || outcome.status === "pending" || outcome.status === "work_removed") return;
   try {
     const deleted = await deleteOriginal(deps.bucket, lease.id);
