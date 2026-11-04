@@ -26,7 +26,7 @@ an unofficial stopgap.
 | Search scope | Metadata only: title, author, tags, summary |
 | Chapter rendering | Inline in app pages behind a strict CSP, with no iframe |
 | Wait list | Before launch, `/` is a coming-soon page with a double opt-in wait list. Each confirmed address is sent one launch email, from the same mail subdomain as sign-in, spread over hours on its own queue. The list is deleted after the launch send |
-| Requester data | What a requester sends with a removal or opt-out request (email address, hashed network address, statement), and a requester block's email and hash, is kept until the site closes, then deleted by hand. It is not erased on request. No erase path, sweep job or migration exists for it. Copyright notices and account data are not covered. Privacy page copy is draft, pending legal review (operator ruling, 2026-11-04) |
+| Requester data | What a requester sends with a removal or opt-out request (email address, hashed network address, statement), and a requester block's email and hash, is kept until the site closes, then deleted by hand. It is not erased on request. There is no retention sweep job and no migration for it. The only delete of a request's row is the rollback when its confirmation email cannot be queued. Copyright notices and account data are not covered. Privacy page copy is draft, pending legal review (operator ruling, 2026-11-04) |
 
 ## System overview
 
@@ -950,7 +950,7 @@ epub, under the normal versioning rules.
   stored or logged. Every form that stores or matches one uses `src/ip-hash.ts`, so
   blocks match what was stored; changing the key or the grouping orphans stored
   hashes.
-- **Retention.** The hash is kept with the request until the site closes, then deleted
+- **Retention.** The hash is kept with the request, or with a requester block, until the site closes, then deleted
   by hand. It is not erased on request (operator ruling, 2026-11-04).
 - **Block and ban stop only the action.** Blocking a requester (by contact
   email and IP hash) means their later `/remove` requests, and reports from an

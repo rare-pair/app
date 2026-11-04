@@ -75,7 +75,7 @@ describe("20-site-chrome-and-legal", () => {
     const privacy = await htmlOf("/privacy");
     expect(privacy).toMatch(/requests keep .*email address/i);
     expect(privacy).toMatch(/hashed form of your network address/i);
-    expect(privacy).toMatch(/until the site closes/i);
+    expect(privacy).toMatch(/work or pseud/i);
     expect(privacy).toMatch(/until the site closes, and then delete it/i);
     expect(privacy).toMatch(/do not erase .* when you ask/i);
   });
