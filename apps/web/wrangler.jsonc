@@ -28,7 +28,7 @@
   // a public page doesn't make. HYPERDRIVE_CACHED has caching on and serves public pages only
   // (src/home.ts, listing.ts, search.ts, work-page.ts, reader.ts, full.ts, warnings.ts).
   // The two ids must differ: one id pasted into both puts every read in the cache, and nothing
-  // in the repo can see it. The operator runs, in this order (ARCHITECTURE, Connections):
+  // in the repo can see it. The operator runs these in the order of the list in ARCHITECTURE, Connections (it also puts real ids in the other three wrangler files and deploys them):
   //   wrangler hyperdrive create <name> --connection-string=<url>   (for HYPERDRIVE_CACHED)
   //   deploy this Worker with both ids, then
   //   wrangler hyperdrive update <HYPERDRIVE id> --caching-disabled

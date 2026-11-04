@@ -81,7 +81,11 @@ async function readAgainst(
   onConnection: (socket: net.Socket) => void,
   timeouts: { connect: number; query: number },
 ) {
-  const server = net.createServer(onConnection);
+  const server = net.createServer((socket) => {
+    // The client tears the connection down when it gives up: a reset is expected.
+    socket.on("error", () => {});
+    onConnection(socket);
+  });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   // SAFETY: a server listening on a port has an address object, not a pipe path.
   const { port } = server.address() as net.AddressInfo;
@@ -123,7 +127,6 @@ describe("createDb timeouts", () => {
           const ready = Buffer.from([0x5a, 0, 0, 0, 5, 0x49]);
           socket.write(Buffer.concat([authOk, ready]));
         });
-        socket.on("error", () => {});
       },
       { connect: 5000, query: 300 },
     );

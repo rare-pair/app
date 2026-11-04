@@ -516,8 +516,8 @@ Chapter text isn't indexed.
    deletes the one key `originals/<upload_id>.epub`, so the content host no
    longer serves it from R2. The content host serves an upload's original only
    when the upload is `live` or a `duplicate` (a refused upload gets 404 whatever its
-   work's status), so a refused upload's original is not served, and no
-   edge copy is expected to exist for it. The delete comes
+   work's status), so a refused upload's original, which never went live,
+   is not served, and no edge copy is expected to exist for it. The delete comes
    after the fenced write that ends the upload, and only when that write
    matched: a job that lost its lease deletes nothing, and an ended upload
    can't be claimed again, so the delete never removes a file a takeover job
@@ -1072,7 +1072,7 @@ epub, under the normal versioning rules.
   bucket a day), deletes everything under the folder of a work whose status is
   `removed`, with no age limit, along with `originals/<upload_id>.epub` for each
   `<upload_id>/` prefix in that folder. The status is read fresh: the query selects
-  `now()`, a stable function, so Hyperdrive never serves it from its cache, and the
+  `now()`, a non-immutable (stable) function, so Hyperdrive never serves it from its cache, and the
   Hyperdrive config has caching off too; a change to that read must keep it uncacheable.
   The sweep skips a work that has an upload pending or processing whose `<upload_id>/`
   prefix is in the folder, or that is already tied to the work, and takes the work on a
@@ -1446,9 +1446,10 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
   upload status page links to the work page, so someone can meet this just after
   "done". New code that reads
   through `HYPERDRIVE` without knowing about this is fresh, and so safe.
-- **Operator steps: one ordered list.** Steps 1 to 3 go in this order, since each
-  needs what the one before made. Before launch nothing is deployed, so steps 3 to 5 then
-  have no order among them; once Workers are live, keep the order. **Pasting one id into both configs puts
+- **Operator steps: one ordered list.** Keep this order: each step needs what the
+  one before made, and once Workers are live a step out of order serves reads from the
+  wrong config. (Before launch nothing is live, so a slip costs nothing but the ids must
+  still exist first.) **Pasting one id into both configs puts
   every read back in the cache, and no test can see it**: ids in the repo are
   placeholders, and caching is a property of the deployed config.
   1. Create a second config on the same database with caching on (`wrangler hyperdrive
