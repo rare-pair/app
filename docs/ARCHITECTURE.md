@@ -409,7 +409,8 @@ Chapter text isn't indexed.
    them, a retried job rewrites the same keys, and they can be cached as
    `immutable`. Images no version references (say, from a job that failed
    before its transaction) are removed by a periodic sweep, and all of them go
-   when the work is removed.
+   when the work is removed; whatever the removal's purge missed, the sweep
+   deletes on its next run (*Removal really removes*).
 7. **Versioning.** Each work is keyed by `ao3_work_id`. The first upload
    creates the work. A later upload:
    - **replaces the current version** only if it is newer (more chapters or a
@@ -536,7 +537,9 @@ Chapter text isn't indexed.
    and the job deletes the R2 files it had written: its `originals/` file, and
    the work's `works/<ao3_work_id>/` folder (only the upload's own fragments, if
    the work was restored in the meantime; its images then stay for the sweep),
-   since the removal's purge may have run before those writes. The same
+   since the removal's purge may have run before those writes. What a failed
+   clean-up leaves under a removed work's folder, the sweep deletes (*Removal
+   really removes*). The same
    clean-up runs when a redelivery reaches the save and finds the work removed,
    so a clean-up that failed is repeated (not on the last attempt, nor when the
    takedown list now ends the upload earlier). A removal that purges the current version's
@@ -1019,7 +1022,18 @@ epub, under the normal versioning rules.
   download URLs from the cache. Images and downloads are cached as
   `immutable`, so without the purge parts of a removed work stay reachable. That
   the purge clears the content Worker's own cache entries is not yet confirmed (see
-  Surge controls, Edge cache).
+  Surge controls, Edge cache). The sweep finishes what the purge or an ingest clean-up
+  missed: on every run it deletes everything under the folder of a work whose status is
+  `removed` (read fresh, never through a cache), with no age limit, along with
+  `originals/<upload_id>.epub` for each `<upload_id>/` prefix in that folder. It
+  skips a work that has an upload pending or processing, and takes it on a later run.
+  An emptied folder no longer appears in R2, so later runs don't visit it. This relies on
+  removal being permanent: nothing restores a `removed` work, and a restore would have to
+  change this rule first, as the sweep would delete a restored work's files on a stale
+  read. A folder with no `works` row is not a removed work and gets the ordinary
+  rules. Not covered: an original whose `<upload_id>/` prefix is gone while the
+  upload has no `work_id` (nothing ties it to the work), and an upload stuck pending or
+  processing, which keeps its work's folder skipped.
 - **The removal list.** `/removed` lists removed works, newest first: title,
   byline, "The original work" link with its ID and its note, as on the work page,
   date and reason. `/removed/pseuds` lists pseuds with an approved, active opt-out,
@@ -1350,7 +1364,7 @@ apps/web/          Hono Worker: pages, auth, upload handshake, search, admin
 apps/content/      Worker serving epub images and original downloads from R2
 apps/ingest/       Queue consumer: epub processing
 apps/mailer/       Queue consumer: sends email (Resend, with failover)
-apps/sweep/        Daily cron: deletes unreferenced images and orphaned upload prefixes from R2
+apps/sweep/        Daily cron: deletes unreferenced images, orphaned upload prefixes and removed works' leftovers from R2
 packages/epub/     unzip + OPF + AO3 preface parser + sanitizer (tested in workerd)
 packages/db/       SQL migrations + typed queries
 fixtures/epubs/    real AO3 epub samples for parser and sanitizer tests

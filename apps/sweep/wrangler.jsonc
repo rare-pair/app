@@ -1,7 +1,9 @@
 {
   // Sweep Worker: once a day it deletes, under each `works/<ao3_work_id>/` folder in R2, the
   // images no version references and the `<upload_id>/` prefixes no version or in-flight job
-  // owns, older than 24 hours (ARCHITECTURE, EPUB processor). It reads Postgres through
+  // owns, older than 24 hours (ARCHITECTURE, EPUB processor); under a removed work's folder it
+  // deletes everything, of any age, unless a job of the work is running (ARCHITECTURE, Removal
+  // really removes). It reads Postgres through
   // Hyperdrive. No routes: nothing reaches it but the cron.
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "rarepair-sweep",

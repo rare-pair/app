@@ -74,6 +74,10 @@ export interface RunReport {
   works: number;
   imagesDeleted: number;
   prefixesDeleted: number;
+  /** Removed works whose folder this run emptied, or began to before its budget ran out. */
+  removedWorks: number;
+  /** Objects deleted from removed works' folders: fragments, images, whatever was there. */
+  removedObjectsDeleted: number;
   /** Works whose image pass didn't run, and why. */
   skipped: { ao3WorkId: number; reason: SkipReason; error?: string }[];
   /** The run reached the last folder: the next one starts from the first. */
@@ -123,6 +127,8 @@ export async function sweep(deps: SweepDeps): Promise<RunReport> {
     works: 0,
     imagesDeleted: 0,
     prefixesDeleted: 0,
+    removedWorks: 0,
+    removedObjectsDeleted: 0,
     skipped: [],
     finished: false,
     subrequestsLeft: 0,
@@ -346,9 +352,54 @@ function unchanged(before: FolderState, now: FolderState): boolean {
   );
 }
 
+/**
+ * Deletes what is left under a removed work's folder, and the original of each upload the folder
+ * names. Relies on removal being permanent (ARCHITECTURE, *Removal really removes*): nothing
+ * brings a removed work back, so no age cutoff applies and nothing under it is worth keeping.
+ * A work with a job running is left for a later run. Originals go first and the folder second,
+ * so a stop between them leaves the prefixes that name the originals still to find. Each page of
+ * the folder is deleted as it is listed, so a run that spends its budget keeps what it did.
+ */
+async function sweepRemoved(
+  deps: SweepDeps,
+  ao3WorkId: number,
+  folder: string,
+  report: RunReport,
+): Promise<void> {
+  const { bucket } = deps;
+  const state = await folderState(deps, ao3WorkId, folder);
+  if (state.inFlight.size > 0) {
+    report.skipped.push({ ao3WorkId, reason: "in_flight" });
+    return;
+  }
+  report.removedWorks++;
+  await deleteKeys(
+    bucket,
+    [...state.uploads].map((id) => `originals/${id}.epub`),
+  );
+  for (;;) {
+    // The trailing slash keeps `works/12/` from reaching `works/123/`. No cursor: what was
+    // listed is gone, so the next listing starts at what is left.
+    const page = await bucket.list({ prefix: folder, limit: PAGE });
+    if (page.objects.length > 0) {
+      await bucket.delete(page.objects.map((o) => o.key));
+      report.removedObjectsDeleted += page.objects.length;
+    }
+    if (!page.truncated) return;
+  }
+}
+
 async function sweepWork(deps: SweepDeps, ao3WorkId: number, report: RunReport): Promise<void> {
   const { db, bucket, cutoff } = deps;
   const folder = `works/${ao3WorkId}/`;
+  // Read fresh, so a stale "removed" never deletes a work that isn't. Only an existing row with
+  // that status takes this path: a folder with no row is an orphan, not a removed work.
+  const row = await db
+    .selectFrom("works")
+    .select(["status", FRESH])
+    .where("ao3_work_id", "=", ao3WorkId)
+    .executeTakeFirst();
+  if (row?.status === "removed") return sweepRemoved(deps, ao3WorkId, folder, report);
   const state = await folderState(deps, ao3WorkId, folder);
   const candidates = [...state.uploads].filter(
     (id) => !state.inFlight.has(id) && !state.versionPrefixes.has(`${folder}${id}/`),
