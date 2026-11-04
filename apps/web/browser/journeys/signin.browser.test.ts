@@ -5,6 +5,7 @@ import { unstable_readConfig } from "wrangler";
 import { useJourneySite } from "../harness/journey";
 import { signedIn, signInLink } from "../harness/sessions";
 import { SITE, type Site } from "../harness/site";
+import { byAddress, startAtHome, viaHeader } from "../harness/walk";
 
 // A reader signs in through the real pages: the form, the emailed link, the terms for a new
 // account, and the pages a refused link or a limited address sees. Handler cases (the 403 on a
@@ -24,7 +25,10 @@ async function requestLink(page: Page, email: string): Promise<void> {
 
 /** Opens the emailed link and presses its Sign in button. */
 async function followLink(page: Page, link: string): Promise<void> {
-  await page.goto(link);
+  // The emailed link is a full address on the site; byAddress takes its path.
+  const { origin, pathname, search } = new URL(link);
+  expect(origin).toBe(SITE);
+  await byAddress(page, `${pathname}${search}`, "an emailed sign-in link opens as an address");
   await Promise.all([
     page.waitForEvent("load"),
     page.getByRole("button", { name: "Sign in" }).click(),
@@ -70,9 +74,10 @@ describe("sign-in journey", () => {
   it("A new account signs in, accepts the terms and lands on the page it came from", async () => {
     const { site } = running;
     const email = "pw1-new@example.test";
-    const page = await (await site.newContext()).newPage();
+    const page = await startAtHome(await site.newContext());
 
-    await page.goto(`${SITE}/upload`);
+    // Signed out, the header's Add work link sends a person to sign in first.
+    await viaHeader(page, "Add work");
     await expect.poll(() => page.url()).toBe(`${SITE}/login?next=%2Fupload`);
     await requestLink(page, email);
     await page.getByText("Check your email").waitFor();
@@ -99,9 +104,9 @@ describe("sign-in journey", () => {
     const first = await signedIn(site, { email });
     await first.context.close();
     const context = await site.newContext();
-    const page = await context.newPage();
+    const page = await startAtHome(context);
 
-    await page.goto(`${SITE}/upload`);
+    await viaHeader(page, "Add work");
     // signInLink returns the newest email, and the first sign-in's is already there: wait for
     // the one this request queues.
     const signIns = async () =>
@@ -118,9 +123,9 @@ describe("sign-in journey", () => {
     await page.getByRole("heading", { name: "Upload a work" }).waitFor();
 
     // A second page would make a second video: this one is only looked at, not recorded.
-    const tab = await context.newPage();
+    const tab = await startAtHome(context);
     site.dropRecording(tab);
-    await tab.goto(`${SITE}/upload`);
+    await viaHeader(tab, "Add work");
     await expect.poll(() => tab.url()).toBe(`${SITE}/upload`);
     await tab.getByRole("heading", { name: "Upload a work" }).waitFor();
     await tab.close();
@@ -131,24 +136,24 @@ describe("sign-in journey", () => {
   it("Sign-out ends the session in the browser", async () => {
     const { site } = running;
     const { context } = await signedIn(site, { email: "pw1-signout@example.test" });
-    const page = await context.newPage();
-    await page.goto(`${SITE}/`);
+    const page = await startAtHome(context);
     await page.getByRole("banner").getByRole("button", { name: "Sign out" }).click();
     await expect.poll(() => page.url()).toBe(`${SITE}/`);
     await page.getByRole("banner").getByRole("link", { name: "Sign in" }).waitFor();
     expect((await context.cookies()).map((cookie) => cookie.name)).not.toContain(
       "__Secure-better-auth.session_token",
     );
-    await page.goto(`${SITE}/upload`);
+    // Signed out again, the header shows Add work, and it asks to sign in.
+    await viaHeader(page, "Add work");
     expect(new URL(page.url()).pathname).toBe("/login");
   });
 
   it("A used link shows the refused-link page", async () => {
     const { site } = running;
     const email = "pw1-used@example.test";
-    const page = await (await site.newContext()).newPage();
+    const page = await startAtHome(await site.newContext());
 
-    await page.goto(`${SITE}/login`);
+    await viaHeader(page, "Sign in");
     await requestLink(page, email);
     const link = await signInLink(site, email);
     await followLink(page, link);
@@ -163,9 +168,9 @@ describe("sign-in journey", () => {
   it("An expired link shows the refused-link page", async () => {
     const { site } = running;
     const email = "pw1-expired@example.test";
-    const page = await (await site.newContext()).newPage();
+    const page = await startAtHome(await site.newContext());
 
-    await page.goto(`${SITE}/login`);
+    await viaHeader(page, "Sign in");
     await requestLink(page, email);
     const link = await signInLink(site, email);
     await ageLinks(site, email);
@@ -179,13 +184,13 @@ describe("sign-in journey", () => {
     const email = "pw1-limited@example.test";
     // Three requests a minute for one address; the fourth must land in the same window.
     await inFreshWindow(30_000);
-    const page = await (await site.newContext()).newPage();
+    const page = await startAtHome(await site.newContext());
     for (let i = 0; i < 3; i += 1) {
-      await page.goto(`${SITE}/login`);
+      await viaHeader(page, "Sign in");
       await requestLink(page, email);
       await page.getByText("Check your email").waitFor();
     }
-    await page.goto(`${SITE}/login`);
+    await viaHeader(page, "Sign in");
     await requestLink(page, email);
     await page.getByRole("heading", { name: "Too many requests" }).waitFor();
     // Chromium logs the page's own 429 as a console error.
