@@ -204,12 +204,31 @@ export const checkEmailPage = () =>
 <p>The link can take a minute to arrive during busy periods.</p>`,
   );
 
-/** A form posted from somewhere other than this site. */
-export const forbiddenPage = () =>
+/**
+ * A form posted from somewhere other than this site. The sign-in link is for the
+ * sign-in forms: `signInLink: false` leaves it off, for sign-out, where it would
+ * send the person the wrong way.
+ */
+export const forbiddenPage = ({ signInLink = true } = {}) =>
   layout(
     "Request refused",
-    `<p>That request didn't come from rarepair. <a href="/login">Sign in here</a>.</p>`,
+    signInLink
+      ? `<p>That request didn't come from rarepair. <a href="/login">Sign in here</a>.</p>`
+      : `<p>That request didn't come from rarepair.</p>`,
   );
+
+/** `GET /logout` for someone signed in: only a button that posts. No script. */
+export const logoutPage = () =>
+  layout(
+    "Sign out",
+    `<form method="post" action="/logout">
+<button type="submit">Sign out</button>
+</form>`,
+  );
+
+/** `GET /logout` for someone who isn't signed in. */
+export const notSignedInPage = () =>
+  layout("Sign out", `<p>You are not signed in. <a href="/login">Sign in</a>.</p>`);
 
 /**
  * The emailed link's page: only a button that posts the token. Opening the link

@@ -9,7 +9,7 @@ export const isPrelaunch = (env: Pick<Bindings, "PRELAUNCH">) => env.PRELAUNCH !
 
 // The pages open before launch (ARCHITECTURE, Wait list): the coming-soon page, the
 // static pages, sign-in, so an admin can sign in for the first time, and what those
-// pages load. Sign-out isn't here: no doc fixes its URL yet.
+// pages load, and sign-out, so anyone signed in can leave.
 const OPEN_PATHS = new Set([
   "/",
   "/terms",
@@ -17,6 +17,7 @@ const OPEN_PATHS = new Set([
   "/about",
   "/login",
   "/login/confirm",
+  "/logout",
   "/welcome/terms",
   "/robots.txt",
   "/favicon.ico",
@@ -24,7 +25,7 @@ const OPEN_PATHS = new Set([
 // Open with everything below them, by whole segment: /admin/launch, never /administrator.
 // Not /api/auth: nothing serves it yet, and opening it before launch would be a way
 // around POST /login's checks. The ticket that mounts Better Auth's handler opens only
-// the routes it must (sign-out at most), never the whole section.
+// the routes it must, never the whole section. Sign-out is our own /logout.
 const OPEN_SECTIONS = ["/waitlist", "/admin", "/assets"];
 
 const isOpenBeforeLaunch = (path: string) =>

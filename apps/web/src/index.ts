@@ -14,6 +14,7 @@ import { deadLetteredLaunchEmails } from "./launch-dead-letter";
 import { showTagListing } from "./listing";
 import { showSearch } from "./search";
 import { requestSignIn, showSignIn } from "./login";
+import { sameOriginLogout, showLogout, signOutRoute } from "./logout";
 import { jumpToChapter, showChapter } from "./reader";
 import { sameOriginOnly, showReportForm, submitReport } from "./report";
 import { aboutPage, notFoundPage, privacyPage, termsPage } from "./pages";
@@ -64,6 +65,7 @@ app.post("/works/:id/warnings", sameOriginOnly);
 app.post("/remove", sameOriginOnly);
 app.post("/remove/confirm", sameOriginOnly);
 app.post("/dmca", sameOriginOnly);
+app.post("/logout", sameOriginLogout);
 // The session, once, for every page; routes read c.var.session and never mount it
 // again. Static files skip it, and the lookup's database connection with it. Then
 // an account that hasn't accepted the terms is sent to accept them.
@@ -90,6 +92,8 @@ app.get("/login", showSignIn);
 app.post("/login", requestSignIn);
 app.get("/login/confirm", showConfirm);
 app.post("/login/confirm", confirmSignIn);
+app.get("/logout", showLogout);
+app.post("/logout", signOutRoute);
 app.get(WELCOME_TERMS, requireSignIn, showTerms);
 app.post(WELCOME_TERMS, acceptTerms);
 app.post("/waitlist", joinWaitlist);
