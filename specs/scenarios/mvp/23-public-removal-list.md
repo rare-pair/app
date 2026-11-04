@@ -136,11 +136,16 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - THEN their reasons are `dmca`, `removal_request`, `dmca`, `removal_request` and `site_safety`
 - AND each `removed_at` is the time of its latest `remove` log row, or the migration's time if it has none
 
-### An opt-out from before the list is handled by its status
+### An opt-out from before the list is never listed
 - GIVEN an opt-out approved before the migration, and one still pending
 - WHEN the migration runs
-- THEN the approved one is not listed, because its requester was never told a name would be published
-- AND the pending one's `pseud_typed` is its `pseud_norm`, so the confirm step has a name to show
+- THEN both keep a NULL `pseud_typed` and neither is listed, because their requesters were never told a name would be published
+- AND when a moderator opens the pending one's approve, the confirm step says it won't be listed, and approving adds no entry
+
+### A reversal doesn't fall back to an opt-out from before the list
+- GIVEN an opt-out for P approved before the migration, and a later approved opt-out that lists P
+- WHEN a moderator rejects the later one
+- THEN P's row is deleted, and P leaves the list
 
 ### A failed purge still lists the work
 - GIVEN a moderator's remove of W whose cache purge fails
@@ -185,7 +190,9 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 ### A second approval confirms the entry already there
 - GIVEN P listed, or withheld, and a second confirmed opt-out for the same `pseud_norm`
 - WHEN a moderator opens its approve
-- THEN the confirm step shows the entry as it stands, and approving leaves it as it is
+- THEN the confirm step shows the entry as it stands, with the choice to withhold it if it is listed
+- AND approving keeps its name and date, and a withhold chosen there applies, with its `withhold` row
+- AND approving never un-withholds an entry
 
 ### A reversed opt-out leaves the list
 - GIVEN P listed

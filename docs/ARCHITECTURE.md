@@ -162,7 +162,7 @@ takedowns    (id, work_id, requester, basis, status, resolved_by, created_at,
                            -- information; incomplete when a 512(c)(3)(A) element is missing;
                            -- status: pending, rejected, or removed (approved, which puts the work on the takedown list)
 requests     (id, kind, work_id NULL, pseud_norm NULL,
-              pseud_typed NULL,  -- for the removal list: the pseud as typed, cleaned like pseud_norm but with its case kept
+              pseud_typed NULL,  -- for the removal list: the pseud as typed, cleaned like pseud_norm but with its case kept; NULL on an opt-out from before the list, which is never listed
               contact_email, statement, status, ip_hash, confirm_token_hash NULL, confirm_sent_at NULL,
               confirmed_at NULL, created_at)      -- kind: remove_work | opt_out; status: pending, rejected, approved; a request
               -- hides nothing until confirmed_at is set by the emailed link (the token is
@@ -947,11 +947,13 @@ epub, under the normal versioning rules.
   on the work is pending, and otherwise must choose `wrong_file` or `site_safety`, or
   `removal_request` when a confirmed pending request or an active opt-out covers the
   work. The migration derives a reason for works already removed, the same way, with
-  `site_safety` when nothing else applies. It lists no opt-out approved before it, since
-  those requesters were never told, though a removed work's 410 was already public.
-  Approving an opt-out adds its pseud to `listed_pseuds`, or, when a row is there
-  whose request isn't approved, points the row at this one. Rejecting one moves the
-  row to the earliest remaining approved opt-out, or deletes the row when none remains.
+  `site_safety` when nothing else applies. An opt-out from before it, approved or
+  pending, keeps a NULL `pseud_typed` and is never listed, since its requester was never
+  told, though a removed work's 410 was already public. Approving an opt-out that has a
+  `pseud_typed` adds its pseud to `listed_pseuds`, or, when a row is there whose request
+  isn't approved, points the row at this one; a withhold chosen at that step applies,
+  and approving never lifts one. Rejecting one moves the row to the earliest remaining
+  approved opt-out with a `pseud_typed`, or deletes the row when none remains.
   A withheld row with none remaining stays, so a later approve can't republish the name,
   and un-withholding it deletes it. Each takes a transaction advisory lock on the
   `pseud_norm` after its request row, so a concurrent approve and reject can't leave the
