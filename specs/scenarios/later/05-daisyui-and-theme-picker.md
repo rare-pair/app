@@ -53,9 +53,9 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 - THEN every DaisyUI component on the way works or shows its content
 
 ### Site classes don't pick up DaisyUI by accident
-- GIVEN an element whose site class shares a name with a DaisyUI or Tailwind class, such as `stats`, `rating`, `card-title` or `badge`
-- WHEN it renders
-- THEN it has only the DaisyUI styles chosen for it
+- GIVEN a site class that shares a name with a DaisyUI or Tailwind class that Setup doesn't choose for it, such as `stats` on the work page and `rating` on the warnings screen
+- WHEN the page renders
+- THEN no rule from DaisyUI or Tailwind applies to that element through that class
 
 ### Picker offers a fixed list of themes
 - GIVEN a reader on `/settings/reader`
@@ -112,14 +112,10 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 ### Every theme passes AA
 - GIVEN any theme in the list
 - WHEN its colours are checked
-- THEN text, muted text, links, field errors and focus rings pass 4.5:1 on its paper
-- AND text on each component, in each state it can show, passes 4.5:1 on that component
-
-### Black's links can be read
-- GIVEN the Black theme, whose primary, secondary and accent colours are 1.86:1 on its paper
-- WHEN a page with links and focusable controls renders
-- THEN links and focus rings use a colour that passes AA
-- AND primary buttons keep their own colours
+- THEN text, muted text, links, field errors and focus rings pass 4.5:1 on its paper, using a colour other than the theme's own wherever that fails
+- AND text on each component, in each state an enabled component can show, passes 4.5:1 on that component
+- AND the visible boundary of an input, select, textarea, checkbox or radio passes 3:1 on what is behind it
+- AND disabled controls are exempt from these ratios, as in WCAG
 
 ### Links stand out from text
 - GIVEN a link inside a sentence, in any theme
@@ -143,7 +139,7 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 - WHEN it renders
 - THEN its CSP matches ARCHITECTURE § Reading, with `style-src 'self'` and no `data:` in `img-src`
 - AND no inline `style` attribute is used
-- AND the page loads no style or script from another host
+- AND the page loads no style from another host, and no script from another host except Turnstile's on the pages that already load it
 - AND the served stylesheet contains no `data:` URL
 
 ### One theme store
@@ -154,8 +150,8 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 
 ### The stylesheet is built from the app's own markup
 - GIVEN a clean checkout
-- WHEN the web app is built
-- THEN the site stylesheet is produced with no step run by hand
+- WHEN `/gate`'s standing checks run in their order: lint, format check, typecheck, test, then build
+- THEN each one passes and the site stylesheet is produced, with no step run by hand
 - AND every DaisyUI and Tailwind class on every page in the page inventory has its rules in that stylesheet
 
 ### CSS stays small
@@ -165,10 +161,11 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 - AND no page adds another stylesheet for DaisyUI
 
 ### Supported browsers
-- GIVEN each browser in Setup at its oldest supported version
-- WHEN a reader opens a chapter, a listing and `/settings/reader` in each theme
-- THEN the theme's colours apply, the text is readable and every control can be used
-- AND features newer than those versions only add polish
+- GIVEN the built stylesheet and each browser in Setup at its oldest supported version
+- WHEN the stylesheet's CSS features are checked against published browser support data
+- THEN every feature that colour, layout or a control's use depends on is supported, and anything newer only adds polish
+- AND a chapter, a listing and `/settings/reader` render and work in one theme in the oldest Chromium, Firefox and WebKit the browser tests can run
+- AND iOS Safari and Samsung Internet are covered by the data check alone
 
 ### Reduced motion stops component animation
 - GIVEN a reader whose system sets `prefers-reduced-motion`
@@ -189,7 +186,7 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 ### The wait list is unchanged
 - GIVEN `PRELAUNCH` on
 - WHEN the coming-soon and other wait list pages render
-- THEN they load only their own stylesheet and look as they did before
+- THEN no DaisyUI or Tailwind rule applies to them, and they look as they did before
 
 ## Notes
 
@@ -218,6 +215,8 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 - **The reset.** DaisyUI's components set no `box-sizing`, so they likely need a reset, and that reset removes heading sizes, list bullets, link styling and inline images from any markup that has no classes. Uploaded chapters have no classes, because the sanitizer drops them.
 - **`data:` URLs.** The sample Tailwind build has one, and the whole of `daisyui.css` has 42. `img-src` would block them, so they must be left out.
 - **Why not `theme-controller` or `theme-change`.** A checked `theme-controller` input overrides `data-theme`, so the page and the cookie can disagree. `theme-change` keeps the choice in `localStorage`, which the server can't read, so the wrong theme shows first and JS-off readers get nothing. DaisyUI's `[data-theme]` selectors already work with the cookie.
+- **Tailwind's own floor.** Tailwind 4 documents Chrome 111, Safari 16.4 and Firefox 128 as its minimum. Firefox 121 to 127 is below that because it lacks `@property`, so nothing that colour, layout or a control's use depends on can need a registered property there.
+- **Wait list stylesheets.** These pages load the site stylesheet and then their own, which is why they need a way to stay out of the baseline.
 - **Browser floor.** December 2023 releases, from caniuse data, with Samsung Internet 23 as that browser's last 2023 release. Firefox 121 is the first Firefox with `:has()`, which DaisyUI uses heavily. Firefox first has `oklch()` in 113, so a floor at the start of 2023 would need fallback colours.
 - **Not yet proven.** No page has been rendered with DaisyUI, and the budget rests on a sample of classes rather than the app's real markup.
 
@@ -226,5 +225,7 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 - FRONTEND-DISCOVERY § Decisions so far: replace the Visual direction row with DaisyUI as the baseline, and add the browser floor and the Tailwind build. The Warnings and Branding rows stand
 - FRONTEND-DISCOVERY § Principles: 2 (text is the interface, one accent colour) and 3 (tiny CSS, with the budget above)
 - FRONTEND-DISCOVERY § Typographic system: Measure and rhythm ("not boxes") and Colour (the theme list)
+- FRONTEND-DISCOVERY § Typographic system, Scale: say whether DaisyUI's 14 px field text stands, which is off the 13/16/20 scale and makes iOS Safari zoom on focus
+- FRONTEND-DISCOVERY § Reading experience: say whether navbar's height on reader pages stands, against "the only chrome is a slim top bar"
 - FRONTEND-DISCOVERY § Components: Work card, Status badge, Flash message and Pagination
 - ARCHITECTURE § Reading: the reader's theme list
