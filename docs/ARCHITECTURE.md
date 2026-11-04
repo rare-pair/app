@@ -960,7 +960,12 @@ epub, under the normal versioning rules.
   removed work can't be restored (`restoreWork` leaves it as it is), so its entry
   stays. A moderator can withhold an entry, for a title or name that shouldn't be
   republished or a removal made by mistake: a work then shows only the date and reason,
-  and a pseud is left out. Each withhold and un-withhold logs `withhold` or `unwithhold`,
+  and a pseud is left out, and shows as "Name withheld" in any listed byline. Every
+  confirm step that removes a work or approves an opt-out shows the entry and offers the
+  withhold before anything is published. It is already selected for `site_safety` and
+  for a pseud with no works here, whose typed text nothing in the archive backs. A byline
+  comes from the uploaded file, so the pages say the people named may have done nothing.
+  Each withhold and un-withhold logs `withhold` or `unwithhold`,
   on the work, or on target kind `pseud` with the `pseud_norm` as `target_id`. `/remove`
   and `/dmca` say what will be published before anyone submits. The pages carry
   `X-Robots-Tag: noindex` and give the moderators' contact address. Requests
@@ -1273,4 +1278,6 @@ little client JS for upload progress and the reader settings.
   from AO3. While AO3 is down we can't check, so we rely on the opt-out list and
   remove-my-work requests.
 - **Legal review.** Get a review of the DMCA setup, the terms and the public
-  removal list before public launch.
+  removal list before public launch. It should cover naming people beside a reason
+  they can't dispute, and a successful counter-notice: removal deletes the files and
+  can't be undone, so restoring the work isn't possible today, and its entry stays.

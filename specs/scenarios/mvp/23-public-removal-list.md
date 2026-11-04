@@ -62,7 +62,7 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 
 ### Titles and names are shown as text
 - GIVEN a removed work whose title holds HTML, and an approved opt-out whose typed pseud holds HTML
-- WHEN each list renders
+- WHEN each list, the confirm steps and `/admin/listed-pseuds` render
 - THEN the text is escaped, and no markup or script from it runs
 
 ### Only removed works are listed
@@ -101,6 +101,18 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - WHEN a moderator opens the remove confirm step on W's admin page
 - THEN it also offers `removal_request`, already selected
 - AND a pending removal request on W stays pending
+
+### Every removal shows the entry first and offers to withhold it
+- GIVEN any confirm step that removes a work: a moderator's own remove, or approving a request or a notice
+- WHEN it renders
+- THEN it shows the title and byline as the list will show them, with a choice to withhold the details
+- AND the requester's statement is on the page
+- AND the choice is applied in the same transaction as the removal, so the details are never listed first
+
+### A site safety removal withholds by default
+- GIVEN a moderator's own remove of W
+- WHEN they choose `site_safety`
+- THEN withholding is already selected, and they can clear it
 
 ### A first remove with no valid reason changes nothing
 - GIVEN W not yet removed, with no pending DMCA notice
@@ -159,10 +171,11 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - THEN `pseud_typed` has those characters removed and its whitespace trimmed and collapsed, as for `pseud_norm`, with its case kept
 - AND the confirm step and the list show that form
 
-### An opt-out for a pseud with no works is listed once approved
-- GIVEN an approved opt-out for a pseud with no works in the archive
-- WHEN a visitor opens `/removed/pseuds`
-- THEN the pseud is listed
+### An opt-out for a pseud with no works withholds by default
+- GIVEN a confirmed opt-out for a pseud with no works in the archive
+- WHEN a moderator opens its approve
+- THEN the confirm step says no work here has this name, and withholding is already selected
+- AND if the moderator clears it and approves, the pseud is listed
 
 ### Two opt-outs for one pseud make one entry
 - GIVEN two approved opt-outs with the same `pseud_norm`, typed `Moon Child` and `moon child`
@@ -208,6 +221,11 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - THEN within about 2 minutes P is not listed, and its opt-outs stay active
 - AND one `withhold` row in `moderation_actions` records it, with target kind `pseud`
 
+### A withheld pseud leaves the bylines on the list too
+- GIVEN P withheld, and removed work W with the byline `Moon Child` and `Sol`, whose details aren't withheld
+- WHEN a visitor opens `/removed`
+- THEN W's byline shows "Name withheld" and `Sol`
+
 ### Moderators can find every listed pseud
 - GIVEN a listed pseud and a withheld one
 - WHEN a moderator opens `/admin/listed-pseuds`
@@ -235,6 +253,7 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - GIVEN any visitor
 - WHEN they open `/removed` or `/removed/pseuds`
 - THEN the page says nobody's identity is checked, so an entry is not a statement about who wrote or asked for anything
+- AND it says a byline comes from the uploaded file, and that the people it names may not have uploaded the work, asked for its removal or done anything wrong
 - AND it gives the moderators' contact address for asking that a name or title be withheld
 
 ### Requesters are told before they ask
@@ -242,11 +261,13 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - WHEN each renders
 - THEN it says that a removed work's title, byline and reason are published on `/removed`
 - AND `/remove` says that an approved opt-out publishes the pseud on `/removed/pseuds`
+- AND each says to mention it in the statement if the requester wants a name or title left off, which a moderator weighs at the confirm step
 
 ### The privacy notice covers the list
 - GIVEN any visitor
 - WHEN they open `/privacy`
 - THEN it describes what the lists publish, and how to ask for an entry to be withheld
+- AND it says that withholding changes only this site, so a copy someone already made can't be recalled
 
 ### Search engines are asked to leave the lists out
 - GIVEN any visitor
