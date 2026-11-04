@@ -10,7 +10,7 @@ import { SITE } from "../../src/signin";
 import { DUMMY_TOKEN } from "../../test/stand-ins";
 import { cleanCheck, type CleanOptions } from "./clean";
 import { R2_HOST } from "./r2-put";
-import { recorderFromEnv } from "./recording";
+import { recorderFromEnv, slowMoFromEnv } from "./recording";
 import { startWorker } from "./worker";
 
 /** Where the browser visits: the real site's origin, mapped to the local Worker. */
@@ -132,6 +132,8 @@ export const freshIp = () => {
 export async function launchChromium(port?: number): Promise<Browser> {
   try {
     return await chromium.launch({
+      // Only while recording (BROWSER_RECORD), so a video can be followed; otherwise none.
+      slowMo: slowMoFromEnv(),
       args:
         port === undefined
           ? []

@@ -76,6 +76,14 @@ export function startRecorder(dir: string, maxBytes = MAX_VIDEO_BYTES) {
   };
 }
 
+/** How long each flagged browser action waits while recording, so a video can be followed. */
+export const SLOW_MO_MS = 750;
+
+/** `SLOW_MO_MS` when `BROWSER_RECORD` names a folder (recording); otherwise none, so normal runs aren't slowed. */
+export function slowMoFromEnv(value = process.env.BROWSER_RECORD): number | undefined {
+  return value === undefined || value === "" ? undefined : SLOW_MO_MS;
+}
+
 /** A recorder when `BROWSER_RECORD` names a folder; otherwise none, and nothing is recorded. */
 export function recorderFromEnv() {
   const dir = process.env.BROWSER_RECORD;
