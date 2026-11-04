@@ -127,6 +127,7 @@ export const LOGIN_TOKEN = "XXXX.DUMMY.TOKEN.XXXX#login";
 export const WAITLIST_TOKEN = "XXXX.DUMMY.TOKEN.XXXX#waitlist";
 export const UPLOAD_TOKEN = "XXXX.DUMMY.TOKEN.XXXX#upload";
 export const REMOVE_TOKEN = "XXXX.DUMMY.TOKEN.XXXX#remove";
+export const DMCA_TOKEN = "XXXX.DUMMY.TOKEN.XXXX#dmca";
 
 /** The headers a browser on rarepair.fans sends with the sign-in form. */
 const LOGIN_HEADERS = {

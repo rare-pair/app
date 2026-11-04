@@ -94,7 +94,7 @@ Relates to: docs/ARCHITECTURE.md § Data model (reports.reporter_id, reports.kin
 - GIVEN any visitor
 - WHEN they open `/dmca`
 - THEN a statutory takedown notice form is shown
-- AND it works with JavaScript off
+- AND it needs JavaScript, for its Turnstile check: without it the page shows a `<noscript>` message that names the notices address and what a notice must say, and no notice can be submitted
 
 ### Submitting a DMCA notice creates a takedown
 - GIVEN a visitor on `/dmca`
@@ -102,6 +102,13 @@ Relates to: docs/ARCHITECTURE.md § Data model (reports.reporter_id, reports.kin
 - THEN a `takedowns` row is stored for W
 - AND it appears in the moderators' takedowns queue
 - AND W stays live until a moderator decides, unlike a `/remove` request
+
+### A DMCA notice needs a passing Turnstile check
+- GIVEN a visitor on `/dmca`
+- WHEN they submit a notice naming work W with no Turnstile token, a token solved on another form, or while Turnstile cannot be reached
+- THEN no `takedowns` row is stored and the form says the anti-spam check did not pass, or is not answering
+- AND every field and both checkboxes come back as typed, with a fresh Turnstile widget
+- AND the per-IP limit is counted before the check, so a post over the limit is refused with 429 whatever its token
 
 ### Incomplete DMCA notice is noted in the queue
 - GIVEN a visitor on `/dmca`

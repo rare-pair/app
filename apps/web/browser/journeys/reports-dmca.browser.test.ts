@@ -15,7 +15,9 @@ describe("reports and notices journeys", () => {
     await seedReadableWork(site, { ao3WorkId: 42220, title: "pw5-Noticed work" });
     const notice = await (await site.newContext()).newPage();
 
-    await notice.goto(`${SITE}/dmca`);
+    await notice.goto(SITE);
+    await notice.locator("footer").getByRole("link", { name: "Copyright notice" }).click();
+    await notice.waitForURL(/\/dmca$/);
     await notice.getByLabel("The work here", { exact: false }).fill("42220");
     await notice
       .getByLabel("The copyrighted work you say is infringed", { exact: false })
@@ -29,6 +31,10 @@ describe("reports and notices journeys", () => {
     await notice.getByLabel("I have a good-faith belief", { exact: false }).check();
     await notice.getByLabel("The information in this notice is accurate", { exact: false }).check();
     await notice.getByLabel("Your full name, as your signature").fill("Pw5 Owner");
+    // The Turnstile stand-in has put its token in the form once its widget is solved.
+    await notice.waitForFunction(
+      () => document.querySelector<HTMLInputElement>(`input[name="cf-turnstile-response"]`)?.value,
+    );
     await Promise.all([
       notice.waitForEvent("load"),
       notice.getByRole("button", { name: "Send notice" }).click(),

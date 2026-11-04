@@ -31,7 +31,7 @@ describe("11-reader-and-csp", () => {
 
   it("Turnstile pages allow only the Turnstile challenge frame", async () => {
     // Signed out, /upload redirects to sign in: 02-upload-handshake checks the signed-in page.
-    for (const path of ["/login", "/remove"]) {
+    for (const path of ["/login", "/remove", "/dmca"]) {
       const res = await fetchW(path);
       const csp = res.headers.get("content-security-policy");
       expect(res.status).toBe(200);

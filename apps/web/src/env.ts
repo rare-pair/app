@@ -52,6 +52,8 @@ export type Bindings = {
   IP_HASH_KEY: string;
   /** The moderators' contact address, shown to a visitor without JavaScript (wrangler.jsonc). */
   MODERATORS_EMAIL: string;
+  /** Where the copyright notice page's <noscript> message sends a visitor without JavaScript (wrangler.jsonc). */
+  NOTICES_EMAIL: string;
   /** Signs Better Auth's session cookies. */
   BETTER_AUTH_SECRET: string;
   /** The bucket presigned upload URLs PUT into (src/presign.ts). */

@@ -6,11 +6,13 @@ import {
   BASE,
   consoleDuring,
   DMCA_IP_LIMIT,
+  DMCA_TOKEN,
   fetchW,
   freshIp,
   nonceOf,
   signIn as signInAs,
-  STRICT,
+  LOGIN_TOKEN,
+  TURNSTILE,
   windowHeadroom,
   withoutNonce,
 } from "./helpers";
@@ -92,7 +94,7 @@ const postNotice = (
   fetchW("/dmca", {
     method: "POST",
     headers: { ...FORM_HEADERS, "cf-connecting-ip": ip, ...headers },
-    body: new URLSearchParams(fields).toString(),
+    body: new URLSearchParams({ "cf-turnstile-response": DMCA_TOKEN, ...fields }).toString(),
   });
 
 /** The notices stored for AO3 work `ao3WorkId`, oldest first. */
@@ -133,17 +135,127 @@ describe("17-reports-and-dmca: DMCA", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toMatch(/^text\/html/);
     expect(res.headers.get("cache-control")).toBe("no-store");
-    // No script and no Turnstile, so no frame-src either: the strict policy.
+    // The anti-spam check's frame is allowed, and nothing else.
     const csp = res.headers.get("content-security-policy");
-    expect(nonceOf(csp)).not.toBeNull();
-    expect(withoutNonce(csp)).toBe(STRICT);
+    const nonce = nonceOf(csp);
+    expect(nonce).not.toBeNull();
+    expect(withoutNonce(csp)).toBe(TURNSTILE);
     const html = await res.text();
-    expect(html).not.toMatch(/<script/i);
-    expect(html).toContain('<form class="dmca-form" method="post" action="/dmca">');
+    const scripts = html.match(/<script\b[^>]*>/g) ?? [];
+    expect(scripts).toHaveLength(2);
+    for (const tag of scripts) expect(tag).toContain(`nonce="${nonce}"`);
+    expect(html).toContain(
+      `<script nonce="${nonce}">document.getElementById("dmca").hidden = false;</script>`,
+    );
+    expect(html).toContain(
+      '<form id="dmca" class="dmca-form" method="post" action="/dmca" hidden>',
+    );
+    expect(html).toContain('<div class="cf-turnstile"');
+    expect(html).toContain('data-action="dmca"');
+    expect(html).toContain("<noscript>");
     for (const name of [...OMISSIONS, "work"]) {
       expect(html, name).toMatch(new RegExp(`name="${name}"`));
     }
     expect(html).toContain('<input type="checkbox" name="good_faith"');
+  });
+
+  it("A notice without a passing anti-spam check is not stored, and the form says why", async () => {
+    const wrongHost = `${DMCA_TOKEN}@other.example`;
+    for (const token of ["", LOGIN_TOKEN, wrongHost]) {
+      const marker = `x8-nocheck-${crypto.randomUUID()}`;
+      const res = await postNotice({
+        ...COMPLETE,
+        contact: marker,
+        "cf-turnstile-response": token,
+      });
+      expect(res.status, token).toBe(400);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      const html = await res.text();
+      expect(html).toContain("The anti-spam check did not pass.");
+      // Everything typed comes back, with a fresh widget.
+      expect(html).toContain(marker);
+      expect(html).toContain("x8 The whole text of the work named above");
+      expect(html).toMatch(/name="good_faith" value="yes" checked/);
+      expect(html).toMatch(/name="accuracy_authority" value="yes" checked/);
+      expect(html).toContain('class="cf-turnstile"');
+      expect(await noticesFrom(marker)).toEqual([]);
+    }
+  });
+
+  it("A notice posted with no token field at all is refused the same way", async () => {
+    const marker = `x8-notoken-${crypto.randomUUID()}`;
+    const res = await fetchW("/dmca", {
+      method: "POST",
+      headers: { ...FORM_HEADERS, "cf-connecting-ip": freshIp() },
+      body: new URLSearchParams({ ...COMPLETE, contact: marker }).toString(),
+    });
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain(marker);
+    expect(await noticesFrom(marker)).toEqual([]);
+  });
+
+  it("A long notice survives an anti-spam check that fails", async () => {
+    const long = `x8 ${"a".repeat(3990)}`;
+    const res = await postNotice({
+      ...COMPLETE,
+      copyrighted_work: long,
+      infringing_material: long,
+      contact: long,
+      "cf-turnstile-response": "",
+    });
+    expect(res.status).toBe(400);
+    const html = await res.text();
+    expect(html.split(long).length - 1).toBe(3);
+  });
+
+  it("A notice is kept in the form when the anti-spam check is not answering", async () => {
+    const marker = `x8-down-${crypto.randomUUID()}`;
+    const res = await postNotice({
+      ...COMPLETE,
+      contact: marker,
+      "cf-turnstile-response": "siteverify-down",
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const html = await res.text();
+    expect(html).toContain("The anti-spam check is not answering just now.");
+    expect(html).toContain(marker);
+    expect(html).toContain('class="cf-turnstile"');
+    expect(await noticesFrom(marker)).toEqual([]);
+  });
+
+  it("A refusal after the check passes still shows a fresh widget", async () => {
+    const res = await postNotice({ ...COMPLETE, work: String(UNKNOWN) });
+    expect(res.status).toBe(404);
+    expect(await res.text()).toContain('class="cf-turnstile"');
+    const bad = await postNotice({ ...COMPLETE, work: "" });
+    expect(bad.status).toBe(400);
+    expect(await bad.text()).toContain('class="cf-turnstile"');
+  });
+
+  it("The limit is counted before the anti-spam check", async () => {
+    await windowHeadroom(60);
+    const ip = freshIp();
+    for (let i = 0; i < DMCA_IP_LIMIT; i++) {
+      // Each counts, solved or not; none of these is stored.
+      expect((await postNotice({ ...COMPLETE, work: String(UNKNOWN) }, { ip })).status).toBe(404);
+    }
+    const res = await postNotice({ ...COMPLETE, "cf-turnstile-response": "" }, { ip });
+    expect(res.status).toBe(429);
+  });
+
+  it("The page without JavaScript names the notices address and what a notice needs", async () => {
+    const html = await (await fetchW("/dmca")).text();
+    const noscript = html.match(/<noscript>[\s\S]*?<\/noscript>/)?.[0] ?? "";
+    expect(noscript).toMatch(/^<noscript><p>[^<]*needs JavaScript[^<]*<\/p><\/noscript>$/);
+    expect(env.NOTICES_EMAIL).not.toBe("");
+    expect(noscript).toContain(env.NOTICES_EMAIL);
+    expect(noscript).toContain("not authorised by the copyright owner, its agent or the law");
+    expect(noscript).toContain("under penalty of perjury");
+    expect(noscript).toContain("as your signature");
+    expect(noscript).toContain("online queue");
+    // Nothing can be submitted without the script that shows the form.
+    expect(html).toMatch(/<form\b[^>]*\bhidden\b/);
   });
 
   it("Submitting a DMCA notice creates a takedown", async () => {
