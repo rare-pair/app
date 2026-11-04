@@ -1233,7 +1233,8 @@ epub, under the normal versioning rules.
   header, and takes effect at the gate, on the next request: the session lookup and
   the gate's own read both go through the uncached `HYPERDRIVE` binding (see
   *Connections*), once deploy step 4 there is done. Before that step, with Hyperdrive's
-  query cache in front, a demoted moderator can still open `/admin` for about a minute.
+  query cache in front, a demoted moderator can still open `/admin` for up to about 75 s
+  (the window in *Connections*).
 
 ## Wait list
 
@@ -1517,7 +1518,7 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
     the wait list, `/remove`, `/dmca`) fails closed.
   - **The notices mailbox.** `admin@rarepair.fans` (the `NOTICES_EMAIL` var) must exist
     and be read. The copyright notice page names it for a visitor without JavaScript and
-    on its refusals. Mail sent there doesn't reach the takedowns queue: a person reads it
+    on a refusal that stops the form working (rate limit, failed or unreachable Turnstile check). Mail sent there doesn't reach the takedowns queue: a person reads it
     and enters the notice.
 - Queries that select `now()` or another non-immutable function are never cached by Hyperdrive.
   Some reads here still select `now()` beside a read for that reason; they stay correct

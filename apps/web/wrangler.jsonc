@@ -163,7 +163,7 @@
     // moderators' real address in its place (`wrangler deploy --var MODERATORS_EMAIL:...`);
     // the repo's code, notes and tests never hold one.
     "MODERATORS_EMAIL": "moderators@example.invalid",
-    // The address the copyright notice page names: in its <noscript> message for a visitor without JavaScript, and on its refusals.
+    // The address the copyright notice page names: in its <noscript> message for a visitor without JavaScript, and on a refusal that stops the form working (rate limit, failed or unreachable Turnstile check).
     // The mailbox must exist and be read: mail there doesn't reach the takedowns queue.
     "NOTICES_EMAIL": "admin@rarepair.fans",
     // The most uploads an account may confirm in a UTC day (src/quota.ts): the new-account

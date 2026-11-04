@@ -87,7 +87,7 @@ Reading never requires an account (ARCHITECTURE, *Auth*).
    from. It uses a stored same-site `next` value, never an open redirect.
 4. An email with no account gets one at this point. A new account first lands
    on a one-time terms page (`/welcome/terms`) and must accept before going
-   anywhere else; then it continues to `next`. Returning users never see it.
+   anywhere else (bar the pages open to anyone: see the Accept terms row); then it continues to `next`. Returning users never see it.
 
 **3. Upload works** (uploader)
 1. They pick one or more `.epub` files on the upload page and submit. Each
@@ -169,13 +169,13 @@ without it. Elsewhere the
 | Sign in | `/login` | all | `<noscript>` message: signing in needs JavaScript | Email form with Turnstile, "check your email", error states |
 | Confirm sign-in | `/login/confirm?token=…` | all | "Sign in" button (POST form); used, expired or unknown links redirect to `/login` with a message | — |
 | Sign out | `/logout` | all (signed in or not) | Signed in: a "Sign out" button (POST form) that ends the session and goes to `/`, or, if the session row couldn't be deleted, answers a 500 "Sign out didn't work, try again" page with the same button; GET signs nobody out. Signed out: says so, with a link to sign in | — |
-| Accept terms | `/welcome/terms` | new accounts, once | Terms summary, link to `/terms`, Accept button (POST form); every other signed-in page redirects here until accepted | — |
+| Accept terms | `/welcome/terms` | new accounts, once | Terms summary, link to `/terms`, Accept button (POST form); every other signed-in page redirects here until accepted, except the pages open to anyone and to sign-in (`/terms`, `/privacy`, `/about`, `/remove` and `/dmca`, so a typed request or notice isn't lost, `/login`, `/logout`), `/admin` and static files (`TERMS_EXEMPT` in `apps/web/src/terms.ts`); `/search` is not exempt | — |
 | Upload | `/upload` | signed in | `<noscript>` message: uploading needs JavaScript | Turnstile, then direct-to-R2 upload with progress, one or more files |
 | My uploads | `/me/uploads` | signed in | Status list; with JS it updates in place, without JS a `<meta http-equiv="refresh">` inside `<noscript>` reloads it while anything is processing | Updates in place |
 | Remove my work / opt out | `/remove` (`?work=:id` prefills) | all | `<noscript>` message with the moderators' contact address | Request form with Turnstile, then a "check your email" page that is the same for every requester. The emailed link is `/remove/confirm?token=` (a button page, then a confirmed page, or one page for a used, expired or unknown link) |
 | Removal list | `/removed`, `/removed/pseuds` | all | Paged lists, newest first. Removed works: title, byline, "The original work" link with its ID and note, date, reason. Opted-out pseuds: name, date, reason. Says that nobody's identity is checked, and gives the moderators' contact address | — |
 | Report | `/works/:id/report` | signed in (others are redirected to sign in, carrying `next`) | Form, then a confirmation page | — |
-| DMCA notice | `/dmca` | all | `<noscript>` message: the form needs JavaScript; it names the notices address (`NOTICES_EMAIL`) and lists what a notice must say, so a notice can be emailed | Statutory notice form with Turnstile |
+| DMCA notice | `/dmca` | all | `<noscript>` message: the form needs JavaScript; it names the notices address (`NOTICES_EMAIL`) and lists what a notice must say, so a notice can be emailed; a refusal that stops the form working (rate limit, failed or unreachable Turnstile check) names it too | Statutory notice form with Turnstile |
 | Moderation queues | `/admin/{reports,takedowns,requests,works}` | moderator (404 for anyone else) | Tables with detail pages; `/admin/works` is *Works to check* | — |
 | Work admin | `/admin/works/:id` | moderator (404 for anyone else) | Every version (date, uploader, chapter count, hold and review reasons) with "Make current" and "Approve"; close wrong-version reports, hide, remove; withhold a removed work's details from the removal list | — |
 | Listed pseuds | `/admin/listed-pseuds` | moderator (404 for anyone else) | Every pseud on the removal list, listed or withheld, with withhold and un-withhold | — |
