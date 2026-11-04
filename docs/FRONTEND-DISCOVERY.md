@@ -132,7 +132,9 @@ Reading never requires an account (ARCHITECTURE, *Auth*).
    check* (held versions, works live with the "may be imperfect" notice, and
    "This version is wrong" reports). Each is a plain table, oldest first.
 2. Each item has a detail page with actions: hide, remove, restore, approve,
-   reject, block requester, ban uploader. A request's page lists the other
+   reject, block requester, ban uploader. Removing can ask for a public reason, and
+   a removal list entry can be withheld (`/admin/listed-pseuds`, or the work's admin
+   page). A request's page lists the other
    requests from the same email or IP, so a mass-hiding spree can be undone at
    once. A *Works to check* item has approve (clears the notice or publishes the
    held version), make version current, hide and remove.
@@ -169,7 +171,7 @@ without it. Elsewhere the
 | Upload | `/upload` | signed in | `<noscript>` message: uploading needs JavaScript | Turnstile, then direct-to-R2 upload with progress, one or more files |
 | My uploads | `/me/uploads` | signed in | Status list; with JS it updates in place, without JS a `<meta http-equiv="refresh">` inside `<noscript>` reloads it while anything is processing | Updates in place |
 | Remove my work / opt out | `/remove` (`?work=:id` prefills) | all | `<noscript>` message with the moderators' contact address | Request form with Turnstile, then a "check your email" page that is the same for every requester. The emailed link is `/remove/confirm?token=` (a button page, then a confirmed page, or one page for a used, expired or unknown link) |
-| Removal list | `/removed`, `/removed/pseuds` | all | Paged lists, newest first. Removed works: title, byline, AO3 ID, date, reason. Opted-out pseuds: name, date, reason. Says that nobody's identity is checked, and gives the moderators' contact address | — |
+| Removal list | `/removed`, `/removed/pseuds` | all | Paged lists, newest first. Removed works: title, byline, "The original work" link with its ID and note, date, reason. Opted-out pseuds: name, date, reason. Says that nobody's identity is checked, and gives the moderators' contact address | — |
 | Report | `/works/:id/report` | signed in (others are redirected to sign in, carrying `next`) | Form, then a confirmation page | — |
 | DMCA notice | `/dmca` | all | Statutory notice form | — |
 | Moderation queues | `/admin/{reports,takedowns,requests,works}` | moderator (404 for anyone else) | Tables with detail pages; `/admin/works` is *Works to check* | — |

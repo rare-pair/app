@@ -29,8 +29,10 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 ### A removed work's entry
 - GIVEN W removed with the reason `dmca`
 - WHEN a visitor opens `/removed`
-- THEN W's entry shows `Tide Tables`, `Moon Child` and `Sol`, AO3 work ID 12345 linked to its AO3 URL, the removal date and "Removed after a DMCA notice"
+- THEN W's entry shows `Tide Tables`, `Moon Child` and `Sol`, the removal date and "Removed after a DMCA notice"
+- AND a link reading "The original work" and showing 12345 goes to W's AO3 URL, with the same note as on the work page
 - AND the entry doesn't link to W's page on this site
+- AND the page's copy doesn't name the original archive
 
 ### An anonymous byline stays anonymous
 - GIVEN a removed work whose byline is "Anonymous", and one whose byline names nobody
@@ -197,14 +199,14 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - GIVEN W listed
 - WHEN a moderator withholds its details on W's admin page
 - THEN within about 2 minutes W's entry shows only "Details withheld", the date and the reason
-- AND the title, byline and AO3 work ID don't appear on the page
-- AND one `moderation_actions` row records it, on the work
+- AND the title, byline and original work link don't appear on the page
+- AND one `withhold` row in `moderation_actions` records it, on the work
 
 ### Withholding a pseud
 - GIVEN P listed, with one or more approved opt-outs
 - WHEN a moderator withholds it on `/admin/listed-pseuds`
 - THEN within about 2 minutes P is not listed, and its opt-outs stay active
-- AND one `moderation_actions` row records it, on the pseud
+- AND one `withhold` row in `moderation_actions` records it, with target kind `pseud`
 
 ### Moderators can find every listed pseud
 - GIVEN a listed pseud and a withheld one
@@ -216,12 +218,13 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - GIVEN P withheld, and its only approved opt-out rejected
 - WHEN a new opt-out for the same `pseud_norm` is confirmed and approved
 - THEN P stays withheld, and the confirm step says so
+- AND if a moderator later un-withholds P, the entry shows the new opt-out's typed name
 
 ### A withheld entry can be shown again
 - GIVEN W's details or P withheld, with an approved opt-out for P
 - WHEN a moderator un-withholds it
 - THEN the entry is shown in full again
-- AND one `moderation_actions` row records it
+- AND one `unwithhold` row in `moderation_actions` records it
 
 ### Un-withholding a pseud with no opt-out left publishes nothing
 - GIVEN P withheld, and its only approved opt-out rejected

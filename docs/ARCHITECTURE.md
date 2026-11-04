@@ -21,7 +21,7 @@ an unofficial stopgap.
 | Accepted files | AO3-native epub exports only. FanFicFare support comes later |
 | New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) |
 | Author identity | No work claims and no author verification while AO3 is down. Removal and opt-out are requests anyone can make, without proving who they are, and they take effect once the requester confirms control of the contact email |
-| Removal list | Removed works (title, byline, AO3 ID, date, reason) and pseuds with an approved opt-out are public at `/removed`. Reasons come from a fixed list, never free text. Open requests and hidden works are never listed, and a moderator can withhold an entry |
+| Removal list | Removed works (title, byline, a link to the original with its ID, date, reason) are public at `/removed`, and pseuds with an approved opt-out at `/removed/pseuds`. Reasons come from a fixed list, never free text. Open requests and hidden works are never listed, and a moderator can withhold an entry |
 | Search scope | Metadata only: title, author, tags, summary |
 | Chapter rendering | Inline in app pages behind a strict CSP, with no iframe |
 | Wait list | Before launch, `/` is a coming-soon page with a double opt-in wait list. Each confirmed address is sent one launch email, from the same mail subdomain as sign-in, spread over hours on its own queue. The list is deleted after the launch send |
@@ -934,8 +934,9 @@ epub, under the normal versioning rules.
   the purge clears the content Worker's own cache entries is not yet confirmed (see
   Surge controls, Edge cache).
 - **The removal list.** `/removed` lists removed works, newest first: title,
-  byline, AO3 ID, date and reason. `/removed/pseuds` lists pseuds with an approved,
-  active opt-out, as the requester typed them. Only a `removed` work is listed, so
+  byline, "The original work" link with its ID and its note, as on the work page,
+  date and reason. `/removed/pseuds` lists pseuds with an approved, active opt-out,
+  in `requests.pseud_typed`'s cleaned form. Only a `removed` work is listed, so
   a work hidden by an opt-out or anything else is not, and no pending or unconfirmed
   item is listed or counted. An unfair hide stays temporary and private. Nobody's
   identity is checked, so the wording names the route ("Removed after a removal
@@ -948,20 +949,25 @@ epub, under the normal versioning rules.
   work. The migration derives a reason for works already removed, the same way, with
   `site_safety` when nothing else applies. It lists no opt-out approved before it, since
   those requesters were never told, though a removed work's 410 was already public.
-  Approving an opt-out adds its pseud to `listed_pseuds` unless it is there already, and
-  rejecting one moves the row to the earliest remaining approved opt-out, or deletes the
-  row when none remains. A withheld row with none remaining stays, so a later approve
-  can't republish the name, and un-withholding it deletes it. Each takes a transaction
-  advisory lock on the `pseud_norm` after its request row, so a concurrent approve and
-  reject can't leave the row wrong. Statements, DMCA fields, requesters and moderation notes are
-  never shown. A reversed opt-out takes the entry off, and the action log keeps the
-  history. A removed work can't be restored, so its entry stays. A moderator can
-  withhold an entry, for a title or name that shouldn't be republished or a removal
-  made by mistake: a work then shows only the date and reason, and a pseud is left out. `/remove` and `/dmca` say what will be published before anyone
-  submits. The pages carry `X-Robots-Tag: noindex` and give the moderators' contact
-  address. Requests `pageCacheable` allows share one edge cache entry per page number
-  for up to 60 s, on top of up to 60 s in Hyperdrive's read cache, so in each data
-  centre a change can take about 2 minutes to show. Withholding purges nothing.
+  Approving an opt-out adds its pseud to `listed_pseuds`, or, when a row is there
+  whose request isn't approved, points the row at this one. Rejecting one moves the
+  row to the earliest remaining approved opt-out, or deletes the row when none remains.
+  A withheld row with none remaining stays, so a later approve can't republish the name,
+  and un-withholding it deletes it. Each takes a transaction advisory lock on the
+  `pseud_norm` after its request row, so a concurrent approve and reject can't leave the
+  row wrong. Statements, DMCA fields, requesters and moderation notes are never shown.
+  A reversed opt-out takes the entry off, and the action log keeps the history. A
+  removed work can't be restored (`restoreWork` leaves it as it is), so its entry
+  stays. A moderator can withhold an entry, for a title or name that shouldn't be
+  republished or a removal made by mistake: a work then shows only the date and reason,
+  and a pseud is left out. Each withhold and un-withhold logs `withhold` or `unwithhold`,
+  on the work, or on target kind `pseud` with the `pseud_norm` as `target_id`. `/remove`
+  and `/dmca` say what will be published before anyone submits. The pages carry
+  `X-Robots-Tag: noindex` and give the moderators' contact address. Requests
+  `pageCacheable` allows share one edge cache entry per page number for up to 60 s,
+  holding the page's data and not its nonce, on top of up to 60 s in Hyperdrive's read
+  cache, so in each data centre a change can take about 2 minutes to show. Withholding
+  purges nothing.
 - **DMCA.** To get safe-harbor protection under US law (17 U.S.C. §512), we need
   a designated agent registered with the US Copyright Office, a public takedown
   form, a counter-notice process and a repeat-infringer policy. Get a lawyer to
