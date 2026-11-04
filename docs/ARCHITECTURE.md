@@ -1356,7 +1356,11 @@ markup: its inline `style` attributes become stylesheet rules, because
   entry's lifetime is its `max-age`, not an `s-maxage`, so nothing depends on the Cache API
   reading `s-maxage` (the local runtime expires an entry on `max-age` alone; the live zone
   is not measured, and an operator checks it before launch, by seeing a cached file refilled
-  after 12 hours). Each value is named once, in the content Worker's `index.ts`.
+  after 12 hours, and by fetching a cached file twice and reading its `Cache-Control` and `Age`
+  on the second response, with the zone's Browser Cache TTL not overriding the header). A hit
+  hands a browser a fresh hour whatever the entry's age, so a file hidden just before its entry
+  would expire can sit in a browser for up to 13 hours (12 at the edge, then the last hour a
+  hit gave out). Each value is named once, in the content Worker's `index.ts`.
   Without `immutable` a browser's reload fetches the file again instead of reusing its copy.
   The response has no validator, so that is a full download, served from the edge entry (the
   Worker keys the cache by URL alone, so a reload's headers pick no other entry): it costs

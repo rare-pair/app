@@ -81,11 +81,16 @@ async function putEntry(url: string, response: Response) {
   }
 }
 
-/** A cached entry as a browser gets it: the entry's stored headers, with the browser's lifetime. */
+/**
+ * A cached entry as a browser gets it: its stored headers with the browser's lifetime, and no
+ * `Age` (a cache may add one, and a browser would take it off the hour). It goes out through
+ * respond(), so `nosniff` is set whatever the entry holds.
+ */
 function forBrowser(entry: Response) {
-  const h = new Headers(entry.headers);
-  h.set("Cache-Control", BROWSER_CACHE_CONTROL);
-  return new Response(entry.body, { status: entry.status, headers: h });
+  const headers = Object.fromEntries(entry.headers);
+  delete headers.age;
+  delete headers["cache-control"];
+  return respond(entry.body, entry.status, { ...headers, "Cache-Control": BROWSER_CACHE_CONTROL });
 }
 
 const notFound = () => respond(null, 404, { "Cache-Control": "no-store" });

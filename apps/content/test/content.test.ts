@@ -332,6 +332,27 @@ describe("content Worker", () => {
 });
 
 describe("edge cache (#513)", () => {
+  it("An entry stored by an earlier deploy, or with an Age, goes out with the browser's hour", async () => {
+    await seed();
+    await caches.default.put(
+      `${ORIGIN}/${IMAGE_KEY}`,
+      new Response(PNG, {
+        headers: {
+          "Cache-Control": "public, max-age=31536000, immutable, s-maxage=43200",
+          "Content-Type": "image/png",
+          Age: "39600",
+        },
+      }),
+    );
+    const { env: counted, counter } = countingBucket();
+    const { res } = await viaHandler(counted, `${ORIGIN}/${IMAGE_KEY}`);
+    expect(counter.reads).toBe(0);
+    expect(res.headers.get("cache-control")).toBe(BROWSER_CACHE_CONTROL);
+    expect(res.headers.has("age")).toBe(false);
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    await uncache(IMAGE_KEY);
+  });
+
   it("The stored entry has the edge's lifetime, and the browser's header is on a hit and a miss", async () => {
     await seed();
     const { env: counted, counter } = countingBucket();
