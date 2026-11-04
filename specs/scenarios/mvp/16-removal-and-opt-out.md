@@ -252,8 +252,8 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Author identity), § Data 
 ### Approved removal really removes
 - GIVEN work W hidden after a removal request
 - WHEN a moderator approves the request and the work is set to `removed`
-- THEN `works/<ao3_work_id>/` and the raw upload are deleted from R2
-- AND the work's pages, cached fragments, images and download URLs are purged from the cache
+- THEN `works/<ao3_work_id>/` and the raw upload are deleted from R2, and the sweep deletes anything that delete missed
+- AND the work's pages, cached fragments, images and download URLs are purged from the cache where the purge reaches them (what it cannot reach is in specs/scenarios/mvp/09-content-origin.md)
 - AND W's page returns 410 "This work has been removed"
 
 ### Authors update works the same way as anyone

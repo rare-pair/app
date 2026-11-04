@@ -9,7 +9,7 @@ export interface DbConfig {
   max?: number;
   /** How long to wait for a connection before failing. Left out, pg waits indefinitely. */
   connectionTimeoutMillis?: number;
-  /** How long a query may run, measured by the client, before it fails, on the client and on the server. Left out, no limit. */
+  /** How long a query may run, measured by the client, before it fails. Client side only: pg would send a server-side `statement_timeout` as a startup parameter, which Hyperdrive may not pass through. Left out, no limit. */
   queryTimeoutMillis?: number;
 }
 
@@ -24,8 +24,6 @@ export function createDb(config: DbConfig): Kysely<Database> {
     max: config.max,
     connectionTimeoutMillis: config.connectionTimeoutMillis,
     query_timeout: config.queryTimeoutMillis,
-    // The server's own limit, so a query the client gave up on doesn't keep its connection.
-    statement_timeout: config.queryTimeoutMillis,
   });
   // pg reports an idle client's lost connection as an error on the pool, and an
   // EventEmitter with no listener throws it. The pool has already dropped that

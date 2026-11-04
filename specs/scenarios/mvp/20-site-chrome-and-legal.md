@@ -28,6 +28,13 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - WHEN they open `/about`, `/terms` and `/privacy`
 - THEN each is a static page that renders without sign-in or JavaScript
 
+### The privacy page says requester data is kept until the site closes
+- GIVEN any visitor
+- WHEN they open `/privacy`
+- THEN it says a request keeps the requester's email address, a hashed form of their network address, and the work or pseud they named
+- AND it says the archive keeps that until the site closes, and then deletes it
+- AND it says the archive does not erase it when a requester asks
+
 ### Footer links to removal
 - GIVEN any app page
 - WHEN it renders

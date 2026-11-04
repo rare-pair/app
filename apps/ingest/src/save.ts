@@ -124,7 +124,7 @@ export class SaveRejected extends Error {
 
 /**
  * The work the upload is of has been removed: nothing is saved, and the job ends the upload as
- * `work_removed`, at once, since the work stays removed until a moderator restores it.
+ * `work_removed`, at once, since a removed work stays removed (restoring one is #565, still open).
  */
 export class WorkRemoved extends Error {}
 
@@ -168,8 +168,9 @@ type Chapters = (ParsedWork["chapters"][number] & { key: string })[];
  * stores no version (`duplicate`). Every outcome writes the files; a duplicate's fragments,
  * which no version points at, are left for the periodic sweep (apps/sweep). A failure before or
  * inside the transaction leaves no rows, only R2 objects: under keys a retry overwrites when it
- * is worth one, and left for the cleanup rules (#177) when the file is refused, except the
- * `originals/` file, which `runJob` deletes once the refusal is recorded (`deleteOriginal`). A
+ * is worth one, and left for the sweep when the file is refused, except the
+ * `originals/` file, which `runJob` deletes once the refusal is recorded (`deleteOriginal`); a
+ * crash before that delete leaves it, and nothing removes it yet (rare-pair/app#592). A
  * save refused as `WorkRemoved` deletes the files it wrote (`discardUploadFiles`), never on
  * `LeaseLost`.
  */

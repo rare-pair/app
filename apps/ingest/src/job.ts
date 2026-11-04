@@ -177,7 +177,7 @@ async function run(
     // the save sets it in the work's transaction.
     await deps.save(lease, work, bytes, images);
   } catch (error) {
-    // A removed work stays so until a moderator restores it: no retry changes the verdict.
+    // Removal is permanent today (restoring one is #565, still open): no retry changes the verdict.
     if (error instanceof WorkRemoved) {
       return { status: "work_removed", failure: { stage: "save", error: "work_removed" } };
     }

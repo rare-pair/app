@@ -120,3 +120,11 @@ Relates to: docs/ARCHITECTURE.md § System overview, § Why these pieces (Two la
 - GIVEN a hidden work's original stored under its upload id without `.epub`
 - WHEN it is requested
 - THEN the response is 451
+
+### The sweep deletes what remains of a removed work
+- GIVEN a removed work W with files left under `works/<ao3_work_id>/`, and `originals/<upload_id>.epub` for each upload prefix in that folder, after a crashed job or a failed clean-up
+- WHEN the sweep next runs
+- THEN those files and originals are deleted, and the run's report counts them
+- AND a live or hidden work's files are never touched by this rule
+- AND a work with an upload still pending or processing in its folder is left for a later run
+- AND a repeat run deletes nothing more
