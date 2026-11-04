@@ -1126,7 +1126,14 @@ epub, under the normal versioning rules.
   it is built. The row's `moderator_id` has no foreign key to `user`, so
   deleting an account keeps its log rows, with the id as it was. Anyone
   without the moderator or admin role, signed out included, gets 404 for every
-  `/admin` URL, so the admin area isn't advertised.
+  `/admin` URL, so the admin area isn't advertised to anyone else. A moderator's
+  or admin's site header has an Admin link, from the role that comes with the
+  session (a display aid only: the gate above reads the role again on every
+  `/admin` request and stays the authority). A promotion or demotion shows in the
+  header as late as the session lookup sees it: with Hyperdrive's query cache in
+  front of it, about a minute (accepted). The gate's own read goes through the same
+  binding, so until it is uncached (#574) a demoted moderator can also still open
+  `/admin` for about that long.
 
 ## Wait list
 

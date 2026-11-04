@@ -21,6 +21,7 @@ import { aboutPage, notFoundPage, privacyPage, termsPage } from "./pages";
 import { showRemoveForm, submitRemove } from "./remove";
 import { confirmRemove, showRemoveConfirm } from "./remove-confirm";
 import { pageState } from "./page-state";
+import { siteHeader } from "./site-header";
 import { SETTINGS_SCRIPT, SETTINGS_SCRIPT_PATH } from "./reader-settings";
 import { UPLOAD_SCRIPT, UPLOAD_SCRIPT_PATH } from "./upload-script";
 import { closedBeforeLaunch, disableClosedLinks, isPrelaunch } from "./prelaunch";
@@ -75,6 +76,8 @@ app.use(except("/assets/*", sessionMiddleware, termsGate));
 app.use(pageState);
 // Before launch, links to closed pages are shown disabled.
 app.use(disableClosedLinks);
+// The header's links, from the session. Inside disableClosedLinks, so that sees them.
+app.use(siteHeader);
 
 // The moderation area: every /admin URL goes through its gate (admin.ts).
 app.route("/admin", admin);

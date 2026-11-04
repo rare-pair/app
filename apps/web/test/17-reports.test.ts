@@ -11,6 +11,7 @@ import {
   postLogin,
   signIn as signInAs,
   STRICT,
+  withoutHeader,
   withoutNonce,
 } from "./helpers";
 
@@ -231,7 +232,8 @@ describe("17-reports-and-dmca", () => {
     // Nor is it shown the form.
     const form = await fetchW(REPORT, { headers: { cookie } });
     expect(form.status).toBe(403);
-    expect(await form.text()).not.toContain("<form");
+    // Narrowed to exclude the header, whose Sign out is a form: asserted in 20-site-header.test.ts.
+    expect(withoutHeader(await form.text())).not.toContain("<form");
   });
 
   it("Signed-out report submission redirects to sign in", async () => {

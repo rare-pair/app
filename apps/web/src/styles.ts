@@ -87,6 +87,37 @@ header {
   padding-bottom: calc(var(--space) * 4);
 }
 
+/* The site header is the page's own, a child of body: a header a chapter carries is not
+   laid out as one. */
+body > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--space) * 2) calc(var(--space) * 4);
+}
+
+body > header nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--space) * 1) calc(var(--space) * 4);
+  min-width: 0;
+}
+
+body > header nav form {
+  display: inline-flex;
+  margin: 0;
+}
+
+/* Sign out sits in the row with the links, so it is no taller than they are (24 px, the
+   smallest target). */
+body > header nav button {
+  min-height: 24px;
+  padding: 0 calc(var(--space) * 2);
+  line-height: 22px;
+}
+
 .site-name {
   font-size: var(--text-3);
   font-weight: 600;
@@ -111,6 +142,7 @@ h2 {
 }
 
 .banner a,
+body > header nav a,
 footer a,
 .chapters a {
   display: inline-block;
@@ -119,7 +151,8 @@ footer a,
 }
 
 /* A link to a page that isn't open yet: no href, so no hover or focus state. */
-footer a[aria-disabled="true"] {
+footer a[aria-disabled="true"],
+body > header a[aria-disabled="true"] {
   color: var(--muted);
   cursor: not-allowed;
   text-decoration: none;

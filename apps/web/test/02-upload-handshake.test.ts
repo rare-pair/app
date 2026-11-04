@@ -13,6 +13,7 @@ import {
   postLogin,
   signIn as signInAs,
   UPLOAD_CSP,
+  withoutHeader,
   withoutNonce,
 } from "./helpers";
 
@@ -194,7 +195,9 @@ describe("02-upload-handshake", () => {
     const noscript = html.match(/<noscript>([\s\S]*?)<\/noscript>/)?.[1] ?? "";
     expect(noscript).toMatch(/Uploading needs JavaScript/);
     // Nothing on the page can send a file without the script: no form posts anywhere.
-    expect(html).not.toMatch(/<form\b[^>]*\baction=/i);
+    // (Narrowed to exclude the header, whose Sign out form posts to /logout: asserted in
+    // 20-site-header.test.ts, which allows that one action only.)
+    expect(withoutHeader(html)).not.toMatch(/<form\b[^>]*\baction=/i);
     expect(html).toMatch(/<input[^>]*type="file"[^>]*accept="\.epub,application\/epub\+zip"/);
     expect(html).toContain(
       '<div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-action="upload">',

@@ -17,6 +17,7 @@ import {
   WAITLIST_TOKEN,
   postLogin,
   TURNSTILE,
+  withoutHeader,
   withoutNonce,
 } from "./helpers";
 
@@ -338,7 +339,9 @@ describe("22-waitlist", () => {
       const html = await res.text();
       // Wait list wording, back to the form, not to sign-in.
       expect(html).toContain('<a href="/">');
-      expect(html).not.toContain('href="/login"');
+      // Narrowed to exclude the header, whose Sign in link goes to /login: asserted in
+      // 20-site-header.prelaunch.test.ts.
+      expect(withoutHeader(html)).not.toContain('href="/login"');
       expect(await rowOf(email)).toBeUndefined();
     }
     expect(await queuedForEach(addresses)).toEqual(refused.map(() => 0));

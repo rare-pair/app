@@ -7,8 +7,8 @@ import { SITE } from "../harness/site";
 // Worker answers (the row, the cookie's flags, the 403 on a cross-site POST, Clear-Site-Data) is
 // apps/web/test/01-auth-sign-out. The browser's cache is not checked here: Playwright turns the
 // HTTP cache off in a context with routes, as the harness's has, and the harness's certificate is
-// self-signed, so a cached page can't be told from a fetched one. The header's own control is
-// NAV's, so the journey reaches the button by its URL until that is on the same branch.
+// self-signed, so a cached page can't be told from a fetched one. This journey presses the sign-out
+// page's own button, by its URL; the header's control is pressed from the home page in signin.
 
 describe("sign-out journey", () => {
   const running = useJourneySite();
@@ -30,7 +30,8 @@ describe("sign-out journey", () => {
     await page.goto(`${SITE}/logout`);
     await Promise.all([
       page.waitForURL(`${SITE}/`),
-      page.getByRole("button", { name: "Sign out" }).click(),
+      // The page's own button: the header has one too, which the other journey presses.
+      page.locator("main").getByRole("button", { name: "Sign out" }).click(),
     ]);
 
     // Signed out: the sign-out page says so, and a page that needs an account asks to sign in.

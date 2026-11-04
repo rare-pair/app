@@ -262,7 +262,6 @@ describe("18 moderation", () => {
   });
 
   it("Non-moderator gets 404", async () => {
-    const notFound = await notFoundBody();
     // Only exactly "moderator" or "admin" lets an account in.
     for (const [email, role] of [
       ["mod1-no-role@example.test", null],
@@ -271,6 +270,7 @@ describe("18 moderation", () => {
       ["mod1-padded-role@example.test", "moderator "],
     ] as const) {
       const cookie = await signIn(email, role);
+      const notFound = await notFoundBody(cookie);
       for (const [path, method] of ADMIN_REQUESTS) {
         await expectRefused(
           await get(path, cookie, { method }),
@@ -293,7 +293,7 @@ describe("18 moderation", () => {
     const cookie = await signIn(email, "moderator");
     expect((await get("/admin/reports", cookie)).status).toBe(200);
     await db.updateTable("user").set({ role: "user" }).where("email", "=", email).execute();
-    await expectRefused(await get("/admin/reports", cookie), await notFoundBody(), "demoted");
+    await expectRefused(await get("/admin/reports", cookie), await notFoundBody(cookie), "demoted");
   });
 
   it("The area's own page links to the four queues", async () => {
@@ -379,8 +379,8 @@ describe("18 moderation", () => {
   });
 
   it("Signed-out visitor gets 404", async () => {
-    const notFound = await notFoundBody();
     for (const cookie of [undefined, `${SESSION_COOKIE}=forged.value`]) {
+      const notFound = await notFoundBody(cookie);
       for (const [path, method] of ADMIN_REQUESTS) {
         await expectRefused(await get(path, cookie, { method }), notFound, `${method} ${path}`);
       }
@@ -405,9 +405,9 @@ function rowWith(html: string, marker: string): string[] {
   );
 }
 
-/** The page any unknown URL gets. */
-async function notFoundBody() {
-  const res = await get("/mod1-no-such-page");
+/** The page any unknown URL gets for this visitor: the header shows who asks. */
+async function notFoundBody(cookie?: string) {
+  const res = await get("/mod1-no-such-page", cookie);
   expect(res.status).toBe(404);
   // As every refusal is: a header only /admin sent would point at it.
   expect(res.headers.get("cache-control")).toBe("no-store");
