@@ -339,8 +339,9 @@ describe("18 moderation detail pages", () => {
     await addTakedown("mod2-refused-takedown", workId);
     await seed(14111);
     const plain = await signIn("mod2-plain-user@example.test", "user");
-    const notFound = await (await get("/mod2-no-such-page")).text();
     for (const cookie of [undefined, plain]) {
+      // The same visitor's own not-found page: the header shows who asks.
+      const notFound = await (await get("/mod2-no-such-page", cookie)).text();
       for (const [method, path] of [
         ["POST", `/admin/works/${W}/restore`],
         ["POST", "/admin/works/14111/hide"],
@@ -364,7 +365,8 @@ describe("18 moderation detail pages", () => {
   it("A post from another origin gets the same 404 and changes nothing", async () => {
     const W = 14112;
     await seed(W);
-    const notFound = await (await get("/mod2-no-such-page")).text();
+    // The moderator's own not-found page: the header shows who asks.
+    const notFound = await (await get("/mod2-no-such-page", moderator)).text();
     const crossSite: Record<string, string>[] = [
       { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
       { "sec-fetch-site": "same-site" },

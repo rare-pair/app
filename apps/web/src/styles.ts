@@ -83,8 +83,26 @@ footer {
 }
 
 header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--space) * 2) calc(var(--space) * 4);
   padding-top: calc(var(--space) * 4);
   padding-bottom: calc(var(--space) * 4);
+}
+
+header nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--space) * 1) calc(var(--space) * 4);
+  min-width: 0;
+}
+
+header nav form {
+  display: inline-flex;
+  margin: 0;
 }
 
 .site-name {
@@ -111,6 +129,7 @@ h2 {
 }
 
 .banner a,
+header nav a,
 footer a,
 .chapters a {
   display: inline-block;
@@ -119,7 +138,8 @@ footer a,
 }
 
 /* A link to a page that isn't open yet: no href, so no hover or focus state. */
-footer a[aria-disabled="true"] {
+footer a[aria-disabled="true"],
+header a[aria-disabled="true"] {
   color: var(--muted);
   cursor: not-allowed;
   text-decoration: none;

@@ -18,6 +18,7 @@ import {
   UPLOAD_TOKEN,
   WAITLIST_TOKEN,
   windowHeadroom,
+  withoutHeader,
   withoutNonce,
 } from "./helpers";
 
@@ -108,7 +109,9 @@ describe("16-removal-and-opt-out", () => {
     }
     expect(html).toContain('class="cf-turnstile"');
     expect(html).toContain('data-action="remove"');
-    expect(html).not.toContain("/login");
+    // Narrowed to exclude the header, whose Sign in link goes to /login: the header is
+    // asserted in 20-site-header.test.ts.
+    expect(withoutHeader(html)).not.toContain("/login");
   });
 
   it("Removal form without JavaScript explains it is needed and gives the moderators' contact address", async () => {

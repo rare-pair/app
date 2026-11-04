@@ -32,12 +32,13 @@ describe("18 moderation before launch", () => {
   });
 
   it("Anyone else gets the not-found page before launch, not the coming-soon redirect", async () => {
-    // GET /waitlist answers the not-found page before launch.
-    const control = await fetchW("/waitlist");
-    expect(control.status).toBe(404);
-    const notFound = await control.text();
     const user = await signIn("mod1-prelaunch-user@example.test", "user");
     for (const cookie of [undefined, user]) {
+      // GET /waitlist answers the not-found page before launch, for this visitor: the
+      // header shows who asks.
+      const control = await fetchW("/waitlist", cookie === undefined ? {} : { headers: { cookie } });
+      expect(control.status).toBe(404);
+      const notFound = await control.text();
       const res = await fetchW(
         "/admin/reports",
         cookie === undefined ? {} : { headers: { cookie } },
