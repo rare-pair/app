@@ -1,6 +1,6 @@
 # Scenario: Hono and test code follow one idiom, or say why not
 
-Relates to: docs/ARCHITECTURE.md § Decisions so far, § Repo layout (the "Hono's JSX" line); docs/process.md § Working rules; `.claude/skills/tdd/`, which stays the authority on seams, mocking and test names and is not restated here; issues #232, #211, #107, #235, #241
+Relates to: docs/ARCHITECTURE.md § Decisions so far, § Proposed repo layout (the "Hono's JSX" line); docs/process.md § Working rules; `.claude/skills/tdd/`, which stays the authority on seams, mocking and test names and is not restated here; issues #232, #211, #107, #235, #241
 
 Status: draft. R1 and R2 are decided (below). Nothing here changes what a reader, uploader or moderator sees, except the refusals the guard case lists. The bytes of a page do change under R1 (`<input/>`, `defer=""`), but what a browser parses from them doesn't.
 
@@ -32,7 +32,7 @@ Every route follows the guideline, for one form throughout. Keeping the table wa
 #### The same-origin check stays stricter than `hono/csrf`
 - GIVEN a POST with `Origin: https://evil.example` and `Sec-Fetch-Site: same-origin`, or with `Origin: https://rarepair.fans` and `Sec-Fetch-Site: cross-site`
 - WHEN `isSameOrigin` reads its headers
-- THEN it refuses, and `test/signin.node.test.ts` has both rows (`hono/csrf` allows both)
+- THEN it refuses, and `test/signin.node.test.ts` gains both rows, beside its similar ones (`hono/csrf` allows both)
 - AND a route-level test shows a JSON content type with another site's `Origin` refused, which `hono/csrf` doesn't check
 - AND `npm run lint` refuses an import of `hono/csrf`, with the reason as its message
 
@@ -58,6 +58,7 @@ Every route follows the guideline, for one form throughout. Keeping the table wa
 - GIVEN a test of a Worker's HTTP surface
 - WHEN it sends a request
 - THEN it goes through the seam `/tdd` names, not `app.request(path, init, MOCK_ENV)`, which Hono's testing page recommends and which would mock the bindings
+- AND the tests that call the default export's `fetch` with one binding replaced, to reach a limiter's failure (`test/15-search-rate-limit.test.ts` and others), stay: that export keeps its shape
 - AND `/tdd` says so by name, so a reader of Hono's docs doesn't reach for it
 
 ### Hono: what changes
@@ -73,13 +74,14 @@ Every route follows the guideline, for one form throughout. Keeping the table wa
 - GIVEN three guard middlewares, eight guard registrations listed by path, six handlers that call `isSameOrigin` themselves, and a mistyped path guarding nothing, silently
 - WHEN they become one `app.on("POST", "*", ...)` ahead of the session
 - THEN a POST route is guarded by being a POST route, and a new one needs no registration
+- AND the guard acts only when `matchedRoutes` from `hono/route` shows a POST route other than its own, so a POST to a URL with no such route falls through to the same 404 as today. `/admin` must look like a URL that doesn't exist (ARCHITECTURE, *Status codes*), and a 403 on unknown URLs would give it away
 - AND each area keeps its refusal, from one small lookup by path, matched by whole segment as `prelaunch.ts` matches `OPEN_SECTIONS`: the forbidden page, the wait list's page, uploads' JSON, and `/admin`'s 404
 - AND the guard passes through the routes that answer without an origin check: `POST /waitlist/unsubscribe` always, since a mail provider's one-click request sends no `Origin`, and once the archive is open `POST /waitlist` (404) and `POST /waitlist/confirm` (the archive-open page, which `test/22-waitlist-confirm.test.ts` requires from another site), since both answer before reading anything
 - AND a test shows each of those still answers as it does today
 - AND the guard is registered ahead of the session in `src/index.ts`, so a refused post costs no session lookup on any route: a refused post that carries a session cookie gets no refreshed cookie back
-- AND one test per refusal shows the status and body as before
+- AND one test per refusal shows the status and body as before, and a `Cache-Control` that keeps the refusal out of shared caches
+- AND a test shows a cross-site POST to an unknown URL and to a real `/admin` route get the same answer
 - AND these changes a visitor could see are stated, not hidden:
-  - A cross-site POST to a URL that doesn't exist, or a POST with neither header, answers 403, not 404. `/admin` still answers 404, so it doesn't show that it exists
   - An account yet to accept the terms gets the refusal, not the redirect to the terms page, on a route that checked the origin itself
   - A cross-site `POST /waitlist` before launch is refused without waiting out the response-time floor. It reads no address, so nothing about one can show in its timing
   - A refusal no longer carries the reader's settings attributes, as a cross-site report already doesn't
@@ -167,6 +169,7 @@ How to split the rendered layout around the chapters isn't settled: this case ru
 - WHEN a page module moves to JSX
 - THEN its response through `exports.default.fetch` on seeded synthetic data, parsed and normalised to elements, attributes and collapsed text, with the nonce and generated IDs masked, matches a capture taken before any page moved
 - AND a difference that is meant is an edit to the capture, with its reason in the PR
+- AND the captures cover both Vitest projects, since the coming-soon and wait list pages exist only with `PRELAUNCH` on
 - AND the captures and their test are deleted with the last batch: they guard this migration, and no scenario case rests on them
 
 #### Pages render with JSX, leaf first
@@ -178,7 +181,8 @@ How to split the rendered layout around the chapters isn't settled: this case ru
 - AND a component's markup props are typed `HtmlEscapedString | Promise<HtmlEscapedString>`, not `string` or `Child`, so passing one a string of markup fails `typecheck`
 - AND once every batch has merged, `escapeHtml` is gone from `apps/web/src`
 - AND one module owns unescaped HTML, exporting the doctype and the sanitized chapter fragment, and an idiom check finds `raw(` and `dangerouslySetInnerHTML` nowhere else
-- AND the scripts and stylesheet served as strings (`*-script.ts`, `styles.ts`) stay as they are, since they aren't markup
+- AND the text of the scripts and stylesheet served as strings stays as it is, since it isn't markup. A function in those files that builds a page's `<script>` tag, such as the one in `my-uploads-script.ts`, moves to JSX
+- AND `pageState`'s flash stays an `HTMLRewriter` insert with `{ html: true }`, since it rewrites a finished page and its copy comes from the app's own table
 
 The first batch settles how a JSX piece meets `layout`'s `body: string` while the layout is still a string, and the rest follow it. JSX drops a line break next to an element, so a word beside an inline element needs `{" "}`: the parsed capture above is what catches a missing one.
 
@@ -254,10 +258,12 @@ For `/to-tickets`, which sets each ticket's tier and blocking edges. What's reco
 | Now | Docs: the kept deviations. Lint rules already true. Tests for the kept boundaries. `onError`. Script route helper | None |
 | Shared | #232, limited to `AppEnv` and `withDb`. #211, limited to the ID parser. The one same-origin guard | None; #211 after #232 |
 | Routers | Prepare `src/index.ts`: group the route lines by router and mount empty routers, so each batch fills one router and removes one hunk. Then, side by side: admin home and queues (which needs no preparation); sign-in and terms; uploads; reader, work page, warnings, position, settings; listing and search; removal, DMCA, reports; wait list and site pages. Then narrow the ID parsers | The guard, #232, #211 |
-| Tests | Parsed helper: choose the parser, add `signIn` with a role and `expectEscaped`, move one test file as the tracer. Then, side by side, by scenario: 01 to 03; 08 to 13; 14 to 17; 18; 20 to 23. `test/no-js-browser.ts` runs beside them if the parser is synchronous, and with the no-JS test files if not | Nothing in `src`, so beside the routers |
+| Tests | Parsed helper: choose the parser, add `signIn` with a role and `expectEscaped`, move one test file as the tracer. Then, side by side, by scenario: 01 to 03; 08 to 13; 14 to 17; 18; 20 to 23 with the unnumbered files. `test/no-js-browser.ts` runs beside them if the parser is synchronous, and with the no-JS test files if not | Nothing in `src`, so beside the routers |
 | JSX trial | Parsed captures of each page, first and alone, since they must record the template-string output. Then the tooling tracer on a module with no routes, and the entire-work trial | The tests that cover those pages |
 | JSX pages | First batch, which settles the pattern. Then `settings` and small leaves such as `barSettings` and `review-notice`, which others use. Then, side by side: admin pages; listing, search, home; reader, work page, warnings; forms (DMCA, remove, report); uploads and wait list. Last, the layout and removing `escapeHtml` | The trial. Modules with no routes (`admin-pages`, `remove-pages`, `waitlist-pages`) can start beside the routers; a module with routes waits for its router batch |
 | Any time | Console helpers. `vi.waitFor` and `expect.poll`. Browser locators | None |
+
+`/gate` reads a ticket's definition of done from its issue, so `/to-tickets` trims #232 and #211 to these limits first. What's left of them moves here: #232's context aliases to the router batches, and #211's `htmlOf` and `stylesheetOf` to the test batches.
 
 Why this order:
 - **Routers before JSX in the same module,** so no diff both moves a handler and rewrites its markup: a pure move is what the unchanged tests can vouch for.
@@ -276,7 +282,7 @@ Run on the pinned versions outside the repo, type checks under the repo's `tscon
 | `csrf`'s refusal under today's `onError` | A 500 "Internal Server Error", because it throws `HTTPException`. Alone, it is a plain-text 403 |
 | `secureHeaders` | Sets its CSP on JSON too, and adds `X-Frame-Options`, `Cross-Origin-Resource-Policy` and others the app doesn't send today. Its `Referrer-Policy: no-referrer` applies to every response, where the app sets its own per route (`strict-origin` on the token pages, for one) |
 | `parseBody` behind `bodyLimit` | A streamed body over the limit gets a 413, as `readForm` refuses it, but a multipart body is read, where `readForm` never reads one |
-| `app.on("POST", "*", guard)` ahead of the session | A refusal stopped at the guard, with no session step. `/admin` got the app's 404 and `/uploads` JSON. An exempt path passed through. A cross-site POST to an unknown URL got 403, and a same-site one 404. GET didn't reach the guard |
+| `app.on("POST", "*", guard)` ahead of the session | A refusal stopped at the guard, with no session step. `/admin` got the app's 404 and `/uploads` JSON. An exempt path passed through. GET didn't reach the guard. `matchedRoutes` listed mounted POST routes by full path and the guard itself as `POST /*`, so limiting the guard to other POST routes left a cross-site POST to an unknown URL, or to a GET-only path, at the app's 404 |
 | `c.req.param("id")` type | `string` inline, in a sub-router and in `Context<E, "/works/:id">`. `string \| undefined` in a plain `Context<E>`, **and in `createHandlers`, which the docs offer as the typed form** |
 | Feature routers | `c.notFound()` and a throw inside a router reach the parent's `notFound` and `onError`. `/login` from a router's `/` gives 200, and `/login/` gives 404. Two routers can share a base. HEAD works. A path in a `const` literal, like `SETTINGS_PATH`, keeps the parameter's type |
 | A router's `use()` on a shared base | Runs on routers mounted after it: `/x/r` went through a gate that belonged to another router on `/x`. Mounted the other way round, it didn't |
