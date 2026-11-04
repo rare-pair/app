@@ -267,11 +267,13 @@ describe("20-site-chrome-and-legal: the site header", () => {
       const html = await (await fetchW("/about", { headers })).text();
       expect(linksOf(html)[0]).toEqual(["Search", "/search"]);
     }
-    const res = await fetchW("/search");
-    expect(res.status).toBe(200);
-    const html = await res.text();
-    expect(html).toContain('<form role="search" method="get" action="/search">');
-    expect(html).toContain('<input type="search" id="q" name="q" value="">');
-    expect(html).not.toMatch(/class="work-card|<ol/);
+    for (const path of ["/search", "/search?q=%20%20"]) {
+      const res = await fetchW(path);
+      expect(res.status, path).toBe(200);
+      const html = await res.text();
+      expect(html, path).toContain('<form role="search" method="get" action="/search">');
+      expect(html, path).toMatch(/<input type="search" id="q" name="q" value="[ ]*">/);
+      expect(html, path).not.toMatch(/class="work-card|<ol/);
+    }
   });
 });

@@ -1,7 +1,7 @@
 import { createDb } from "@archive/db";
 import { putFragments, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chapterPageKey } from "../src/edge-cache";
 import { fetchW, headerOf, signIn } from "./helpers";
 
@@ -35,8 +35,14 @@ const titleLinkOf = (html: string) => {
 };
 
 describe("11-reader-and-csp: the work title in the reader bar", () => {
-  it("A chapter's title links to the work page", async () => {
+  // The cached work seeds in its own test: the Cache API keeps entries between tests.
+  beforeAll(async () => {
     await seed(PLAIN, `nav2 plain ${PLAIN}`);
+    await seed(HOSTILE, HOSTILE_TITLE);
+    await seed(UNTITLED, "   ");
+  });
+
+  it("A chapter's title links to the work page", async () => {
     const html = await (await fetchW(`/works/${PLAIN}/chapters/2`)).text();
     expect(titleLinkOf(html)).toEqual({ href: `/works/${PLAIN}`, text: `nav2 plain ${PLAIN}` });
     // One h1, still the work's title; the link takes a reader to the work page.
@@ -49,11 +55,10 @@ describe("11-reader-and-csp: the work title in the reader bar", () => {
   it("The entire work's title links to the work page", async () => {
     const html = await (await fetchW(`/works/${PLAIN}/full`)).text();
     expect(titleLinkOf(html)).toEqual({ href: `/works/${PLAIN}`, text: `nav2 plain ${PLAIN}` });
-    expect(barOf(html)).toContain('<a href="/settings/reader?next=%2Fworks%2F43800%2Ffull">');
+    expect(barOf(html)).toContain(`<a href="/settings/reader?next=%2Fworks%2F${PLAIN}%2Ffull">`);
   });
 
   it("A title with markup is escaped inside the link", async () => {
-    await seed(HOSTILE, HOSTILE_TITLE);
     for (const path of [`/works/${HOSTILE}/chapters/1`, `/works/${HOSTILE}/full`]) {
       const html = await (await fetchW(path)).text();
       expect(titleLinkOf(html), path).toEqual({
@@ -65,7 +70,6 @@ describe("11-reader-and-csp: the work title in the reader bar", () => {
   });
 
   it("A work with no title links as Untitled work", async () => {
-    await seed(UNTITLED, "   ");
     for (const path of [`/works/${UNTITLED}/chapters/1`, `/works/${UNTITLED}/full`]) {
       const html = await (await fetchW(path)).text();
       expect(titleLinkOf(html), path).toEqual({
