@@ -41,7 +41,7 @@ function searchPeriodSeconds(): number {
  * Puts a new client over the search limit: searches from Node until the Worker answers 429,
  * so the browser's search from that address, made at once, is refused in the same window.
  */
-async function overSearchLimit(site: Site): Promise<ContextOptions> {
+export async function overSearchLimit(site: Site): Promise<ContextOptions> {
   // The local limiter's windows are fixed and aligned to the clock: start with 10 seconds of
   // the window left at least, so the browser's search lands in it.
   const windowMs = searchPeriodSeconds() * 1000;
