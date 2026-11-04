@@ -13,7 +13,7 @@ const db = createDb({
 afterAll(() => db.destroy());
 
 describe("01-auth-magic-link sign-out before launch", () => {
-  it("Sign-out works before launch and before the terms are accepted", async () => {
+  it("Sign-out works before launch, and a cross-site post is refused", async () => {
     const email = "prelaunch-sign-out@example.test";
     const cookie = await signIn(email);
     const rows = () =>
@@ -43,5 +43,10 @@ describe("01-auth-magic-link sign-out before launch", () => {
       res.headers.getSetCookie().some((c) => c.startsWith("__Secure-better-auth.session_token=;")),
     ).toBe(true);
     expect(await rows()).toHaveLength(0);
+
+    // Signed out, the page still opens and says so (not a redirect, not a 404).
+    const after = await fetchW("/logout", { headers: { cookie } });
+    expect(after.status).toBe(200);
+    expect(await after.text()).toContain("You are not signed in");
   });
 });

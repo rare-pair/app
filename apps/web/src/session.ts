@@ -36,12 +36,13 @@ export const sessionMiddleware: MiddlewareHandler<{
     c.set("session", response);
     await next();
     // After the handler, as HSTS is: a handler's own Response doesn't keep headers
-    // set before it. A route that set the session cookie itself, such as a
-    // sign-out, has the last word: a refresh after it would undo it.
-    const isSession = (cookie: string) => cookie.startsWith(`${SESSION_COOKIE}=`);
-    const own = c.res.headers.getSetCookie().some(isSession);
+    // set before it. A route that set a cookie itself, such as a sign-out, has the last
+    // word on it: a refresh, or the lookup's own clearing of a dead session, after it
+    // would undo it or repeat it.
+    const nameOf = (cookie: string) => cookie.slice(0, cookie.indexOf("="));
+    const own = new Set(c.res.headers.getSetCookie().map(nameOf));
     for (const cookie of headers.getSetCookie()) {
-      if (own && isSession(cookie)) continue;
+      if (own.has(nameOf(cookie))) continue;
       c.header("Set-Cookie", cookie, { append: true });
     }
   } finally {

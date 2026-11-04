@@ -22,6 +22,8 @@ describe("sign-out journey", () => {
     await context.addCookies(await signed.context.cookies());
     const page = await context.newPage();
 
+    const session = "__Secure-better-auth.session_token";
+    expect((await context.cookies()).map((cookie) => cookie.name)).toContain(session);
     await page.goto(`${SITE}/me/uploads`);
     expect(new URL(page.url()).pathname).toBe("/me/uploads");
 
@@ -37,6 +39,6 @@ describe("sign-out journey", () => {
     await page.goto(`${SITE}/me/uploads`);
     expect(new URL(page.url()).pathname).toBe("/login");
     const names = (await context.cookies()).map((cookie) => cookie.name);
-    expect(names).not.toContain("__Secure-better-auth.session_token");
+    expect(names).not.toContain(session);
   });
 });

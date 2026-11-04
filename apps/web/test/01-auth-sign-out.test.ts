@@ -1,7 +1,7 @@
 import { createDb } from "@archive/db";
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
-import { fetchW, postLogin, signIn } from "./helpers";
+import { BASE, fetchW, postLogin, signIn } from "./helpers";
 
 // Sign-out at /logout (OUT). Each test signs in its own account, found by address.
 
@@ -47,7 +47,8 @@ describe("01-auth-magic-link sign-out", () => {
     expect(cleared[0]).toContain("Max-Age=0");
     expect(cleared[0]).toContain("Path=/");
     expect(cleared[0]).toContain("HttpOnly");
-    expect(cleared[0]).toContain("Secure");
+    // The attribute, not the `__Secure-` in the cookie's name.
+    expect(cleared[0]).toMatch(/;\s*Secure(;|$)/);
     expect(cleared[0]).toContain("SameSite=Lax");
     expect(cleared[0]).not.toMatch(/Domain=/i);
     expect(await sessionRows(email)).toBe(0);
@@ -70,18 +71,19 @@ describe("01-auth-magic-link sign-out", () => {
 
   it("Sign-out without a session answers the same", async () => {
     const old = await signIn("sign-out-same@example.test");
-    const signedIn = await postLogout(old);
+    const signedOut = await postLogout(old);
+    // What an observer sees: the status and every header but the date, and the body.
+    const seen = async (res: Response) => ({
+      status: res.status,
+      headers: [...res.headers].filter(([name]) => name !== "date"),
+      body: await res.text(),
+    });
+    const expected = await seen(signedOut);
+    expect(expected.status).toBe(303);
+    expect(expected.headers).toContainEqual(["clear-site-data", '"cache"']);
     // The last is a second tab: a real cookie whose session was just signed out.
     for (const cookie of [undefined, "__Secure-better-auth.session_token=forged.value", old]) {
-      const res = await postLogout(cookie);
-      expect(res.status).toBe(signedIn.status);
-      expect(res.headers.get("location")).toBe("/");
-      expect(res.headers.get("clear-site-data")).toBe('"cache"');
-      expect(
-        res.headers
-          .getSetCookie()
-          .some((c) => c.startsWith("__Secure-better-auth.session_token=;")),
-      ).toBe(true);
+      expect(await seen(await postLogout(cookie))).toEqual(expected);
     }
   });
 
@@ -94,11 +96,24 @@ describe("01-auth-magic-link sign-out", () => {
       .where("email", "=", email)
       .executeTakeFirstOrThrow();
     // Two days old of seven: Better Auth extends it on the next lookup.
-    await db
-      .updateTable("session")
-      .set({ expires_at: new Date(Date.now() + 5 * 24 * 60 * 60_000) })
-      .where("user_id", "=", user.id)
-      .execute();
+    const makeDue = () =>
+      db
+        .updateTable("session")
+        .set({ expires_at: new Date(Date.now() + 5 * 24 * 60 * 60_000) })
+        .where("user_id", "=", user.id)
+        .execute();
+    await makeDue();
+    // The control: a read of this session does hand back a refreshed session cookie, so the
+    // post below meets a refresh the session middleware wants to add.
+    const read = await fetchW("/logout", { headers: { cookie } });
+    expect(
+      read.headers
+        .getSetCookie()
+        .some(
+          (c) => c.startsWith("__Secure-better-auth.session_token=") && !c.includes("Max-Age=0"),
+        ),
+    ).toBe(true);
+    await makeDue();
 
     const res = await postLogout(cookie);
 
@@ -139,6 +154,17 @@ describe("01-auth-magic-link sign-out", () => {
     expect(await (await fetchW("/logout", { headers: { cookie } })).text()).toContain(
       'action="/logout"',
     );
+
+    // Each header alone, from the site, is enough: the check refuses what is foreign, and
+    // doesn't need both.
+    for (const headers of [{ origin: BASE }, { "sec-fetch-site": "same-origin" }]) {
+      const mine = await signIn(`sign-out-one-header-${Object.keys(headers)[0]}@example.test`);
+      const res = await fetchW("/logout", {
+        method: "POST",
+        headers: { cookie: mine, ...headers },
+      });
+      expect(res.status, JSON.stringify(headers)).toBe(303);
+    }
   });
 
   it("Opening the sign-out page signs nobody out", async () => {
@@ -169,6 +195,7 @@ describe("01-auth-magic-link sign-out", () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain("You are not signed in");
+    expect(html).toContain('href="/login"');
     expect(html).not.toContain('action="/logout"');
   });
 
