@@ -708,10 +708,11 @@ can be snapshotted.
   can show up to 60 s after the page was cached, which can run slightly past 60 s
   from the hide itself. The page's own reads go through the cached Hyperdrive
   connection (see *Connections*), which adds up to about 75 s more, so in all a
-  hide, a removal or a change can take about 2 minutes to show on a chapter. The
-  work page, `/full`, listings, search and the home page have no edge cache of this
-  kind, so for them it is the connection's window alone, up to about 75 s (plus any
-  short Cache-Control they send).
+  hide, a removal or a change can take about 135 s (a little over 2 minutes) to show on
+  a chapter. The work page, `/full`, listings, search and the home page have no edge
+  cache of this kind, so for them it is the connection's window, up to about 75 s, plus
+  the browser cache a response sends: a tag listing's `private, max-age=60,
+  stale-while-revalidate=60` adds up to 120 s in the same browser, so about 195 s.
 - **Warnings screen.** A work rated Mature or Explicit, or carrying archive
   warnings, or marked "Choose Not To Use Archive Warnings", or with no rating
   at all, shows an interstitial with its rating and warnings the first time a
@@ -987,8 +988,8 @@ epub, under the normal versioning rules.
     it was cached, in each data centre, which can run slightly past 60 s from the
     hide. The work page, `/full`, tag listings, search and the home page read
     through the cached connection (see *Connections*), so they can show the work
-    for up to about 75 s after a hide, and a chapter's own read adds the same to
-    its 60 s. A hide does not purge it, unlike removal (see *Removal really removes*
+    for up to about 75 s after a hide (a tag listing adds its browser cache, see
+    Reading), and a chapter's own read adds the same to its 60 s. A hide does not purge it, unlike removal (see *Removal really removes*
     below). This applies to every hide cause. A declared automated client gets
     a 403 on the chapter URLs and `/full` instead (Crawlers and agents).
   - **Held** (a `held_for_review` version, never public): 404 to the public.
@@ -1003,7 +1004,9 @@ epub, under the normal versioning rules.
 - **Removal really removes.** Setting a work to `removed`, through a takedown,
   an author request or a moderator, also deletes `works/<ao3_work_id>/` and the raw
   upload from R2, and purges the work's pages, cached fragments, images and
-  download URLs from the cache. Images and downloads are cached as
+  download URLs from the cache. Public pages that read the work through the cached
+  Hyperdrive connection can still show it, and can store a chapter page after the
+  purge, for up to about 75 s (see *Connections*). Images and downloads are cached as
   `immutable`, so without the purge parts of a removed work stay reachable. That
   the purge clears the content Worker's own cache entries is not yet confirmed (see
   Surge controls, Edge cache).
@@ -1049,8 +1052,8 @@ epub, under the normal versioning rules.
   `X-Robots-Tag: noindex` and give the moderators' contact address. Requests
   `pageCacheable` allows share one edge cache entry per page number for up to 60 s,
   holding the page's data and not its nonce, on top of up to about 75 s in the cached
-  Hyperdrive connection (see *Connections*), so in each data centre a change can take
-  about 2 minutes to show. Withholding
+  Hyperdrive connection if these pages read through it (see *Connections*), so in each
+  data centre a change can take about 135 s to show. Withholding
   purges nothing.
 - **DMCA.** To get safe-harbor protection under US law (17 U.S.C. §512), we need
   a designated agent registered with the US Copyright Office, a public takedown
@@ -1279,7 +1282,9 @@ markup: its inline `style` attributes become stylesheet rules, because
   and an R2 lifecycle rule expires anything under `uploads/` after 7 days.
   Raw files the archive keeps are copied to `originals/` during ingest.
 - Queue backpressure: set a maximum consumer concurrency so Neon connections
-  stay bounded. Hyperdrive pools connections, and Neon autoscales compute.
+  stay bounded. Hyperdrive pools connections, and Neon autoscales compute. Each Hyperdrive
+  config keeps its own pool, and the web Worker uses two: before launch, check the pool
+  sizes of the two configs and the ingest and sweep one against Neon's connection limit.
 - Edge cache: images and original downloads on `content.rarepair.fans` never change
   once written, since each version has its own prefix, so they're cached with
   `Cache-Control: public, max-age=31536000, immutable`. The content Worker also
@@ -1317,10 +1322,13 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
   requests and their confirmation, the wait list, and the launch dead-letter consumer. A
   sign-out, a demotion, a ban or a used token takes effect at once, and a read that
   decides a write sees the row it is about to write over. Ingest and the sweep have this
-  one alone: every read in them decides a write.
+  one alone, because their reads feed writes (the lease, the opt-out and removal checks,
+  versioning, what to sweep); a read added there that is only a check stays on it too.
 - **`HYPERDRIVE_CACHED` (caching on) serves public pages only,** and only these: the home
   page, tag listings, search, the work page, the chapter reader, `/full` and the
-  warnings screen. They only read. A node test (`hyperdrive-connections.node.test.ts`)
+  warnings screen. They only read. `/removed` and `/removed/pseuds` are not built: the ticket that builds them names their
+  connection, and the allowlist and its test change with it. A node test
+  (`hyperdrive-connections.node.test.ts`)
   fails if any other file names the binding (it reads source text: a helper handed `env`
   would get past it, and the workerd test in `24-hyperdrive-connections.test.ts` covers the
   paths it names).
@@ -1333,15 +1341,18 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
   can be undone for the same window: a chapter request that read the work before the
   removal can store a fresh edge entry after the purge. A work that has just gone live
   can also show late, including a cached "no such work" from before it did, and a
-  replaced version's old title can show, each up to about 75 s on public pages. The
+  replaced version's old title can show, and a work just restored or un-hidden can still
+  answer 451 or 410, each up to about 75 s on public pages. The
   upload status page links to the work page, so someone can meet this just after
   "done". New code that reads
   through `HYPERDRIVE` without knowing about this is fresh, and so safe.
-- **Operator steps.** Turn caching off on the existing config
-  (`wrangler hyperdrive update <id> --caching-disabled`) and use its id for `HYPERDRIVE` in
-  `apps/web`, `apps/ingest` and `apps/sweep`. Create a second config on the same database
-  with caching on (`wrangler hyperdrive create <name> --connection-string=<url>`) and put
-  its id on `HYPERDRIVE_CACHED` in `apps/web`. **Pasting one id into both puts every
+- **Operator steps.** In this order, once Workers are deployed: create a second config on
+  the same database with caching on (`wrangler hyperdrive create <name>
+  --connection-string=<url>`) and put its id on `HYPERDRIVE_CACHED` in `apps/web`; deploy
+  `apps/web` with both bindings; then turn caching off on the existing config
+  (`wrangler hyperdrive update <id> --caching-disabled`), whose id is `HYPERDRIVE`'s in
+  `apps/web`, `apps/ingest` and `apps/sweep`. (Before launch nothing is deployed, so the order
+  doesn't matter.) **Pasting one id into both puts every
   read back in the cache, and no test can see it**: ids in the repo are placeholders, and
   caching is a property of the deployed config. Check the two ids differ and that only
   `HYPERDRIVE_CACHED`'s config has caching on.
