@@ -15,6 +15,7 @@ an unofficial stopgap.
 | --- | --- |
 | Name and domain | rarepair, always written lowercase as one word. The site is served at `rarepair.fans`, and `www.rarepair.fans` redirects there. Epub images and original downloads are served from `content.rarepair.fans` |
 | Who can read uploads | Shared public archive. Every upload is readable by everyone, with takedowns and author removal requests from day one |
+| Crawlers and agents | Clients that declare themselves automated are refused fic text: chapters, `/full`, images and originals. Metadata pages stay open and indexable. Reading stays public, with no challenge and no sign-in, so anything posing as a browser is only throttled (operator ruling, 2026-11-04) |
 | Hosting | Cloudflare: Workers, R2, Queues, KV, plus Neon Postgres through Hyperdrive |
 | Load target | Surge-ready: assume tens of thousands of signups in the first days |
 | Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend |
@@ -94,9 +95,11 @@ an unofficial stopgap.
     domain isn't submitted to the HSTS preload list: the archive is temporary,
     and leaving the list takes months.
   - Zone-level Cloudflare features that set cookies, such as Bot Fight Mode and
-    challenge pages, must not apply to `content.rarepair.fans`: turn them off,
-    or skip that host with a rule. Turnstile and the web Worker's rate limits do
-    that job instead.
+    challenge pages, must not apply to `content.rarepair.fans`. Bot Fight Mode
+    can't be skipped by a rule, so it is off for the whole zone, and so are Super
+    Bot Fight Mode, on a plan that has it, and Browser Integrity Check, which is on
+    by default. Turnstile and the Workers' rate limits do that job instead
+    (Crawlers and agents).
   - The content Worker keeps no per-request log (invocation logs are off), so its
     logs hold no reader address next to a work id. Errors and metrics are kept;
     traces stay on and may record the request URL.
@@ -725,6 +728,45 @@ can be snapshotted.
   displayed inline. The link names the current version's upload, or for a
   backfill version the upload it was re-made from (`source_upload_id`).
 
+### Crawlers and agents
+
+Fic text is kept from clients that say they are automated, without making readers
+prove anything. The protected paths are `/works/:id/chapters`, its chapter pages
+and `/full` on the app, and `/works/:id/img/*` and `/originals/*` on the content
+origin. Work pages, listings and search stay open, so people can still find works.
+
+- **Who is refused.** A request with a `Signature-Agent` header (Web Bot Auth,
+  which isn't verified, since announcing itself is enough) or with a `User-Agent`
+  on the crawler list gets a **403** on a protected path, whatever its session. Both Workers share the list. The check runs ahead of the
+  session lookup, the edge cache and the work's status, so a refusal costs no
+  lookups and doesn't show whether a work is live, hidden or removed. On the
+  content origin it answers before `caches.default`, with no body and no cookie.
+- **Only what a client declares.** Nothing is refused for looking headless, for its
+  IP range or for its request rate: those would catch the real-browser journeys and
+  assistive tools, and a high rate only meets the throttles below. Managed Challenge and JavaScript detections are out too, because
+  reading must work with JavaScript off and reader pages allow no third-party frame.
+- **Zone config.** One custom rule blocks `cf.client.bot` on each host's protected
+  paths, which covers search engines as well. Bot Fight Mode, Super Bot Fight Mode
+  and Browser Integrity Check are off (Hosts). AI Crawler and Agent access policies stay on
+  allow and Bot Preference Sync stays off: both act on the whole zone, so they would
+  also block work pages, and the Workers' `robots.txt` stays the only source.
+  AI Crawl Control is for watching which crawlers come, and for adding to the list.
+  `request.cf.botManagement` isn't used, since it needs Enterprise Bot Management.
+- **Signals.** `/robots.txt` on the app disallows the chapter and `/full` paths and
+  states `Content-Signal: search=yes, ai-input=no, ai-train=no`. On the content origin
+  it disallows everything, and is the one path served there besides images and
+  originals. Protected responses also send
+  `X-Robots-Tag: noindex, noarchive, noai, noimageai`. All of these are requests a
+  crawler can ignore, and a crawler obeying `robots.txt` never fetches the header.
+- **Throttles.** Per client IP: chapter reads, `/full` (lower, since one request is a
+  whole work) and original downloads, each counted before any cache. Images aren't
+  throttled, since one chapter can hold many. The limits are configuration, set with
+  the others in Surge controls.
+- **What this doesn't stop.** A scraper posing as a browser across many addresses is
+  slowed at most, and an agent driving a person's real browser looks like that person.
+  Stopping those would take a sign-in to read, which the operator ruled out on
+  2026-11-04 to keep the archive readable by everyone.
+
 ## Auth (magic link: Better Auth + Resend)
 
 - **Library.** [Better Auth](https://www.better-auth.com/) 1.7 with its
@@ -1120,7 +1162,8 @@ markup: its inline `style` attributes become stylesheet rules, because
 - The Workers rate-limiting binding covers abuse throttling on login, the
   wait list, removal requests, DMCA notices, upload requests and search, keyed
   per IP and per user (per email for login, the wait list and removal
-  requests). It's approximate and counts per Cloudflare location, over 10- or
+  requests), and on chapter, `/full` and original reads, keyed per IP (Crawlers
+  and agents). It's approximate and counts per Cloudflare location, over 10- or
   60-second windows. That's fine for slowing abuse, but not for hard limits.
 - **Status codes.** A rate limit or quota that is hit returns **429** with
   `Retry-After` and a plain page saying when to try again (`POST /uploads`, which a
