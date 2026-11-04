@@ -258,6 +258,11 @@ describe("17-reports-and-dmca: DMCA", () => {
     expect(html).toMatch(/<form\b[^>]*\bhidden\b/);
   });
 
+  it("The privacy page says the anti-spam check runs on the copyright notice page", async () => {
+    const html = await (await fetchW("/privacy")).text();
+    expect(html).toContain("removal and copyright notice pages");
+  });
+
   it("Submitting a DMCA notice creates a takedown", async () => {
     const res = await postNotice(COMPLETE);
     expect(res.status).toBe(200);

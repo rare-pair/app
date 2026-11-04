@@ -131,9 +131,9 @@
     // page and other app pages redirect to it. Only "off" turns it off; a missing or
     // misspelt value keeps it on.
     "PRELAUNCH": "on",
-    // The public Turnstile sitekey of the coming-soon and sign-in forms. This is Cloudflare's
+    // The public Turnstile sitekey of every Turnstile form: coming-soon, sign-in, upload, removal and copyright notice. This is Cloudflare's
     // always-passes test sitekey: replace it with the real one before launch. Cloudflare
-    // refuses its tokens under a real secret key, so until then those forms fail closed.
+    // refuses its tokens under a real secret key, so until then those forms fail closed (the copyright notice form too: its <noscript> email is the only way to send one).
     "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
     // The bucket presigned upload URLs PUT into, under uploads/ (src/presign.ts). It must be
     // the BUCKET binding's bucket_name above, which /complete and ingest read uploads from.

@@ -323,7 +323,7 @@ const ENTRIES = (): Entry[] => [
     name: "copyright notice",
     path: "/dmca",
     turnstile: true,
-    order: [...CHROME, "<noscript>", 'id="dmca"'],
+    order: [...CHROME, "<noscript>", 'id="dmca"', "<button"],
   },
   { name: "moderation home", path: "/admin", who: "moderator", order: [...CHROME, "<nav"] },
   ...["reports", "takedowns", "requests", "works"].map((queue) => ({
