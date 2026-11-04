@@ -3,7 +3,8 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { BrowserContext, Page } from "playwright";
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
-import { SITE, startSite, type Site, type SiteOptions } from "./site";
+import { startSite, type Site, type SiteOptions } from "./site";
+import { viaHeader } from "./walk";
 
 /** The site a journey runs on, ready once its `beforeAll` has run. */
 export type JourneySite = { site: Site };
@@ -61,9 +62,12 @@ const payload = (file: EpubFile) => {
   return { name, mimeType: EPUB_MIME, buffer: Buffer.from(bytes) };
 };
 
-/** Opens /upload, picks `files` and clicks Upload, then returns without waiting for anything. */
+/**
+ * Clicks the header's Add work (from home, when `page` is on no page of the site), picks
+ * `files` and clicks Upload, then returns without waiting for anything.
+ */
 export async function sendFiles(page: Page, files: EpubFile[]): Promise<void> {
-  await page.goto(`${SITE}/upload`);
+  await viaHeader(page, "Add work");
   // Files on disk go by path, as the browser reads a file picked in a dialog; only bytes built in
   // the test go as in-memory payloads (setInputFiles takes one form or the other).
   // oxlint-disable-next-line deslop/no-runtime-typeof -- tells the string | object union apart
