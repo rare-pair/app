@@ -261,3 +261,83 @@ describe("sweep safety", () => {
     ]);
   });
 });
+
+describe("sweep of a removed work", () => {
+  const removeWork = (ao3WorkId: number) =>
+    seedWork(t.db, { ao3WorkId, status: "removed" }).then((w) => w.userId);
+  const putUpload = (id: string, userId: string, status: "parse_failed" | "processing") =>
+    t.db
+      .insertInto("uploads")
+      .values({ id, user_id: userId, r2_key: `uploads/${id}.epub`, bytes: 1, status })
+      .execute();
+
+  it("Every page of a removed work's folder goes, and the report counts them", async () => {
+    const userId = await removeWork(43_020);
+    const uploadId = "44444444-4444-4444-8444-444444444444";
+    await putUpload(uploadId, userId, "parse_failed");
+    const files: Record<string, string> = {};
+    for (let n = 1; n <= 7; n++) files[`works/43020/${uploadId}/${n}.html`] = "";
+    for (let n = 1; n <= 3; n++) files[`works/43020/img/${IMG(n)}`] = "";
+    files[`originals/${uploadId}.epub`] = "";
+    files["works/430200/1.html"] = "";
+    files["originals/55555555-5555-4555-8555-555555555555.epub"] = "";
+    const { bucket, keys } = pagingBucket(files);
+
+    const report = await sweep({ db: t.db, bucket, cutoff: new Date(0), limits: LIMITS });
+
+    expect(keys()).toEqual([
+      "originals/55555555-5555-4555-8555-555555555555.epub",
+      "works/430200/1.html",
+    ]);
+    expect(report).toMatchObject({ removedWorks: 1, removedObjectsDeleted: 10, finished: true });
+    expect(report.skipped).toEqual([]);
+  });
+
+  it("A run that spends its budget inside a removed work keeps what it deleted", async () => {
+    await removeWork(43_021);
+    const files: Record<string, string> = {};
+    for (let n = 1; n <= 8; n++) files[`works/43021/img/${IMG(n)}`] = "";
+    const { bucket, keys } = pagingBucket(files);
+    const run = (subrequests: number) =>
+      sweep({ db: t.db, bucket, cutoff: new Date(0), limits: { works: 10, subrequests } });
+
+    const first = await run(6);
+    const left = keys().length;
+    expect(left).toBeGreaterThan(0);
+    expect(left).toBeLessThan(8);
+    expect(first.removedObjectsDeleted).toBe(8 - left);
+
+    // The first folder of a run that runs out is passed over until the next pass over the
+    // bucket; the work's files still go, a budget at a time.
+    for (let i = 0; i < 6 && keys().length > 0; i++) await run(6);
+    expect(keys()).toEqual([]);
+  });
+
+  it("A delete that takes nothing doesn't spend the budget on the same page", async () => {
+    await removeWork(43_023);
+    const { bucket } = pagingBucket({
+      "works/43023/1.html": "",
+      "works/43023/2.html": "",
+      "works/43023/3.html": "",
+    });
+    const stuck: SweepBucket = { ...bucket, delete: async () => {} };
+
+    const report = await sweep({ db: t.db, bucket: stuck, cutoff: new Date(0), limits: LIMITS });
+
+    expect(LIMITS.subrequests - report.subrequestsLeft).toBeLessThan(10);
+    expect(report.finished).toBe(true);
+  });
+
+  it("A removed work with a job running keeps its files, and the report says so", async () => {
+    const userId = await removeWork(43_022);
+    const uploadId = "66666666-6666-4666-8666-666666666666";
+    await putUpload(uploadId, userId, "processing");
+    const { bucket, keys } = pagingBucket({ [`works/43022/${uploadId}/1.html`]: "" });
+
+    const report = await sweep({ db: t.db, bucket, cutoff: new Date(0), limits: LIMITS });
+
+    expect(keys()).toHaveLength(1);
+    expect(report.skipped).toEqual([{ ao3WorkId: 43_022, reason: "in_flight" }]);
+    expect(report.removedWorks).toBe(0);
+  });
+});
