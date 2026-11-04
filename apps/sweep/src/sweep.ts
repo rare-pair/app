@@ -47,8 +47,9 @@ export interface Limits {
 
 /**
  * Under the platform's limits (10,000 subrequests on Workers Paid; 5 minutes of CPU, set in
- * wrangler.jsonc, within a cron's 15 minutes of wall time). The subrequests bound the R2 work; the works bound the Postgres queries, at most seven a
- * work (two to look at the folder, two to read references, two to look again, one to save).
+ * wrangler.jsonc, within a cron's 15 minutes of wall time). The subrequests bound the R2 work; the works bound the Postgres queries, at most eight a
+ * work (one for its status, two to look at the folder, two to read references, two to look
+ * again, one to save).
  */
 export const LIMITS: Limits = { works: 1_000, subrequests: 8_000 };
 
