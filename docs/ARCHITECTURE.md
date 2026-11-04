@@ -410,7 +410,7 @@ Chapter text isn't indexed.
    `immutable`. Images no version references (say, from a job that failed
    before its transaction) are removed by a periodic sweep, and all of them go
    when the work is removed; whatever the removal's purge missed, the sweep
-   deletes on its next run (*Removal really removes*).
+   deletes on a later run (*Removal really removes*).
 7. **Versioning.** Each work is keyed by `ao3_work_id`. The first upload
    creates the work. A later upload:
    - **replaces the current version** only if it is newer (more chapters or a
@@ -514,7 +514,8 @@ Chapter text isn't indexed.
    status nor the message's verdict, and a crash between the ending write and
    the delete leaves the file, which no cleanup rule removes (the sweep covers
    `works/` objects and the `uploads/` expiry is a lifecycle rule; neither
-   touches `originals/`). Only the original goes: fragments and images of a
+   touches `originals/`, except that the sweep deletes the original of each upload
+   whose prefix it finds under a removed work's folder). Only the original goes: fragments and images of a
    refused upload are the sweep's. A refused upload has no version, so this
    leaves the keep-for-re-sanitize decision intact. A `duplicate`'s original
    is kept (below).
@@ -1023,19 +1024,25 @@ epub, under the normal versioning rules.
   `immutable`, so without the purge parts of a removed work stay reachable. That
   the purge clears the content Worker's own cache entries is not yet confirmed (see
   Surge controls, Edge cache). The sweep finishes what the purge or an ingest clean-up
-  missed: on every run it deletes everything under the folder of a work whose status is
-  `removed` (read fresh, never through a cache), with no age limit, along with
-  `originals/<upload_id>.epub` for each `<upload_id>/` prefix in that folder. It
-  skips a work that has an upload pending or processing whose `<upload_id>/` prefix is in
-  the folder, or that is already tied to the work (a job that hasn't written yet can't be seen, and can't commit a version of
-  a removed work: its first write is refused), and takes the work on a later run.
-  An emptied folder no longer appears in R2, so later runs don't visit it. This relies on
+  missed: each run, within its limits (works and R2 calls a run, and one pass over the
+  bucket a day), deletes everything under the folder of a work whose status is
+  `removed`, with no age limit, along with `originals/<upload_id>.epub` for each
+  `<upload_id>/` prefix in that folder. The status is read fresh: the query selects
+  `now()`, a volatile function, so Hyperdrive never serves it from its cache, and the
+  Hyperdrive config has caching off too; a change to that read must keep it uncacheable.
+  The sweep skips a work that has an upload pending or processing whose `<upload_id>/`
+  prefix is in the folder, or that is already tied to the work, and takes the work on a
+  later run; an upload stuck in either state keeps its work skipped until it ends. A job
+  that hasn't written yet can't be seen, but it can't commit a version of a removed
+  work either: the status checks of step 8 refuse the commit, and the job deletes its own
+  files. A folder the run leaves partly deleted is visited again, and an emptied folder no
+  longer appears in R2, so later runs don't visit it. This relies on
   removal being permanent: nothing restores a `removed` work, and a restore would have to
   change this rule first, as the sweep would delete a restored work's files on a stale
-  read. A folder with no `works` row is not a removed work and gets the ordinary
-  rules. Not covered: an original whose `<upload_id>/` prefix is gone while the
-  upload has no `work_id` (nothing ties it to the work), and an upload stuck pending or
-  processing, which keeps its work's folder skipped.
+  read (step 8's branch for a work restored meanwhile is defensive, for that reason).
+  A folder with no `works` row is not a removed work and gets the ordinary rules. Not
+  covered: an original whose `<upload_id>/` prefix is gone while the upload has no
+  `work_id` (nothing ties it to the work).
 - **The removal list.** `/removed` lists removed works, newest first: title,
   byline, "The original work" link with its ID and its note, as on the work page,
   date and reason. `/removed/pseuds` lists pseuds with an approved, active opt-out,

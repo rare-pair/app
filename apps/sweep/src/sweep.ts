@@ -113,7 +113,9 @@ export function errorCode(error: unknown): string {
 
 /**
  * Sweeps `works/<ao3_work_id>/` folders in R2's key order, from where the last run stopped,
- * until the limits are spent or the last folder is done. In each folder it deletes the
+ * until the limits are spent or the last folder is done. A removed work's folder is emptied of
+ * everything, of any age, with the originals its upload prefixes name (`sweepRemoved`); the
+ * rest of this paragraph is the rule for every other folder. In each of those it deletes the
  * `<upload_id>/` prefixes no version points at and no pending or processing upload owns, then
  * the images under `img/` that no version references, all only when put before the cutoff. The
  * image pass runs only on a complete reference scan, with no upload of the work in flight:
