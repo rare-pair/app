@@ -1,3 +1,4 @@
+import type { Page } from "playwright";
 import { describe, expect, it } from "vitest";
 import { useJourneySite } from "../harness/journey";
 import { signedIn } from "../harness/sessions";
@@ -6,6 +7,18 @@ import { SITE } from "../harness/site";
 // The site header, as a person meets it: from the home page, each link is there by its role
 // and name and goes where it says. Which links each visitor gets on every page is
 // apps/web/test/20-site-header; this is the click-through. Addresses are synthetic.
+
+/** Presses Tab from the top until Sign out has focus (at most 12 times), and returns what had focus, in order. */
+async function tabToSignOut(page: Page): Promise<string[]> {
+  const reached: string[] = [];
+  for (let i = 0; i < 12 && !reached.includes("Sign out"); i += 1) {
+    await page.keyboard.press("Tab");
+    // SAFETY: after a Tab, the focused element is one of the page's links or buttons.
+    const focused = () => (document.activeElement as HTMLElement).innerText;
+    reached.push(await page.evaluate(focused));
+  }
+  return reached;
+}
 
 describe("site header journeys", () => {
   const running = useJourneySite();
@@ -69,13 +82,7 @@ describe("site header journeys", () => {
     await page.goto(`${SITE}/`);
     const header = page.getByRole("banner");
 
-    const reached: string[] = [];
-    for (let i = 0; i < 12 && !reached.includes("Sign out"); i += 1) {
-      await page.keyboard.press("Tab");
-      // SAFETY: after a Tab, the focused element is one of the page's links or buttons.
-      const focused = () => (document.activeElement as HTMLElement).innerText;
-      reached.push(await page.evaluate(focused));
-    }
+    const reached = await tabToSignOut(page);
     expect(reached.at(-1)).toBe("Sign out");
 
     await page.keyboard.press("Enter");
@@ -102,13 +109,7 @@ describe("site header journeys", () => {
     ]);
 
     // Tab from the top reaches each control in the header's order.
-    const reached: string[] = [];
-    for (let i = 0; i < 12 && !reached.includes("Sign out"); i += 1) {
-      await page.keyboard.press("Tab");
-      // SAFETY: after a Tab, the focused element is one of the page's links or buttons.
-      const focused = () => (document.activeElement as HTMLElement).innerText;
-      reached.push(await page.evaluate(focused));
-    }
+    const reached = await tabToSignOut(page);
     const names = ["Search", "Add work", "My uploads", "Admin", "Sign out"];
     expect(reached.filter((name) => names.includes(name))).toEqual(names);
 
