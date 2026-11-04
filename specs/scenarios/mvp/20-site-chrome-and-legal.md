@@ -37,21 +37,27 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 ### Site header for a signed-out visitor
 - GIVEN a signed-out visitor
 - WHEN any app page renders
-- THEN the header has an "Add work" link to `/upload` and a "Sign in" link to `/login`, in that order
+- THEN the header has a "Search" link to `/search`, an "Add work" link to `/upload` and a "Sign in" link to `/login`, in that order
 - AND it has no "My uploads", "Admin" or "Sign out"
 
 ### Site header for a signed-in user
 - GIVEN a signed-in user who is not a moderator
 - WHEN any app page renders
-- THEN the header has, in order, "Add work", "My uploads" (to `/me/uploads`) and a "Sign out" button
+- THEN the header has, in order, "Search", "Add work", "My uploads" (to `/me/uploads`) and a "Sign out" button
 - AND the button is in a form that posts to `/logout`, so it works with JavaScript off and by keyboard
 - AND there is no "Sign in" and no "Admin" link, and the header shows no name or address
 
 ### Site header for a moderator
 - GIVEN a signed-in moderator or admin
 - WHEN any app page renders
-- THEN the header has "Add work", "My uploads", "Admin" (to `/admin`) and "Sign out", in that order
+- THEN the header has "Search", "Add work", "My uploads", "Admin" (to `/admin`) and "Sign out", in that order
 - AND nobody else is shown "Admin", and `/admin` still answers anyone else with the same not-found page as any unknown URL
+
+### Site header has Search for every visitor
+- GIVEN any visitor, signed out, signed in or a moderator
+- WHEN any app page renders
+- THEN "Search" is the first link in the header's navigation, and it goes to `/search`
+- AND `/search` with no query is the search page: the search box, no results
 
 ### Site header for an account that has not accepted the terms
 - GIVEN a signed-in account that has not accepted the terms
@@ -68,7 +74,7 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 ### Site header before launch
 - GIVEN the archive before launch
 - WHEN a page renders its header
-- THEN "Add work" and "My uploads" show disabled, as the footer's "Remove my work" link does: no `href`, `aria-disabled="true"`, skipped by Tab
+- THEN "Search", "Add work" and "My uploads" show disabled, as the footer's "Remove my work" link does: no `href`, `aria-disabled="true"`, skipped by Tab, because `/search`, `/upload` and `/me/uploads` are closed
 - AND "Sign in", "Sign out" and "Admin" stay live
 
 ### Site header is never in a shared cache

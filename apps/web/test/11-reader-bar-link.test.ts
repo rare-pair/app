@@ -106,6 +106,8 @@ describe("11-reader-and-csp: the work title in the reader bar", () => {
     const stored = await caches.default.match(chapterPageKey(CACHED, 1));
     const entry = await stored!.text();
     expect(entry).toContain(`<a href=\\"/works/${CACHED}\\">`);
-    expect(entry).not.toMatch(/logout|Sign out|\/admin|My uploads|example\.test|aria-label=\\"Site/);
+    expect(entry).not.toMatch(
+      /logout|Sign out|\/admin|My uploads|example\.test|aria-label=\\"Site/,
+    );
   });
 });

@@ -398,6 +398,8 @@ describe("21-accessibility-and-no-js", () => {
       "<h1>W-FOUR-HEADING-A</h1><p>W-FOUR-TEXT</p><script>window.INJECTED = 1</script><h1>W-FOUR-HEADING-B</h1>",
     );
     const chrome = html.replace(article, "");
-    expect(chrome.match(/<h1\b[^>]*>[\s\S]*?<\/h1>/g)).toEqual([`<h1><a href="/works/${W}">${TITLE_ESCAPED}</a></h1>`]);
+    expect(chrome.match(/<h1\b[^>]*>[\s\S]*?<\/h1>/g)).toEqual([
+      `<h1><a href="/works/${W}">${TITLE_ESCAPED}</a></h1>`,
+    ]);
   });
 });

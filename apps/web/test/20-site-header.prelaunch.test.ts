@@ -27,22 +27,23 @@ const expectDisabled = (attrs: string | undefined, label: string) => {
 };
 
 describe("20-site-chrome-and-legal: the site header before launch", () => {
-  it("Signed out, Add work is disabled and Sign in is live", async () => {
+  it("Signed out, Search and Add work are disabled and Sign in is live", async () => {
     for (const path of ["/", "/login", "/about", "/terms", "/privacy", "/waitlist"]) {
       const res = await fetchW(path);
       const html = await res.text();
+      expectDisabled(anchor(html, "Search"), path);
       expectDisabled(anchor(html, "Add work"), path);
       expect(anchor(html, "Sign in"), path).toContain('href="/login"');
       expect(
         anchorsOf(html).map(([t]) => t),
         path,
-      ).toEqual(["Add work", "Sign in"]);
+      ).toEqual(["Search", "Add work", "Sign in"]);
       // The anonymous header has no form and no button: the wait list pages count theirs.
       expect(headerOf(html), path).not.toMatch(/<form|<button/);
     }
   });
 
-  it("A moderator before launch has Admin and Sign out live, Add work and My uploads disabled", async () => {
+  it("A moderator before launch has Admin and Sign out live, Search, Add work and My uploads disabled", async () => {
     const email = "nav-prelaunch-mod@example.test";
     const cookie = await signIn(email, { acceptTerms: true });
     await db.updateTable("user").set({ role: "moderator" }).where("email", "=", email).execute();
@@ -50,6 +51,7 @@ describe("20-site-chrome-and-legal: the site header before launch", () => {
       const res = await fetchW(path, { headers: { cookie } });
       expect(res.status, path).toBe(200);
       const html = await res.text();
+      expectDisabled(anchor(html, "Search"), path);
       expectDisabled(anchor(html, "Add work"), path);
       expectDisabled(anchor(html, "My uploads"), path);
       expect(anchor(html, "Admin"), path).toContain('href="/admin"');

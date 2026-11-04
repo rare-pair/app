@@ -86,7 +86,7 @@ describe("20-site-chrome-and-legal: the site header", () => {
       expect(
         linksOf(outHtml).map(([t]) => t),
         path,
-      ).toEqual(["Add work", "Sign in"]);
+      ).toEqual(["Search", "Add work", "Sign in"]);
 
       const inRes = await fetchW(path, { headers: { cookie: signedIn } });
       expect(inRes.status, path).toBe(status);
@@ -95,7 +95,7 @@ describe("20-site-chrome-and-legal: the site header", () => {
       expect(
         linksOf(inHtml).map(([t]) => t),
         path,
-      ).toEqual(["Add work", "My uploads"]);
+      ).toEqual(["Search", "Add work", "My uploads"]);
       expect(inHtml, path).toContain('action="/logout"');
 
       const modRes = await fetchW(path, { headers: { cookie: moderator } });
@@ -104,7 +104,7 @@ describe("20-site-chrome-and-legal: the site header", () => {
       expect(
         linksOf(modHtml).map(([t]) => t),
         path,
-      ).toEqual(["Add work", "My uploads", "Admin"]);
+      ).toEqual(["Search", "Add work", "My uploads", "Admin"]);
       // No visitor's header goes on a page every visitor can be served.
       expect(headerOf(outHtml), path).not.toMatch(/Sign out|\/admin|My uploads/);
       expect(headerOf(inHtml), path).not.toMatch(/\/admin|Sign in/);
@@ -115,7 +115,12 @@ describe("20-site-chrome-and-legal: the site header", () => {
     const moderator = await signInAs("nav-admin-pages@example.test", "moderator");
     const res = await fetchW("/admin", { headers: { cookie: moderator } });
     expect(res.status).toBe(200);
-    expect(linksOf(await res.text()).map(([t]) => t)).toEqual(["Add work", "My uploads", "Admin"]);
+    expect(linksOf(await res.text()).map(([t]) => t)).toEqual([
+      "Search",
+      "Add work",
+      "My uploads",
+      "Admin",
+    ]);
 
     const user = await signInAs("nav-admin-refused@example.test");
     for (const cookie of [undefined, user]) {
@@ -174,13 +179,13 @@ describe("20-site-chrome-and-legal: the site header", () => {
     expect(missing.status).toBe(404);
     const html = await missing.text();
     // Whoever asks: the static route never reads the session.
-    expect(linksOf(html).map(([t]) => t)).toEqual(["Add work", "Sign in"]);
+    expect(linksOf(html).map(([t]) => t)).toEqual(["Search", "Add work", "Sign in"]);
   });
 
   it("An account that has not accepted the terms sees the header, and its links lead to the terms", async () => {
     const cookie = await signIn("nav-new@example.test");
     const html = await (await fetchW("/about", { headers: { cookie } })).text();
-    expect(linksOf(html).map(([t]) => t)).toEqual(["Add work", "My uploads"]);
+    expect(linksOf(html).map(([t]) => t)).toEqual(["Search", "Add work", "My uploads"]);
     expect(headerOf(html)).toContain('action="/logout"');
     for (const path of ["/upload", "/me/uploads"]) {
       const res = await fetchW(path, { headers: { cookie } });
@@ -214,19 +219,21 @@ describe("20-site-chrome-and-legal: the site header", () => {
     expect(html).not.toContain("example.test");
   });
 
-  it("Signed out, the header has Add work and Sign in", async () => {
+  it("Signed out, the header has Search, Add work and Sign in", async () => {
     const html = await (await fetchW("/about")).text();
     expect(linksOf(html)).toEqual([
+      ["Search", "/search"],
       ["Add work", "/upload"],
       ["Sign in", "/login"],
     ]);
     expect(headerOf(html)).not.toMatch(/<form|<button/);
   });
 
-  it("Signed in, the header has Add work, My uploads and a Sign out form", async () => {
+  it("Signed in, the header has Search, Add work, My uploads and a Sign out form", async () => {
     const cookie = await signInAs("nav-user@example.test");
     const html = await (await fetchW("/about", { headers: { cookie } })).text();
     expect(linksOf(html)).toEqual([
+      ["Search", "/search"],
       ["Add work", "/upload"],
       ["My uploads", "/me/uploads"],
     ]);
@@ -236,11 +243,12 @@ describe("20-site-chrome-and-legal: the site header", () => {
     expect(headerOf(html)).not.toMatch(/\/admin|\/login/);
   });
 
-  it("A moderator and an admin also get Admin, before Sign out", async () => {
+  it("A moderator and an admin also get Admin, before Sign out, after Search", async () => {
     for (const role of ["moderator", "admin"]) {
       const cookie = await signInAs(`nav-${role}@example.test`, role);
       const html = await (await fetchW("/about", { headers: { cookie } })).text();
       expect(linksOf(html), role).toEqual([
+        ["Search", "/search"],
         ["Add work", "/upload"],
         ["My uploads", "/me/uploads"],
         ["Admin", "/admin"],

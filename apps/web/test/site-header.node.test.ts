@@ -7,23 +7,23 @@ describe("20-site-chrome-and-legal: the header's links", () => {
   const texts = (html: string) =>
     [...html.matchAll(/>([^<>]+)</g)].flatMap((m) => (m[1]!.trim() === "" ? [] : [m[1]!.trim()]));
 
-  it("Signed out, Add work then Sign in", () => {
+  it("Signed out, Search, Add work then Sign in", () => {
     const html = headerLinks({ signedIn: false, moderator: false });
-    expect(texts(html)).toEqual(["Add work", "Sign in"]);
+    expect(texts(html)).toEqual(["Search", "Add work", "Sign in"]);
     expect(html).toContain('<a href="/login">Sign in</a>');
     expect(html).not.toMatch(/<form|<button/);
   });
 
   it("Signed in, My uploads and a Sign out form last", () => {
     const html = headerLinks({ signedIn: true, moderator: false });
-    expect(texts(html)).toEqual(["Add work", "My uploads", "Sign out"]);
+    expect(texts(html)).toEqual(["Search", "Add work", "My uploads", "Sign out"]);
     expect(html).toContain('<form method="post" action="/logout">');
     expect(html).not.toContain("/admin");
   });
 
   it("A moderator's Admin comes before Sign out", () => {
     const html = headerLinks({ signedIn: true, moderator: true });
-    expect(texts(html)).toEqual(["Add work", "My uploads", "Admin", "Sign out"]);
+    expect(texts(html)).toEqual(["Search", "Add work", "My uploads", "Admin", "Sign out"]);
   });
 
   it("The nav is labelled, so it is told apart from the chapter navs", () => {

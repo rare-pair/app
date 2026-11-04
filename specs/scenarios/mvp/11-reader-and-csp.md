@@ -101,6 +101,12 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Chapter rendering, Name an
 - WHEN the page renders
 - THEN the only chrome is a slim top bar with the work title and a settings link, which scrolls away
 
+### The work title in the bar links to the work
+- GIVEN any chapter of W, or its entire work on `/full`
+- WHEN a reader follows the link named by the work's title in the top bar
+- THEN the work page opens
+- AND the title is the same link on a chapter served from the edge page cache, since the cached entry holds the link and no signed-in state
+
 ### Entire work on one page
 - GIVEN live work W
 - WHEN a reader opens `/works/:id/full`

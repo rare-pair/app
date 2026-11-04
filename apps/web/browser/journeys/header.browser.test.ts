@@ -17,11 +17,17 @@ describe("site header journeys", () => {
     const header = page.getByRole("banner");
     expect(await header.getByRole("link").allInnerTexts()).toEqual([
       "rarepair",
+      "Search",
       "Add work",
       "Sign in",
     ]);
     expect(await header.getByRole("button").count()).toBe(0);
 
+    await header.getByRole("link", { name: "Search" }).click();
+    await page.waitForURL(`${SITE}/search`);
+    await page.getByRole("searchbox", { name: "Search the archive" }).waitFor();
+
+    await page.goto(`${SITE}/`);
     await header.getByRole("link", { name: "Add work" }).click();
     await page.waitForURL(`${SITE}/login?next=%2Fupload`);
 
@@ -39,6 +45,7 @@ describe("site header journeys", () => {
     const header = page.getByRole("banner");
     expect(await header.getByRole("link").allInnerTexts()).toEqual([
       "rarepair",
+      "Search",
       "Add work",
       "My uploads",
     ]);
@@ -66,6 +73,7 @@ describe("site header journeys", () => {
     const header = page.getByRole("banner");
     expect(await header.getByRole("link").allInnerTexts()).toEqual([
       "rarepair",
+      "Search",
       "Add work",
       "My uploads",
       "Admin",
@@ -79,7 +87,7 @@ describe("site header journeys", () => {
       const focused = () => (document.activeElement as HTMLElement).innerText;
       reached.push(await page.evaluate(focused));
     }
-    const names = ["Add work", "My uploads", "Admin", "Sign out"];
+    const names = ["Search", "Add work", "My uploads", "Admin", "Sign out"];
     expect(reached.filter((name) => names.includes(name))).toEqual(names);
 
     await header.getByRole("link", { name: "Admin" }).click();
