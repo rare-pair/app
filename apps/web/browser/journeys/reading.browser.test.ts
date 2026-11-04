@@ -103,6 +103,24 @@ const scrollState = (page: Page) =>
     room: document.documentElement.scrollHeight - window.innerHeight,
   }));
 
+/** The text of the page's main element. */
+const mainText = (page: Page) => page.locator("main").innerText();
+
+/**
+ * Scrolls to halfway down the page and waits for the position script's save (5 seconds after
+ * the scroll; never sleep) to be answered 204.
+ */
+async function saveHalfway(page: Page, ao3WorkId: number, room: number) {
+  const [saved] = await Promise.all([
+    page.waitForResponse(
+      (res) =>
+        res.url() === `${SITE}/works/${ao3WorkId}/position` && res.request().method() === "POST",
+    ),
+    page.evaluate((to) => window.scrollTo(0, to), Math.floor(room / 2)),
+  ]);
+  expect(saved.status()).toBe(204);
+}
+
 describe("reading journeys", () => {
   const running = useJourneySite();
   seedWorks(running);
@@ -119,7 +137,7 @@ describe("reading journeys", () => {
 
     await nav.getByRole("link", { name: "Next chapter" }).click();
     await page.waitForURL(`${SITE}/works/${NAVIGATION}/chapters/2`);
-    expect(await page.locator("main").innerText()).toContain("pw3 navigation chapter 2");
+    expect(await mainText(page)).toContain("pw3 navigation chapter 2");
 
     await nav.getByRole("link", { name: "Previous chapter" }).click();
     await page.waitForURL(`${SITE}/works/${NAVIGATION}/chapters/1`);
@@ -128,7 +146,7 @@ describe("reading journeys", () => {
     await page.locator("#chapter-top").selectOption("3");
     await Promise.all([page.waitForEvent("load"), nav.getByRole("button", { name: "Go" }).click()]);
     await page.waitForURL(`${SITE}/works/${NAVIGATION}/chapters/3`);
-    expect(await page.locator("main").innerText()).toContain("pw3 navigation chapter 3");
+    expect(await mainText(page)).toContain("pw3 navigation chapter 3");
     expect(await nav.getByRole("link", { name: "Next chapter" }).count()).toBe(0);
     expect(await nav.getByRole("link", { name: "Previous chapter" }).count()).toBe(1);
 
@@ -138,7 +156,7 @@ describe("reading journeys", () => {
     expect(await page.locator("article.chapter").count()).toBe(3);
     expect(await page.locator("h2.chapter-title").count()).toBe(3);
     for (const n of [1, 2, 3]) {
-      expect(await page.locator("main").innerText()).toContain(`pw3 navigation chapter ${n}`);
+      expect(await mainText(page)).toContain(`pw3 navigation chapter ${n}`);
     }
   });
 
@@ -150,12 +168,12 @@ describe("reading journeys", () => {
     const url = new URL(page.url());
     expect(url.pathname).toBe(`/works/${WARNED_A}/warnings`);
     expect(url.searchParams.get("next")).toBe(`/works/${WARNED_A}/chapters/1`);
-    expect(await page.locator("main").innerText()).toContain("Rating: Mature");
+    expect(await mainText(page)).toContain("Rating: Mature");
     expect(await page.locator("ul.warnings li").allInnerTexts()).toEqual([
       "Graphic Depictions Of Violence",
       "Major Character Death",
     ]);
-    expect(await page.locator("main").innerText()).not.toContain(`pw3 warned ${WARNED_A}`);
+    expect(await mainText(page)).not.toContain(`pw3 warned ${WARNED_A}`);
     // Signed out: no turn-off tick.
     expect(await page.getByLabel("Don't show this screen again").count()).toBe(0);
 
@@ -164,12 +182,12 @@ describe("reading journeys", () => {
       page.getByRole("button", { name: "Continue" }).click(),
     ]);
     await page.waitForURL(`${SITE}/works/${WARNED_A}/chapters/1`);
-    expect(await page.locator("main").innerText()).toContain(`pw3 warned ${WARNED_A} chapter 1`);
+    expect(await mainText(page)).toContain(`pw3 warned ${WARNED_A} chapter 1`);
 
     // The session cookie remembers the work: its next chapter opens with no screen.
     await page.goto(`${SITE}/works/${WARNED_A}/chapters/2`);
     await page.waitForURL(`${SITE}/works/${WARNED_A}/chapters/2`);
-    expect(await page.locator("main").innerText()).toContain(`pw3 warned ${WARNED_A} chapter 2`);
+    expect(await mainText(page)).toContain(`pw3 warned ${WARNED_A} chapter 2`);
   });
 
   it("A signed-in reader who turned the warnings screen off skips it", async () => {
@@ -196,7 +214,7 @@ describe("reading journeys", () => {
     // Another warned work, never continued past: it reads straight through.
     await page.goto(`${SITE}/works/${WARNED_A}/chapters/1`);
     await page.waitForURL(`${SITE}/works/${WARNED_A}/chapters/1`);
-    expect(await page.locator("main").innerText()).toContain(`pw3 warned ${WARNED_A} chapter 1`);
+    expect(await mainText(page)).toContain(`pw3 warned ${WARNED_A} chapter 1`);
   });
 
   it("Reader settings apply without a reload and survive one", async () => {
@@ -257,14 +275,7 @@ describe("reading journeys", () => {
     const { room } = await scrollState(page);
     expect(room).toBeGreaterThan(1000);
     // The script saves 5 seconds after the last scroll; wait for the response, never sleep.
-    const [saved] = await Promise.all([
-      page.waitForResponse(
-        (res) =>
-          res.url() === `${SITE}/works/${POSITION}/position` && res.request().method() === "POST",
-      ),
-      page.evaluate((to) => window.scrollTo(0, to), Math.floor(room / 2)),
-    ]);
-    expect(saved.status()).toBe(204);
+    await saveHalfway(page, POSITION, room);
     const { y } = await scrollState(page);
     const pct = Math.round((y / room) * 100);
 
@@ -295,15 +306,7 @@ describe("reading journeys", () => {
       page.getByRole("button", { name: "Continue" }).click(),
     ]);
     const { room } = await scrollState(page);
-    const [saved] = await Promise.all([
-      page.waitForResponse(
-        (res) =>
-          res.url() === `${SITE}/works/${WARNED_POSITION}/position` &&
-          res.request().method() === "POST",
-      ),
-      page.evaluate((to) => window.scrollTo(0, to), Math.floor(room / 2)),
-    ]);
-    expect(saved.status()).toBe(204);
+    await saveHalfway(page, WARNED_POSITION, room);
 
     // A new session: the screen comes back before the chapter.
     await page.goto(`${SITE}/works/${WARNED_POSITION}`);
@@ -327,13 +330,13 @@ describe("reading journeys", () => {
 
     const hidden = await page.goto(`${SITE}/works/${HIDDEN}/chapters/1`);
     expect(hidden?.status()).toBe(451);
-    const hiddenText = await page.locator("main").innerText();
+    const hiddenText = await mainText(page);
     expect(hiddenText).toContain("Temporarily hidden by a moderator");
     expect(hiddenText).not.toMatch(/pw3[- ]Hidden work|pw3 hidden/);
 
     const removed = await page.goto(`${SITE}/works/${REMOVED}`);
     expect(removed?.status()).toBe(410);
-    const removedText = await page.locator("main").innerText();
+    const removedText = await mainText(page);
     expect(removedText).toContain("This work has been removed");
     expect(removedText).not.toMatch(/pw3[- ]Removed work|pw3 removed/);
 
