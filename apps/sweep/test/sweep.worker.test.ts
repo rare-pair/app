@@ -293,7 +293,13 @@ describe("sweep of a removed work", () => {
     expect(await bucketKeys("")).toEqual(before);
 
     // The jobs end: the next run deletes what they left.
-    await withDb((db) => db.updateTable("uploads").set({ status: "parse_failed" }).execute());
+    await withDb((db) =>
+      db
+        .updateTable("uploads")
+        .set({ status: "parse_failed" })
+        .where("id", "in", [processing, pending])
+        .execute(),
+    );
     await runSweep(0);
     expect(await bucketKeys(`works/${REMOVED}/`)).toEqual([]);
     expect(await bucketKeys(original(processing))).toEqual([]);

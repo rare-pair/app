@@ -1026,7 +1026,9 @@ epub, under the normal versioning rules.
   missed: on every run it deletes everything under the folder of a work whose status is
   `removed` (read fresh, never through a cache), with no age limit, along with
   `originals/<upload_id>.epub` for each `<upload_id>/` prefix in that folder. It
-  skips a work that has an upload pending or processing, and takes it on a later run.
+  skips a work that has an upload pending or processing whose `<upload_id>/` prefix is in
+  the folder (a job that hasn't written yet can't be seen, and can't commit a version of
+  a removed work: its first write is refused), and takes the work on a later run.
   An emptied folder no longer appears in R2, so later runs don't visit it. This relies on
   removal being permanent: nothing restores a `removed` work, and a restore would have to
   change this rule first, as the sweep would delete a restored work's files on a stale
