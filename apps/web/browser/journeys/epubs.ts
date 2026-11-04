@@ -15,6 +15,12 @@ export type GeneratedEpub = {
   updated?: string;
   /** Chapter numbers whose text is wholly different prose, as a rewrite is. */
   rewritten?: number[];
+  /** The byline's one pseud, letters and digits only. Default `someone`, for every epub. */
+  pseud?: string;
+  /** Replaces the byline's markup after "by " (raw XHTML), as a blank or ambiguous one is. */
+  bylineHtml?: string;
+  /** The OPF's creator names, in order; `[]` leaves none. */
+  creators?: string[];
 };
 
 /** Five paragraphs of five numbered sentences, about 300 words: a small edit stays under 10%. */
@@ -45,6 +51,9 @@ export function generatedEpub({
   planned = chapters,
   updated,
   rewritten = [],
+  pseud,
+  bylineHtml,
+  creators,
 }: GeneratedEpub): Uint8Array {
   const texts = Array.from({ length: chapters }, (_, i) =>
     chapterText(workId, i + 1, rewritten.includes(i + 1)),
@@ -60,6 +69,9 @@ export function generatedEpub({
   return ao3Epub({
     workId,
     title,
+    pseud,
+    bylineHtml,
+    creators,
     stats: `Published: 2020-01-02 ${updated === undefined ? "" : `Updated: ${updated} `}Chapters: ${chapters}/${planned} Words: ${words}`,
     files: [
       {
