@@ -1358,7 +1358,7 @@ markup: its inline `style` attributes become stylesheet rules, because
   reading `s-maxage` (the local runtime expires an entry on `max-age` alone; the live zone
   is not measured, and an operator checks it before launch, by seeing a cached file refilled
   after 12 hours, and by fetching a cached file twice and reading its `Cache-Control` and `Age`
-  on the second response, with the zone's Browser Cache TTL not overriding the header). A hit
+  on the second response, with the zone's Browser Cache TTL and any Cache Rule or Edge Cache TTL on the content host not overriding the header). A hit
   hands a browser a fresh hour whatever the entry's age, so a file hidden just before its entry
   would expire can sit in a browser for up to 13 hours (12 at the edge, then the last hour a
   hit gave out). Each value is named once, in the content Worker's `index.ts`.

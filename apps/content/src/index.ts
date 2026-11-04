@@ -14,10 +14,11 @@ const QUERY_TIMEOUT_MS = 2000;
 // The two lifetimes of a served file, each named once (#581). The data centre keeps an entry
 // for 12 hours, so a hidden work's cached copy ages out within that (a hide does not purge:
 // ARCHITECTURE, Author requests & takedowns). A browser keeps its copy for an hour from its
-// fetch, and a hit hands out a fresh hour, so a hidden file can last 13 hours in a browser. Neither is `immutable`:
-// these files can go away. The entry is stored under the edge's `max-age`, not `s-maxage`:
-// the local Cache API honours `max-age` when it stores (not measured on the live zone), and what a browser is sent is rewritten on
-// every response, hit or miss, so the edge's longer lifetime never reaches a browser.
+// fetch, and a hit hands out a fresh hour, so a hidden file can last 13 hours in a browser.
+// Neither is `immutable`: these files can go away. The entry is stored under the edge's
+// `max-age`, not `s-maxage`: the local Cache API honours `max-age` when it stores (not
+// measured on the live zone). A browser is sent its own header on every response, hit or
+// miss, so the edge's longer lifetime never reaches it.
 const EDGE_SECONDS = 12 * 60 * 60;
 const BROWSER_SECONDS = 60 * 60;
 const EDGE_CACHE_CONTROL = `public, max-age=${EDGE_SECONDS}`;
@@ -82,16 +83,19 @@ async function putEntry(url: string, response: Response) {
 }
 
 /**
- * A cached entry as a browser gets it: its stored headers with the browser's lifetime, and no
- * `Age`, `ETag` or `Last-Modified` (an Age would be taken off the hour, and a validator would
- * make a reload conditional, which skips the cache). It goes out through
- * respond(), so `nosniff` is set whatever the entry holds.
+ * The headers of a served file, one builder for the response, the stored entry and a hit, so
+ * the three never differ but in their lifetime. Stored disposition is never echoed. An
+ * original's type is fixed; an image keeps its stored type only when it is one of the four
+ * that ingest writes. Nothing else of a stored entry (an `Age`, a validator that would make a
+ * reload conditional and so skip the cache, a cookie) reaches the browser.
  */
-function forBrowser(entry: Response) {
-  const headers = Object.fromEntries(entry.headers);
-  for (const name of ["age", "etag", "last-modified"]) delete headers[name];
-  delete headers["cache-control"];
-  return respond(entry.body, entry.status, { ...headers, "Cache-Control": BROWSER_CACHE_CONTROL });
+function fileHeaders(isOriginal: boolean, storedType: string, cacheControl: string) {
+  return {
+    "Cache-Control": cacheControl,
+    ...(isOriginal
+      ? { "Content-Type": "application/epub+zip", "Content-Disposition": "attachment" }
+      : { "Content-Type": IMAGE_TYPES.has(storedType) ? storedType : "application/octet-stream" }),
+  };
 }
 
 const notFound = () => respond(null, 404, { "Cache-Control": "no-store" });
@@ -160,7 +164,10 @@ export default {
       request.method === "GET" && !BYPASS_HEADERS.some((h) => request.headers.has(h));
     if (cacheable) {
       const hit = await matchEntry(request.url);
-      if (hit) return forBrowser(hit);
+      if (hit) {
+        const type = hit.headers.get("content-type") ?? "";
+        return respond(hit.body, 200, fileHeaders(isOriginal, type, BROWSER_CACHE_CONTROL));
+      }
     }
 
     // Past the cache, so a miss, or a request that never uses it: the work's status is read
@@ -194,20 +201,18 @@ export default {
     }
     if (!object) return notFound();
 
-    // Stored disposition is never echoed. An original's type is fixed; an image keeps
-    // its stored type only when it is one of the four that ingest writes.
     const stored = object.httpMetadata?.contentType ?? "";
-    const response = respond(object.body, 200, {
-      "Cache-Control": BROWSER_CACHE_CONTROL,
-      ...(isOriginal
-        ? { "Content-Type": "application/epub+zip", "Content-Disposition": "attachment" }
-        : { "Content-Type": IMAGE_TYPES.has(stored) ? stored : "application/octet-stream" }),
-    });
     if (cacheable) {
-      const entry = response.clone();
-      entry.headers.set("Cache-Control", EDGE_CACHE_CONTROL);
-      ctx.waitUntil(putEntry(request.url, entry));
+      // Tee: the browser's response and the stored entry share the bytes, not the headers.
+      const [forReader, forEntry] = object.body.tee();
+      ctx.waitUntil(
+        putEntry(
+          request.url,
+          respond(forEntry, 200, fileHeaders(isOriginal, stored, EDGE_CACHE_CONTROL)),
+        ),
+      );
+      return respond(forReader, 200, fileHeaders(isOriginal, stored, BROWSER_CACHE_CONTROL));
     }
-    return response;
+    return respond(object.body, 200, fileHeaders(isOriginal, stored, BROWSER_CACHE_CONTROL));
   },
 } satisfies ExportedHandler<Env>;

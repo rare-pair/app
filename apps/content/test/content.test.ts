@@ -341,6 +341,7 @@ describe("edge cache (#513)", () => {
           "Cache-Control": "public, max-age=31536000, immutable, s-maxage=43200",
           "Content-Type": "image/png",
           Age: "39600",
+          "Last-Modified": "Wed, 01 Jan 2020 00:00:00 GMT",
           ETag: '"stored"',
         },
       }),
@@ -351,8 +352,29 @@ describe("edge cache (#513)", () => {
     expect(res.headers.get("cache-control")).toBe(BROWSER_CACHE_CONTROL);
     expect(res.headers.has("age")).toBe(false);
     expect(res.headers.has("etag")).toBe(false);
+    expect(res.headers.has("last-modified")).toBe(false);
+    expect(res.headers.has("set-cookie")).toBe(false);
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-    await uncache(IMAGE_KEY);
+    // A stored type outside the four ingest writes is not echoed, and an original stays an
+    // attachment.
+    await caches.default.put(
+      `${ORIGIN}/${IMAGE_KEY}`,
+      new Response(PNG, {
+        headers: { "Content-Type": "text/html", "Cache-Control": EDGE_CACHE_CONTROL },
+      }),
+    );
+    await caches.default.put(
+      `${ORIGIN}/${ORIGINAL_KEY}`,
+      new Response(EPUB, {
+        headers: { "Content-Type": "text/html", "Cache-Control": EDGE_CACHE_CONTROL },
+      }),
+    );
+    const image = await viaHandler(counted, `${ORIGIN}/${IMAGE_KEY}`);
+    expect(image.res.headers.get("content-type")).toBe("application/octet-stream");
+    const original = await viaHandler(counted, `${ORIGIN}/${ORIGINAL_KEY}`);
+    expect(original.res.headers.get("content-type")).toBe("application/epub+zip");
+    expect(original.res.headers.get("content-disposition")).toBe("attachment");
+    await uncache(IMAGE_KEY, ORIGINAL_KEY);
   });
 
   it("The stored entry has the edge's lifetime, and the browser's header is on a hit and a miss", async () => {
