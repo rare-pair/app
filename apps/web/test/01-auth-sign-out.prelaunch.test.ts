@@ -13,7 +13,7 @@ const db = createDb({
 afterAll(() => db.destroy());
 
 describe("01-auth-magic-link sign-out before launch", () => {
-  it("Before launch, sign-out works and a cross-site POST is refused", async () => {
+  it("Sign-out works before launch and before the terms are accepted", async () => {
     const email = "prelaunch-sign-out@example.test";
     const cookie = await signIn(email);
     const rows = () =>

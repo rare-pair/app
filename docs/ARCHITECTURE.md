@@ -852,6 +852,16 @@ origin. Work pages, listings and search stay open, so people can still find work
   set with `useSecureCookies: true`. There is no `Domain`
   (`crossSubDomainCookies` stays off), so the cookie never reaches
   `content.rarepair.fans`.
+- **Sign-out is `/logout`.** `POST /logout` from a button in a form, behind the same
+  same-origin check as the sign-in forms (before the session lookup), calls
+  `auth.api.signOut`: it deletes the session row and clears Better Auth's cookies with
+  the attributes they were set with, and the answer is a 303 to `/`. The response also
+  carries `Clear-Site-Data: "cache"`, so a page the browser kept while signed in can't
+  come back with the signed-in header. Not `"cookies"`: the reader's settings live in
+  cookies and outlast a sign-out. With no session the answer is the same. `GET /logout`
+  signs nobody out: it shows the button, or says the visitor isn't signed in. Better
+  Auth clears the cookie even if deleting the row failed, and the route can't tell.
+  Open before launch and exempt from the terms gate.
 - **Better Auth's own rate limiter** only covers requests through
   `auth.handler`. Its default memory store is per isolate on Workers, so set
   `rateLimit.storage: "database"` (or a Durable Object through

@@ -65,7 +65,7 @@ describe("01-auth-magic-link sign-out", () => {
     for (const c of res.headers.getSetCookie()) expect(c).toMatch(/^__Secure-better-auth\./);
   });
 
-  it("Signing out with no session, or a forged one, answers the same", async () => {
+  it("Sign-out without a session answers the same", async () => {
     const signedIn = await postLogout(await signIn("sign-out-same@example.test"));
     for (const cookie of [undefined, "__Secure-better-auth.session_token=forged.value"]) {
       const res = await postLogout(cookie);
@@ -80,7 +80,7 @@ describe("01-auth-magic-link sign-out", () => {
     }
   });
 
-  it("A refresh due on the same request doesn't undo the sign-out", async () => {
+  it("A refresh due on the sign-out request does not undo it", async () => {
     const email = "sign-out-refresh@example.test";
     const cookie = await signIn(email, { acceptTerms: true });
     const user = await db
@@ -105,7 +105,7 @@ describe("01-auth-magic-link sign-out", () => {
     expect(await sessionRows(email)).toBe(0);
   });
 
-  it("A cross-site POST is refused and the session stays", async () => {
+  it("A cross-site sign-out is refused", async () => {
     const email = "sign-out-cross-site@example.test";
     const cookie = await signIn(email, { acceptTerms: true });
     const cross: Record<string, string>[] = [
@@ -136,7 +136,7 @@ describe("01-auth-magic-link sign-out", () => {
     );
   });
 
-  it("GET shows the button and signs nobody out", async () => {
+  it("Opening the sign-out page signs nobody out", async () => {
     const email = "sign-out-get@example.test";
     const cookie = await signIn(email, { acceptTerms: true });
 
@@ -158,7 +158,7 @@ describe("01-auth-magic-link sign-out", () => {
     expect((await fetchW("/me/uploads", { headers: { cookie } })).status).toBe(200);
   });
 
-  it("GET signed out says so", async () => {
+  it("The sign-out page says when nobody is signed in", async () => {
     const res = await fetchW("/logout");
 
     expect(res.status).toBe(200);
@@ -167,7 +167,7 @@ describe("01-auth-magic-link sign-out", () => {
     expect(html).not.toContain('action="/logout"');
   });
 
-  it("A request with the old cookie is signed out", async () => {
+  it("A signed-out cookie reads as signed out", async () => {
     const email = "sign-out-old-cookie@example.test";
     const cookie = await signIn(email, { acceptTerms: true });
     await postLogout(cookie);
@@ -180,7 +180,7 @@ describe("01-auth-magic-link sign-out", () => {
     expect(await sessionRows(email)).toBe(0);
   });
 
-  it("A new account that hasn't accepted the terms can still sign out", async () => {
+  it("Sign-out works before launch and before the terms are accepted", async () => {
     const email = "sign-out-no-terms@example.test";
     const cookie = await signIn(email);
 

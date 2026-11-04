@@ -167,6 +167,7 @@ without it. Elsewhere the
 | Reader settings | `/settings/reader` | all | POST form sets a cookie, then redirects back; signed-in readers also get the warnings on/off choice, saved to their account | Applied live from the reader |
 | Sign in | `/login` | all | `<noscript>` message: signing in needs JavaScript | Email form with Turnstile, "check your email", error states |
 | Confirm sign-in | `/login/confirm?token=…` | all | "Sign in" button (POST form); used, expired or unknown links redirect to `/login` with a message | — |
+| Sign out | `/logout` | all (signed in or not) | Signed in: a "Sign out" button (POST form) that ends the session and goes to `/`; GET signs nobody out. Signed out: says so, with a link to sign in | — |
 | Accept terms | `/welcome/terms` | new accounts, once | Terms summary, link to `/terms`, Accept button (POST form); every other signed-in page redirects here until accepted | — |
 | Upload | `/upload` | signed in | `<noscript>` message: uploading needs JavaScript | Turnstile, then direct-to-R2 upload with progress, one or more files |
 | My uploads | `/me/uploads` | signed in | Status list; with JS it updates in place, without JS a `<meta http-equiv="refresh">` inside `<noscript>` reloads it while anything is processing | Updates in place |

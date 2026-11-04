@@ -140,6 +140,52 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - WHEN it signs in again through an emailed link
 - THEN it goes straight to its `next` page and is never shown `/welcome/terms`
 
+### Sign-out ends the session and clears the cookie
+- GIVEN a signed-in user
+- WHEN the "Sign out" button on `/logout` posts `POST /logout` from the site
+- THEN the user's `session` row is deleted
+- AND the response clears the session cookie (`Max-Age=0`, with the `Secure`, `HttpOnly` and `SameSite=Lax` it was set with, and no `Domain`) and redirects to `/` with a 303
+- AND the response carries `Clear-Site-Data: "cache"`, and no other value, so the reader's settings cookies stay
+
+### Sign-out without a session answers the same
+- GIVEN a visitor with no session cookie, or a cookie for a session that is gone
+- WHEN they post `POST /logout`
+- THEN the response is the same 303 to `/`, with the cookie cleared and `Clear-Site-Data: "cache"`, and no error
+
+### A cross-site sign-out is refused
+- GIVEN a signed-in user
+- WHEN `POST /logout` arrives with another site's `Origin`, with `Sec-Fetch-Site` `cross-site` or `same-site`, or with neither header
+- THEN the response is 403 and sets no cookie
+- AND the session row and the cookie are untouched
+- AND the page does not tell the visitor to sign in
+
+### Opening the sign-out page signs nobody out
+- GIVEN a signed-in user
+- WHEN they open `GET /logout` (or `HEAD`)
+- THEN the page shows a "Sign out" button that posts to `/logout`, and needs no script
+- AND the session row and the cookie are untouched, so a link prefetch or another site can't sign them out
+
+### The sign-out page says when nobody is signed in
+- GIVEN a visitor with no session, or with the cookie of a session that was signed out
+- WHEN they open `GET /logout`
+- THEN the page says they are not signed in, with a link to sign in, and has no sign-out button
+
+### A signed-out cookie reads as signed out
+- GIVEN a user who signed out
+- WHEN a request carries the session cookie it had before
+- THEN the request is signed out: `/logout` says so and `/me/uploads` redirects to `/login`
+- AND this holds in production only once the session lookup is not served from Hyperdrive's query cache (#574)
+
+### A refresh due on the sign-out request does not undo it
+- GIVEN a signed-in user whose session is due to be extended
+- WHEN they post `POST /logout`
+- THEN the response carries one `session_token` cookie, the clearing one
+
+### Sign-out works before launch and before the terms are accepted
+- GIVEN `PRELAUNCH` is on, or an account whose `terms_accepted_at` is empty
+- WHEN it opens `GET /logout` or posts `POST /logout`
+- THEN it is not redirected to `/` or to `/welcome/terms`, and the post signs it out
+
 ### Reading needs no account
 - GIVEN a signed-out visitor with no session cookie
 - WHEN they open the home page, a work page and a chapter of a live work

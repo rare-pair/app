@@ -3,7 +3,7 @@
 Relates to: docs/FRONTEND-DISCOVERY.md § Decisions so far (JavaScript, Pagination), § Principles, § Page inventory, § Where the frontend changes the architecture (1. Forms with Turnstile need JS), § Typographic system, § Accessibility and devices; docs/ARCHITECTURE.md § Reading, § Sanitizing (security requirement), § Surge controls
 
 ## Setup
-- Every page in the page inventory: home, search, tag listing, work, warnings, chapter, entire work, reader settings, sign in, confirm sign-in, accept terms, upload, my uploads, remove, report, DMCA, admin queues (including works to check), work admin, about/terms/privacy, hidden, removed, too many requests, not found
+- Every page in the page inventory: home, search, tag listing, work, warnings, chapter, entire work, reader settings, sign in, confirm sign-in, sign out, accept terms, upload, my uploads, remove, report, DMCA, admin queues (including works to check), work admin, about/terms/privacy, hidden, removed, too many requests, not found
 - A browser with JavaScript off, one with CSS off, and a 360 px wide viewport
 - An automated WCAG 2.2 AA checker
 
