@@ -97,7 +97,7 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 
 ### Moderator removes a work
 - GIVEN a work W
-- WHEN M uses the remove action
+- WHEN M uses the remove action, choosing a reason where scenario 23 asks for one
 - THEN W is `removed`, its R2 files and raw upload are deleted and its cached pages, fragments, images and download URLs are purged
 
 ### Related requests are listed together

@@ -14,13 +14,15 @@ an unofficial stopgap.
 | Question | Decision |
 | --- | --- |
 | Name and domain | rarepair, always written lowercase as one word. The site is served at `rarepair.fans`, and `www.rarepair.fans` redirects there. Epub images and original downloads are served from `content.rarepair.fans` |
-| Who can read uploads | Shared public archive. Every upload is readable by everyone, with takedowns and author removal requests from day one |
+| Who can read uploads | Shared public archive. Every upload is readable by everyone, with takedowns and author removal requests from day one. The one exception is below, in Crawlers and agents |
+| Crawlers and agents | Clients that declare themselves automated are refused fic text: chapters, `/full`, images and originals. Work pages, tag listings and search are not refused. Reading stays public, with no challenge and no sign-in, so anything posing as a browser is only throttled (operator ruling, 2026-11-04) |
 | Hosting | Cloudflare: Workers, R2, Queues, KV, plus Neon Postgres through Hyperdrive |
 | Load target | Surge-ready: assume tens of thousands of signups in the first days |
 | Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend |
 | Accepted files | AO3-native epub exports only. FanFicFare support comes later |
 | New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) |
 | Author identity | No work claims and no author verification while AO3 is down. Removal and opt-out are requests anyone can make, without proving who they are, and they take effect once the requester confirms control of the contact email |
+| Removal list | Removed works (title, byline, a link to the original with its ID, date, reason) are public at `/removed`, and pseuds with an approved opt-out at `/removed/pseuds`. Reasons come from a fixed list, never free text. Open requests and hidden works are never listed, and a moderator can withhold an entry |
 | Search scope | Metadata only: title, author, tags, summary |
 | Chapter rendering | Inline in app pages behind a strict CSP, with no iframe |
 | Wait list | Before launch, `/` is a coming-soon page with a double opt-in wait list. Each confirmed address is sent one launch email, from the same mail subdomain as sign-in, spread over hours on its own queue. The list is deleted after the launch send |
@@ -94,9 +96,11 @@ an unofficial stopgap.
     domain isn't submitted to the HSTS preload list: the archive is temporary,
     and leaving the list takes months.
   - Zone-level Cloudflare features that set cookies, such as Bot Fight Mode and
-    challenge pages, must not apply to `content.rarepair.fans`: turn them off,
-    or skip that host with a rule. Turnstile and the web Worker's rate limits do
-    that job instead.
+    challenge pages, must not apply to `content.rarepair.fans`. Bot Fight Mode
+    can't be skipped by a rule, so it is off for the whole zone, and so are Super
+    Bot Fight Mode, on a plan that has it, and Browser Integrity Check, which is on
+    by default. Turnstile and the Workers' rate limits do that job instead
+    (Crawlers and agents).
   - The content Worker keeps no per-request log (invocation logs are off), so its
     logs hold no reader address next to a work id. Errors and metrics are kept;
     traces stay on and may record the request URL.
@@ -123,6 +127,9 @@ works        (id, ao3_work_id UNIQUE NOT NULL, title, summary_html, rating, lang
               complete, published_at, updated_at,
               status,            -- processing | live | hidden | removed
               hidden_cause NULL, -- removal_request | reports | moderator, while hidden
+              removed_reason NULL, -- dmca | removal_request | wrong_file | site_safety; the schema's check, like hidden_cause's, allows it only while removed and requires it then
+              removed_at NULL,   -- set with removed_reason, under the same check; a partial index on it, where status is removed, serves the removal list
+              list_withheld,     -- the removal list shows no title, byline or AO3 ID
               current_version_id, raw_meta jsonb,
               search tsvector,   -- title A, byline and tags B, summary C; text search config `simple`
               search_text)       -- the same text, for pg_trgm fuzzy matching
@@ -157,14 +164,19 @@ takedowns    (id, work_id, requester, basis, status, resolved_by, created_at,
               incomplete)  -- a DMCA notice: basis is the copyrighted work, requester the contact
                            -- information; incomplete when a 512(c)(3)(A) element is missing;
                            -- status: pending, rejected, or removed (approved, which puts the work on the takedown list)
-requests     (id, kind, work_id NULL, pseud_norm NULL, contact_email, statement,
-              status, ip_hash, confirm_token_hash NULL, confirm_sent_at NULL,
+requests     (id, kind, work_id NULL, pseud_norm NULL,
+              pseud_typed NULL,  -- for the removal list: the pseud as typed, cleaned like pseud_norm but with its case kept; NULL on an opt-out from before the list, which is never listed
+              contact_email, statement, status, ip_hash, confirm_token_hash NULL, confirm_sent_at NULL,
               confirmed_at NULL, created_at)      -- kind: remove_work | opt_out; status: pending, rejected, approved; a request
               -- hides nothing until confirmed_at is set by the emailed link (the token is
               -- kept only as a hash, cleared on confirm); rows from before that count as confirmed
 request_works (request_id, work_id)  -- written whenever a request hides a work, so a reversed
               request restores exactly those
 optouts      (id, pseud_norm, ao3_user NULL, request_id, active, created_at)  -- checked at ingest
+listed_pseuds (pseud_norm PRIMARY KEY,  -- one row per pseud on the removal list
+              request_id,        -- the approved opt-out whose pseud_typed is shown
+              listed_at,         -- when the pseud was first approved; indexed
+              withheld)          -- the removal list leaves the pseud out
 requester_blocks (id, contact_email NULL, ip_hash NULL, created_by, created_at)
 moderation_actions (id, moderator_id, action, target_kind, target_id, note NULL,
               created_at)  -- no FK on moderator_id (rows outlive the account) or target_id (it
@@ -633,8 +645,9 @@ can be snapshotted.
   web Worker reads the sanitized chapter fragment from R2 through its binding
   and renders it inline in the page, inside `<article class="chapter">`. There
   is no iframe and no client-side epub engine, so Ctrl+F, printing, text
-  selection, screen readers, translation tools and reader extensions all work
-  normally. Pages also stay fast on cheap phones.
+  selection, screen readers, in-browser translation and reader extensions all
+  work normally (a tool that fetches the page on its own server and identifies
+  itself is refused: Crawlers and agents). Pages also stay fast on cheap phones.
 - **Strict CSP on every app page** (a fresh nonce per response):
   `default-src 'self'; script-src 'nonce-{n}' 'strict-dynamic'; style-src 'self';
   img-src 'self' https://content.rarepair.fans; object-src 'none'; base-uri 'none';
@@ -724,6 +737,61 @@ can be snapshotted.
   `Content-Disposition: attachment` from `content.rarepair.fans`. It's never
   displayed inline. The link names the current version's upload, or for a
   backfill version the upload it was re-made from (`source_upload_id`).
+
+### Crawlers and agents
+
+Fic text is kept from clients that say they are automated, without making readers
+prove anything. The protected paths are `/works/:id/chapters`, its chapter pages
+and `/full` on the app, and `/works/:id/img/*` and `/originals/*` on the content
+origin. Work pages, listings and search stay open, so people can still find works.
+
+- **Who is refused.** A request with a `Signature-Agent` header (Web Bot Auth,
+  which isn't verified, since announcing itself is enough) or with a `User-Agent`
+  on the crawler list gets a **403** on a protected path, whatever its session. The
+  list is one source both Workers are built from. It names products, matched as plain
+  case-insensitive text, with no word as broad as `bot`, which would catch phones whose
+  model names hold those letters. In the Worker, the www 308 and the pre-launch redirect
+  still come first, since neither serves any text. The zone rule below runs before the
+  Worker, so a known bot it blocks gets its block page even before launch. Both Workers share the list. The check runs ahead of the
+  session lookup, the edge cache and the work's status, so a refusal costs no
+  lookups and doesn't itself show whether a work is live, hidden or removed (the work
+  page, which stays open, still answers 451 or 410). Paths are checked in the decoded
+  form the router matches, so percent-encoding gets no way around them. On the
+  content origin it answers before `caches.default`, with no body and no cookie.
+- **Only what a client declares.** Nothing is refused for looking headless, for its
+  IP range or for its request rate: those would catch the real-browser journeys and
+  assistive tools, and a high rate only meets the throttles below. Managed Challenge and JavaScript detections are out too, because
+  reading must work with JavaScript off and reader pages allow no third-party frame.
+- **Zone config.** One custom rule blocks `cf.client.bot` on each host's protected
+  paths, which covers search engines as well. Those requests get Cloudflare's own block
+  page, never reach a Worker, and show only in Security Events. Bot Fight Mode, Super Bot Fight Mode
+  and Browser Integrity Check are off (Hosts). AI Crawler and Agent access policies stay on
+  allow and Bot Preference Sync stays off: both act on the whole zone, so they would
+  also block work pages, and the Workers' `robots.txt` stays the only source.
+  AI Crawl Control is for watching which crawlers come, and for adding to the list.
+  `request.cf.botManagement` isn't used, since it needs Enterprise Bot Management.
+- **Signals.** `/robots.txt` on the app disallows the chapter and `/full` paths, and
+  `/search` so that crawlers don't run endless queries (the page itself isn't refused), and
+  states `Content-Signal: search=yes, ai-input=no, ai-train=no`. On the content origin
+  it disallows everything, and is the one path served there besides images and
+  originals. Protected responses also send
+  `X-Robots-Tag: noindex, noarchive, noai, noimageai`. All of these are requests a
+  crawler can ignore, and a crawler obeying `robots.txt` never fetches the header.
+- **Throttles.** Per client IP: chapter reads, `/full` (lower, since one request is a
+  whole work) and original downloads, each counted before any cache. Images aren't
+  throttled, since one chapter can hold many. First values per 60 seconds are 120
+  chapter pages, 10 `/full` and 10 originals, revisited with the others in Surge controls.
+  Those let one address take 14,400 whole works a day, so they slow a scraper and don't
+  stop one; a limit low enough to stop one would throttle readers sharing a mobile
+  carrier's address. A limiter that throws doesn't fail the read. So that another site
+  can't spend a reader's limits with `<img>` tags or frames, a request with
+  `Sec-Fetch-Site: cross-site` and a `Sec-Fetch-Dest` other than `document` gets the 403
+  on these paths, uncounted. It can't help a scraper, which gets no text that way. Images
+  are exempt, since they aren't throttled.
+- **What this doesn't stop.** A scraper posing as a browser across many addresses is
+  slowed at most, and an agent driving a person's real browser looks like that person.
+  Stopping those would take a sign-in to read, which the operator ruled out on
+  2026-11-04 to keep the archive readable by everyone.
 
 ## Auth (magic link: Better Auth + Resend)
 
@@ -908,12 +976,14 @@ epub, under the normal versioning rules.
     cached before the hide can stay readable (not the 451) for up to 60 s after
     it was cached, in each data centre, which can run slightly past 60 s from the
     hide. A hide does not purge it, unlike removal (see *Removal really removes*
-    below). This applies to every hide cause.
+    below). This applies to every hide cause. A declared automated client gets
+    a 403 on the chapter URLs and `/full` instead (Crawlers and agents).
   - **Held** (a `held_for_review` version, never public): 404 to the public.
     The work keeps serving its current version. The held version is visible
     to its uploader in My uploads and to moderators.
   - **Removed** (`removed`): 410 on the work page, every chapter URL and `/full`,
-    "This work has been removed".
+    "This work has been removed". A declared automated client gets a 403 on the
+    chapter URLs and `/full` instead (Crawlers and agents).
   - **The report routes** (`GET` and `POST /works/:id/report`) answer 404 for a
     hidden or removed work, as for one that doesn't exist: only the work,
     chapter and full pages show 451 or 410.
@@ -924,6 +994,50 @@ epub, under the normal versioning rules.
   `immutable`, so without the purge parts of a removed work stay reachable. That
   the purge clears the content Worker's own cache entries is not yet confirmed (see
   Surge controls, Edge cache).
+- **The removal list.** `/removed` lists removed works, newest first: title,
+  byline, "The original work" link with its ID and its note, as on the work page,
+  date and reason. `/removed/pseuds` lists pseuds with an approved, active opt-out,
+  in `requests.pseud_typed`'s cleaned form. Only a `removed` work is listed, so
+  a work hidden by an opt-out or anything else is not, and no pending or unconfirmed
+  item is listed or counted. An unfair hide stays temporary and private. Nobody's
+  identity is checked, so the wording names the route ("Removed after a removal
+  request"), never the person, and the pages say so. The reason is set when the
+  status changes, by `removeWork` under its lock, so a repeat remove needs none and
+  keeps the first. The approved item decides it: a takedown gives `dmca` and a removal
+  request gives `removal_request`. A moderator's own remove gives `dmca` when a notice
+  on the work is pending, and otherwise must choose `wrong_file` or `site_safety`, or
+  `removal_request` when a confirmed pending request or an active opt-out covers the
+  work. The migration derives a reason for works already removed, the same way, with
+  `site_safety` when nothing else applies. An opt-out from before it, approved or
+  pending, keeps a NULL `pseud_typed` and is never listed, since its requester was never
+  told. For the same reason a work it gives a reason to starts withheld. A pending
+  `remove_work` request from before it is not marked: the site hasn't launched, so these
+  rows are test data. Approving an opt-out that has a
+  `pseud_typed` adds its pseud to `listed_pseuds`, or, when a row is there whose request
+  isn't approved, points the row at this one; a withhold chosen at that step applies,
+  and approving never lifts one. Rejecting one moves the row to the earliest remaining
+  approved opt-out with a `pseud_typed`, or deletes the row when none remains.
+  A withheld row with none remaining stays, so a later approve can't republish the name,
+  and un-withholding it deletes it. Each takes a transaction advisory lock on the
+  `pseud_norm` after its request row, so a concurrent approve and reject can't leave the
+  row wrong. Statements, DMCA fields, requesters and moderation notes are never shown.
+  A reversed opt-out takes the entry off, and the action log keeps the history. A
+  removed work can't be restored (`restoreWork` leaves it as it is), so its entry
+  stays. A moderator can withhold an entry, for a title or name that shouldn't be
+  republished or a removal made by mistake: a work then shows only the date and reason,
+  and a pseud is left out, and shows as "Name withheld" in any listed byline. Every
+  confirm step that removes a work or approves an opt-out with a `pseud_typed` shows the
+  entry and offers the withhold before anything is published. It is already selected for `site_safety` and
+  for a pseud with no works here, whose typed text nothing in the archive backs. A byline
+  comes from the uploaded file, so the pages say the people named may have done nothing.
+  Each withhold and un-withhold logs `withhold` or `unwithhold`,
+  on the work, or on target kind `pseud` with the `pseud_norm` as `target_id`. `/remove`
+  and `/dmca` say what will be published before anyone submits. The pages carry
+  `X-Robots-Tag: noindex` and give the moderators' contact address. Requests
+  `pageCacheable` allows share one edge cache entry per page number for up to 60 s,
+  holding the page's data and not its nonce, on top of up to 60 s in Hyperdrive's read
+  cache, so in each data centre a change can take about 2 minutes to show. Withholding
+  purges nothing.
 - **DMCA.** To get safe-harbor protection under US law (17 U.S.C. §512), we need
   a designated agent registered with the US Copyright Office, a public takedown
   form, a counter-notice process and a repeat-infringer policy. Get a lawyer to
@@ -957,8 +1071,8 @@ epub, under the normal versioning rules.
   - *Works to check*: works with a held version, works live with the "may be
     imperfect" notice, and works reported as "This version is wrong"
 
-  Actions are hide, remove, restore, approve, reject, block a requester and ban
-  an uploader. A *Works to check* item's page has approve (clears the notice,
+  Actions are hide, remove, restore, approve, reject, block a requester, ban
+  an uploader and withhold a removal list entry. A *Works to check* item's page has approve (clears the notice,
   or publishes the held version), make a version current, hide and remove;
   each work's admin page lists every version with "Make current" and "Approve". Approving a held version
   makes it current and checked; each approve is logged once, on the version. Make current and
@@ -981,7 +1095,8 @@ epub, under the normal versioning rules.
   and another pending request for the work stays pending. A failed cache purge still marks
   the item, and Remove on the work retries it. Approving an opt-out only confirms it: it is marked
   `approved` and logged `approve`, its `optouts` row stays active and its works stay hidden, and
-  nothing is removed, so there is no confirm step. Rejecting an opt-out, pending or `approved`,
+  nothing is removed. Its confirm step shows the pseud as the removal list will show it, with a
+  choice to withhold it. Rejecting an opt-out, pending or `approved`,
   reverses it: the request becomes `rejected` and its row goes inactive, so new uploads by
   the pseud are accepted again. A request's page lists the other requests from the same contact
   email (any case) or IP hash, and "Restore related works" restores in bulk: it rejects the
@@ -1120,7 +1235,8 @@ markup: its inline `style` attributes become stylesheet rules, because
 - The Workers rate-limiting binding covers abuse throttling on login, the
   wait list, removal requests, DMCA notices, upload requests and search, keyed
   per IP and per user (per email for login, the wait list and removal
-  requests). It's approximate and counts per Cloudflare location, over 10- or
+  requests), and on chapter, `/full` and original reads, keyed per IP (Crawlers
+  and agents). It's approximate and counts per Cloudflare location, over 10- or
   60-second windows. That's fine for slowing abuse, but not for hard limits.
 - **Status codes.** A rate limit or quota that is hit returns **429** with
   `Retry-After` and a plain page saying when to try again (`POST /uploads`, which a
@@ -1170,9 +1286,11 @@ markup: its inline `style` attributes become stylesheet rules, because
   cached inside the web Worker (see Reading). Work and tag listings
   get a short cache with stale-while-revalidate.
 - Observability: Workers Logs and traces are on from day one, except that the
-  content Worker's per-request invocation logs are off (its URLs carry the AO3
-  work id); its errors and metrics stay on. Track queue depth, ingest failure
-  rate and search p95 on a dashboard.
+  web and content Workers' per-request invocation logs are off (their URLs carry
+  the AO3 work id, and the web Worker's the chapter too); their errors and metrics
+  stay on. Track queue depth, ingest failure
+  rate and search p95 on a dashboard, with crawler refusals by reason and throttled
+  reads, each counted from a log line holding only the reason.
 
 ## MVP vs later
 
@@ -1185,7 +1303,7 @@ markup: its inline `style` attributes become stylesheet rules, because
 5. Browse by fandom, tag or rating, sorted by updated date or word count
 6. Search: title, author, tags, summary (Postgres FTS plus trigram)
 7. Remove-my-work and opt-out requests, reports, DMCA form, minimal
-   moderation queue
+   moderation queue, public removal list
 8. Terms, a privacy notice and a clear "unofficial, temporary" banner
 
 **Later**
@@ -1227,5 +1345,7 @@ little client JS for upload progress and the reader settings.
 - **Deleted or orphaned works.** Someone may upload a work the author deleted
   from AO3. While AO3 is down we can't check, so we rely on the opt-out list and
   remove-my-work requests.
-- **Legal review.** Get a review of the DMCA setup and terms before public
-  launch.
+- **Legal review.** Get a review of the DMCA setup, the terms and the public
+  removal list before public launch. It should cover naming people beside a reason
+  they can't dispute, and a successful counter-notice: removal deletes the files and
+  can't be undone, so restoring the work isn't possible today, and its entry stays.
