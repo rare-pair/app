@@ -15,7 +15,7 @@ an unofficial stopgap.
 | --- | --- |
 | Name and domain | rarepair, always written lowercase as one word. The site is served at `rarepair.fans`, and `www.rarepair.fans` redirects there. Epub images and original downloads are served from `content.rarepair.fans` |
 | Who can read uploads | Shared public archive. Every upload is readable by everyone, with takedowns and author removal requests from day one |
-| Crawlers and agents | Clients that declare themselves automated are refused fic text: chapters, `/full`, images and originals. Metadata pages stay open and indexable. Reading stays public, with no challenge and no sign-in, so anything posing as a browser is only throttled (operator ruling, 2026-11-04) |
+| Crawlers and agents | Clients that declare themselves automated are refused fic text: chapters, `/full`, images and originals. Work pages, tag listings and search are not refused. Reading stays public, with no challenge and no sign-in, so anything posing as a browser is only throttled (operator ruling, 2026-11-04) |
 | Hosting | Cloudflare: Workers, R2, Queues, KV, plus Neon Postgres through Hyperdrive |
 | Load target | Surge-ready: assume tens of thousands of signups in the first days |
 | Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend |
@@ -636,8 +636,9 @@ can be snapshotted.
   web Worker reads the sanitized chapter fragment from R2 through its binding
   and renders it inline in the page, inside `<article class="chapter">`. There
   is no iframe and no client-side epub engine, so Ctrl+F, printing, text
-  selection, screen readers, translation tools and reader extensions all work
-  normally. Pages also stay fast on cheap phones.
+  selection, screen readers, in-browser translation and reader extensions all
+  work normally (a tool that fetches the page on its own server and identifies
+  itself is refused: Crawlers and agents). Pages also stay fast on cheap phones.
 - **Strict CSP on every app page** (a fresh nonce per response):
   `default-src 'self'; script-src 'nonce-{n}' 'strict-dynamic'; style-src 'self';
   img-src 'self' https://content.rarepair.fans; object-src 'none'; base-uri 'none';
@@ -737,7 +738,11 @@ origin. Work pages, listings and search stay open, so people can still find work
 
 - **Who is refused.** A request with a `Signature-Agent` header (Web Bot Auth,
   which isn't verified, since announcing itself is enough) or with a `User-Agent`
-  on the crawler list gets a **403** on a protected path, whatever its session. Both Workers share the list. The check runs ahead of the
+  on the crawler list gets a **403** on a protected path, whatever its session. The
+  list is one source both Workers are built from. It names products, matched as plain
+  case-insensitive text, with no word as broad as `bot`, which would catch phones whose
+  model names hold those letters. The www 308 and the pre-launch redirect still come
+  first, since neither serves any text. Both Workers share the list. The check runs ahead of the
   session lookup, the edge cache and the work's status, so a refusal costs no
   lookups and doesn't show whether a work is live, hidden or removed. On the
   content origin it answers before `caches.default`, with no body and no cookie.
@@ -746,13 +751,15 @@ origin. Work pages, listings and search stay open, so people can still find work
   assistive tools, and a high rate only meets the throttles below. Managed Challenge and JavaScript detections are out too, because
   reading must work with JavaScript off and reader pages allow no third-party frame.
 - **Zone config.** One custom rule blocks `cf.client.bot` on each host's protected
-  paths, which covers search engines as well. Bot Fight Mode, Super Bot Fight Mode
+  paths, which covers search engines as well. Those requests get Cloudflare's own block
+  page, never reach a Worker, and show only in Security Events. Bot Fight Mode, Super Bot Fight Mode
   and Browser Integrity Check are off (Hosts). AI Crawler and Agent access policies stay on
   allow and Bot Preference Sync stays off: both act on the whole zone, so they would
   also block work pages, and the Workers' `robots.txt` stays the only source.
   AI Crawl Control is for watching which crawlers come, and for adding to the list.
   `request.cf.botManagement` isn't used, since it needs Enterprise Bot Management.
-- **Signals.** `/robots.txt` on the app disallows the chapter and `/full` paths and
+- **Signals.** `/robots.txt` on the app disallows the chapter and `/full` paths, and
+  `/search` so that crawlers don't run endless queries (the page itself isn't refused), and
   states `Content-Signal: search=yes, ai-input=no, ai-train=no`. On the content origin
   it disallows everything, and is the one path served there besides images and
   originals. Protected responses also send
@@ -760,8 +767,11 @@ origin. Work pages, listings and search stay open, so people can still find work
   crawler can ignore, and a crawler obeying `robots.txt` never fetches the header.
 - **Throttles.** Per client IP: chapter reads, `/full` (lower, since one request is a
   whole work) and original downloads, each counted before any cache. Images aren't
-  throttled, since one chapter can hold many. The limits are configuration, set with
-  the others in Surge controls.
+  throttled, since one chapter can hold many. First values per 60 seconds are 120
+  chapter pages, 10 `/full` and 10 originals, revisited with the others in Surge controls.
+  Those let one address take 14,400 whole works a day, so they slow a scraper and don't
+  stop one; a limit low enough to stop one would throttle readers sharing a mobile
+  carrier's address. A limiter that throws doesn't fail the read.
 - **What this doesn't stop.** A scraper posing as a browser across many addresses is
   slowed at most, and an agent driving a person's real browser looks like that person.
   Stopping those would take a sign-in to read, which the operator ruled out on
@@ -950,12 +960,14 @@ epub, under the normal versioning rules.
     cached before the hide can stay readable (not the 451) for up to 60 s after
     it was cached, in each data centre, which can run slightly past 60 s from the
     hide. A hide does not purge it, unlike removal (see *Removal really removes*
-    below). This applies to every hide cause.
+    below). This applies to every hide cause. A declared automated client gets
+    a 403 on the chapter URLs and `/full` instead (Crawlers and agents).
   - **Held** (a `held_for_review` version, never public): 404 to the public.
     The work keeps serving its current version. The held version is visible
     to its uploader in My uploads and to moderators.
   - **Removed** (`removed`): 410 on the work page, every chapter URL and `/full`,
-    "This work has been removed".
+    "This work has been removed". A declared automated client gets a 403 on the
+    chapter URLs and `/full` instead (Crawlers and agents).
   - **The report routes** (`GET` and `POST /works/:id/report`) answer 404 for a
     hidden or removed work, as for one that doesn't exist: only the work,
     chapter and full pages show 451 or 410.
@@ -1215,7 +1227,8 @@ markup: its inline `style` attributes become stylesheet rules, because
 - Observability: Workers Logs and traces are on from day one, except that the
   content Worker's per-request invocation logs are off (its URLs carry the AO3
   work id); its errors and metrics stay on. Track queue depth, ingest failure
-  rate and search p95 on a dashboard.
+  rate and search p95 on a dashboard, with crawler refusals by reason and throttled
+  reads, each counted from a log line holding only the reason.
 
 ## MVP vs later
 

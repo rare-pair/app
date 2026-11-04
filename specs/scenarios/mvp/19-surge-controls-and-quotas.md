@@ -4,7 +4,7 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Load target), § Surge con
 
 ## Setup
 - Turnstile is configured on signup, login, upload and `/remove` requests
-- The Workers rate-limiting binding covers login, upload requests and search, keyed per IP and per user, over 10- or 60-second windows
+- The Workers rate-limiting binding covers login, upload requests and search, keyed per IP and per user, over 10- or 60-second windows. It also covers reads, per specs/scenarios/mvp/24-crawler-and-agent-blocking.md
 - Upload quotas are counted in Postgres (`user.upload_quota_used`)
 - Users: a user E with quota left (on either tier), a brand-new user N, a trusted user T
 - There are two daily quota tiers, a lower one for new accounts and a higher one for trusted users; the numbers and the rule for "trusted" are configuration, set before launch from load testing, and the cases below use whatever values are configured

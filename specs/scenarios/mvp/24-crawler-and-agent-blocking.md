@@ -8,10 +8,12 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - Fic text is `/works/:id/chapters`, `/works/:id/chapters/:n` and `/works/:id/full` on `rarepair.fans`, and `/works/:id/img/*` and `/originals/*` on `content.rarepair.fans`. These are the protected paths
 - Work pages, tag listings, search and the home page are not protected
 - A live work W with chapters, images and an original, a hidden work H and a removed work R
-- The crawler list is configuration shared by both Workers: user agent patterns of AI crawlers, AI agents, scraping tools and HTTP libraries that identify themselves. It holds no pattern for headless browsers or browser automation in general, and none for assistive technology
+- `PRELAUNCH` is off, unless a case says otherwise. With it on, the protected paths on `rarepair.fans` redirect as in specs/scenarios/mvp/22-waitlist.md, and a request to `www.rarepair.fans` always gets its 308 first, as in specs/scenarios/mvp/11-reader-and-csp.md
+- The crawler list is one list that both Workers are built from: product names of AI crawlers, AI agents, scraping tools and HTTP libraries that identify themselves. It matches as plain case-insensitive text, with no regular expressions. It holds no word as broad as `bot`, no pattern for headless browsers or browser automation in general, and none for assistive technology
 - A declared automated client is a request with a `Signature-Agent` header, or with a `User-Agent` matching the crawler list. The signature is not verified: announcing itself is enough. A missing `User-Agent` is not a declaration
-- Zone config: one custom rule blocks `cf.client.bot` on each host's protected paths. Bot Fight Mode, Super Bot Fight Mode and Browser Integrity Check are off, since each can challenge a reader or set a cookie. AI Crawler and Agent access policies stay on allow and Bot Preference Sync stays off, since both act on the whole zone
-- Read throttles are Workers rate-limiting bindings keyed per client IP, as in specs/scenarios/mvp/19-surge-controls-and-quotas.md. Their limits are configuration, set above what shared school, office and mobile addresses reach by reading, and revisited in load testing
+- Zone config: one custom rule blocks `cf.client.bot` on each host's protected paths. A request it blocks gets Cloudflare's own block page and never reaches a Worker. Bot Fight Mode, Super Bot Fight Mode and Browser Integrity Check are off, since each can challenge a reader or set a cookie. AI Crawler and Agent access policies stay on allow and Bot Preference Sync stays off, since both act on the whole zone
+- Read throttles are Workers rate-limiting bindings keyed per client as in specs/scenarios/mvp/19-surge-controls-and-quotas.md (an IPv4 address, or an IPv6 /64). First values per 60 seconds, to be revisited in load testing: 120 chapter pages, 10 `/works/:id/full` and 10 originals. At those limits one address can still take 14,400 whole works a day, so the throttles slow a scraper and don't stop one
+- One read is one GET or HEAD of a chapter page, `/works/:id/full` or an original. The chapter select's redirect, the warnings screen and a refused request don't count
 
 ## Cases
 
@@ -20,6 +22,21 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - WHEN the web Worker receives it, by GET or HEAD
 - THEN the response is 403 with the plain automated-access page and no chapter text, title or other detail of the work
 - AND it has `Cache-Control: no-store`, the strict CSP and `Strict-Transport-Security`
+
+### Redirects still come first
+- GIVEN a declared automated client asking for a chapter of W
+- WHEN it asks on `www.rarepair.fans`, or on `rarepair.fans` with `PRELAUNCH` on
+- THEN the response is the same redirect a browser gets, with no chapter text
+
+### A word inside a browser's user agent is not a match
+- GIVEN a real browser whose `User-Agent` holds the letters `bot` inside a phone's model name
+- WHEN it asks for a chapter of W
+- THEN the chapter is served
+
+### The crawler list ignores case
+- GIVEN a `User-Agent` holding a listed product name in other letter case
+- WHEN it asks for a chapter of W
+- THEN the response is the 403
 
 ### A session does not exempt a declared automated client
 - GIVEN a request with a valid session cookie and a `User-Agent` matching the crawler list
@@ -80,6 +97,12 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - WHEN the reader uses a screen reader, the browser's translation, a reader extension, Ctrl+F or print
 - THEN each works on the chapter text as normal
 
+### Server-side tools that identify themselves are refused
+- GIVEN a translation proxy or read-later service that fetches pages on its own servers and identifies itself
+- WHEN it fetches a chapter of W for a reader
+- THEN it is refused like any other declared automated client, an accepted cost of this design
+- AND no such tool is exempted by name
+
 ### Browser automation that does not identify itself is served
 - GIVEN the real-browser journeys in `apps/web/browser/`, running headless with the browser's own user agent
 - WHEN they open a chapter of W
@@ -89,13 +112,19 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 ### robots.txt keeps crawlers out of chapter pages
 - GIVEN any client, a declared automated client included
 - WHEN it requests `/robots.txt` on `rarepair.fans`, with `PRELAUNCH` on or off
-- THEN the response is 200 `text/plain`, disallows `/works/*/chapters` and `/works/*/full` for every user agent, and allows everything else
+- THEN the response is 200 `text/plain`, disallows `/works/*/chapters`, `/works/*/full` and `/search` for every user agent, and allows everything else
 - AND it states `Content-Signal: search=yes, ai-input=no, ai-train=no`
+- AND it has `Cache-Control: public, max-age=3600`, never `immutable`
+
+### Search stays reachable by crawlers that ignore robots.txt
+- GIVEN `/search` is disallowed only so that crawlers don't run endless queries
+- WHEN a crawler requests it anyway
+- THEN it gets the search page, under the search limit in specs/scenarios/mvp/19-surge-controls-and-quotas.md
 
 ### robots.txt keeps crawlers off the content origin
 - GIVEN any client, a declared automated client included
 - WHEN it requests `/robots.txt` on `content.rarepair.fans`
-- THEN the response is 200 `text/plain` disallowing `/` for every user agent, with no `Set-Cookie`
+- THEN the response is 200 `text/plain` disallowing `/` for every user agent, with `nosniff`, `Cache-Control: public, max-age=3600` and no `Set-Cookie`
 - AND it is the only path that origin serves besides images and originals
 
 ### Protected responses ask not to be indexed or used
@@ -123,6 +152,11 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - WHEN their browser loads the images
 - THEN all of them are served
 
+### A failing limiter does not stop reading
+- GIVEN the rate-limiting binding throws on a read
+- WHEN a reader requests a chapter, `/works/:id/full` or an original
+- THEN it is served as if under the limit, and the failure is logged with no URL or address
+
 ### Throttled readers recover after the window
 - GIVEN an IP throttled on chapter reads or original downloads
 - WHEN the rate-limit window has passed
@@ -132,6 +166,7 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - GIVEN a visitor on `/terms`
 - WHEN they read it
 - THEN it says that automated collection of fic text and its use to train AI models are not allowed
+- AND it says this applies to everyone who uses the site, not only people with an account
 
 ### About page summarizes these efforts
 - GIVEN a visitor on `/about`
@@ -150,9 +185,11 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - THEN it says plainly that automated access to chapters isn't allowed, and links to the home page and `/about`
 
 ### Refusals are counted by reason
-- GIVEN refused requests on either host
+- GIVEN requests refused or throttled by either Worker
 - WHEN an operator opens the operations dashboard
-- THEN they can see how many were refused by each reason (signature, crawler list) and how many reads were throttled, with no URL or address
+- THEN they can see how many were refused by each reason (signature, crawler list) and how many reads were throttled
+- AND each is counted from a log line holding only that reason, with no URL or address
+- AND requests the zone rule blocked are read from Security Events instead, since they never reach a Worker
 
 ### Zone rule is in place before launch
 - GIVEN the deployed zone
