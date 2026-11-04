@@ -82,7 +82,7 @@ export async function showChapter(c: ReaderContext) {
     id,
     n,
     title: `${workTitle}, chapter ${n}`,
-    bar: readerBar(workTitle, chapterUrl(id, n)),
+    bar: readerBar(id, workTitle, chapterUrl(id, n)),
     top: `${reviewNotice(live.version)}${nav("top")}
 <h2 class="chapter-title">${escapeHtml(chapterTitle(chapter))}</h2>
 `,
@@ -140,11 +140,13 @@ async function serveChapter(
 
 /**
  * The slim top bar every reading page shares: the work title, which is the page's one
- * h1, and the reader settings, coming back to `returnTo`. It scrolls away with the
- * page. The page's head needs `settingsScriptTag` for the live controls.
+ * h1 and a link to the work page, and the reader settings, coming back to `returnTo`.
+ * It scrolls away with the page. The page's head needs `settingsScriptTag` for the live
+ * controls. The link is the same for every reader, so the bar can stay in the shared
+ * edge page entry (edge-cache.ts) with no signed-in state in it.
  */
-export const readerBar = (workTitle: string, returnTo: string) =>
-  `<div class="reader-bar"><h1>${escapeHtml(workTitle)}</h1>${barSettings(returnTo)}</div>`;
+export const readerBar = (id: number, workTitle: string, returnTo: string) =>
+  `<div class="reader-bar"><h1><a href="/works/${id}">${escapeHtml(workTitle)}</a></h1>${barSettings(returnTo)}</div>`;
 
 /**
  * The chapter select's target: `/works/:id/chapters?n=5` goes to chapter 5. The

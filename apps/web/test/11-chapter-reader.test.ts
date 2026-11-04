@@ -244,8 +244,8 @@ describe("11-reader-and-csp", () => {
     const html = await htmlOf(chapterUrl(W, 3));
     const main = html.match(/<main\b[^>]*>([\s\S]*)<\/main>/)?.[1] ?? "";
     const bar = main.match(/<div class="reader-bar">([\s\S]*?)<\/div>/)?.[1] ?? "";
-    // The work title is the page's one h1, in the bar, escaped; the settings link beside it.
-    expect(bar).toContain(`<h1>${TITLE_ESCAPED}</h1>`);
+    // The work title is the page's one h1, a link to the work page, in the bar, escaped; the settings link beside it.
+    expect(bar).toContain(`<h1><a href="/works/${W}">${TITLE_ESCAPED}</a></h1>`);
     // The link comes back to this chapter when the settings are saved (R5).
     expect(bar).toMatch(
       /<a href="\/settings\/reader\?next=%2Fworks%2F20001%2Fchapters%2F3">[^<]+<\/a>/,
@@ -398,6 +398,6 @@ describe("21-accessibility-and-no-js", () => {
       "<h1>W-FOUR-HEADING-A</h1><p>W-FOUR-TEXT</p><script>window.INJECTED = 1</script><h1>W-FOUR-HEADING-B</h1>",
     );
     const chrome = html.replace(article, "");
-    expect(chrome.match(/<h1\b[^>]*>[\s\S]*?<\/h1>/g)).toEqual([`<h1>${TITLE_ESCAPED}</h1>`]);
+    expect(chrome.match(/<h1\b[^>]*>[\s\S]*?<\/h1>/g)).toEqual([`<h1><a href="/works/${W}">${TITLE_ESCAPED}</a></h1>`]);
   });
 });
