@@ -1,7 +1,7 @@
 // The DMCA notice form, `/dmca` (ARCHITECTURE, Author requests & takedowns, DMCA). Public,
 // with no sign-in, behind Turnstile, so it needs JavaScript: a visitor without it is told
 // where to email a notice. Its abuse controls are the check and a rate limit per client
-// address, counted before the body is read. A notice is stored for a moderator and never
+// address, counted before any check; over it, the form still comes back with what was typed. A notice is stored for a moderator and never
 // hides the work: only a moderator's decision does. A notice missing a statutory element
 // (17 U.S.C. 512(c)(3)(A)) is stored too, marked incomplete.
 
@@ -105,7 +105,7 @@ const noscriptMessage = (notices: string) =>
 
 /** Under a refusal that stops the form working, so a visitor whose check is blocked can still send a notice. */
 const fallbackMessage = (notices: string) =>
-  `If this keeps happening, the form may not work for you. ${byEmail(notices)}`;
+  `If the form is not working for you, there is another way. ${byEmail(notices)}`;
 
 /** What a page of the form shows besides its fields: what was typed, an error, and the email fallback. */
 interface PageState {
@@ -195,7 +195,8 @@ export async function submitDmca(c: DmcaContext) {
   // The body is bounded, so it is read even when the client is over its limit: a long notice
   // comes back in the form instead of being lost. One too large for that gets the plain 429.
   const form = await readForm(c.req.raw, MAX_DMCA_BODY);
-  if (limited && form === null) return tooManyRequests(DMCA_WINDOW_SECONDS);
+  // A post with no fields (another content type, no body) has nothing to keep either.
+  if (limited && (form === null || form.size === 0)) return tooManyRequests(DMCA_WINDOW_SECONDS);
   // Nothing of it is shown back: the form comes again empty.
   if (form === null) {
     const error = "That notice was too large. Please try again.";
@@ -213,9 +214,18 @@ export async function submitDmca(c: DmcaContext) {
   const back = (error: string) => c.html(page({ notice, error }), 400, NO_STORE);
 
   if (limited) {
+    // Only as much as the form takes, so a rejected post can't make a page of its own size.
+    const kept: Notice = {
+      ...notice,
+      work: notice.work.slice(0, MAX_WORK),
+      copyrightedWork: notice.copyrightedWork.slice(0, MAX_FIELD),
+      infringingMaterial: notice.infringingMaterial.slice(0, MAX_FIELD),
+      contact: notice.contact.slice(0, MAX_FIELD),
+      signature: notice.signature.slice(0, MAX_SIGNATURE),
+    };
     const wait = DMCA_WINDOW_SECONDS;
     const error = `Too many requests in a short time. Your notice is kept below: please try again in ${wait} seconds.`;
-    return c.html(page({ notice, error, fallback: true }), 429, {
+    return c.html(page({ notice: kept, error, fallback: true }), 429, {
       ...NO_STORE,
       "Retry-After": String(wait),
     });

@@ -108,7 +108,8 @@ Relates to: docs/ARCHITECTURE.md § Data model (reports.reporter_id, reports.kin
 - WHEN they submit a notice naming work W with no Turnstile token, a token solved on another form, or while Turnstile cannot be reached
 - THEN no `takedowns` row is stored and the form says the anti-spam check did not pass, or is not answering
 - AND every field and both checkboxes come back as typed, with a fresh Turnstile widget
-- AND the per-IP limit is counted before the check, so a post over the limit is refused with 429 whatever its token
+- AND the per-IP limit is counted before the check, so a post over the limit is refused with 429 (with `Retry-After`) whatever its token, and that page also keeps every field, shows a fresh widget and names the notices address
+- AND each of these refusals names the notices address, so a visitor whose check is blocked can still email a notice
 
 ### Incomplete DMCA notice is noted in the queue
 - GIVEN a visitor on `/dmca`

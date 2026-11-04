@@ -259,8 +259,8 @@ describe("17-reports-and-dmca: DMCA", () => {
         ...COMPLETE,
         copyrighted_work: long,
         infringing_material: long,
-        contact: `${marker} ${long}`,
-        signature: "x8 Pat Example",
+        contact: `${marker} ${long}`.slice(0, 4000),
+        signature: "s".repeat(1000),
       },
       { ip },
     );
@@ -269,13 +269,31 @@ describe("17-reports-and-dmca: DMCA", () => {
     expect(res.headers.get("cache-control")).toBe("no-store");
     const html = await res.text();
     expect(html).toContain("Too many requests");
-    expect(html.split(long).length - 1).toBe(3);
+    expect(html.split(long).length - 1).toBe(2);
+    // What a rejected post echoes is capped to what the form takes.
+    expect(html).toContain("s".repeat(200));
+    expect(html).not.toContain("s".repeat(201));
     expect(html).toContain(marker);
     expect(html).toMatch(/name="good_faith" value="yes" checked/);
     expect(html).toMatch(/name="accuracy_authority" value="yes" checked/);
     expect(html).toContain('class="cf-turnstile"');
     expect(html).toContain(`write to ${env.NOTICES_EMAIL} and include`);
     expect(await noticesFrom(marker)).toEqual([]);
+  });
+
+  it("A post with no form fields gets the plain 429 over the limit", async () => {
+    await windowHeadroom(60);
+    const ip = freshIp();
+    for (let i = 0; i < DMCA_IP_LIMIT; i++) {
+      await postNotice({ ...COMPLETE, work: String(UNKNOWN) }, { ip });
+    }
+    const res = await fetchW("/dmca", {
+      method: "POST",
+      headers: { ...FORM_HEADERS, "content-type": "application/json", "cf-connecting-ip": ip },
+      body: "{}",
+    });
+    expect(res.status).toBe(429);
+    expect(await res.text()).not.toContain('class="cf-turnstile"');
   });
 
   it("A body too large to keep gets the plain 429 over the limit", async () => {
@@ -292,11 +310,9 @@ describe("17-reports-and-dmca: DMCA", () => {
 
   it("The intro to the form is hidden with it, so without JavaScript nothing points at a missing form", async () => {
     const html = await (await fetchW("/dmca")).text();
-    const open = html.indexOf('<form id="dmca"');
-    const intro = html.indexOf("Use this form to tell us");
-    expect(open).toBeGreaterThan(-1);
-    expect(intro).toBeGreaterThan(open);
-    expect(html.indexOf("</form>")).toBeGreaterThan(intro);
+    const form = html.match(/<form id="dmca"[^>]*\bhidden\b[^>]*>[\s\S]*?<\/form>/)?.[0] ?? "";
+    expect(form).toContain("Use this form to tell us");
+    expect(html.replace(form, "")).not.toContain("Use this form to tell us");
   });
 
   it("The page without JavaScript names the notices address and what a notice needs", async () => {
