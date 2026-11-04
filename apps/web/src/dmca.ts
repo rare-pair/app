@@ -97,7 +97,7 @@ const emptyNotice: Notice = {
  * can carry the same elements. Draft copy.
  */
 const noscriptMessage = (notices: string) =>
-  `This form needs JavaScript, for its anti-spam check. To send a copyright notice without it, email ${escapeHtml(notices)} and include: (1) the work here, by its address or number; (2) the copyrighted work you say is infringed; (3) the material you say infringes it, and where on the work it is; (4) your name, address, telephone number and email address; (5) this statement: ${GOOD_FAITH} (6) this statement: ${ACCURACY_AUTHORITY} (7) your full name, as your signature. A person reads that mailbox, and a notice sent there does not reach the online queue, so it can take longer to be seen.`;
+  `This form needs JavaScript, for its anti-spam check. To send a copyright notice without it, email ${escapeHtml(notices)} and include: (1) the work here, by its address or number; (2) the copyrighted work you say is infringed; (3) the material you say infringes it, and where on the work it is; (4) your name, address, telephone number and email address; (5) this statement: ${escapeHtml(GOOD_FAITH)} (6) this statement: ${escapeHtml(ACCURACY_AUTHORITY)} (7) your full name, as your signature. A person reads that mailbox, and a notice sent there does not reach the online queue, so it can take longer to be seen.`;
 
 /**
  * The form. Every typed value is escaped. A form that comes back keeps what was typed, so
@@ -129,8 +129,8 @@ ${escapeHtml(notice.infringingMaterial)}</textarea>
 <label for="contact">Your name, address, telephone number and email address (up to ${MAX_FIELD} characters)</label>
 <textarea id="contact" name="contact" rows="4" maxlength="${MAX_FIELD}">
 ${escapeHtml(notice.contact)}</textarea>
-<label class="check"><input type="checkbox" name="good_faith" value="yes"${notice.goodFaith ? " checked" : ""}> ${GOOD_FAITH}</label>
-<label class="check"><input type="checkbox" name="accuracy_authority" value="yes"${notice.accuracyAuthority ? " checked" : ""}> ${ACCURACY_AUTHORITY}</label>
+<label class="check"><input type="checkbox" name="good_faith" value="yes"${notice.goodFaith ? " checked" : ""}> ${escapeHtml(GOOD_FAITH)}</label>
+<label class="check"><input type="checkbox" name="accuracy_authority" value="yes"${notice.accuracyAuthority ? " checked" : ""}> ${escapeHtml(ACCURACY_AUTHORITY)}</label>
 <label for="signature">Your full name, as your signature</label>
 <input id="signature" name="signature" type="text" maxlength="${MAX_SIGNATURE}" value="${escapeHtml(notice.signature)}">
 <div class="cf-turnstile" data-sitekey="${escapeHtml(siteKey)}" data-action="${TURNSTILE_ACTIONS.dmca}"></div>
