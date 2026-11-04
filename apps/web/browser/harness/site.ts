@@ -1,22 +1,25 @@
-import type { Database } from "@archive/db";
-import type { FragmentBucket } from "@archive/db/seed";
+import type { Database, UploadStatus } from "@archive/db";
 import { createTestDb } from "@archive/db/testing";
 import type { Kysely } from "kysely";
-import type { RequestInit, Response } from "miniflare";
-import { chromium, type Browser, type BrowserContext } from "playwright";
+import type { Miniflare, RequestInit, Response } from "miniflare";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { inject } from "vitest";
 import { parseMessage, type EmailMessage } from "../../../mailer/src/message";
 import { CONTENT_HOST } from "../../src/content-host";
 import { SITE } from "../../src/signin";
 import { DUMMY_TOKEN } from "../../test/stand-ins";
+import { cleanCheck, type CleanOptions } from "./clean";
+import { R2_HOST } from "./r2-put";
+import { recorderFromEnv } from "./recording";
 import { startWorker } from "./worker";
 
 /** Where the browser visits: the real site's origin, mapped to the local Worker. */
 export { SITE };
-const HOST = new URL(SITE).host;
-// Stood in for in the browser, never fetched: Turnstile's script, and the image host.
+/** The hosts Chromium resolves to Miniflare: web, content, and the stand-in for R2's endpoint. */
+const LOCAL_HOSTS = [new URL(SITE).host, CONTENT_HOST, R2_HOST];
+// Stood in for in the browser, never fetched.
 const TURNSTILE_SCRIPT = "https://challenges.cloudflare.com/turnstile/v0/api.js";
-const CONTENT = `https://${CONTENT_HOST}/`;
+const UPLOAD_WAIT_MS = 30_000;
 /**
  * Turnstile's script, standing in: every widget is solved at once with Cloudflare's dummy
  * token under the widget's action, which test/stand-ins.ts's siteverify passes. As the real
@@ -44,12 +47,6 @@ const solve = () => {
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", solve);
 else solve();
 `;
-// A transparent 1x1 PNG, for every image on the content host.
-const PIXEL = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
-  "base64",
-);
-
 export type Viewport = { width: number; height: number };
 
 /**
@@ -78,24 +75,39 @@ export type ContextOptions = {
   ip?: string;
 };
 
-/** The running site: the Worker, its database and bucket, and a browser to visit it with. */
+/** The running site: the Workers, their database and bucket, and a browser to visit them with. */
 export type Site = {
-  /** The database the Worker reads, for seeding. */
+  /** The database the Workers read, for seeding and for reading what they stored. */
   db: Kysely<Database>;
-  /** The Worker's R2 bucket, for seeding fragments. */
-  bucket: FragmentBucket;
+  /** The R2 bucket the Workers share, for seeding fragments and reading what they stored. */
+  bucket: Awaited<ReturnType<Miniflare["getR2Bucket"]>>;
   /**
-   * A new browser context on the site, with the stand-ins for third parties: Turnstile's
-   * script solves every widget at once, and every content-host image is a 1x1 PNG. Any other
-   * request off the site is refused and recorded in `offSite`.
+   * A new browser context on the site. The content host is the real content Worker, a presigned
+   * PUT goes to the stand-in for R2's endpoint (r2-put.ts), and Turnstile's script is stood in
+   * for, solving every widget at once. Any other request off the site is refused and recorded
+   * in `offSite`.
    */
   newContext: (options?: ContextOptions) => Promise<BrowserContext>;
   /** Every off-site URL a page asked for that has no stand-in. */
   offSite: string[];
-  /** A request to the Worker from Node, outside the browser; redirects are returned. */
+  /** A request to a Worker from Node, by path on the site or full URL; redirects are returned. */
   fetch: (path: string, init?: RequestInit) => Promise<Response>;
   /** Every email the Worker has queued so far, parsed (apps/mailer's message shape). */
   emails: () => Promise<EmailMessage[]>;
+  /**
+   * Waits for the ingest Worker to finish upload `id`, polling its row. Resolves once it is
+   * `expected` (default `live`, written last, so the work and its objects are all there).
+   * Throws at once, naming the status, if the job ends any other way, and after 30 seconds.
+   */
+  waitForUpload: (id: string, expected?: UploadStatus) => Promise<void>;
+  /**
+   * Throws, listing every CSP violation, console or script error and off-site request in any
+   * of the site's contexts since the last call. `allow` excuses the problems it matches.
+   * `useJourneySite` (journey.ts) calls it after every test.
+   */
+  assertClean: (options?: CleanOptions) => void;
+  /** Leaves `page` out of the `BROWSER_RECORD` videos: a step of setup, not of the test. */
+  dropRecording: (page: Page) => void;
   close: () => Promise<void>;
 };
 
@@ -115,7 +127,12 @@ export const freshIp = () => {
 export async function launchChromium(port?: number): Promise<Browser> {
   try {
     return await chromium.launch({
-      args: port === undefined ? [] : [`--host-resolver-rules=MAP ${HOST} 127.0.0.1:${port}`],
+      args:
+        port === undefined
+          ? []
+          : [
+              `--host-resolver-rules=${LOCAL_HOSTS.map((host) => `MAP ${host} 127.0.0.1:${port}`).join(", ")}`,
+            ],
     });
   } catch (error) {
     // A missing browser must fail the run, never skip it.
@@ -131,8 +148,9 @@ export async function launchChromium(port?: number): Promise<Browser> {
 }
 
 /**
- * Starts the site: a migrated test database, the web Worker on it in Miniflare (from the
- * run's bundle, global-setup.ts), and headless Chromium. Close it in `afterAll`.
+ * Starts the site: a migrated test database, the web, ingest and content Workers on it in
+ * Miniflare (from the run's bundles, global-setup.ts), and headless Chromium. Close it in
+ * `afterAll`.
  */
 export async function startSite({
   prelaunch = false,
@@ -141,22 +159,27 @@ export async function startSite({
   const t = await createTestDb({ maxConnections: 64 });
   let worker: Awaited<ReturnType<typeof startWorker>> | undefined;
   let browser: Browser | undefined;
+  const recorder = recorderFromEnv();
   /** Stops whatever has started, each part even if another fails to stop. */
   const stop = async () => {
     try {
-      await browser?.close();
+      await recorder?.finish();
     } finally {
       try {
-        await worker?.mf.dispose();
+        await browser?.close();
       } finally {
-        await t.close();
+        try {
+          await worker?.mf.dispose();
+        } finally {
+          await t.close();
+        }
       }
     }
   };
   let parts;
   try {
     worker = await startWorker({
-      bundle: inject("workerBundle"),
+      bundles: inject("workerBundles"),
       databaseUrl: t.connectionString,
       prelaunch,
     });
@@ -164,7 +187,7 @@ export async function startSite({
     parts = {
       mf: worker.mf,
       chromium: browser,
-      bucket: await worker.mf.getR2Bucket("BUCKET"),
+      bucket: await worker.mf.getR2Bucket("BUCKET", "rarepair-web"),
       emailSink: await worker.mf.getWorker("email-sink"),
     };
   } catch (error) {
@@ -173,6 +196,7 @@ export async function startSite({
   }
   const { mf, chromium: running, bucket, emailSink } = parts;
   const offSite: string[] = [];
+  const check = cleanCheck(offSite);
 
   async function newContext({ ip = freshIp() }: ContextOptions = {}) {
     const context = await running.newContext({
@@ -181,15 +205,16 @@ export async function startSite({
       ignoreHTTPSErrors: true,
       reducedMotion: "reduce",
       extraHTTPHeaders: { "cf-connecting-ip": ip },
+      ...recorder?.contextOptions,
     });
+    check.watch(context);
+    recorder?.watch(context);
     await context.route(
-      (url) => url.host !== HOST,
+      (url) => !LOCAL_HOSTS.includes(url.host),
       async (route) => {
         const url = route.request().url();
         if (url.startsWith(TURNSTILE_SCRIPT)) {
           await route.fulfill({ contentType: "text/javascript", body: TURNSTILE_STUB });
-        } else if (url.startsWith(CONTENT)) {
-          await route.fulfill({ contentType: "image/png", body: PIXEL });
         } else {
           offSite.push(url);
           await route.abort("blockedbyclient");
@@ -212,6 +237,26 @@ export async function startSite({
       const bodies = (await res.json()) as unknown[];
       return bodies.map(parseMessage).filter((m): m is EmailMessage => m !== null);
     },
+    async waitForUpload(id, expected = "live") {
+      const deadline = Date.now() + UPLOAD_WAIT_MS;
+      for (;;) {
+        const { status, error_stage: stage } = await t.db
+          .selectFrom("uploads")
+          .select(["status", "error_stage"])
+          .where("id", "=", id)
+          .executeTakeFirstOrThrow();
+        if (status === expected) return;
+        if (status !== "pending" && status !== "processing") {
+          throw new Error(`upload ${id} ended ${status} (stage ${stage}), not ${expected}`);
+        }
+        if (Date.now() > deadline) {
+          throw new Error(`upload ${id} still ${status} after ${UPLOAD_WAIT_MS} ms`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    },
+    assertClean: check.assertClean,
+    dropRecording: (page) => recorder?.drop(page),
     close: stop,
   };
 }
