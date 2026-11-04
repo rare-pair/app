@@ -8,7 +8,8 @@
     "strict": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["vitest.config.ts", "test/global-setup.ts", "test/provided.d.ts"]
+  "include": ["vitest.config.ts", "test/global-setup.ts", "test/provided.d.ts", "scripts/**/*.ts"]
 }

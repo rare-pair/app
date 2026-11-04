@@ -8,6 +8,7 @@
   "types": "src/index.ts",
   "scripts": {
     "test": "vitest run",
+    "fixtures:synthetic": "node scripts/synthetic-fixtures.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json"
   },
   "dependencies": {
