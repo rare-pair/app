@@ -75,6 +75,21 @@ export const OPEN_PAGES: InventoryPage[] = [
   { name: "warnings", path: (s) => `/works/${s.warned}/warnings`, as: "anonymous" },
   { name: "chapter", path: (s) => `/works/${s.work}/chapters/2`, as: "anonymous" },
   { name: "entire work", path: (s) => `/works/${s.work}/full`, as: "anonymous" },
+  {
+    name: "chapter with a long title",
+    path: (s) => `/works/${s.longTitle}/chapters/1`,
+    as: "anonymous",
+  },
+  {
+    name: "chapter with an unbroken long title",
+    path: (s) => `/works/${s.longTitle}/chapters/2`,
+    as: "anonymous",
+  },
+  {
+    name: "entire work with long titles",
+    path: (s) => `/works/${s.longTitle}/full`,
+    as: "anonymous",
+  },
   { name: "reader settings", path: () => "/settings/reader", as: "anonymous" },
   { name: "reader settings, signed in", path: () => "/settings/reader", as: "reader" },
   { name: "sign in", path: () => "/login", as: "anonymous" },

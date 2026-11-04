@@ -2,7 +2,7 @@ import type { Page } from "playwright";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import type { InventoryPage } from "../harness/pages";
 import { seedInventory, type Inventory } from "../harness/seed";
-import { SITE, startSite, type Site } from "../harness/site";
+import { SITE, startSite, type Site, type SiteOptions } from "../harness/site";
 import { openVisitors, visit, type Visitors } from "../harness/visit";
 
 /** The site an inventory suite runs on, ready once its `beforeAll` has run. */
@@ -17,15 +17,18 @@ export function useInventorySite({
   prelaunch,
   firstId,
   prefix,
+  viewport,
 }: {
   prelaunch: boolean;
   firstId: number;
   prefix: string;
+  /** The browser window's size; default the harness's (`viewportFromEnv()`). */
+  viewport?: SiteOptions["viewport"];
 }): InventorySite {
   // SAFETY: filled in by beforeAll, before any test in the block reads it.
   const running = {} as InventorySite;
   beforeAll(async () => {
-    running.site = await startSite({ prelaunch });
+    running.site = await startSite({ prelaunch, viewport });
     running.visitors = await openVisitors(running.site, prefix);
     running.seeded = await seedInventory(running.site, {
       firstId,

@@ -26,7 +26,7 @@ export type Inventory = {
   warned: number;
   /** A work with 20+ tags and long warnings. */
   manyTags: number;
-  /** A work with a very long title. */
+  /** A work with a very long title, in two chapters with very long titles. */
   longTitle: number;
   hidden: number;
   removed: number;
@@ -70,6 +70,7 @@ export async function seedInventory(
       fandom,
     ],
   });
+  const unbroken = "a-long-unbroken-title-that-goes-on-and-on-without-any-spaces-at-all";
   const long = "q1b-a-long-unbroken-tag-name-that-goes-on-and-on-without-spaces";
   await seedReadableWork(site, {
     ao3WorkId: firstId + 2,
@@ -87,9 +88,20 @@ export async function seedInventory(
   });
   await seedReadableWork(site, {
     ao3WorkId: firstId + 3,
-    title: `q1b-${"A very long title that keeps on going ".repeat(6).trim()}`,
+    title: `q1b-${"A very long title that keeps on going ".repeat(6).trim()}-${unbroken}`,
     rating: "General Audiences",
     tags: [fandom],
+    // Two chapters, so the chapter nav has each shape (Next only, Previous only), with titles
+    // as long as a title can be: one of many words, one of a single 60+ character word.
+    chapters: [
+      {
+        title: `q1b-${"A chapter title that keeps on going ".repeat(6).trim()}`,
+        html: chapter(1),
+        words: 20,
+      },
+      { title: `q1b-${unbroken}`, html: chapter(2), words: 20 },
+    ],
+    chapterTotal: 2,
   });
   await seedReadableWork(site, {
     ao3WorkId: firstId + 4,

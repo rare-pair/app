@@ -451,9 +451,10 @@ describe("14-browse-and-home tag listing URLs", () => {
     // Three lines high at most, whatever the markup (a table isn't counted in lines).
     expect(summaryRules).toMatch(/max-height:\s*calc\(3 \* 1\.45em\)/);
     // Card styles name the card's own lines, so a summary's h2 or p doesn't pass for one,
-    // and the site's own heading sizes are taken back off a summary's headings.
+    // and a summary's headings are already divs (tidySummary), so no rule reaches for a heading
+    // tag inside it: one would be dead (#536).
     expect(css).not.toMatch(/\.work-card (h2|p)\b/);
-    expect(css).toMatch(/\.card-summary :is\(h1, h2, h3, h4, h5, h6\) \{[^}]*font-size: inherit/);
+    expect(css).not.toContain(".card-summary :is(");
     // An image is scaled to the clamp, not shown at its own height.
     // An image takes one of the three lines, not its own height.
     expect(css).toMatch(/\.card-summary img \{[^}]*max-height: 1\.45em/);

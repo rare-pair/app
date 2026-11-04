@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import type { Browser, Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { hasSidewaysScroll } from "../harness/layout";
+import { hasSidewaysScroll, sidewaysOffenders } from "../harness/layout";
 import { launchChromium, viewportFromEnv } from "../harness/site";
 import { checkAxe, formatResults } from "./axe";
 import { formatWalk, tabWalk } from "./keyboard";
@@ -137,6 +137,24 @@ describe("harness: a narrow viewport", () => {
       expect(await hasSidewaysScroll(small)).toBe(true);
       await small.setContent(`<p>Wraps to fit</p>`);
       expect(await hasSidewaysScroll(small)).toBe(false);
+    } finally {
+      await narrow.close();
+    }
+  });
+
+  it("names the element that is too wide, and nothing for a page that fits", async () => {
+    const narrow = await browser.newContext({ viewport: viewportFromEnv("360x640") });
+    const small = await narrow.newPage();
+    try {
+      // The skip link's box and its child reach past the edge but aren't what a reader sees.
+      await small.setContent(
+        `<p>Fits</p><div class="wide" style="width: 500px">Too wide</div>` +
+          `<a style="position: absolute; left: 400px">Skip <span>link</span></a>` +
+          `<div style="overflow: auto"><pre style="width: 700px">scrolls inside</pre></div>`,
+      );
+      expect(await sidewaysOffenders(small)).toEqual(["div.wide (500px wide, right edge 508)"]);
+      await small.setContent(`<p>Wraps to fit</p>`);
+      expect(await sidewaysOffenders(small)).toEqual([]);
     } finally {
       await narrow.close();
     }
