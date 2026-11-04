@@ -258,4 +258,20 @@ describe("20-site-chrome-and-legal: the site header", () => {
       );
     }
   });
+
+  it("Search is the first link for every visitor, and /search with no query has a search box and no results", async () => {
+    const user = await signInAs("nav2-search-user@example.test");
+    const moderator = await signInAs("nav2-search-mod@example.test", "moderator");
+    const visitors: Record<string, string>[] = [{}, { cookie: user }, { cookie: moderator }];
+    for (const headers of visitors) {
+      const html = await (await fetchW("/about", { headers })).text();
+      expect(linksOf(html)[0]).toEqual(["Search", "/search"]);
+    }
+    const res = await fetchW("/search");
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('<form role="search" method="get" action="/search">');
+    expect(html).toContain('<input type="search" id="q" name="q" value="">');
+    expect(html).not.toMatch(/class="work-card|<ol/);
+  });
 });
