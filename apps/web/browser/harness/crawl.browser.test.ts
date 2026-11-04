@@ -54,6 +54,11 @@ describe("crawl: link targets", () => {
     expect(await targets(html, "/")).toEqual(["/tags/fandom/x?sort=updated"]);
   });
 
+  it("takes no form with a disabled control, which a person can't send", async () => {
+    const html = `<form action="/search"><input name="q" disabled><button disabled>Go</button></form>`;
+    expect(await targets(html)).toEqual([]);
+  });
+
   it("fills the search box from the crawler's table, and also tries it empty", async () => {
     const html = `<form role="search" action="/search"><input type="search" name="q" value=""></form>`;
     expect(await targets(html)).toEqual(["/search?q=q1b", "/search?q="]);

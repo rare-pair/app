@@ -42,7 +42,7 @@ const PER_TEMPLATE = 40;
 const MAX_FETCHES = 300;
 const MAX_REDIRECTS = 5;
 
-type Field = { name: string; type: string; value: string; checked: boolean };
+type Field = { name: string; type: string; value: string; checked: boolean; disabled: boolean };
 type Parsed = { links: string[]; forms: { method: string; action: string; fields: Field[] }[] };
 
 /** Reads the HTML in `html` with the browser's own parser, on a page that shows nothing. */
@@ -59,7 +59,15 @@ function parse(page: Page, html: string): Promise<Parsed> {
         // have the name, type and value read here; `checked` is false on all but checkboxes.
         const field = element as HTMLInputElement;
         if (!field.name) return [];
-        return [{ name: field.name, type: field.type, value: field.value, checked: field.checked }];
+        return [
+          {
+            name: field.name,
+            type: field.type,
+            value: field.value,
+            checked: field.checked,
+            disabled: field.disabled,
+          },
+        ];
       }),
     }));
     return { links, forms };
@@ -109,6 +117,8 @@ export async function linkTargets(page: Page, html: string, from: string): Promi
     const path = action.split("?")[0] ?? action;
     // A form that gets back to its own page filters it (a listing's sort): no page to reach.
     if (path === from.split("?")[0]) continue;
+    // A form with a disabled control is closed (before launch): a person can not send it.
+    if (form.fields.some((field) => field.disabled)) continue;
     const tabled = FORM_VALUES.has(path);
     for (const blank of tabled ? [false, true] : [false]) {
       found.push(`${path}?${formQuery(path, form.fields, blank)}`.replace(/\?$/, ""));
@@ -211,7 +221,7 @@ export async function crawl(
     for (const found of await linkTargets(parser, rewrite?.(html, path) ?? html, path)) {
       const foundKey = nodeKey(found);
       result.seen.add(foundKey);
-      if (queued.has(foundKey) || ADMIN_ACTION.test(foundKey)) continue;
+      if (queued.has(foundKey) || ADMIN_ACTION.test(foundKey.split("?")[0] ?? foundKey)) continue;
       queued.add(foundKey);
       queue.push({ target: found, from: path });
     }

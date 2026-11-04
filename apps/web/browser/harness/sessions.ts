@@ -37,10 +37,8 @@ export async function signInLink(site: Site, email: string): Promise<string> {
  * for it. Use a new email for each call: the sign-in form allows three a minute for one address.
  */
 export const signedIn = (site: Site, account: Account, options: ContextOptions = {}) =>
-  signIn(site, account, options, async (page) => {
-    await page.goto(`${SITE}/`);
-    await viaHeader(page, "Sign in");
-  });
+  // From a blank page, `viaHeader` begins at the home page.
+  signIn(site, account, options, (page) => viaHeader(page, "Sign in"));
 
 /**
  * `signedIn` for setup, which skips the link: it opens the sign-in page by its address. Use it
