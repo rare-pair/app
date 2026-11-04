@@ -146,7 +146,7 @@ export async function startWorker({
       workers: [
         {
           ...deployed("web", bundles.web),
-          hyperdrives: { HYPERDRIVE: databaseUrl },
+          hyperdrives: { HYPERDRIVE: databaseUrl, HYPERDRIVE_CACHED: databaseUrl },
           outboundService: outbound,
           bindings: {
             ...vars,
