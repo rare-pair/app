@@ -73,12 +73,16 @@ describe("Hyperdrive connections", () => {
     expect(new Set(configs.map((h) => h.id)).size).toBe(2);
   });
 
-  it("Ingest and the sweep read through the uncached connection alone", () => {
+  it("Ingest, the sweep and the content Worker read through the uncached connection alone", () => {
     expect(hyperdrives("../../ingest/wrangler.jsonc").map((h) => h.binding)).toEqual([
       "HYPERDRIVE",
     ]);
     expect(hyperdrives("../../sweep/wrangler.jsonc").map((h) => h.binding)).toEqual(["HYPERDRIVE"]);
     expect(filesUsing(dir("../../ingest/src"), "HYPERDRIVE_CACHED")).toEqual([]);
     expect(filesUsing(dir("../../sweep/src"), "HYPERDRIVE_CACHED")).toEqual([]);
+    expect(hyperdrives("../../content/wrangler.jsonc").map((h) => h.binding)).toEqual([
+      "HYPERDRIVE",
+    ]);
+    expect(filesUsing(dir("../../content/src"), "HYPERDRIVE_CACHED")).toEqual([]);
   });
 });

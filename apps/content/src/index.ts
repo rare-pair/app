@@ -11,7 +11,14 @@ export interface Env {
 const CONNECT_TIMEOUT_MS = 2000;
 const QUERY_TIMEOUT_MS = 2000;
 
-const IMMUTABLE = "public, max-age=31536000, immutable";
+// How long a data centre keeps an entry: 12 hours, so a hidden work's cached copy ages out
+// within that (a hide does not purge: ARCHITECTURE, Author requests & takedowns). The Cache
+// API stores a response for its `s-maxage` ahead of `max-age`; `max-age` is the browser's,
+// and #581 splits it off. Both are set here, and nowhere else.
+const EDGE_SECONDS = 12 * 60 * 60;
+const BROWSER_SECONDS = 365 * 24 * 60 * 60;
+const cacheControl = () =>
+  `public, max-age=${BROWSER_SECONDS}, immutable, s-maxage=${EDGE_SECONDS}`;
 
 // The only keys this origin serves. Images are keyed by the SHA-256 of their bytes
 // (ARCHITECTURE, EPUB processor step 6), so an image path is versioned by its key.
@@ -166,7 +173,7 @@ export default {
     // its stored type only when it is one of the four that ingest writes.
     const stored = object.httpMetadata?.contentType ?? "";
     const response = respond(object.body, 200, {
-      "Cache-Control": IMMUTABLE,
+      "Cache-Control": cacheControl(),
       ...(isOriginal
         ? { "Content-Type": "application/epub+zip", "Content-Disposition": "attachment" }
         : { "Content-Type": IMAGE_TYPES.has(stored) ? stored : "application/octet-stream" }),

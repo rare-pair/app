@@ -28,7 +28,11 @@ describe("getImageAccess", () => {
 
   it("Refuses a work still processing", async () => {
     const work = await seedWork(t.db);
-    await t.db.updateTable("works").set({ status: "processing" }).where("id", "=", work.workId).execute();
+    await t.db
+      .updateTable("works")
+      .set({ status: "processing" })
+      .where("id", "=", work.workId)
+      .execute();
     expect(await getImageAccess(t.db, work.ao3WorkId)).toBe("refuse");
   });
 });
@@ -77,6 +81,7 @@ describe("createDb timeouts", () => {
     // Accepts connections and says nothing, as a database that has stopped responding does.
     const server = net.createServer(() => {});
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    // SAFETY: a server listening on a port has an address object, not a pipe path.
     const { port } = server.address() as net.AddressInfo;
     const db = createDb({
       connectionString: `postgresql://u:p@127.0.0.1:${port}/d`,

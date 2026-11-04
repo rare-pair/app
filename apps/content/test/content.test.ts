@@ -1,4 +1,4 @@
-import { createDb, hideWork, restoreWork, type Database } from "@archive/db";
+import { createDb, type Database } from "@archive/db";
 import { seedWork } from "@archive/db/seed";
 import { env, exports } from "cloudflare:workers";
 import type { Kysely } from "kysely";
@@ -132,7 +132,9 @@ describe("09-content-origin", () => {
     for (const key of [IMAGE_KEY, ORIGINAL_KEY]) {
       const res = await get(key);
       expect(res.status).toBe(200);
-      expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+      expect(res.headers.get("cache-control")).toBe(
+        "public, max-age=31536000, immutable, s-maxage=43200",
+      );
       await res.arrayBuffer();
     }
     // A miss is not cached as immutable: the key may be written later.
@@ -236,7 +238,9 @@ describe("19-surge-controls-and-quotas", () => {
     for (const key of [IMAGE_KEY, ORIGINAL_KEY]) {
       const res = await get(key);
       expect(res.status).toBe(200);
-      expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+      expect(res.headers.get("cache-control")).toBe(
+        "public, max-age=31536000, immutable, s-maxage=43200",
+      );
       await res.arrayBuffer();
     }
   });
@@ -249,7 +253,9 @@ describe("content Worker", () => {
     const res = await get(IMAGE_KEY, { method: "HEAD" });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");
-    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(res.headers.get("cache-control")).toBe(
+      "public, max-age=31536000, immutable, s-maxage=43200",
+    );
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(await res.text()).toBe("");
   });
@@ -336,7 +342,9 @@ describe("edge cache (#513)", () => {
     expect(second.res.status).toBe(200);
     expect(second.body).toEqual(PNG);
     expect(second.res.headers.get("content-type")).toBe("image/png");
-    expect(second.res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(second.res.headers.get("cache-control")).toBe(
+      "public, max-age=31536000, immutable, s-maxage=43200",
+    );
     expect(second.res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(second.res.headers.has("set-cookie")).toBe(false);
   });

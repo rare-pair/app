@@ -87,7 +87,18 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Load target), § Surge con
 ### Content origin is edge-cached
 - GIVEN an image or original download on `content.rarepair.fans`
 - WHEN it is served
-- THEN it has `Cache-Control: public, max-age=31536000, immutable`
+- THEN it has `Cache-Control: public, max-age=31536000, immutable, s-maxage=43200`
+
+### A cache hit needs no database read, a miss reads once, and an outage fails closed
+- GIVEN an image of a live work that one data centre has cached
+- WHEN it is requested again there, with the database unreachable
+- THEN it is served without a database read
+- AND a request that misses the cache while the database is unreachable gets an empty 503 with `Cache-Control: no-store`, no `Set-Cookie`, and nothing stored
+
+### Range and conditional requests and HEAD read the database every time
+- GIVEN an image of a live work that is cached
+- WHEN it is requested by HEAD, with a `Range` header, or with a conditional header
+- THEN each request reads the work's status once, before any byte is sent
 
 ### Listings use a short cache
 - GIVEN a work or tag listing

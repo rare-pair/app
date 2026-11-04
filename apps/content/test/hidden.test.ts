@@ -43,7 +43,7 @@ async function request(key: string, init: RequestInit = {}, env: Env = E) {
 }
 
 /** The ways a request can reach bytes: a plain GET, HEAD, a range, and each conditional header. */
-const SHAPES: { name: string; init: RequestInit }[] = [
+const REQUEST_KINDS: { name: string; init: RequestInit }[] = [
   { name: "GET", init: {} },
   { name: "HEAD", init: { method: "HEAD" } },
   { name: "Range", init: { headers: { range: "bytes=0-3" } } },
@@ -57,7 +57,7 @@ const SHAPES: { name: string; init: RequestInit }[] = [
 ];
 
 async function expectRefused(key: string, status: number, label: string) {
-  for (const { name, init } of SHAPES) {
+  for (const { name, init } of REQUEST_KINDS) {
     const { res, body } = await request(key, init);
     const what = `${label} ${name}`;
     expect(res.status, what).toBe(status);
@@ -80,9 +80,7 @@ async function expectServed(key: string, bytes: Uint8Array, label: string) {
 /** A work with an image and its original in R2, in the status given. */
 async function seeded(status: "live" | "hidden" | "removed", hiddenCause?: HiddenCause) {
   const ao3WorkId = freshAo3Id();
-  const work = await withDb((db) =>
-    seedWork(db, { ao3WorkId, status, ...(hiddenCause ? { hiddenCause } : {}) }),
-  );
+  const work = await withDb((db) => seedWork(db, { ao3WorkId, status, hiddenCause }));
   const image = `works/${ao3WorkId}/img/${hash().slice(0, 64)}`;
   const original = `originals/${work.uploadId}.epub`;
   await E.BUCKET.put(image, PNG, { httpMetadata: { contentType: "image/png" } });
@@ -202,44 +200,48 @@ describe("09-content-origin", () => {
   });
 });
 
+/** An env whose Hyperdrive is `hyperdrive`; the Worker reads only its bindings. */
+function withHyperdrive(hyperdrive: Pick<Hyperdrive, "connectionString">): Env {
+  // SAFETY: the Worker reads only HYPERDRIVE.connectionString of the binding, which both
+  // callers provide.
+  return { ...E, HYPERDRIVE: hyperdrive } as Env;
+}
+
+/** An env that counts the connections the Worker opens: it makes one query on each. */
+function countingEnv() {
+  const counter = { connections: 0 };
+  const env = withHyperdrive({
+    get connectionString() {
+      counter.connections++;
+      return E.HYPERDRIVE.connectionString;
+    },
+  });
+  return { env, counter };
+}
+
 describe("19-surge-controls-and-quotas", () => {
   it("A cache hit needs no database read, a miss reads once, and an outage fails closed", async () => {
     const w = await seeded("live");
-    // Counts the connections the Worker opens: the Worker makes one query on each.
-    let connections = 0;
-    const counting = {
-      ...E,
-      HYPERDRIVE: {
-        ...E.HYPERDRIVE,
-        get connectionString() {
-          connections++;
-          return E.HYPERDRIVE.connectionString;
-        },
-      },
-    } as Env;
+    const { env: counting, counter } = countingEnv();
     const first = await request(w.image, {}, counting);
     expect(first.res.status).toBe(200);
-    expect(connections).toBe(1);
+    expect(counter.connections).toBe(1);
 
     // The database is gone: the cached copy is still served, a miss is a 503.
-    const unreachable = {
-      ...E,
-      HYPERDRIVE: {
-        ...E.HYPERDRIVE,
-        connectionString: "postgresql://nobody:nobody@127.0.0.1:1/none",
-      },
-    } as Env;
+    const unreachable = withHyperdrive({
+      connectionString: "postgresql://nobody:nobody@127.0.0.1:1/none",
+    });
     const hit = await request(w.image, {}, unreachable);
     expect(hit.res.status).toBe(200);
     expect(hit.body).toEqual(PNG);
     const again = await request(w.image, {}, counting);
     expect(again.res.status).toBe(200);
-    expect(connections).toBe(1);
+    expect(counter.connections).toBe(1);
 
     await caches.default.delete(`${ORIGIN}/${w.image}`);
-    // Each failed read waits out the connect timeout, so three shapes stand for all.
+    // Each failed read waits out the connect timeout, so three kinds stand for all.
     for (const key of [w.image, w.original]) {
-      for (const { name, init } of SHAPES.slice(0, key === w.image ? 3 : 1)) {
+      for (const { name, init } of REQUEST_KINDS.slice(0, key === w.image ? 3 : 1)) {
         const { res, body } = await request(key, init, unreachable);
         const what = `${name} ${key.split("/")[0]}`;
         expect(res.status, what).toBe(503);
@@ -254,20 +256,10 @@ describe("19-surge-controls-and-quotas", () => {
 
   it("Range and conditional requests and HEAD read the database every time", async () => {
     const w = await seeded("live");
-    let connections = 0;
-    const counting = {
-      ...E,
-      HYPERDRIVE: {
-        ...E.HYPERDRIVE,
-        get connectionString() {
-          connections++;
-          return E.HYPERDRIVE.connectionString;
-        },
-      },
-    } as Env;
+    const { env: counting, counter } = countingEnv();
     await request(w.image, {}, counting);
-    connections = 0;
-    for (const { init } of SHAPES.slice(1)) await request(w.image, init, counting);
-    expect(connections).toBe(SHAPES.length - 1);
+    counter.connections = 0;
+    for (const { init } of REQUEST_KINDS.slice(1)) await request(w.image, init, counting);
+    expect(counter.connections).toBe(REQUEST_KINDS.length - 1);
   });
 });

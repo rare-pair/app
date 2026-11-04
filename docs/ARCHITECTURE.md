@@ -109,8 +109,19 @@ an unofficial stopgap.
     `GET` for an image or an original is answered from the data centre's cache
     (`caches.default`, keyed by the bare URL) without an R2 read once the first
     response is stored, and a miss reads R2 and stores the 200 (a failed cache read
-    counts as a miss, and requests that arrive before the store completes also miss). `HEAD`, errors (404, 405, 503), `Range` and conditional
+    counts as a miss, and requests that arrive before the store completes also miss). `HEAD`, errors (404, 405, 451, 503), `Range` and conditional
     requests never read or fill it. See *Surge controls*, Edge cache.
+  - The content Worker reads Postgres, on the uncached Hyperdrive config (see
+    *Connections*), for every request that does not hit its cache: a miss, `HEAD`,
+    `Range` and conditional requests. It reads the work's status (an image by its AO3
+    work id, an original through its upload) before any byte goes out, and serves
+    only a `live` work's files: a hidden work's get 451, and a removed or unknown
+    work's, an upload with no work (a refused file) and a held version's get 404, all
+    with no body and `Cache-Control: no-store`. A duplicate upload follows its
+    work. A cache hit needs no read. If the database can't be read within 2 s, the
+    request fails closed: 503, empty, `no-store`, nothing stored and no bytes sent.
+    A refusal never names the hide cause. The connection is per request and the
+    logs hold an error's class name only.
 
 ## Data model (first cut)
 
@@ -1015,7 +1026,14 @@ epub, under the normal versioning rules.
     through the cached connection (see *Connections*), so they can show the work
     for up to about 75 s after a hide (a tag listing adds its browser cache, see
     Reading), and a chapter's own read adds the same to its 60 s. A hide does not purge it, unlike removal (see *Removal really removes*
-    below). This applies to every hide cause. A declared automated client gets
+    below). This applies to every hide cause. A hidden work's images and original
+    on the content host are different: a request that misses the content Worker's
+    cache gets 451 (see Hosts), and the data centres' cached copies age out within
+    12 hours of being stored, so a hidden work's images can stay visible for up to
+    12 hours after the hide, in each data centre that cached them. A browser keeps
+    an image it already has for the image's own lifetime (a year, until #581
+    shortens it), and nothing here purges it. A restore needs no action: the next
+    miss reads `live` and fills the cache again. A declared automated client gets
     a 403 on the chapter URLs and `/full` instead (Crawlers and agents).
   - **Held** (a `held_for_review` version, never public): 404 to the public.
     The work keeps serving its current version. The held version is visible
@@ -1034,7 +1052,8 @@ epub, under the normal versioning rules.
   purge, for up to about 75 s (see *Connections*). Images and downloads are cached as
   `immutable`, so without the purge parts of a removed work stay reachable. That
   the purge clears the content Worker's own cache entries is not yet confirmed (see
-  Surge controls, Edge cache). The sweep finishes what the purge or an ingest clean-up
+  Surge controls, Edge cache); if it does not, a removed work's cached images and
+  downloads age out within 12 hours, and a request after that gets a 404. The sweep finishes what the purge or an ingest clean-up
   missed: each run, within its limits (works and R2 calls a run, and one pass over the
   bucket a day), deletes everything under the folder of a work whose status is
   `removed`, with no age limit, along with `originals/<upload_id>.epub` for each
@@ -1330,8 +1349,13 @@ markup: its inline `style` attributes become stylesheet rules, because
   config keeps its own pool, and the web Worker uses two: before launch, check the pool
   sizes of the two configs and the ingest and sweep one against Neon's connection limit.
 - Edge cache: images and original downloads on `content.rarepair.fans` never change
-  once written, since each version has its own prefix, so they're cached with
-  `Cache-Control: public, max-age=31536000, immutable`. The content Worker also
+  once written, since each version has its own prefix, so the browser keeps them for
+  a year, but a data centre keeps them for 12 hours, because a hide does not purge:
+  `Cache-Control: public, max-age=31536000, immutable, s-maxage=43200`. The Cache API
+  expires an entry by its `s-maxage` ahead of `max-age` (seen in the local runtime,
+  not confirmed on the live zone: an operator checks it before launch, by
+  seeing a cached file refilled after 12 hours). Both values are set in one function (`cacheControl`), and
+  #581 splits the browser's off. The content Worker also
   stores each 200 in the Workers Cache API (`caches.default`) under the bare request
   URL, in the data centre that served it (no replication, no tiered cache), so a
   repeat request there skips R2 (each data centre misses once per key, and
@@ -1343,8 +1367,9 @@ markup: its inline `style` attributes become stylesheet rules, because
   Cache API entries in every data centre: this is unverified on the live zone
   (the prefix purge for images included), and an operator checks it before
   launch. If it fails, a removed work's images and downloads stay cached for up
-  to a year. A request that read R2 before the removal's delete can also store its
-  response after the purge. Browser caches are untouched: they keep an
+  to 12 hours. A request that read R2 (and a work's status) before the removal's delete
+  or a hide can also store its response after a purge, and that entry too ends within
+  12 hours of its store. Browser caches are untouched: they keep an
   `immutable` response after removal (#471, open). Chapter fragments are
   cached inside the web Worker (see Reading). Work and tag listings
   get a short cache with stale-while-revalidate.
@@ -1368,6 +1393,8 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
   decides a write sees the row it is about to write over. Ingest and the sweep have this
   one alone, because their reads feed writes (the lease, the opt-out and removal checks,
   versioning, what to sweep); a read added there that is only a check stays on it too.
+  So does the content Worker, which has no other: its status read decides what a miss
+  may serve, so a hide must reach the next miss, not wait out a cached read.
 - **`HYPERDRIVE_CACHED` (caching on) serves public pages only,** and only these: the home
   page, tag listings, search, the work page, the chapter reader, `/full` and the
   warnings screen. They only read. `/removed` and `/removed/pseuds` are not built: the ticket that builds them names their
@@ -1395,11 +1422,18 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
   --connection-string=<url>`) and put its id on `HYPERDRIVE_CACHED` in `apps/web`; deploy
   `apps/web` with both bindings; then turn caching off on the existing config
   (`wrangler hyperdrive update <id> --caching-disabled`), whose id is `HYPERDRIVE`'s in
-  `apps/web`, `apps/ingest` and `apps/sweep`. (Before launch nothing is deployed, so the order
+  `apps/web`, `apps/ingest`, `apps/sweep` and `apps/content`. (Before launch nothing is deployed, so the order
   doesn't matter.) **Pasting one id into both puts every
   read back in the cache, and no test can see it**: ids in the repo are placeholders, and
   caching is a property of the deployed config. Check the two ids differ and that only
   `HYPERDRIVE_CACHED`'s config has caching on.
+- **Deploy checks for the content Worker's connection.** Two things can't be measured
+  locally: the pool (a Hyperdrive config's pool is shared by every Worker on it, so
+  content misses compete with web's sign-in and admin for connections and for Neon's
+  limit; if they do, a third uncached config for content is the fix, with its own id
+  here) and the hit ratio (each data centre misses once per file per 12 hours, and
+  `HEAD`, `Range` and conditional requests always read, so the extra reads are
+  unknown until launch: watch Neon's connection count and the Worker's 503s).
 - Queries that select `now()` or another non-immutable function are never cached by Hyperdrive.
   Some reads here still select `now()` beside a read for that reason; they stay correct
   on an uncached connection and are redundant there.
