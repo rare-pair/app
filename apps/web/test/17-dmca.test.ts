@@ -18,13 +18,15 @@ import {
 } from "./helpers";
 
 // One database serves every test file in the run, so this file keeps to AO3 work IDs
-// 17800 to 17899, names every tag it seeds with an "x8-" prefix, and finds its notices by
+// 17800 to 17899 (and 43900 for the one notice an unaccepted account files), names every tag it seeds with an "x8-" prefix, and finds its notices by
 // its own work or marker. Text is synthetic; addresses are @example.test.
 const W = 17800;
 const HIDDEN = 17801;
 const REMOVED = 17802;
 /** No work has it. */
 const UNKNOWN = 17899;
+/** The work a signed-in account that hasn't accepted the terms files a notice against. */
+const UNACCEPTED_TARGET = 43900;
 /** One work for each notice that leaves out an element, so each finds its own row. */
 const OMISSION_BASE = 17810;
 
@@ -66,6 +68,7 @@ beforeAll(async () => {
     tags: [...X8_TAGS],
   });
   await seedWork(db, { ao3WorkId: REMOVED, status: "removed", tags: [...X8_TAGS] });
+  await seedWork(db, { ao3WorkId: UNACCEPTED_TARGET, title: "x8 Work 43900", tags: [...X8_TAGS] });
   for (const [i] of OMISSIONS.entries()) {
     await seedWork(db, {
       ao3WorkId: OMISSION_BASE + i,
@@ -500,6 +503,27 @@ describe("17-reports-and-dmca: DMCA", () => {
     expect(await res.text()).toContain("Too many requests");
     expect(await noticesFrom(marker)).toEqual([]);
     expect((await postNotice(COMPLETE)).status).toBe(200);
+  });
+
+  it("An account that hasn't accepted the terms can open the form and post a notice, which is kept", async () => {
+    // The terms gate sends every page but a few to /welcome/terms, and a posted form is
+    // not carried over; /dmca is exempt, as /remove is, so a typed notice is not lost.
+    const cookie = await signInAs("x8-unaccepted@example.test");
+    // The premise: this account is gated elsewhere.
+    const gated = await fetchW("/upload", { headers: { cookie }, redirect: "manual" });
+    expect(gated.status).toBe(302);
+    expect(gated.headers.get("location")).toContain("/welcome/terms");
+    const form = await fetchW("/dmca", { headers: { cookie }, redirect: "manual" });
+    expect(form.status).toBe(200);
+
+    const before = (await noticesFor(UNACCEPTED_TARGET)).length;
+    const res = await postNotice(
+      { ...COMPLETE, work: String(UNACCEPTED_TARGET) },
+      { headers: { cookie } },
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Notice received");
+    expect(await noticesFor(UNACCEPTED_TARGET)).toHaveLength(before + 1);
   });
 
   it("Is linked from the footer beside Remove my work", async () => {

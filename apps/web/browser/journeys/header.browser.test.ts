@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { tabTo } from "../a11y/keyboard";
 import { useJourneySite } from "../harness/journey";
 import { signedIn } from "../harness/sessions";
 import { SITE } from "../harness/site";
@@ -17,11 +18,17 @@ describe("site header journeys", () => {
     const header = page.getByRole("banner");
     expect(await header.getByRole("link").allInnerTexts()).toEqual([
       "rarepair",
+      "Search",
       "Add work",
       "Sign in",
     ]);
     expect(await header.getByRole("button").count()).toBe(0);
 
+    await header.getByRole("link", { name: "Search" }).click();
+    await page.waitForURL(`${SITE}/search`);
+    await page.getByRole("searchbox", { name: "Search the archive" }).waitFor();
+
+    await page.goto(`${SITE}/`);
     await header.getByRole("link", { name: "Add work" }).click();
     await page.waitForURL(`${SITE}/login?next=%2Fupload`);
 
@@ -39,6 +46,7 @@ describe("site header journeys", () => {
     const header = page.getByRole("banner");
     expect(await header.getByRole("link").allInnerTexts()).toEqual([
       "rarepair",
+      "Search",
       "Add work",
       "My uploads",
     ]);
@@ -55,6 +63,24 @@ describe("site header journeys", () => {
     await page.getByRole("heading", { level: 1 }).waitFor();
   });
 
+  it("Sign out works from the keyboard: Tab to the button, Enter, and the header is the signed-out one", async () => {
+    const { site } = running;
+    const { context } = await signedIn(site, { email: "nav-keyboard-out@example.test" });
+    const page = await context.newPage();
+    await page.goto(`${SITE}/`);
+    const header = page.getByRole("banner");
+
+    await tabTo(page, 'button "Sign out"');
+
+    await page.keyboard.press("Enter");
+    await header.getByRole("link", { name: "Sign in" }).waitFor();
+    expect(await header.getByRole("button", { name: "Sign out" }).count()).toBe(0);
+    expect(await header.getByRole("link", { name: "My uploads" }).count()).toBe(0);
+    // The session ended on the server too: a page for signed-in accounts sends the browser to sign in.
+    await page.goto(`${SITE}/me/uploads`);
+    await page.waitForURL(/\/login/);
+  });
+
   it("A moderator's Admin opens /admin, and Sign out is reachable by keyboard", async () => {
     const { site } = running;
     const { context } = await signedIn(site, {
@@ -66,6 +92,7 @@ describe("site header journeys", () => {
     const header = page.getByRole("banner");
     expect(await header.getByRole("link").allInnerTexts()).toEqual([
       "rarepair",
+      "Search",
       "Add work",
       "My uploads",
       "Admin",
@@ -79,7 +106,7 @@ describe("site header journeys", () => {
       const focused = () => (document.activeElement as HTMLElement).innerText;
       reached.push(await page.evaluate(focused));
     }
-    const names = ["Add work", "My uploads", "Admin", "Sign out"];
+    const names = ["Search", "Add work", "My uploads", "Admin", "Sign out"];
     expect(reached.filter((name) => names.includes(name))).toEqual(names);
 
     await header.getByRole("link", { name: "Admin" }).click();

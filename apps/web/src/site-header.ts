@@ -10,13 +10,13 @@ import type { SessionVariables } from "./session";
 export type Visitor = { signedIn: boolean; moderator: boolean };
 
 /**
- * The header's navigation, left to right: Add work, My uploads (signed in), Admin (a
+ * The header's navigation, left to right: Search, Add work, My uploads (signed in), Admin (a
  * moderator or an admin), then Sign in or Sign out. Constants only, so nothing in it is
  * escaped: no name or address is ever shown. Sign out is a form, so it works with
  * scripts off and by keyboard; /logout is where it posts.
  */
 export const headerLinks = ({ signedIn, moderator }: Visitor): string => {
-  const items = ['<a href="/upload">Add work</a>'];
+  const items = ['<a href="/search">Search</a>', '<a href="/upload">Add work</a>'];
   if (signedIn) items.push('<a href="/me/uploads">My uploads</a>');
   if (moderator) items.push('<a href="/admin">Admin</a>');
   items.push(

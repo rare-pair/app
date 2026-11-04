@@ -50,7 +50,8 @@ export function showLogout(c: LogoutContext) {
  * is a 500 "try again" page with no cookie change and no `Clear-Site-Data`, and
  * nothing says the person is signed out. A read that throws is the plain 500 of
  * `onError`, also with no cookie change. The check relies on
- * `HYPERDRIVE` giving a read that isn't served from a query cache (#574): a cached
+ * `HYPERDRIVE` giving a read that isn't served from a query cache (uncached once deploy
+ * step 4 in ARCHITECTURE's *Connections* is done): a cached
  * answer from before the delete would show the row and refuse a sign-out that worked.
  */
 export async function signOutRoute(c: LogoutContext) {

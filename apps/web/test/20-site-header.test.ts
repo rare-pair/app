@@ -3,6 +3,7 @@ import { putFragments, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { makeAuth } from "../src/auth";
+import { SITE } from "../src/signin";
 import { fetchW, headerOf, signIn } from "./helpers";
 
 // Spec 20, the site header. AO3 work ids 42800 to 42899 are this file's. Addresses are
@@ -86,7 +87,7 @@ describe("20-site-chrome-and-legal: the site header", () => {
       expect(
         linksOf(outHtml).map(([t]) => t),
         path,
-      ).toEqual(["Add work", "Sign in"]);
+      ).toEqual(["Search", "Add work", "Sign in"]);
 
       const inRes = await fetchW(path, { headers: { cookie: signedIn } });
       expect(inRes.status, path).toBe(status);
@@ -95,7 +96,7 @@ describe("20-site-chrome-and-legal: the site header", () => {
       expect(
         linksOf(inHtml).map(([t]) => t),
         path,
-      ).toEqual(["Add work", "My uploads"]);
+      ).toEqual(["Search", "Add work", "My uploads"]);
       expect(inHtml, path).toContain('action="/logout"');
 
       const modRes = await fetchW(path, { headers: { cookie: moderator } });
@@ -104,7 +105,7 @@ describe("20-site-chrome-and-legal: the site header", () => {
       expect(
         linksOf(modHtml).map(([t]) => t),
         path,
-      ).toEqual(["Add work", "My uploads", "Admin"]);
+      ).toEqual(["Search", "Add work", "My uploads", "Admin"]);
       // No visitor's header goes on a page every visitor can be served.
       expect(headerOf(outHtml), path).not.toMatch(/Sign out|\/admin|My uploads/);
       expect(headerOf(inHtml), path).not.toMatch(/\/admin|Sign in/);
@@ -115,7 +116,12 @@ describe("20-site-chrome-and-legal: the site header", () => {
     const moderator = await signInAs("nav-admin-pages@example.test", "moderator");
     const res = await fetchW("/admin", { headers: { cookie: moderator } });
     expect(res.status).toBe(200);
-    expect(linksOf(await res.text()).map(([t]) => t)).toEqual(["Add work", "My uploads", "Admin"]);
+    expect(linksOf(await res.text()).map(([t]) => t)).toEqual([
+      "Search",
+      "Add work",
+      "My uploads",
+      "Admin",
+    ]);
 
     const user = await signInAs("nav-admin-refused@example.test");
     for (const cookie of [undefined, user]) {
@@ -145,20 +151,32 @@ describe("20-site-chrome-and-legal: the site header", () => {
     const email = "nav-role-input@example.test";
     const cookie = await signInAs(email);
     const auth = makeAuth(env, db);
-    // The session's own update, with the role in it: refused, or ignored. Either way the
-    // row is unchanged. Better Auth's handler isn't mounted, so this is the route's only way in.
-    // SAFETY: `role` is not in the update's typed body, because input: false removes it.
-    const body = { name: "x", role: "admin" } as never;
-    await auth.api.updateUser({ headers: new Headers({ cookie }), body }).catch(() => undefined);
-    const row = await db
-      .selectFrom("user")
-      .select("role")
-      .where("email", "=", email)
-      .executeTakeFirst();
+    // Better Auth's own update-user endpoint at its real base path. The site doesn't mount
+    // this handler, so the test calls it directly: it is the request a client would send if
+    // it were mounted. First prove the endpoint works for this session (a name change goes
+    // through), then send the role with it: refused, and the row is unchanged.
+    const update = (body: { name: string; role?: string }) =>
+      auth.handler(
+        new Request(`${SITE}/api/auth/update-user`, {
+          method: "POST",
+          headers: { cookie, origin: SITE, "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    const rowOf = () =>
+      db.selectFrom("user").select(["name", "role"]).where("email", "=", email).executeTakeFirst();
+
+    expect((await update({ name: "nav-renamed" })).status).toBe(200);
+    expect((await rowOf())?.name).toBe("nav-renamed");
+
+    // Refused (a 400: the field is not allowed), and nothing of the request is applied.
+    expect((await update({ name: "nav-renamed-again", role: "admin" })).status).toBe(400);
+    const row = await rowOf();
+    expect(row?.name).toBe("nav-renamed");
     expect(row?.role ?? null).toBeNull();
     const html = await (await fetchW("/about", { headers: { cookie } })).text();
     expect(linksOf(html).map(([t]) => t)).not.toContain("Admin");
-    expect((await fetchW("/auth/update-user", { method: "POST" })).status).toBe(404);
+    expect((await fetchW("/api/auth/update-user", { method: "POST" })).status).toBe(404);
   });
 
   it("A refusal before the session keeps the bare header, and a missing asset shows the signed-out links", async () => {
@@ -174,15 +192,16 @@ describe("20-site-chrome-and-legal: the site header", () => {
     expect(missing.status).toBe(404);
     const html = await missing.text();
     // Whoever asks: the static route never reads the session.
-    expect(linksOf(html).map(([t]) => t)).toEqual(["Add work", "Sign in"]);
+    expect(linksOf(html).map(([t]) => t)).toEqual(["Search", "Add work", "Sign in"]);
   });
 
   it("An account that has not accepted the terms sees the header, and its links lead to the terms", async () => {
     const cookie = await signIn("nav-new@example.test");
     const html = await (await fetchW("/about", { headers: { cookie } })).text();
-    expect(linksOf(html).map(([t]) => t)).toEqual(["Add work", "My uploads"]);
+    expect(linksOf(html).map(([t]) => t)).toEqual(["Search", "Add work", "My uploads"]);
     expect(headerOf(html)).toContain('action="/logout"');
-    for (const path of ["/upload", "/me/uploads"]) {
+    // Search too: the header's Search link is no exception, the gate sends it to the terms.
+    for (const path of ["/upload", "/me/uploads", "/search"]) {
       const res = await fetchW(path, { headers: { cookie } });
       expect(res.status, path).toBe(302);
       expect(res.headers.get("location"), path).toContain("/welcome/terms");
@@ -214,19 +233,21 @@ describe("20-site-chrome-and-legal: the site header", () => {
     expect(html).not.toContain("example.test");
   });
 
-  it("Signed out, the header has Add work and Sign in", async () => {
+  it("Signed out, the header has Search, Add work and Sign in", async () => {
     const html = await (await fetchW("/about")).text();
     expect(linksOf(html)).toEqual([
+      ["Search", "/search"],
       ["Add work", "/upload"],
       ["Sign in", "/login"],
     ]);
     expect(headerOf(html)).not.toMatch(/<form|<button/);
   });
 
-  it("Signed in, the header has Add work, My uploads and a Sign out form", async () => {
+  it("Signed in, the header has Search, Add work, My uploads and a Sign out form", async () => {
     const cookie = await signInAs("nav-user@example.test");
     const html = await (await fetchW("/about", { headers: { cookie } })).text();
     expect(linksOf(html)).toEqual([
+      ["Search", "/search"],
       ["Add work", "/upload"],
       ["My uploads", "/me/uploads"],
     ]);
@@ -236,11 +257,12 @@ describe("20-site-chrome-and-legal: the site header", () => {
     expect(headerOf(html)).not.toMatch(/\/admin|\/login/);
   });
 
-  it("A moderator and an admin also get Admin, before Sign out", async () => {
+  it("A moderator and an admin also get Admin, before Sign out, after Search", async () => {
     for (const role of ["moderator", "admin"]) {
       const cookie = await signInAs(`nav-${role}@example.test`, role);
       const html = await (await fetchW("/about", { headers: { cookie } })).text();
       expect(linksOf(html), role).toEqual([
+        ["Search", "/search"],
         ["Add work", "/upload"],
         ["My uploads", "/me/uploads"],
         ["Admin", "/admin"],
@@ -248,6 +270,24 @@ describe("20-site-chrome-and-legal: the site header", () => {
       expect(headerOf(html).indexOf("/admin"), role).toBeLessThan(
         headerOf(html).indexOf("Sign out"),
       );
+    }
+  });
+
+  it("Search is the first link for every visitor, and /search with no query has a search box and no results", async () => {
+    const user = await signInAs("nav2-search-user@example.test");
+    const moderator = await signInAs("nav2-search-mod@example.test", "moderator");
+    const visitors: Record<string, string>[] = [{}, { cookie: user }, { cookie: moderator }];
+    for (const headers of visitors) {
+      const html = await (await fetchW("/about", { headers })).text();
+      expect(linksOf(html)[0]).toEqual(["Search", "/search"]);
+    }
+    for (const path of ["/search", "/search?q=%20%20"]) {
+      const res = await fetchW(path);
+      expect(res.status, path).toBe(200);
+      const html = await res.text();
+      expect(html, path).toContain('<form role="search" method="get" action="/search">');
+      expect(html, path).toMatch(/<input type="search" id="q" name="q" value="[ ]*">/);
+      expect(html, path).not.toMatch(/class="work-card|<ol/);
     }
   });
 });

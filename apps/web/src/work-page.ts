@@ -90,7 +90,7 @@ export async function showWork(c: WorkContext) {
   const param = c.req.param("id") ?? "";
   if (!AO3_WORK_ID.test(param)) return c.notFound();
   const id = Number(param);
-  const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString });
+  const db = createDb({ connectionString: c.env.HYPERDRIVE_CACHED.connectionString });
   try {
     const live = await getLiveWork(db, id);
     if (live) {

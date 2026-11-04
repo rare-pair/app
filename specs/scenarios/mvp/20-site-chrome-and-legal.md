@@ -28,6 +28,13 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - WHEN they open `/about`, `/terms` and `/privacy`
 - THEN each is a static page that renders without sign-in or JavaScript
 
+### The privacy page says requester data is kept until the site closes
+- GIVEN any visitor
+- WHEN they open `/privacy`
+- THEN it says a request keeps the requester's email address, a hashed form of their network address, and the work or pseud they named
+- AND it says the archive keeps that until the site closes, and then deletes it
+- AND it says the archive does not erase it when a requester asks
+
 ### Footer links to removal
 - GIVEN any app page
 - WHEN it renders
@@ -37,27 +44,33 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 ### Site header for a signed-out visitor
 - GIVEN a signed-out visitor
 - WHEN any app page renders
-- THEN the header has an "Add work" link to `/upload` and a "Sign in" link to `/login`, in that order
+- THEN the header has a "Search" link to `/search`, an "Add work" link to `/upload` and a "Sign in" link to `/login`, in that order
 - AND it has no "My uploads", "Admin" or "Sign out"
 
 ### Site header for a signed-in user
 - GIVEN a signed-in user who is not a moderator
 - WHEN any app page renders
-- THEN the header has, in order, "Add work", "My uploads" (to `/me/uploads`) and a "Sign out" button
+- THEN the header has, in order, "Search", "Add work", "My uploads" (to `/me/uploads`) and a "Sign out" button
 - AND the button is in a form that posts to `/logout`, so it works with JavaScript off and by keyboard
 - AND there is no "Sign in" and no "Admin" link, and the header shows no name or address
 
 ### Site header for a moderator
 - GIVEN a signed-in moderator or admin
 - WHEN any app page renders
-- THEN the header has "Add work", "My uploads", "Admin" (to `/admin`) and "Sign out", in that order
+- THEN the header has "Search", "Add work", "My uploads", "Admin" (to `/admin`) and "Sign out", in that order
 - AND nobody else is shown "Admin", and `/admin` still answers anyone else with the same not-found page as any unknown URL
+
+### Site header has Search for every visitor
+- GIVEN any visitor, signed out, signed in or a moderator
+- WHEN any app page renders
+- THEN "Search" is the first link in the header's navigation, and it goes to `/search` (before launch it is disabled, see "Site header before launch"; a page answered before the session has the bare header)
+- AND `/search` with no query, or a blank one, is the search page: the search box, no results
 
 ### Site header for an account that has not accepted the terms
 - GIVEN a signed-in account that has not accepted the terms
 - WHEN a page that is open to it renders
 - THEN the header is the signed-in one, as ruled
-- AND "Add work" and "My uploads" lead back to the terms page until they are accepted, since the terms gate sends the account there
+- AND "Search", "Add work" and "My uploads" lead back to the terms page until they are accepted, since the terms gate sends the account there (it has no exception for `/search`)
 
 ### Pages without the full header
 - GIVEN a cross-site post refused before the session is read, or a missing static file
@@ -68,7 +81,7 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 ### Site header before launch
 - GIVEN the archive before launch
 - WHEN a page renders its header
-- THEN "Add work" and "My uploads" show disabled, as the footer's "Remove my work" link does: no `href`, `aria-disabled="true"`, skipped by Tab
+- THEN "Search", "Add work" and "My uploads" show disabled, as the footer's "Remove my work" link does: no `href`, `aria-disabled="true"`, skipped by Tab, because `/search`, `/upload` and `/me/uploads` are closed
 - AND "Sign in", "Sign out" and "Admin" stay live
 
 ### Site header is never in a shared cache

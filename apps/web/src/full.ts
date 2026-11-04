@@ -117,7 +117,7 @@ export async function showFull(c: ReaderContext) {
 
   // Two sequential queries at most, so one connection. A hidden or removed work answers
   // 451 or 410 here, before anything about its chapters is read.
-  const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
+  const db = createDb({ connectionString: c.env.HYPERDRIVE_CACHED.connectionString, max: 1 });
   let live;
   let withheld;
   try {
@@ -165,7 +165,7 @@ export async function showFull(c: ReaderContext) {
   const { before, after } = layoutAround(
     `${workTitle}, entire work`,
     "",
-    `${readerBar(workTitle, `/works/${id}/full`)}\n${settingsScriptTag(c.get("nonce"), "async")}${positionScriptTag(c.get("nonce"), c.var.session, "async")}`,
+    `${readerBar(id, workTitle, `/works/${id}/full`)}\n${settingsScriptTag(c.get("nonce"), "async")}${positionScriptTag(c.get("nonce"), c.var.session, "async")}`,
   );
   // The fragments are trusted markup only because the sanitizer wrote them; they go in
   // unescaped. The chapter headings' ids stay stable: links may point at them. The

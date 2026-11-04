@@ -9,11 +9,11 @@ import { DRAFT, escapeHtml, layout, SEARCH_FORM } from "./pages";
 import { tagHref } from "./tag-links";
 
 export async function homePage(
-  env: Pick<Bindings, "HYPERDRIVE">,
+  env: Pick<Bindings, "HYPERDRIVE_CACHED">,
   ctx: Pick<ExecutionContext, "waitUntil">,
 ): Promise<string> {
   // Two queries, one after another, on one connection.
-  const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
+  const db = createDb({ connectionString: env.HYPERDRIVE_CACHED.connectionString, max: 1 });
   try {
     const fandoms = await listPopularFandoms(db);
     const works = await listRecentLiveWorks(db);
