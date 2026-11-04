@@ -125,7 +125,7 @@ works        (id, ao3_work_id UNIQUE NOT NULL, title, summary_html, rating, lang
               status,            -- processing | live | hidden | removed
               hidden_cause NULL, -- removal_request | reports | moderator, while hidden
               removed_reason NULL, -- dmca | removal_request | wrong_file | site_safety, while removed
-              removed_at NULL,   -- set with removed_reason; both cleared on restore
+              removed_at NULL,   -- set with removed_reason; a partial index on it, where status is removed, serves the removal list
               list_withheld,     -- the removal list shows no title, byline or AO3 ID
               current_version_id, raw_meta jsonb,
               search tsvector,   -- title A, byline and tags B, summary C; text search config `simple`
@@ -169,9 +169,9 @@ requests     (id, kind, work_id NULL, pseud_norm NULL,
               -- kept only as a hash, cleared on confirm); rows from before that count as confirmed
 request_works (request_id, work_id)  -- written whenever a request hides a work, so a reversed
               request restores exactly those
-optouts      (id, pseud_norm, ao3_user NULL, request_id, active, created_at,  -- checked at ingest
-              listed_at NULL,    -- when a moderator approved it; NULL keeps it off the removal list
-              list_withheld)     -- the removal list leaves the pseud out
+optouts      (id, pseud_norm, ao3_user NULL, request_id, active, created_at)  -- checked at ingest
+listed_pseuds (pseud_norm PRIMARY KEY, pseud_typed, listed_at,  -- one row per pseud on the removal list; indexed on listed_at
+              withheld)          -- the removal list leaves the pseud out
 requester_blocks (id, contact_email NULL, ip_hash NULL, created_by, created_at)
 moderation_actions (id, moderator_id, action, target_kind, target_id, note NULL,
               created_at)  -- no FK on moderator_id (rows outlive the account) or target_id (it
@@ -938,18 +938,21 @@ epub, under the normal versioning rules.
   item is listed or counted. An unfair hide stays temporary and private. Nobody's
   identity is checked, so the wording names the route ("Removed after a removal
   request"), never the person, and the pages say so. The reason is set when the
-  status changes, in the same transaction. The approved item decides it: a takedown
-  gives `dmca` and a removal request gives `removal_request`. A moderator's own remove
-  gives `dmca` when a notice on the work is pending, and otherwise must choose
-  `wrong_file` or `site_safety`. A repeat remove keeps the first reason. The migration
-  derives a reason for works already removed, the same way, with `site_safety` when
-  nothing else applies. Statements, DMCA fields, requesters and moderation notes are
-  never shown. A restore or a reversed opt-out takes the entry off; the action log
-  keeps the history. A moderator can withhold an entry, for a title or name that
-  shouldn't be republished: a work then shows only the date and reason, and a pseud
-  is left out. `/remove` and `/dmca` say what will be published before anyone
-  submits. The pages carry `X-Robots-Tag: noindex`, cache for up to 60 s and give
-  the moderators' contact address.
+  status changes, by `removeWork` under its lock, so a repeat remove needs none and
+  keeps the first. The approved item decides it: a takedown gives `dmca` and a removal
+  request gives `removal_request`. A moderator's own remove gives `dmca` when a notice
+  on the work is pending, and otherwise must choose `wrong_file` or `site_safety`. The
+  migration derives a reason for works already removed, the same way, with
+  `site_safety` when nothing else applies. Approving an opt-out adds its pseud to
+  `listed_pseuds` unless it is there already, in the approve's transaction, and
+  rejecting the last approved, active opt-out for a pseud deletes the row. Statements, DMCA fields, requesters and moderation notes are
+  never shown. A reversed opt-out takes the entry off, and the action log keeps the
+  history. A removed work can't be restored, so its entry stays. A moderator can
+  withhold an entry, for a title or name that shouldn't be republished or a removal
+  made by mistake: a work then shows only the date and reason, and a pseud is left out. `/remove` and `/dmca` say what will be published before anyone
+  submits. The pages carry `X-Robots-Tag: noindex` and give the moderators' contact
+  address. Requests `pageCacheable` allows share one edge cache entry per page number
+  for up to 60 s.
 - **DMCA.** To get safe-harbor protection under US law (17 U.S.C. §512), we need
   a designated agent registered with the US Copyright Office, a public takedown
   form, a counter-notice process and a repeat-infringer policy. Get a lawyer to

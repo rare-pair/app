@@ -1,6 +1,6 @@
 # Scenario: Public list of removed works and opted-out pseuds
 
-Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author identity), § Data model (works.removed_reason, works.removed_at, works.list_withheld, requests.pseud_typed, optouts.listed_at, optouts.list_withheld), § Author requests & takedowns (The removal list, Moderation); docs/FRONTEND-DISCOVERY.md § Page inventory (Removal list), § Copy and tone; specs/scenarios/mvp/16-removal-and-opt-out.md; specs/scenarios/mvp/17-reports-and-dmca.md
+Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author identity), § Data model (works.removed_reason, works.removed_at, works.list_withheld, requests.pseud_typed, listed_pseuds), § Author requests & takedowns (The removal list, Moderation); docs/FRONTEND-DISCOVERY.md § Page inventory (Removal list), § Copy and tone; specs/scenarios/mvp/16-removal-and-opt-out.md; specs/scenarios/mvp/17-reports-and-dmca.md; specs/scenarios/mvp/20-site-chrome-and-legal.md (Footer links to removal)
 
 ## Setup
 - Public reasons and their wording:
@@ -11,8 +11,8 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
   - An opted-out pseud always reads "Opted out after a request"
 - Live work W with AO3 work ID 12345, titled `Tide Tables`, by pseuds `Moon Child` and `Sol`
 - Pseud P, written `Moon Child` by the requester of a confirmed opt-out
-- `PRELAUNCH` is off, unless a case says otherwise
-- The visitor is signed out, unless a case says otherwise
+- `PRELAUNCH` is off
+- The visitor is signed out
 
 ## Cases
 
@@ -20,16 +20,6 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - GIVEN a signed-out visitor with JavaScript off
 - WHEN they open `/removed` and `/removed/pseuds`
 - THEN each page renders in full without asking them to sign in
-
-### Footer links to the list
-- GIVEN any app page
-- WHEN it renders
-- THEN the footer has a "Removed works" link to `/removed`
-
-### The list stays closed before launch
-- GIVEN `PRELAUNCH` is on
-- WHEN a visitor opens `/removed` or `/removed/pseuds`
-- THEN they are redirected to `/`, like every other app page
 
 ### A removed work's entry
 - GIVEN W removed with the reason `dmca`
@@ -49,22 +39,17 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - AND they can reach the older ones through GET links
 
 ### Titles and names are shown as text
-- GIVEN a removed work whose title holds HTML, and a confirmed opt-out whose typed pseud holds HTML
+- GIVEN a removed work whose title holds HTML, and an approved opt-out whose typed pseud holds HTML
 - WHEN each list renders
 - THEN the text is escaped, and no markup or script from it runs
 
 ### Only removed works are listed
-- GIVEN a live work, a work hidden by a removal request, a work hidden by reader reports and a work hidden by a moderator
+- GIVEN a live work, and works hidden by a removal request, by reader reports, by a moderator and by an approved opt-out
 - WHEN a visitor opens `/removed`
 - THEN none of them is listed
 
-### Works hidden by an opt-out are not listed
-- GIVEN pseud P with an approved opt-out and its works hidden
-- WHEN a visitor opens `/removed`
-- THEN none of those works is listed, because they are hidden, not removed
-
 ### Open items are not listed or counted
-- GIVEN a pending DMCA notice, a pending removal request, an unconfirmed opt-out and a confirmed opt-out no moderator has approved
+- GIVEN a pending DMCA notice, a pending removal request, an unconfirmed opt-out, and a confirmed opt-out no moderator has approved, whose works are hidden and whose uploads are rejected
 - WHEN a visitor opens either list
 - THEN none of them is listed, and neither page gives a count of pending or hidden items
 
@@ -73,21 +58,12 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - WHEN a visitor opens either list
 - THEN no statement, DMCA basis or requester, contact email, IP hash, moderator or moderation note appears on the page
 
-### Approving a takedown sets its reason
-- GIVEN a pending DMCA notice on W
-- WHEN a moderator approves it
-- THEN W is removed with the reason `dmca` and is listed
-
-### Approving a removal request sets its reason
-- GIVEN a confirmed removal request for W
-- WHEN a moderator approves it
-- THEN W is removed with the reason `removal_request` and is listed
-
-### The approved item decides the reason when a work has both
+### The approved item decides the reason
 - GIVEN W with a confirmed removal request and a pending DMCA notice
-- WHEN a moderator approves the removal request
-- THEN W is removed with the reason `removal_request`
-- AND the pending notice is marked `removed` and W's AO3 work ID goes on the takedown list
+- WHEN a moderator approves the notice, W is removed with the reason `dmca`
+- OR WHEN a moderator approves the removal request, W is removed with the reason `removal_request`
+- THEN W is listed
+- AND in both cases the pending notice is marked `removed` and W's AO3 work ID goes on the takedown list
 
 ### A moderator's own remove asks for a reason
 - GIVEN W with no pending DMCA notice, with or without a confirmed removal request
@@ -95,20 +71,21 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - THEN it asks them to choose `wrong_file` or `site_safety`, and offers no free text
 - AND a pending removal request on W stays pending
 
-### A remove with no valid reason changes nothing
-- GIVEN W with no pending DMCA notice
+### A first remove with no valid reason changes nothing
+- GIVEN W not yet removed, with no pending DMCA notice
 - WHEN a moderator posts the remove with a missing or unknown reason
 - THEN the post is refused, W is unchanged and no log row is written
 
 ### A pending DMCA notice decides the reason
 - GIVEN W with a pending DMCA notice
 - WHEN a moderator removes W from its admin page or the notice's page
-- THEN W is removed with the reason `dmca`, because the notice is marked `removed` and the work goes on the takedown list
+- THEN W is removed with the reason `dmca`, and no reason is asked for
 
 ### Repeating a remove keeps the first reason
 - GIVEN W already removed with the reason `site_safety`
-- WHEN a moderator repeats the remove, or approves a request or a notice on W
-- THEN the reason and the removal date stay as they were
+- WHEN a moderator repeats the remove with no reason to retry a failed purge, or approves a request or a notice on W
+- THEN the action goes ahead
+- AND the reason and the removal date stay as they were
 
 ### A work removed before the list has a derived reason
 - GIVEN works removed before the migration: one with a `removed` takedown, one with an `approved` removal request, one with both and one with neither
@@ -121,16 +98,11 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - WHEN a visitor opens `/removed`
 - THEN W is listed, because its status is `removed`
 
-### A restored work leaves the list
-- GIVEN W listed with the reason `site_safety`
-- WHEN a moderator restores W
-- THEN W's reason, removal date and withheld mark are cleared
-- AND W is gone from `/removed` within 60 s of the restore
-
-### A work removed again gets a new reason and date
-- GIVEN W removed, then restored
-- WHEN a moderator removes W again
-- THEN W is listed once, with the new reason and date
+### A removed work stays listed
+- GIVEN W listed
+- WHEN a moderator posts Restore on W
+- THEN nothing changes, because a removed work can't be restored, and W stays listed
+- AND a moderator who removed W by mistake can withhold its details
 
 ### Approving an opt-out asks to confirm the public name
 - GIVEN a confirmed opt-out for P
@@ -144,11 +116,6 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - THEN `/removed/pseuds` shows `Moon Child`, the date of approval and "Opted out after a request"
 - AND it doesn't show `pseud_norm`, the works hidden by the opt-out, or the requester
 
-### An unapproved opt-out is not listed
-- GIVEN a confirmed opt-out for P that is active and awaiting a moderator
-- WHEN a visitor opens `/removed/pseuds`
-- THEN P is not listed, even though its works are hidden and its uploads are rejected
-
 ### An opt-out for a pseud with no works is listed once approved
 - GIVEN an approved opt-out for a pseud with no works in the archive
 - WHEN a visitor opens `/removed/pseuds`
@@ -157,12 +124,17 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 ### Two opt-outs for one pseud make one entry
 - GIVEN two approved opt-outs with the same `pseud_norm`, typed `Moon Child` and `moon child`
 - WHEN a visitor opens `/removed/pseuds`
-- THEN one entry appears, with the name and date of the earlier approval
+- THEN one entry appears, with the name and date of the first approval
 
 ### A reversed opt-out leaves the list
 - GIVEN P listed
 - WHEN a moderator rejects its only approved opt-out
 - THEN P is gone from `/removed/pseuds` within 60 s of the reversal
+
+### Reversing one of two opt-outs keeps the entry
+- GIVEN P listed, with two approved opt-outs
+- WHEN a moderator rejects one of them
+- THEN P's entry stays as it was, including whether it is withheld
 
 ### Withholding a work's details
 - GIVEN W listed
@@ -172,15 +144,10 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - AND one `moderation_actions` row records it
 
 ### Withholding a pseud
-- GIVEN P listed
+- GIVEN P listed, with one or more approved opt-outs
 - WHEN a moderator withholds it
-- THEN P is not listed, and its opt-out stays active
+- THEN P is not listed, and its opt-outs stay active
 - AND one `moderation_actions` row records it
-
-### One withheld opt-out withholds the pseud
-- GIVEN two approved opt-outs with the same `pseud_norm`, one of them withheld
-- WHEN a visitor opens `/removed/pseuds`
-- THEN the pseud is not listed
 
 ### A withheld entry can be shown again
 - GIVEN W's details or P withheld
@@ -210,7 +177,7 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 - WHEN they open `/removed` or `/removed/pseuds`
 - THEN the response carries `X-Robots-Tag: noindex`
 
-### Removed work pages stay as they are
+### Removed work pages show no reason
 - GIVEN W removed and listed
 - WHEN anyone opens W's work page, any chapter URL or `/full`
-- THEN the response is 410 "This work has been removed", with no reason shown
+- THEN the 410 page shows no reason
