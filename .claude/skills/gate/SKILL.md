@@ -47,7 +47,7 @@ npm run build
 
 The root `package.json` defines these scripts. `lint` (oxlint with ai-deslop's rules, `oxlint.config.ts`) and `format:check` (oxfmt, `.oxfmtrc.jsonc`) run once from the root over every workspace and `scripts/`; `npm run format` fixes what `format:check` finds. The other three run in each workspace with `--if-present`, which silently skips a workspace that lacks the script: report that workspace's check **not run: not defined yet**, never pass. A cache hit is not a run: pass the tool's force flag when the runner caches.
 
-When the protocols include `web` or `integration`, also run the browser suite: `npm run test:browser`. It needs Playwright's Chromium, which `npm ci` doesn't download. If it's missing, don't install it: report it and stop, because the operator installs browsers.
+When the protocols include `web` or `integration`, also run the browser suite, `npm run test:browser`, once `npm test` has finished: both start workerd, so don't run them together. It needs Playwright's Chromium, which `npm ci` doesn't download. If it's missing, don't install it: report it and stop, because the operator installs browsers.
 
 A check that fails in a workspace the item should not have touched is a stop event, not a fix. Report it under *Deviations* with the failing output, and name the choice in the final report for the operator.
 
@@ -87,18 +87,18 @@ The parser and sanitizer are the security boundary (ARCHITECTURE, *Sanitizing*).
 - Session cookies are `HttpOnly; Secure; SameSite=Lax` with no `Domain`, so they cover the app host only.
 - Every response sends `Strict-Transport-Security: max-age=31536000; includeSubDomains`, and any request to `www.rarepair.fans` gets a 308 to the same path and query on `rarepair.fans` (ARCHITECTURE, *Hosts*).
 - Sign-in (ARCHITECTURE, *Auth*): our routes, not Better Auth, do these, because server-side `auth.api` calls skip its own checks:
-  - `POST /login` refuses with 403 a present `Origin` other than `https://rarepair.fans` or a present `Sec-Fetch-Site` other than `same-origin`, so a sibling host such as `content.rarepair.fans` is refused too.
+  - `POST /login` and `POST /login/confirm` refuse with 403 a request with neither `Origin` nor `Sec-Fetch-Site`, a present `Origin` other than `https://rarepair.fans`, or a present `Sec-Fetch-Site` other than `same-origin`, so a sibling host such as `content.rarepair.fans` is refused too.
   - `next` is reduced to a same-site path, checked after URL normalization, so `/a/..//evil.example` can't become `//evil.example`.
   - Sign-in is rate limited per IP and per email.
   - `GET /login/confirm` spends no token and creates no session: only `POST /login/confirm` does.
   - Magic-link tokens stay in the Postgres `verification` table, never KV.
 - A work rated Mature or Explicit, or with archive warnings, or with no rating (shown as "Not Rated"), shows the interstitial on first entry to its reading pages from any entry point (any chapter or `/full`), remembered per work for the session. Only signed-in readers can turn it off, and that choice is stored on the account.
 - Login, upload and search are throttled when their rate limit is exceeded, and a spent upload quota is refused the same way: the response is 429 with `Retry-After` and a plain page saying when to try again (ARCHITECTURE, *Surge controls*, Status codes).
-- Live check (§5): a browser journey walks each story the issue names, starting at the home page and following links. At 360 px wide the page does not scroll sideways (`document.documentElement.scrollWidth <= innerWidth`). For a visual change, screenshot the changed page at 1280 px and 360 px into the scratchpad subfolder and list the paths.
+- Live check (§5): a browser journey walks each story the issue names, starting at the home page and following links. At 360 px wide the page does not scroll sideways (`document.documentElement.scrollWidth <= innerWidth`). For a visual change, record the journey with `BROWSER_RECORD` (README, *The browser suites*) into the scratchpad subfolder, at 1280 px and at 360 px with `BROWSER_VIEWPORT`, and list the paths.
 
 ### content — `apps/content` changed
 
-- It serves images, original downloads and its `robots.txt` only. It never serves `text/html`.
+- It serves images and original downloads only. Its `robots.txt` comes with #570. It never serves `text/html`.
 - No response sets a cookie. Every response sends `X-Content-Type-Options: nosniff`. Downloads send `Content-Disposition: attachment`.
 - No response is `Cache-Control: immutable`, because these files can go away (ARCHITECTURE, *Edge cache*). A removed work's paths return 404 after removal.
 
@@ -107,7 +107,7 @@ The parser and sanitizer are the security boundary (ARCHITECTURE, *Sanitizing*).
 The mailer is the only Worker holding email-provider keys (ARCHITECTURE, *Auth*, Email).
 - It only sends. It has no Hyperdrive, KV or R2 binding in its `wrangler` config.
 - It sends through Resend's batch API. There is no failover provider at launch (operator's ruling, 2026-11-05). A test reaches each path with a stub sender, and no test calls a real provider.
-- A message that fails is retried by the queue, then dead-lettered. It's never dropped silently. The dead-letter queue's retention is one day at most, and nothing prints its messages (address plus link) to logs.
+- A batch Resend refuses as a whole (rate limit, quota, outage) is retried by the queue, then dead-lettered. A malformed message or a single refused address is acked and counted in the logs. It's never dropped silently. The dead-letter queue's retention is one day at most, and nothing prints its messages (address plus link) to logs.
 - No log line contains an email address or a link. It logs provider message IDs and outcomes only.
 
 ### integration — anything else changed
@@ -129,7 +129,7 @@ Root configuration, `wrangler` configs, dependencies, `scripts/`, `.github` and 
 
 ## 5. Live checks
 
-A live check runs the app and confirms the change against it. Here that is the browser suite (§3), which runs the real Workers in a real browser. A story the suite doesn't reach yet gets a new journey in the PR, starting at the home page and following links.
+A live check runs the app and confirms the change against it. Here that is the browser suite (§3), which runs the web, ingest and content Workers in a real browser. A story the suite doesn't reach yet gets a new journey in the PR, starting at the home page and following links. The mailer isn't in the suite: its stories are shown by its own tests.
 
 A bullet only a deployed environment can show, such as real R2, Queues, Turnstile or the live zone, is reported **not run**, with the reason.
 
@@ -159,7 +159,7 @@ A bullet only a deployed environment can show, such as real R2, Queues, Turnstil
 2. `/simplify`. It reports first, then apply the worthwhile findings and push them before rung 3. Say in the report which you applied and which you left, and why.
 3. `/code-review` rounds, as many as the tier names, each with its own error class. The specification-completeness class checks every field at its edge values (empty, zero, maximum and one past it), every absolute claim ("every", "always", "never") for truth, each limit multiplied out to its worst case, repeated and concurrent operations, and agreement with the *Decisions so far* table.
 
-Before any rung, read what is already on the PR: `gh api --paginate repos/rare-pair/app/pulls/<n>/reviews`, `.../pulls/<n>/comments` and `.../issues/<n>/comments`. Confirm each round's fixes against a numbered list of every earlier finding, each marked resolved, moot or open. Fix findings in the PR's scope in the PR, and it doesn't merge while one is open; one you can't fix with confidence goes up `/escalate`. File findings outside the PR's scope as issues. After the last fixes, rerun the §3–§5 checks those fixes touch.
+Before any rung, read what is already on the PR: `gh api --paginate repos/rare-pair/app/pulls/<n>/reviews`, `.../pulls/<n>/comments` and `.../issues/<n>/comments`. Confirm each round's fixes against a numbered list of every earlier finding, each marked resolved, moot or open. Fix `/code-review` findings in the PR's scope in the PR, and it doesn't merge while one is open; one you can't fix with confidence goes up `/escalate`. So does a real defect on the security boundary, or one that means a *Definition of done* bullet doesn't hold, wherever it came from: it blocks the merge too. File other findings outside the PR's scope as issues linked to the PR. A fix on the security boundary made after the last round gets one more `/code-review` round. After the last fixes, rerun the §3–§5 checks those fixes touch.
 
 ## 7. The report
 
@@ -170,7 +170,7 @@ End with this block. It fills the PR's *What was run* section:
 
 - **Head:** <the full sha of the commit §1–§5 ran on in full, or were cited from; a later push, such as a ladder fix or a merge of `main`, doesn't change it, so a later `/gate merge` on the pushed head reruns §1–§5 in full; the push is listed under Ran with the checks it was given>
 - **Ran:** <each command or observation, with its result: pass or fail>
-- **Live checks:** <branch, port and database the stack ran against, or "none">
+- **Live checks:** <the browser suite's result, and the journeys this PR added, or "none">
 - **Not run:** <each check, with the reason>
 - **Screenshots:** <paths, or "none">
 - **Deviations:** <each stop event from §3 or §4, with its output and the choice for the operator, or "none">
