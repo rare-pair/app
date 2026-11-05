@@ -85,16 +85,13 @@ for (const win of WINDOWS) {
     });
 
     describe("Holds on the layout's pages of every kind", () => {
-      eachPage(named(OPEN_PAGES, EVERY_KIND_OPEN), open, async (page) => {
+      const check = async (page: Page) => {
         const fill = await measureFill(page);
         expect(fill.main.bottom).toBeLessThanOrEqual(fill.footer.top);
         expect(Math.abs((await footerBottomAtEnd(page)) - fill.innerHeight)).toBeLessThanOrEqual(1);
-      });
-      eachPage(named(PRELAUNCH_PAGES, COMING_SOON), before, async (page) => {
-        const fill = await measureFill(page);
-        expect(fill.main.bottom).toBeLessThanOrEqual(fill.footer.top);
-        expect(Math.abs((await footerBottomAtEnd(page)) - fill.innerHeight)).toBeLessThanOrEqual(1);
-      });
+      };
+      eachPage(named(OPEN_PAGES, EVERY_KIND_OPEN), open, check);
+      eachPage(named(PRELAUNCH_PAGES, COMING_SOON), before, check);
     });
 
     describe("The header, main and footer keep their column width and centring", () => {
@@ -120,8 +117,8 @@ for (const win of WINDOWS) {
           expect(short.footer.width).toBeGreaterThan(400);
         } else {
           // A narrow window: the column is the whole width.
-          expect(short.main.width).toBe(360);
-          expect(short.footer.width).toBe(360);
+          expect(short.main.width).toBe(short.innerWidth);
+          expect(short.footer.width).toBe(short.innerWidth);
         }
         for (const fill of [short, long]) {
           if (fill.banner) expect(fill.banner.width).toBe(fill.innerWidth);
