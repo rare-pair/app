@@ -182,7 +182,8 @@ await test("A refused call reports its status and Cloudflare's code, not the tok
 
 await test("A network failure reports a code, not the raw error", async () => {
   const doFetch = async () => {
-    throw Object.assign(new Error("https://token@example.invalid"), { code: "ECONNRESET" });
+    // What fetch throws: a TypeError with the system code on its cause.
+    throw new TypeError("https://token@example.invalid", { cause: { code: "ECONNRESET" } });
   };
   await assert.rejects(kvWith(doFetch).listKeys("pos:u:"), (error) => {
     assert.match(error.message, /ECONNRESET/);

@@ -11,15 +11,17 @@
 // Storage Write. POSITIONS_NAMESPACE_ID is the id of apps/web's POSITIONS binding.
 //
 // It shows what it will delete, then asks for the address to be typed again. Then it takes the
-// sessions, unspent sign-in links and unconfirmed uploads, so a reader stops saving positions and
-// can't come back; waits a minute for KV's list to catch up; takes the keys, relisted; and takes
-// the row last. A failure leaves the row, so running it again finishes the job: with the row gone
-// first, the keys could no longer be found from the address. It refuses a banned account, because
-// a ban lives on the row, and deleting it would let the person sign up again.
+// sessions, unspent sign-in links and pending uploads; waits a minute for KV's list to catch up;
+// takes those again, since the person can sign in during the wait; takes the keys, relisted; takes
+// those again; and takes the row last. A failure before the row goes leaves it, so running the
+// script again finishes the job: with the row gone first, the keys could no longer be found from
+// the address. It refuses a banned account, because a ban lives on the row, and deleting it would
+// let the person sign up again.
 //
-// The script prints the address it was given, counts, an HTTP status or a code, and nothing else:
-// no key, since a key names a work, and no token or raw error, since those can carry a secret.
-// Exits 0 when the account was deleted, 1 when it refused or stopped on an error, and 2 for a
+// The script prints the account's address and role, counts, an HTTP status or a code, and nothing
+// else: no key, since a key names a work, and no token or raw error, since those can carry a
+// secret. Exits 0 when the account was deleted, 1 when it refused or stopped on an error (a reply
+// lost after the row went looks like an error, and the next run finds no account), and 2 for a
 // missing variable or a bad argument, before anything is touched.
 import { pathToFileURL } from "node:url";
 import { createInterface } from "node:readline";
@@ -47,9 +49,10 @@ const codeOf = (error) => {
   // A DOMException's code is a legacy number: its name (AbortError, TimeoutError) says more.
   if (error instanceof DOMException) return error.name;
   // pg's errors carry a SQLSTATE and Node's a system code such as ECONNREFUSED.
-  /** @type {Error & { code?: string }} */
+  // fetch's network failures are a TypeError with the system code on their cause.
+  /** @type {Error & { code?: string, cause?: { code?: string } }} */
   const withCode = error;
-  const code = withCode.code ?? error.name;
+  const code = withCode.code ?? withCode.cause?.code ?? error.name;
   // Only a short code is printed, never a free-text value that might quote one.
   return /^[A-Za-z0-9_]{1,40}$/.test(String(code)) ? String(code) : "unknown";
 };
@@ -200,20 +203,21 @@ export async function accountDelete({
       `select
          (select count(*)::int from session where user_id = $1) as sessions,
          (select count(*)::int from uploads where user_id = $1) as uploads,
+         (select count(*)::int from uploads where user_id = $1 and status = 'pending') as pending,
          (select count(*)::int from reports where reporter_id = $1) as reports,
          (select count(*)::int from takedowns where resolved_by = $1) as takedowns,
          (select count(*)::int from requester_blocks where created_by = $1) as blocks,
          (select count(*)::int from moderation_actions where moderator_id = $1) as actions`,
       [user.id],
     );
-    const { sessions, uploads, reports, takedowns, blocks, actions } = rows[0];
+    const { sessions, uploads, pending, reports, takedowns, blocks, actions } = rows[0];
     const positions = (await kvStep(() => kv.listKeys(prefix))).length;
     log(`account: ${user.email}${user.role === null ? "" : `, role ${user.role}`}`);
     log(
-      `will delete: the account, ${counted(sessions, "session")}, ${counted(positions, "saved reading position")}`,
+      `will delete: the account, ${counted(sessions, "session")}, ${counted(positions, "saved reading position")}, any unspent sign-in links`,
     );
     log(
-      `will stay: ${counted(uploads, "upload")} with no account attached, ${counted(reports, "report")}, ${counted(takedowns, "takedown")} resolved, ${counted(blocks, "requester block")}, ${counted(actions, "moderation log row")}`,
+      `will stay: ${counted(uploads, "upload")} with no account attached (${pending} pending, which end), ${counted(reports, "report")}, ${counted(takedowns, "takedown")} resolved, ${counted(blocks, "requester block")}, ${counted(actions, "moderation log row")}`,
     );
 
     const typed = await ask("type the address again to delete this account: ");
@@ -225,10 +229,12 @@ export async function accountDelete({
     if (current.length === 0) return refuse("the account went while the prompt waited");
     if (current[0].banned_at !== null) return refuse(BANNED);
 
-    // What lets the person act, and what they left unfinished. Twice, because the row is there
-    // through the wait, and they can sign in again during it.
+    // What lets the person act, and what they left unfinished. More than once, because the row
+    // is there through the wait, and they can sign in again during it.
+    let ended = 0;
     const stopActivity = async () => {
       const { rowCount } = await pool.query("delete from session where user_id = $1", [user.id]);
+      ended += rowCount ?? 0;
       // An unspent link would make a new account at this address. Better Auth keeps its email in
       // a JSON value, and not every row in the table is JSON, so it is matched as text.
       await pool.query("delete from verification where position($1 in lower(value)) > 0", [
@@ -239,24 +245,24 @@ export async function accountDelete({
         `update uploads set status = 'account_banned' where user_id = $1 and status = 'pending'`,
         [user.id],
       );
-      return rowCount ?? 0;
     };
-    const ended = await stopActivity();
+    await stopActivity();
     log("waiting a minute, so a position saved just now shows up in KV's list");
     await settle();
-    const endedLate = await stopActivity();
+    await stopActivity();
     const keys = await kvStep(() => kv.listKeys(prefix));
     await kvStep(() => kv.deleteKeys(keys));
+    await stopActivity();
     const gone = await pool.query(`delete from "user" where id = $1 and banned_at is null`, [
       user.id,
     ]);
     if (gone.rowCount === 0) {
       return refuse(
-        "the account was banned or deleted during the wait, so the row is left as it is: its sessions and positions are already gone",
+        "the account was banned or deleted during the wait, so this run did not delete it: its sessions and positions are already gone",
       );
     }
     log(
-      `deleted the account, ${counted(ended + endedLate, "session")}, ${counted(keys.length, "saved reading position")}`,
+      `deleted the account, ${counted(ended, "session")}, ${counted(keys.length, "saved reading position")}`,
     );
     return { deleted: true, refused: null, error: null };
   } catch (caught) {

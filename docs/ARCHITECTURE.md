@@ -27,7 +27,7 @@ an unofficial stopgap.
 | Chapter rendering | Inline in app pages behind a strict CSP, with no iframe |
 | Wait list | Before launch, `/` is a coming-soon page with a double opt-in wait list. Each confirmed address is sent one launch email, from the same mail subdomain as sign-in, spread over hours on its own queue. The list is deleted after the launch send |
 | Requester data | What a requester sends with a removal or opt-out request (email address, hashed network address, statement), and a requester block's email and hash, is kept until the site closes, then deleted by hand. It is not erased on request. There is no retention sweep job and no migration for it. The only delete of a request's row is the rollback when its confirmation email cannot be queued. A copyright notice, with its sender's contact details and signature, follows the same rule (operator ruling, 2026-11-05). Account data is not covered: see Account deletion. Privacy page copy is draft, pending legal review (operator ruling, 2026-11-04) |
-| Account deletion | Someone asks at admin@rarepair.fans and the operator runs a script: no self-service button and no form (operator ruling, 2026-11-05). It removes the account, its sessions and its saved reading positions. Upload rows stay with no user attached, and works and versions stay public. The script refuses a banned account, because the ban would go with the row (pending the operator's ruling, wave 11). See Auth, Deleting an account |
+| Account deletion | Someone asks at admin@rarepair.fans and the operator runs a script: no self-service button and no form (operator ruling, 2026-11-05). It removes the account, its sessions and its saved reading positions, bar one saved in the last moments, which expires within a year. Upload rows stay with no user attached, and works and versions stay public. The script refuses a banned account, because the ban would go with the row (pending the operator's ruling, wave 11). See Auth, Deleting an account |
 
 ## System overview
 
@@ -635,7 +635,7 @@ Chapter text isn't indexed.
 message to the uploader. `work_removed` is the upload of a work a moderator or
 its author removed, checked after the opt-out and takedown lists and before
 the current version is read. `account_banned` is an upload by an account a
-moderator banned (its meaning to the uploader: the account can no longer
+moderator banned, or one since deleted (Auth, Deleting an account) (its meaning to the uploader: the account can no longer
 upload): the ban sets it on the account's `pending` uploads (and a confirm sets
 it on one written after the ban), and ingest sets it on a job whose uploader is
 banned, checked before the file is read and again, with a key-share lock on the
@@ -1001,13 +1001,15 @@ deletes, in this order:
 3. After a minute's wait, because KV lists can lag a write by up to a minute: the
    same again, since the person could sign in during the wait, then the
    `pos:<user id>:` keys, listed through the KV API and removed in bulk.
-4. The `user` row, which also takes its `account` rows.
+4. The same again, then the `user` row, which also takes its `account` rows.
 
-A failure leaves the row, so running the script again finishes the job. With the
-row gone first, the keys could no longer be found from the address. A save already
-past its session check when the sessions go, and landing after the list, can leave
-one key behind: nothing can read it once the account is gone, and it expires within
-a year.
+A failure before the row goes leaves it, so running the script again finishes the
+job, unless a ban has landed meanwhile. With the row gone first, the keys could no
+longer be found from the address. A lost reply to the row's delete reads as a
+failure, and the next run finds no account. Keys can still be left behind: a save
+past its session check when the sessions go, or one made during the wait by someone
+who signed in again, may not be in the list. Nothing can read such a key once the
+account is gone, and it expires within a year.
 
 What stays, and why:
 
@@ -1033,8 +1035,8 @@ The script refuses a banned account and says so. A ban is `banned_at` on the row
 so deleting the row would let the person sign up again with the same address. A
 ban that lands while the prompt waits is seen before anything is touched. One that
 lands during the minute's wait keeps the row, and the script says the sessions and
-positions are already gone. The script prints the address it was given, counts, an
-HTTP status or a code, and no key, token or raw error.
+positions are already gone. The script prints the account's address and role, counts,
+an HTTP status or a code, and no key, token or raw error.
 
 ## Author requests & takedowns
 
@@ -1588,7 +1590,8 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
     matching pair every Turnstile form (sign-in, upload, the wait list, `/remove`, `/dmca`)
     fails closed.
   - **The notices mailbox.** `admin@rarepair.fans` (the `NOTICES_EMAIL` var) must exist
-    and be read. The copyright notice page names it for a visitor without JavaScript and
+    and be read. Requests to delete an account come here too (Auth, Deleting an account); the
+    privacy page names the address itself. The copyright notice page names it for a visitor without JavaScript and
     on a refusal that stops the form working (rate limit, failed or unreachable Turnstile check). Mail sent there doesn't reach the takedowns queue: a person reads it
     and enters the notice.
 - Queries that select `now()` or another non-immutable function are never cached by Hyperdrive.

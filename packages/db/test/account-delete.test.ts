@@ -295,8 +295,8 @@ describe("18-moderation", () => {
 
     expect(seen).toEqual([
       `account: ${a.email}, role moderator`,
-      "will delete: the account, 1 session, 2 saved reading positions",
-      "will stay: 1 upload with no account attached, 1 report, 1 takedown resolved, 1 requester block, 1 moderation log row",
+      "will delete: the account, 1 session, 2 saved reading positions, any unspent sign-in links",
+      "will stay: 1 upload with no account attached (0 pending, which end), 1 report, 1 takedown resolved, 1 requester block, 1 moderation log row",
     ]);
   });
 
