@@ -81,6 +81,7 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 - THEN the upload's status is `parse_failed`, with `error_stage` empty because the stage is unknown, and no lease
 - AND the message is acked
 - AND My uploads shows it failed and tells the uploader to try uploading it again
+- AND any stored original stays: the consumer writes nothing to R2 (https://github.com/rare-pair/app/issues/592)
 
 ### A dead-letter message for a finished upload changes nothing
 - GIVEN a `live`, `duplicate`, already failed or rejected upload
@@ -117,7 +118,7 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 
 ### One upload is handled per invocation
 - GIVEN the ingest queue's consumer as configured
-- THEN its batch size is 1, so a crash in one job can't spend another upload's retries
+- THEN its batch size is 1, so a crash in one job has no batch-mate to spend the retries of
 
 ### Once a job has failed for good, the sweep no longer skips its work
 - GIVEN a work whose sweep skips it as `in_flight`, because of an upload left `processing`
@@ -137,7 +138,7 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 
 ### A refused upload's stored epub is deleted
 - GIVEN an upload whose raw epub is stored under `originals/<upload_id>.epub`
-- WHEN the job ends the upload refused: a save the database refused inside its transaction, a retry that ends `opted_out`, a ban that lands while or between attempts, or a failure for good (not `work_removed`, whose save already deleted its files)
+- WHEN the job ends the upload refused: a save the database refused inside its transaction, a retry that ends `opted_out`, a ban that lands while or between attempts, or a failure for good the job records itself (not `work_removed`, whose save already deleted its files)
 - THEN `originals/<upload_id>.epub` is deleted after the ending write, and only when that write matched
 - AND the log says what was deleted with the upload id and a count, never the file or the reader
 - AND a failed delete changes neither the upload's status nor the message's verdict

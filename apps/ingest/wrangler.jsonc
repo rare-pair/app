@@ -14,8 +14,8 @@
     "consumers": [
       {
         "queue": "ingest",
-        // One upload an invocation (ARCHITECTURE, Ingestion pipeline), so a crash in one job can't
-        // spend another upload's retries. It holds one epub and its parse in memory.
+        // One upload an invocation (ARCHITECTURE, Ingestion pipeline), so a crash in one job has no
+        // batch-mate to spend the retries of. It holds one epub and its parse in memory.
         "max_batch_size": 1,
         "max_batch_timeout": 5,
         // At most two invocations at once: a flood waits in the backlog instead of opening

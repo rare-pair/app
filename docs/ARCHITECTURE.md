@@ -291,7 +291,7 @@ rule's whitespace and invisible-character removal is blank, and names nobody).
    opt-out and takedown checks, then `work_removed`, decide it. Otherwise it
    enqueues `{upload_id}`.
 4. **Process.** The ingest consumer handles one upload per invocation (a batch
-   size of 1), so a crash in one job can't spend another upload's retries, with
+   size of 1), so a crash in one job has no batch-mate to spend the retries of, with
    retries and a dead-letter queue. See the EPUB processor section below. An
    invocation runs its jobs one after another, so with a concurrency of 2 at most
    two jobs run at once at any batch size. A size of 1 lowers no ceiling: it costs
@@ -301,7 +301,10 @@ rule's whitespace and invisible-character removal is blank, and names nobody).
    a second on the synthetic epubs in tests; R2 and Postgres add the rest) and 20
    for a 25 MB one with many R2 writes, reasoned from those limits, give 6 to 60
    uploads a minute. A burst past that waits in the backlog, which is what the
-   concurrency cap is for, so the concurrency needs no change.
+   concurrency cap is for, so the concurrency needs no change. The backlog has a
+   limit: at those rates the queue's default four days of retention hold about
+   35,000 to 345,000 uploads, and a message that expires never reaches the
+   dead-letter queue, so its upload stays `pending`.
 5. **Track.** The uploader's page polls `GET /uploads/:id` for its status:
    `processing`, `live`, `held_for_review`, `duplicate`, or one of the
    rejection codes below. `held_for_review` and `duplicate` are not
@@ -517,12 +520,16 @@ Chapter text isn't indexed.
    `live` last. If the job fails before the transaction, R2 is left with
    orphaned files under its `<upload_id>/` prefix, which the sweep deletes once
    the prefix is a day old and no version points at it. A
-   job that fails for good goes to the dead-letter queue as `parse_failed`,
-   with the stage and error recorded on the upload row.
+   job that fails for good and can record it goes to the dead-letter queue as
+   `parse_failed`, with the stage and error recorded on the upload row.
 
-   **A consumer on the dead-letter queue catches what no job recorded.** A job
-   that dies on every delivery (a crash, a kill at a platform limit) or whose
-   ending write fails on the last attempt records nothing. The ingest Worker also
+   **A consumer on the dead-letter queue catches what no job recorded,** among the
+   messages that reach it. (A message that expires doesn't, and #629 tracks a
+   crashed job's retry being acked under its own lease.) A job that dies on every
+   delivery (a crash, a kill at a platform limit) or whose ending write fails on
+   the last attempt records nothing, and an outage of Postgres longer than the
+   ingest queue's retries, about 6 minutes, dead-letters uploads no job has run, whose
+   files may be fine (#630). The ingest Worker also
    consumes `ingest-dlq`: an upload whose message arrives there is set
    `parse_failed`, with the stage unknown (`error_stage` empty, `error`
    `dead_lettered`), and the existing failure message tells the uploader to try
@@ -535,12 +542,13 @@ Chapter text isn't indexed.
    A duplicate of the message that is still retrying then finds the upload ended,
    and the uploader is told to try again even if that delivery might have saved it.
    The consumer handles one message per invocation, one invocation at once, and
-   retries every 120 seconds, past the 60-second lease, for an hour (30 retries).
-   That outlasts a short Postgres outage and a job running to the 15-minute
+   retries every 120 seconds, past the 60-second lease, for an hour (30 retries),
+   with a 10-second limit on connecting and on each query, so a stalled connection
+   fails and retries. That outlasts a short Postgres outage and a job running to the 15-minute
    wall-time limit. After a longer outage the message is deleted, with no
    dead-letter queue behind this one, and the upload stays as it was: there is
    no redrive, and the uploader uploads the file again. Add one only if a real
-   outage shows it's needed. The consumer writes nothing to R2, so an original the
+   outage shows it's needed (operator ruling, 2026-11-05). The consumer writes nothing to R2, so an original the
    job had stored stays (case 1 below). The backfill queue already has a batch
    size of 1, and needs no such consumer: a failed backfill leaves the work's
    current version as it was.

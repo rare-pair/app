@@ -47,7 +47,7 @@ describe("04-ingest-job-lifecycle", () => {
   });
 
   it("One upload is handled per invocation", () => {
-    // So a crash in one job can't spend another upload's retries.
+    // So a crash in one job has no batch-mate to spend the retries of.
     expect(consumer().max_batch_size).toBe(1);
   });
 
