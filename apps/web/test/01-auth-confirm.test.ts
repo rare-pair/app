@@ -3,7 +3,16 @@ import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
 import app from "../src/index";
-import { emailsTo, fetchW, LOGIN_TOKEN, nonceOf, postLogin, STRICT, withoutNonce } from "./helpers";
+import {
+  emailsTo,
+  fetchW,
+  LOGIN_TOKEN,
+  nonceOf,
+  postLogin,
+  signIn,
+  STRICT,
+  withoutNonce,
+} from "./helpers";
 
 // A2's cases from 01-auth-magic-link (and one from 09-content-origin): the emailed
 // link's confirm page, and the POST that signs in. A1's cases are in 01-auth-magic-link.test.ts.
@@ -262,28 +271,32 @@ describe("01-auth-magic-link", () => {
 
   it("A fault on the confirm POST clears the marker too", async () => {
     const { token } = await issued("clears-fault@example.test");
+    const session = await signIn("clears-fault-session@example.test");
     const down = {
       ...env,
       HYPERDRIVE: { connectionString: "postgresql://nobody:nothing@127.0.0.1:1/none" },
     };
-    const ctx = createExecutionContext();
-    const res = await app.fetch(
-      new Request("https://rarepair.fans/login/confirm", {
-        method: "POST",
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-          origin: "https://rarepair.fans",
-          "sec-fetch-site": "same-origin",
-          cookie: MARKER,
-        },
-        body: new URLSearchParams({ token, next: "/" }).toString(),
-      }),
-      down,
-      ctx,
-    );
-    await waitOnExecutionContext(ctx);
-    expect(res.status).toBe(500);
-    expect(res.headers.getSetCookie()).toEqual([MARKER_CLEARED]);
+    // Signed out, it fails in the route; signed in, at the session lookup before the route.
+    for (const cookie of [MARKER, `${MARKER}; ${session}`]) {
+      const ctx = createExecutionContext();
+      const res = await app.fetch(
+        new Request("https://rarepair.fans/login/confirm", {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            origin: "https://rarepair.fans",
+            "sec-fetch-site": "same-origin",
+            cookie,
+          },
+          body: new URLSearchParams({ token, next: "/" }).toString(),
+        }),
+        down,
+        ctx,
+      );
+      await waitOnExecutionContext(ctx);
+      expect(res.status, cookie).toBe(500);
+      expect(res.headers.getSetCookie(), cookie).toEqual([MARKER_CLEARED]);
+    }
   });
 
   it("The sign-in marker isn't a session", async () => {
