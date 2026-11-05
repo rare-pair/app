@@ -1,11 +1,14 @@
 import { putFragments } from "@archive/db/seed";
+import { EpubError } from "@archive/epub";
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
 import { ao3Epub } from "../../../packages/epub/test/helpers";
 import {
+  banUploader,
   beforePut,
   bucketKeys,
   bucketText,
+  confirmAs,
   deliver,
   seededWork,
   failingPut,
@@ -18,8 +21,10 @@ import {
   savedRows,
   searchedIds,
   setLease,
+  sha256Hex,
   sweptBucket,
   token,
+  uploadHash,
   uploadRow,
   watchedPuts,
   watchedWorker,
@@ -805,5 +810,218 @@ describe("04-ingest-job-lifecycle", () => {
     expect(row.lease_until).toBeNull();
     expect(result.explicitAcks).toEqual(["msg-0"]);
     expect(result.retryMessages).toEqual([]);
+  });
+
+  it("A file swapped after confirm is recorded by what was read", async () => {
+    const fileA = ao3Epub({ workId: 60400 });
+    const fileB = ao3Epub({ workId: 60401 });
+    const id = await pendingUpload(fileB);
+    await confirmAs(id, fileA);
+
+    const result = await deliver([{ upload_id: id }]);
+
+    expect((await uploadRow(id)).status).toBe("live");
+    expect(await uploadHash(id)).toBe(await sha256Hex(fileB));
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+  });
+
+  it("A swap doesn't block the original file", async () => {
+    const fileA = ao3Epub({ workId: 60402 });
+    const fileB = ao3Epub({ workId: 60403 });
+    const swapped = await pendingUpload(fileB);
+    await confirmAs(swapped, fileA);
+    await deliver([{ upload_id: swapped }]);
+    const swappedWork = (await uploadRow(swapped)).work_id;
+    expect(swappedWork).not.toBeNull();
+
+    const genuine = await pendingUpload(fileA);
+    const genuineConfirm = await confirmAs(genuine, fileA);
+    const repeat = await pendingUpload(fileB);
+    const repeatConfirm = await confirmAs(repeat, fileB);
+
+    expect(genuineConfirm).toEqual({ duplicateOf: null });
+    expect(repeatConfirm).toEqual({ duplicateOf: swappedWork });
+    // Its job runs like any other, and it is a work of its own.
+    await deliver([{ upload_id: genuine }]);
+    const row = await uploadRow(genuine);
+    expect(row.status).toBe("live");
+    expect(row.work_id).not.toBe(swappedWork);
+  });
+
+  it("A swap to a file already in the archive goes through the versioning rules", async () => {
+    const fileA = ao3Epub({ workId: 60416 });
+    const fileB = ao3Epub({ workId: 60417 });
+    const earlier = await ingestReal(fileB);
+    const id = await pendingUpload(fileB);
+    await confirmAs(id, fileA);
+
+    await deliver([{ upload_id: id }]);
+
+    const row = await uploadRow(id);
+    expect(row.status).toBe("duplicate");
+    expect(row.work_id).toBe(earlier.row.work_id);
+    expect(await bucketKeys(`originals/${id}`)).toHaveLength(1);
+    expect(await uploadHash(id)).toBe(await sha256Hex(fileB));
+  });
+
+  it("An upload that wasn't swapped ends as it always has", async () => {
+    const file = ao3Epub({ workId: 60404 });
+    const id = await pendingUpload(file);
+    await confirmAs(id, file);
+
+    const result = await deliver([{ upload_id: id }]);
+
+    const { work_id, ...row } = await uploadRow(id);
+    expect(row).toEqual({ status: "live", lease_until: null, error_stage: null, error: null });
+    expect(work_id).not.toBeNull();
+    expect(await uploadHash(id)).toBe(await sha256Hex(file));
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    expect(result.retryMessages).toEqual([]);
+  });
+
+  it("An upload the job read and refused keeps the hash of what was read", async () => {
+    const id = await pendingUpload(new TextEncoder().encode("not an epub"));
+    await confirmAs(id, ao3Epub({ workId: 60405 }));
+
+    await deliver([{ upload_id: id }]);
+
+    expect((await uploadRow(id)).status).toBe("not_epub");
+    // SHA-256 of "not an epub", worked out outside this code.
+    expect(await uploadHash(id)).toBe(
+      "5a9872e4946d551d98684009ffe3b79d2c74708fc693fadae98cac095d7223cf",
+    );
+  });
+
+  it.each([
+    { name: "its object is gone", object: null, status: "parse_failed" },
+    {
+      name: "its object is over the size limit",
+      object: new Uint8Array(25 * 1024 * 1024 + 1),
+      status: "too_large",
+    },
+    {
+      name: "its account is banned",
+      object: ao3Epub({ workId: 60408 }),
+      status: "account_banned",
+      banned: true,
+    },
+    {
+      name: "the dead-letter consumer fails it",
+      object: ao3Epub({ workId: 60410 }),
+      status: "parse_failed",
+      queue: "ingest-dlq",
+    },
+  ])(
+    "An upload no job read keeps the hash confirm stored: $name",
+    async ({ object, status, banned, queue }) => {
+      const confirmed = ao3Epub({ workId: 60406 });
+      const id = await pendingUpload(object);
+      await confirmAs(id, confirmed);
+      if (banned) await banUploader(id);
+
+      await deliver([{ upload_id: id }], { queue });
+
+      expect((await uploadRow(id)).status).toBe(status);
+      expect(await uploadHash(id)).toBe(await sha256Hex(confirmed));
+    },
+  );
+
+  it("A retry records what its own read saw", async () => {
+    const fileA = ao3Epub({ workId: 60411 });
+    const fileB = ao3Epub({ workId: 60412 });
+    const id = await pendingUpload(fileA);
+    await confirmAs(id, fileA);
+    const { handler } = watchedWorker({ bucket: failingPut(`originals/${id}.epub`) });
+    const first = await deliver([{ upload_id: id }], { handler });
+    expect(first.retryMessages.map((m) => m.msgId)).toEqual(["msg-0"]);
+    expect((await uploadRow(id)).status).toBe("pending");
+    await env.BUCKET.put(`uploads/${id}.epub`, fileB);
+
+    await deliver([{ upload_id: id }], { attempts: 2 });
+
+    expect((await uploadRow(id)).status).toBe("live");
+    expect(await uploadHash(id)).toBe(await sha256Hex(fileB));
+  });
+
+  it("A later attempt that reads nothing leaves the last read's hash", async () => {
+    const fileA = ao3Epub({ workId: 60414 });
+    const fileB = ao3Epub({ workId: 60415 });
+    const id = await pendingUpload(fileB);
+    await confirmAs(id, fileA);
+    const { handler } = watchedWorker({ bucket: failingPut(`originals/${id}.epub`) });
+    await deliver([{ upload_id: id }], { handler });
+    expect((await uploadRow(id)).status).toBe("pending");
+    await env.BUCKET.delete(`uploads/${id}.epub`);
+
+    await deliver([{ upload_id: id }], { attempts: 2 });
+
+    expect(await uploadRow(id)).toMatchObject({ status: "parse_failed", error: "object_missing" });
+    expect(await uploadHash(id)).toBe(await sha256Hex(fileB));
+  });
+
+  it("A later attempt that reads nothing leaves the last read's hash: the dead-letter consumer fails it", async () => {
+    const fileA = ao3Epub({ workId: 60418 });
+    const fileB = ao3Epub({ workId: 60419 });
+    const id = await pendingUpload(fileB);
+    await confirmAs(id, fileA);
+    const { handler } = watchedWorker({ bucket: failingPut(`originals/${id}.epub`) });
+    await deliver([{ upload_id: id }], { handler });
+    // A later job claimed it and died holding it.
+    await setLease(id, "-1 minute");
+
+    await deliver([{ upload_id: id }], { queue: "ingest-dlq" });
+
+    expect(await uploadRow(id)).toMatchObject({ status: "parse_failed", error: "dead_lettered" });
+    expect(await uploadHash(id)).toBe(await sha256Hex(fileB));
+  });
+
+  it("An upload a ban refuses at the save keeps the hash of what was read", async () => {
+    const fileA = ao3Epub({ workId: 60420 });
+    const fileB = ao3Epub({ workId: 60421 });
+    const id = await pendingUpload(fileB);
+    await confirmAs(id, fileA);
+    // Banned while the job runs: the save's own check refuses it.
+    const { handler } = watchedWorker({
+      process: async () => {
+        await banUploader(id);
+        return parsedWork();
+      },
+    });
+
+    await deliver([{ upload_id: id }], { handler });
+
+    expect(await uploadRow(id)).toMatchObject({ status: "account_banned", error_stage: "save" });
+    expect(await uploadHash(id)).toBe(await sha256Hex(fileB));
+  });
+
+  // Taken over while it is processed. A refusal goes straight to the fenced ending write; a
+  // parsed work finds the lease lost at the next renewal, and ends with no write at all.
+  it.each([
+    {
+      name: "at its ending write",
+      after: () => {
+        throw new EpubError("not_epub", "a refusal after the takeover");
+      },
+    },
+    { name: "at its next renewal", after: () => parsedWork() },
+  ])("A job that has lost its lease records no hash: $name", async ({ after }) => {
+    const confirmed = ao3Epub({ workId: 60413 });
+    const id = await pendingUpload(ao3Epub({ workId: 60422 }));
+    await confirmAs(id, confirmed);
+    let takeover = new Date(0);
+    const { handler } = watchedWorker({
+      process: async () => {
+        takeover = await setLease(id, "1 hour");
+        return after();
+      },
+    });
+
+    const result = await deliver([{ upload_id: id }], { handler });
+
+    const row = await uploadRow(id);
+    expect(row.status).toBe("processing");
+    expect(row.lease_until).toEqual(takeover);
+    expect(await uploadHash(id)).toBe(await sha256Hex(confirmed));
+    expect(result.explicitAcks).toEqual(["msg-0"]);
   });
 });

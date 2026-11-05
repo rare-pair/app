@@ -21,6 +21,7 @@ an unofficial stopgap.
 | Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend |
 | Accepted files | AO3-native epub exports only. FanFicFare support comes later |
 | New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) |
+| A file swapped after confirm | Ingest handles the file it read and records that file's hash. A mismatch with confirm's hash isn't refused, and no locked copy is made (operator ruling, 2026-11-05) |
 | Author identity | No work claims and no author verification while AO3 is down. Removal and opt-out are requests anyone can make, without proving who they are, and they take effect once the requester confirms control of the contact email |
 | Removal list | Removed works (title, byline, a link to the original with its ID, date, reason) are public at `/removed`, and pseuds with an approved opt-out at `/removed/pseuds`. Reasons come from a fixed list, never free text. Open requests and hidden works are never listed, and a moderator can withhold an entry |
 | Search scope | Metadata only: title, author, tags, summary |
@@ -229,7 +230,11 @@ processor section. Files without an AO3 preface carrying that URL are
 rejected in v1, even if the OPF names an AO3 work. Byte-identical
 re-uploads are caught at `/complete` by the file's SHA-256: the upload is marked
 `duplicate` straight away, with no ingest run and no second copy kept
-(Ingestion pipeline, step 3).
+(Ingestion pipeline, step 3). That check sees the file as it was at confirm: one
+swapped afterwards for a file already in the archive goes through ingest and the
+versioning rules, with its original kept. An ingested upload's hash, which later
+uploads are matched against, is that of the bytes ingest read (EPUB processor,
+step 2); uploads ingested before this was added keep confirm's, with no backfill.
 
 **Tags.** AO3's tag wrangling (canonical tags and synonyms) can't be rebuilt in
 a week. Store tags exactly as written, plus a normalized form (`name_norm`:
@@ -297,7 +302,12 @@ rule's whitespace and invisible-character removal is blank, and names nobody).
    was removed) gets no shortcut: the new upload is enqueued like any other,
    and the versioning rules, the same rejection, or (for a removed work) the
    opt-out and takedown checks, then `work_removed`, decide it. Otherwise it
-   enqueues `{upload_id}`.
+   enqueues `{upload_id}`. The presigned PUT stays valid after confirm, so the
+   object can change: on an enqueued upload, the hash stored here stands until a
+   job records the hash of what it read (EPUB processor, step 2). A repeat confirm
+   of an upload still `pending` hashes the object again and stores that, and a job
+   that reads the file afterwards replaces it in turn. An upload marked `duplicate`
+   here has no job, so it keeps this hash.
 4. **Process.** The ingest consumer handles one upload per invocation (a batch
    size of 1), so a crash in one job has no batch-mate to spend the retries of, with
    retries and a dead-letter queue. See the EPUB processor section below. An
@@ -340,8 +350,16 @@ Chapter text isn't indexed.
    every 15 seconds (the lease is 60) and checks it still holds the upload before each
    stage and each R2 write. A job that finds it lost stops, logs it and writes or
    deletes nothing more; the fenced write in the Postgres transaction has the last word.
-2. **Unzip with limits.** Read the object from R2 (25 MB or less) and check
-   the zip's file index before decompressing anything:
+2. **Unzip with limits.** Read the object from R2 (25 MB or less) and hash the
+   bytes read (SHA-256). That hash replaces the one on the row in the job's fenced
+   ending write, whatever the job ends as, a rejection or a retry included. A job
+   that lost its lease or died before that write records none, so the row holds
+   the last recorded read's hash. A hash that differs from confirm's isn't refused
+   or shown to the uploader, and no locked copy of the file is made: the job
+   handles what it read. An attempt that ends without a whole read (the object is
+   gone or over the limit, the account is banned first, or the read fails), and the
+   dead-letter consumer, leave the hash as it is: confirm's, until a job has
+   recorded a read. Check the zip's file index before decompressing anything:
    - at most 2,000 entries
    - at most 40 MB uncompressed in total
    - at most 20 MB per entry
