@@ -17,7 +17,7 @@ import {
   REMOVE_TOKEN,
   removalTokenFor,
   STRICT,
-  withoutHeader,
+  withoutLogo,
   withoutNonce,
 } from "./helpers";
 
@@ -427,7 +427,7 @@ describe("16-removal-and-opt-out", () => {
       expect(submitted[2]).toBe(submitted[0]);
       expect(confirmed[1]).toBe(confirmed[0]);
       expect(confirmed[2]).toBe(confirmed[0]);
-      expect(withoutHeader(confirmed[0]!)).not.toMatch(/hidden|hide/i);
+      expect(withoutLogo(confirmed[0]!)).not.toMatch(/hidden|hide/i);
       expect(links[1]).toBe(links[0]);
       expect(links[2]).toBe(links[0]);
     });

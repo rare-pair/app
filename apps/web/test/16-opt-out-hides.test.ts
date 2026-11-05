@@ -2,7 +2,7 @@ import { createDb } from "@archive/db";
 import { putFragments, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { BASE, confirmRemoval, fetchW, freshIp, REMOVE_TOKEN, withoutHeader } from "./helpers";
+import { BASE, confirmRemoval, fetchW, freshIp, REMOVE_TOKEN, withoutLogo } from "./helpers";
 
 // X3 (#63), reworked for X3b (#487): an opt-out takes effect only once its emailed link is
 // pressed, so each case posts, then confirms (`confirmRemoval`). One database serves every test file in the run, so this file keeps to AO3 work
@@ -219,7 +219,7 @@ describe("16-removal-and-opt-out", () => {
       expect(await bytesOf(confirmedNone)).toBe(await bytesOf(confirmedHid));
       const hidHtml = await bytesOf(hid);
       expect(hidHtml).toContain(RECEIVED);
-      expect(withoutHeader(hidHtml)).not.toMatch(/hidden|hide/i);
+      expect(withoutLogo(hidHtml)).not.toMatch(/hidden|hide/i);
       expect(await bytesOf(none)).toBe(hidHtml);
     });
   });
