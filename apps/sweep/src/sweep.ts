@@ -1,4 +1,4 @@
-import type { Database } from "@archive/db";
+import { deleteUnconfirmedUploads, type Database } from "@archive/db";
 import { sql, type Kysely } from "kysely";
 import { imageRefs } from "./refs";
 
@@ -282,10 +282,47 @@ async function listAll(
   }
 }
 
-async function deleteKeys(bucket: SweepBucket, keys: string[]): Promise<void> {
+async function deleteKeys(bucket: Pick<SweepBucket, "delete">, keys: string[]): Promise<void> {
   for (let i = 0; i < keys.length; i += PAGE) {
     await bucket.delete(keys.slice(i, i + PAGE));
   }
+}
+
+/**
+ * What one run's reaper may spend: rows per batch (R2's most per delete call) and batches. At two
+ * subrequests a batch, that stays under the platform's limit beside the walk's `LIMITS`, and what
+ * it leaves is the next day's.
+ */
+const REAP_LIMITS = { rows: PAGE, batches: 500 };
+
+/**
+ * Removes uploads never confirmed and created before `cutoff`, with their files (ARCHITECTURE,
+ * Orphaned uploads). Rows go first, and only the objects of rows actually deleted, so a confirm
+ * that claims a row in the meantime keeps its file. A delete that fails leaves that batch's files
+ * for the bucket's 7-day lifecycle rule, and ends this run's reaping, so an R2 outage frees one
+ * batch of cap slots a day while their files stay, and no more. It doesn't stop the sweep.
+ */
+export async function reapUnconfirmedUploads({
+  db,
+  bucket,
+  cutoff,
+  limits = REAP_LIMITS,
+}: Pick<SweepDeps, "db" | "cutoff"> & {
+  bucket: Pick<SweepBucket, "delete">;
+  limits?: typeof REAP_LIMITS;
+}): Promise<{ uploadsReaped: number; reapDeleteError?: string }> {
+  let uploadsReaped = 0;
+  for (let batch = 0; batch < limits.batches; batch++) {
+    const keys = await deleteUnconfirmedUploads(db, cutoff, limits.rows);
+    uploadsReaped += keys.length;
+    try {
+      await deleteKeys(bucket, keys);
+    } catch (error) {
+      return { uploadsReaped, reapDeleteError: errorCode(error) };
+    }
+    if (keys.length < limits.rows) break;
+  }
+  return { uploadsReaped };
 }
 
 /** A work folder as R2 and Postgres show it at one moment. */

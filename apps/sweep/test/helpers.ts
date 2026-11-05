@@ -31,16 +31,17 @@ type Handler = { scheduled: NonNullable<ExportedHandler<Env>["scheduled"]> };
  * object with the time it was put, so 25 hours later makes everything put so far older than
  * the sweep's 24 hours, and 0 keeps it all young.
  */
-export async function runSweep(
-  hoursLater: number,
-  { handler = worker }: { handler?: Handler } = {},
+export const runSweep = (hoursLater: number, options?: { handler?: Handler }) =>
+  runSweepAt(Date.now() + hoursLater * HOUR, options);
+
+/** Fires the cron as Cloudflare would, at the exact time `at`. */
+export async function runSweepAt(
+  at: number,
+  { handler = worker, bindings = env }: { handler?: Handler; bindings?: Env } = {},
 ): Promise<void> {
-  const controller = createScheduledController({
-    scheduledTime: Date.now() + hoursLater * HOUR,
-    cron: "17 3 * * *",
-  });
+  const controller = createScheduledController({ scheduledTime: at, cron: "17 3 * * *" });
   const ctx = createExecutionContext();
-  await handler.scheduled(controller, env, ctx);
+  await handler.scheduled(controller, bindings, ctx);
   await waitOnExecutionContext(ctx);
 }
 
@@ -85,9 +86,13 @@ export async function seededVersion(
 
 /**
  * An upload by `userId` (a new user when null) in `status`, with no version. Returns its id,
- * which names its prefix.
+ * which names its prefix. `confirmed` is when a confirm counted it against the quota.
  */
-export async function upload(userId: string | null, status: UploadStatus): Promise<string> {
+export async function upload(
+  userId: string | null,
+  status: UploadStatus,
+  { confirmed = null, createdAt = new Date() }: { confirmed?: Date | null; createdAt?: Date } = {},
+): Promise<string> {
   const id = crypto.randomUUID();
   await withDb(async (db) => {
     const user = userId ?? `sweep-${id}`;
@@ -104,7 +109,15 @@ export async function upload(userId: string | null, status: UploadStatus): Promi
     }
     await db
       .insertInto("uploads")
-      .values({ id, user_id: user, r2_key: `uploads/${id}.epub`, bytes: 1024, status })
+      .values({
+        id,
+        user_id: user,
+        r2_key: `uploads/${id}.epub`,
+        bytes: 1024,
+        status,
+        quota_counted_at: confirmed,
+        created_at: createdAt,
+      })
       .execute();
   });
   return id;

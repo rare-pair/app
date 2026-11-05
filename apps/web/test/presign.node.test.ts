@@ -4,7 +4,9 @@ import { presignPut, type PresignPut } from "../src/presign";
 
 // R2 itself refuses a PUT with another Content-Type, or after the URL expires; Miniflare's R2
 // has no S3 endpoint, so no test here can PUT. What R2 checks is the signature, so these
-// tests show the URL signs exactly what R2 will check: the content type and a 600 s expiry.
+// tests show the URL signs what R2 will check: the content type, the size and a 600 s expiry.
+// Whether R2 enforces a signed Content-Length is unknown (ARCHITECTURE, Orphaned uploads), so
+// these show only that it is signed.
 // The expected signature is worked out here, from AWS's published SigV4 query-signing steps
 // (canonical request, string to sign, derived key), not by aws4fetch.
 
@@ -16,6 +18,7 @@ const PUT: PresignPut = {
   secretAccessKey: "test-only-secret-access-key",
   key: "uploads/00000000-0000-4000-8000-000000000001",
   contentType: "application/epub+zip",
+  contentLength: 123456,
   expiresSeconds: 600,
   now: new Date("2026-10-31T12:34:56.789Z"),
 };
@@ -34,20 +37,20 @@ const encode = (value: string) =>
   );
 
 /** The signature AWS's SigV4 steps give a query-signed PUT of `key` with `contentType`. */
-function expectedSignature(key: string, contentType: string, expires = "600") {
+function expectedSignature(key: string, contentType: string, expires = "600", length = "123456") {
   const query: [string, string][] = [
     ["X-Amz-Algorithm", "AWS4-HMAC-SHA256"],
     ["X-Amz-Credential", `${PUT.accessKeyId}/${SCOPE}`],
     ["X-Amz-Date", DATETIME],
     ["X-Amz-Expires", expires],
-    ["X-Amz-SignedHeaders", "content-type;host"],
+    ["X-Amz-SignedHeaders", "content-length;content-type;host"],
   ];
   const canonicalRequest = [
     "PUT",
     `/rarepair/${key.split("/").map(encode).join("/")}`,
     query.map(([k, v]) => `${encode(k)}=${encode(v)}`).join("&"),
-    `content-type:${contentType}\nhost:${HOST}\n`,
-    "content-type;host",
+    `content-length:${length}\ncontent-type:${contentType}\nhost:${HOST}\n`,
+    "content-length;content-type;host",
     "UNSIGNED-PAYLOAD",
   ].join("\n");
   const stringToSign = ["AWS4-HMAC-SHA256", DATETIME, SCOPE, sha256(canonicalRequest)].join("\n");
@@ -82,7 +85,7 @@ describe("02-upload-handshake", () => {
   it("Presigned PUT with the wrong content type fails", async () => {
     const url = new URL(await presignPut(PUT));
     // R2 recomputes the signature over the Content-Type the PUT sends.
-    expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe("content-type;host");
+    expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe("content-length;content-type;host");
     const signature = url.searchParams.get("X-Amz-Signature");
     expect(signature).toBe(expectedSignature(PUT.key, "application/epub+zip"));
     for (const other of ["application/octet-stream", "text/html", "application/zip"]) {
@@ -99,6 +102,14 @@ describe("02-upload-handshake", () => {
     const signature = url.searchParams.get("X-Amz-Signature");
     expect(signature).toBe(expectedSignature(PUT.key, "application/epub+zip", "600"));
     expect(signature).not.toBe(expectedSignature(PUT.key, "application/epub+zip", "86400"));
+  });
+
+  it("Each link is signed for the size declared when it was asked for", async () => {
+    const url = new URL(await presignPut({ ...PUT, contentLength: 2048 }));
+    expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe("content-length;content-type;host");
+    const signature = url.searchParams.get("X-Amz-Signature");
+    expect(signature).toBe(expectedSignature(PUT.key, "application/epub+zip", "600", "2048"));
+    expect(signature).not.toBe(expectedSignature(PUT.key, "application/epub+zip", "600", "2049"));
   });
 
   it("An unset R2 secret signs nothing", async () => {

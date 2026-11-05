@@ -144,8 +144,10 @@ const wholeNumber = (text: string | undefined | null) => {
 /**
  * `POST /works/:id/position`, behind `sameOriginOnly`: stores the signed-in reader's
  * place, a form of `pct` (0 to 100) and `n` (the chapter, left out on the entire-work
- * page). It writes only the caller's own key and checks nothing about the work: a
- * position for a work that is gone is never shown, since the link needs a live chapter.
+ * page). Within the same `n` the larger percentage wins, so scrolling back up and leaving
+ * never lowers it; a different `n` replaces it. It writes only the caller's own key and
+ * checks nothing about the work: a position for a work that is gone is never shown, since
+ * the link needs a live chapter.
  * A script calls it, so it answers with a status and no body, never a redirect.
  * Nothing about the reader or the work is logged.
  */
@@ -163,11 +165,14 @@ export async function savePosition(c: PositionContext) {
     return c.body(null, 400, NO_STORE);
   }
   try {
-    await c.env.POSITIONS.put(
-      positionKey(user.id, id),
-      serializePosition({ n, pct: Number(pct) }),
-      { expirationTtl: POSITION_TTL_SECONDS },
-    );
+    const key = positionKey(user.id, id);
+    // The furthest point in a chapter is kept: a lower one in the same chapter (or on the
+    // entire-work page) leaves the saved one. Only a different chapter replaces it.
+    const kept = parsePosition(await c.env.POSITIONS.get(key));
+    const reached = kept !== null && kept.n === n ? Math.max(kept.pct, Number(pct)) : Number(pct);
+    await c.env.POSITIONS.put(key, serializePosition({ n, pct: reached }), {
+      expirationTtl: POSITION_TTL_SECONDS,
+    });
   } catch (error) {
     logFailure(error);
     // KV rate-limits and fails now and then; the script sends the next one a pause later.
