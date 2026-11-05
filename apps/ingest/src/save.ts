@@ -124,7 +124,8 @@ export class SaveRejected extends Error {
 
 /**
  * The work the upload is of has been removed: nothing is saved, and the job ends the upload as
- * `work_removed`, at once, since a removed work stays removed (restoring one is #565, still open).
+ * `work_removed`, at once, since removal is permanent: a removed work can't be restored, and a
+ * successful counter-notice means uploading it again.
  */
 export class WorkRemoved extends Error {}
 
