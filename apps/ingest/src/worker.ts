@@ -3,7 +3,7 @@ import { processEpub } from "@archive/epub";
 import type { Kysely } from "kysely";
 import { runBackfill, type BackfillDeps } from "./backfill";
 import { BACKFILL_QUEUE, INGEST_DLQ, INGEST_QUEUE } from "./config";
-import { DEAD_LETTER_DB_TIMEOUTS, deadLetterBatch } from "./dead-letter";
+import { DEAD_LETTER_DB_TIMEOUT_MS, deadLetterBatch } from "./dead-letter";
 import { errorCode, runJob, type JobDeps, type Verdict } from "./job";
 import { parseBackfillMessage, parseMessage } from "./message";
 import { saveWork, type SaveBucket } from "./save";
@@ -57,10 +57,12 @@ export function ingestWorker(steps: Partial<Steps> = {}) {
       let db: Kysely<Database>;
       try {
         // One job at a time needs one connection.
+        const timeout = batch.queue === INGEST_DLQ ? DEAD_LETTER_DB_TIMEOUT_MS : undefined;
         db = createDb({
           connectionString: env.HYPERDRIVE.connectionString,
           max: 1,
-          ...(batch.queue === INGEST_DLQ ? DEAD_LETTER_DB_TIMEOUTS : {}),
+          connectionTimeoutMillis: timeout,
+          queryTimeoutMillis: timeout,
         });
       } catch (error) {
         console.error({ event: "ingest.setup", error: errorCode(error) });

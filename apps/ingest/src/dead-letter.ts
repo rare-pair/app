@@ -5,10 +5,7 @@ import { claimable } from "./lease";
 import { parseMessage } from "./message";
 
 /** Its queries are short, so a stalled connection fails and retries rather than hanging on. */
-export const DEAD_LETTER_DB_TIMEOUTS = {
-  connectionTimeoutMillis: 10_000,
-  queryTimeoutMillis: 10_000,
-};
+export const DEAD_LETTER_DB_TIMEOUT_MS = 10_000;
 
 /**
  * The `ingest-dlq` consumer (ARCHITECTURE, EPUB processor, step 8). An upload whose message ran
