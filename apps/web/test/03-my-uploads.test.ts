@@ -1,4 +1,4 @@
-import { createDb, insertUpload, type UploadStatus } from "@archive/db";
+import { createDb, deleteUnconfirmedUploads, insertUpload, type UploadStatus } from "@archive/db";
 import { seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
@@ -70,6 +70,25 @@ function messageOf(html: string, id: string): string | undefined {
 const REFRESH = '<noscript><meta http-equiv="refresh" content="5"></noscript>';
 
 describe("03-upload-status: My uploads", () => {
+  it("An unconfirmed upload removed as stale no longer shows on My uploads", async () => {
+    const { userId, cookie } = await signIn();
+    const stale = await upload(userId, "pending", { confirmed: false });
+    const kept = await upload(userId, "pending", { confirmed: false });
+    // Dated far enough back that the cutoff below reaches no other test's row in this database.
+    await db
+      .updateTable("uploads")
+      .set({ created_at: new Date("2000-01-01T00:00:00Z") })
+      .where("id", "=", stale)
+      .execute();
+    expect(await (await page(cookie)).text()).toContain(`data-upload-id="${stale}"`);
+
+    await deleteUnconfirmedUploads(db, new Date("2000-01-02T00:00:00Z"), 1000);
+
+    const html = await (await page(cookie)).text();
+    expect(html).not.toContain(`data-upload-id="${stale}"`);
+    expect(html).toContain(`data-upload-id="${kept}"`);
+  });
+
   it("My uploads lists every upload with a text status badge", async () => {
     const { userId, cookie } = await signIn();
     const work = await seedWork(db, { ao3WorkId: 16100, title: "u6b1-listed" });

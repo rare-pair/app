@@ -18,6 +18,8 @@ export {
   type PopularFandom,
   tagNameKeys,
   insertUpload,
+  insertUploadsWithinCap,
+  deleteUnconfirmedUploads,
   getUploadOf,
   recordUploadHash,
   rejectOversizedUpload,

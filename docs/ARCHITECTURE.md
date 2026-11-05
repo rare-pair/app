@@ -172,7 +172,8 @@ work_tags    (work_id, tag_id,
               position)  -- the tag's place in the work's tags, in the author's order
 uploads      (id, user_id, r2_key, sha256, bytes, status, lease_until,
               error_stage, error, work_id NULL, created_at,
-              quota_counted_at NULL)  -- set when confirm counted it against the daily quota, once
+              quota_counted_at NULL)  -- set when confirm counted it against the daily quota, once;
+                                      -- `pending` with this NULL is an open upload (Orphaned uploads)
 reports      (id, work_id, reporter_id, kind, body, status, created_at)  -- reporting needs an account;
                                                   -- kind includes wrong_version ("This version is wrong")
 takedowns    (id, work_id, requester, basis, status, resolved_by, created_at,
@@ -265,9 +266,11 @@ rule's whitespace and invisible-character removal is blank, and names nobody).
    JSON `{ error, retryAfter }`, and the upload page shows the message. A banned
    account gets 403 with `{ error }` for the whole batch, checked just before the
    quota (Moderation, *Block and ban*), and `GET /upload` shows it a page saying
-   it can't upload. Otherwise it inserts an `uploads` row for each file, all in
-   one transaction, and returns a presigned R2 `PUT` URL for each, valid for 10 minutes
-   and locked to `Content-Type: application/epub+zip`: JSON `{ id, url }` for one file,
+   it can't upload. A batch that would take the account's open uploads past the cap
+   gets 429 (Orphaned uploads). Otherwise it inserts an `uploads` row for each file, all in
+   one transaction, and returns a presigned R2 `PUT` URL for each, valid for 10 minutes,
+   locked to `Content-Type: application/epub+zip` and signed for the file's declared
+   size as `Content-Length`: JSON `{ id, url }` for one file,
    `{ uploads: [{ id, url }, ...] }` for several. R2 presigned URLs support PUT but not
    form POST, and the bucket needs a CORS rule for `rarepair.fans`.
 2. **Upload.** The browser PUTs each file straight to R2 and shows each file's
@@ -281,7 +284,9 @@ rule's whitespace and invisible-character removal is blank, and names nobody).
    says so (FRONTEND-DISCOVERY, *Where the frontend changes the architecture*).
 3. **Confirm.** For a banned account, `POST /uploads/:id/complete` answers 403
    and ends the upload `account_banned` before reading the object. Otherwise it HEADs the object, checks its size,
-   and hashes it (SHA-256). If the hash matches an earlier upload that was
+   and hashes it (SHA-256). An object over 25 MB is deleted and the upload ends `too_large`
+   (413). An object of any other size than was declared is deleted with a plain 400, and
+   the upload stays `pending` and uncounted for the reaper (Orphaned uploads). If the hash matches an earlier upload that was
    ingested into a work that is `live` or `hidden` (that upload's status is
    `live`, `held_for_review` or `duplicate`, with a `work_id`), the new upload
    is marked `duplicate` straight away, with `work_id` set to that work:
@@ -847,10 +852,19 @@ can be snapshotted.
   binding), keyed `pos:<user id>:<AO3 work id>`, with a value of the chapter
   number (none on the entire-work page) and a scroll percentage. A script on
   the reading pages saves it five seconds after the reader stops scrolling, and
-  when the page is hidden. It expires after a year. The work page's "Continue
-  where you left off" link names the chapter in its path and the percentage in a
-  `#pos=` fragment, which the script reads once to scroll back; the work page
-  itself never moves the reader.
+  when the page is hidden. The save keeps the furthest point within a chapter, and
+  within the entire-work page: the endpoint reads the stored value and keeps the
+  larger percentage when the chapter number is the same (none against none counts as
+  the same), so scrolling back up and leaving, or rereading from the start, never
+  lowers what the Continue link offers. Only a different chapter number replaces the
+  stored place, whatever its percentage, and going between a chapter and the
+  entire-work page counts as a different place too. The read and the write are not
+  atomic, and KV can return a value a little stale from another location, so two
+  tabs, or two saves from different places in quick succession, can race and the
+  last write wins: the furthest point is kept in practice, not guaranteed. It
+  expires after a year. The work page's "Continue where you left off" link names
+  the chapter in its path and the percentage in a `#pos=` fragment, which the
+  script reads once to scroll back; the work page itself never moves the reader.
 - "Download original epub" serves the file from `originals/` with
   `Content-Disposition: attachment` from `content.rarepair.fans`. It's never
   displayed inline. The link names the current version's upload, or for a
@@ -1452,9 +1466,33 @@ markup: its inline `style` attributes become stylesheet rules, because
   Object). There are two daily tiers: new accounts get a lower limit, trusted
   users a higher one. The numbers and the rule for "trusted" are configuration,
   set before launch from load testing.
-- **Orphaned uploads.** A presigned PUT can't enforce a size limit, and a
-  client may never call `/complete`. So `/complete` deletes oversized objects,
-  and an R2 lifecycle rule expires anything under `uploads/` after 7 days.
+- **Orphaned uploads.** Each presigned PUT signs the size declared for its file as
+  `Content-Length`, but nothing shows that this stops a PUT of another size:
+  Cloudflare's docs say a signed `Content-Type` is enforced and, as far as two searches
+  on 2026-11-05 found, don't say whether a signed `Content-Length` is. The live check on
+  real R2 is on the operator's list for after deploy. So a file that reaches `/complete` is checked
+  either way: it deletes an object over 25 MB or of any other size than was declared, unless a
+  confirm has already counted the upload, when the object is ingest's. A client may also never
+  call `/complete`, so three more limits apply. An account's open uploads (`pending` and not
+  counted by a confirm) can't pass its daily quota for its tier: asking past that cap gets 429
+  with a `Retry-After` of an hour, the row lock in `insertUploadsWithinCap` holding it under
+  parallel asks. The daily sweep's reaper deletes open uploads older than `UNCONFIRMED_UPLOAD_DAYS`
+  (`apps/sweep`, 1 day, 7 at most), the row first and then the objects of the rows actually
+  deleted, so they leave My uploads; with a daily run, a row lives one to two days. A run reaps
+  at most 500,000 rows, and the next takes the rest. A confirmed upload is never reaped, whatever
+  its age. And an R2 lifecycle rule expires anything under `uploads/` after 7 days, which also
+  takes an object whose delete failed.
+  **What an account can store depends on the live check.** Nothing checks the size of an object
+  nobody confirms. If R2 enforces the signed size, an account holds at most its cap times 25 MB
+  through unfinished links: 500 MB on the new-account quota of 20, 2.5 GB on the trusted 100. If R2
+  doesn't, each link can hold what one PUT can (5 GiB by R2's limit, as far as its docs say), so
+  about 100 GiB per new account for the day or two until the reaper runs. Those are the bounds on
+  unfinished links, not on an account. A link still works for its 10 minutes after confirm, so a
+  file can be replaced behind a counted upload, where neither the cap nor the reaper sees it
+  until the 7-day rule: a day's quota of 20 for 8 days holds about 4 GB if R2 enforces the size,
+  about 800 GiB if it doesn't. A link whose upload has ended has no per-account bound at all,
+  only the rate limits and Turnstile (the open bugs #635 and #637). Since the cap is the daily quota, raising
+  `UPLOAD_QUOTA_NEW` raises these bounds with it, and a quota under 10 can't take a full batch of 10.
   Raw files the archive keeps are copied to `originals/` during ingest.
 - Queue backpressure: set a maximum consumer concurrency so Neon connections
   stay bounded. Hyperdrive pools connections, and Neon autoscales compute. Each Hyperdrive
@@ -1625,7 +1663,7 @@ apps/web/          Hono Worker: pages, auth, upload handshake, search, admin
 apps/content/      Worker serving epub images and original downloads from R2
 apps/ingest/       Queue consumer: epub processing
 apps/mailer/       Queue consumer: sends email (Resend, with failover)
-apps/sweep/        Daily cron: deletes unreferenced images, orphaned upload prefixes and removed works' leftovers from R2
+apps/sweep/        Daily cron: deletes unreferenced images, orphaned upload prefixes and removed works' leftovers from R2, and uploads left unconfirmed
 packages/epub/     unzip + OPF + AO3 preface parser + sanitizer (tested in workerd)
 packages/db/       SQL migrations + typed queries
 fixtures/epubs/    real AO3 epub samples for parser and sanitizer tests

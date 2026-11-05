@@ -405,11 +405,81 @@ export async function insertUpload(
   return { id: row.id, status: "pending" };
 }
 
-/** The upload `/complete` needs to act on: its R2 key and where it stands. */
+/**
+ * An open upload: asked for, and not yet counted by a confirm. The cap counts these, the reaper
+ * removes them, and a confirm's claim takes a row out of them.
+ */
+const isOpenUpload = (eb: ExpressionBuilder<Database, "uploads">) =>
+  eb.and([eb("status", "=", "pending"), eb("quota_counted_at", "is", null)]);
+
+/**
+ * Inserts a batch of `pending` uploads, all or none, unless they would take the account's open
+ * uploads (`pending` and not counted by a confirm) past `cap`; then says how many still fit. The
+ * user's row is locked first, so parallel asks count one after another and can't pass the cap
+ * together.
+ */
+export async function insertUploadsWithinCap(
+  db: Kysely<Database>,
+  userId: string,
+  uploads: { id: string; r2Key: string; bytes: number }[],
+  cap: number,
+): Promise<{ inserted: true } | { inserted: false; left: number }> {
+  return db.transaction().execute(async (trx) => {
+    await trx.selectFrom("user").select("id").where("id", "=", userId).forNoKeyUpdate().execute();
+    const { open } = await trx
+      .selectFrom("uploads")
+      .select((eb) => eb.fn.countAll<string>().as("open"))
+      .where("user_id", "=", userId)
+      .where(isOpenUpload)
+      .executeTakeFirstOrThrow();
+    const left = Math.max(0, cap - Number(open));
+    if (uploads.length > left) return { inserted: false, left };
+    await trx
+      .insertInto("uploads")
+      .values(
+        uploads.map(({ id, r2Key, bytes }) => ({ id, user_id: userId, r2_key: r2Key, bytes })),
+      )
+      .execute();
+    return { inserted: true };
+  });
+}
+
+/**
+ * Deletes up to `limit` uploads still unconfirmed (`pending`, not counted by a confirm) and
+ * created before `cutoff`, and returns the R2 keys of the rows it deleted. The row goes first: a
+ * confirm's claim uses the same predicate, so a row is either claimed or deleted, and only a
+ * deleted row's object is the caller's to remove. A row someone holds locked is passed over for
+ * a later run, so this waits on no confirm or ban.
+ */
+export async function deleteUnconfirmedUploads(
+  db: Kysely<Database>,
+  cutoff: Date,
+  limit: number,
+): Promise<string[]> {
+  const rows = await db
+    .deleteFrom("uploads")
+    .where("id", "in", (eb) =>
+      eb
+        .selectFrom("uploads")
+        .select("id")
+        .where(isOpenUpload)
+        .where("created_at", "<", cutoff)
+        .limit(limit)
+        .forUpdate()
+        .skipLocked(),
+    )
+    .returning("r2_key")
+    .execute();
+  return rows.map((row) => row.r2_key);
+}
+
+/** The upload `/complete` needs to act on: its R2 key, its declared size and where it stands. */
 export interface OwnUpload {
   id: string;
   r2_key: string;
+  bytes: number;
   status: UploadStatus;
+  quota_counted_at: Date | null;
 }
 
 /** The upload with this id if `userId` made it, else null: another user's is no different from none. */
@@ -420,7 +490,7 @@ export async function getUploadOf(
 ): Promise<OwnUpload | null> {
   const row = await db
     .selectFrom("uploads")
-    .select(["id", "r2_key", "status"])
+    .select(["id", "r2_key", "bytes", "status", "quota_counted_at"])
     .where("id", "=", id)
     .where("user_id", "=", userId)
     .executeTakeFirst();
@@ -471,13 +541,16 @@ export async function recordUploadHash(
   });
 }
 
-/** Marks a `pending` upload `too_large`. False when it wasn't `pending`. */
+/**
+ * Marks an open upload `too_large`. False when it wasn't `pending`, or when a confirm has counted
+ * it: that upload is in the queue, and its object is ingest's to read and to refuse.
+ */
 export async function rejectOversizedUpload(db: Kysely<Database>, id: string): Promise<boolean> {
   const row = await db
     .updateTable("uploads")
     .set({ status: "too_large" })
     .where("id", "=", id)
-    .where("status", "=", "pending")
+    .where(isOpenUpload)
     .returning("id")
     .executeTakeFirst();
   return row !== undefined;
@@ -498,8 +571,7 @@ export async function rejectOverQuotaUpload(
     .set({ status: "over_quota" })
     .where("id", "=", id)
     .where("user_id", "=", userId)
-    .where("status", "=", "pending")
-    .where("quota_counted_at", "is", null)
+    .where(isOpenUpload)
     .returning("id")
     .executeTakeFirst();
   return row !== undefined;
@@ -577,8 +649,7 @@ export async function countUploadQuota(
       .where("id", "=", uploadId)
       .where("user_id", "=", userId)
       // An upload another request has rejected is never counted, nor queued after it.
-      .where("status", "=", "pending")
-      .where("quota_counted_at", "is", null)
+      .where(isOpenUpload)
       .returning("id")
       .executeTakeFirst();
     if (claimed === undefined) {
