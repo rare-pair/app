@@ -38,6 +38,12 @@ html {
 
 body {
   margin: 0;
+  /* The screen's height at least, so a short page's footer sits at the bottom of it. 100vh
+     is the fallback: on phones it is taller than the visible screen, which 100dvh is. */
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
   background: var(--paper);
   color: var(--ink);
   font-family: var(--ui);
@@ -80,6 +86,18 @@ footer {
   max-width: 66ch;
   margin: 0 auto;
   padding: 0 calc(var(--space) * 4);
+}
+
+/* Auto margins stop a flex item stretching, so the site's own header, main and footer take
+   the column's width (less their padding, as they are content-box) to keep it. */
+body > header,
+body > main,
+body > footer {
+  width: calc(100% - var(--space) * 8);
+}
+
+body > main {
+  flex: 1 0 auto;
 }
 
 header {

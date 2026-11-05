@@ -27,6 +27,7 @@ fandoms and pseuds in it are invented placeholders.
 | Original AO3 link | A live link with a note that it works again once AO3 is back. Nothing changes automatically when AO3 returns; redirecting works to AO3 is part of a later wind-down the operator starts by hand |
 | Discovery output | This doc plus low-fidelity clickable wireframes |
 | Coming-soon typography | The coming-soon page and the other wait list pages are set in Fraunces, with IBM Plex Mono for labels and buttons. Both are self-hosted on `rarepair.fans` as their publishers' own woff2 files, unmodified, with their OFL licences served beside them and linked from `/about`, not from the wait list pages. They aren't subset or renamed internally by us, because IBM Plex's licence reserves the name "Plex". Only their file names are ours, content-hashed. Never a third-party font host. Every other page keeps the system stacks (*Typographic system*) |
+| Page fill | Every page fills the screen. `body` has a minimum height of the screen (`100dvh`, with `100vh` as the fallback, because on phones `100vh` is taller than the visible screen and a short page would scroll), `main` grows, and the footer sits at the bottom of a short page. A long page scrolls as before, with the footer after its content. The header, main and footer keep their centred column width, and the banner stays full width |
 
 ## Principles
 

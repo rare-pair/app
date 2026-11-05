@@ -105,7 +105,10 @@ an unofficial stopgap.
     (Crawlers and agents).
   - The content Worker keeps no per-request log (invocation logs are off), so its
     logs hold no reader address next to a work id. Errors and metrics are kept;
-    traces stay on and may record the request URL.
+    traces are off too, so no reading data reaches them (the URL carries the work
+    id). An operator may turn them on to chase a live fault, which records request
+    URLs until they are turned off again, so only for as long as the fault needs.
+    `apps/content/test/wrangler.test.ts` holds traces off, so that change edits it too.
   - The content Worker sits in front of the CDN cache, so it keeps its own: a plain
     `GET` for an image or an original is answered from the data centre's cache
     (`caches.default`, keyed by the bare URL) without an R2 read once the first
@@ -842,10 +845,19 @@ can be snapshotted.
   binding), keyed `pos:<user id>:<AO3 work id>`, with a value of the chapter
   number (none on the entire-work page) and a scroll percentage. A script on
   the reading pages saves it five seconds after the reader stops scrolling, and
-  when the page is hidden. It expires after a year. The work page's "Continue
-  where you left off" link names the chapter in its path and the percentage in a
-  `#pos=` fragment, which the script reads once to scroll back; the work page
-  itself never moves the reader.
+  when the page is hidden. The save keeps the furthest point within a chapter, and
+  within the entire-work page: the endpoint reads the stored value and keeps the
+  larger percentage when the chapter number is the same (none against none counts as
+  the same), so scrolling back up and leaving, or rereading from the start, never
+  lowers what the Continue link offers. Only a different chapter number replaces the
+  stored place, whatever its percentage, and going between a chapter and the
+  entire-work page counts as a different place too. The read and the write are not
+  atomic, and KV can return a value a little stale from another location, so two
+  tabs, or two saves from different places in quick succession, can race and the
+  last write wins: the furthest point is kept in practice, not guaranteed. It
+  expires after a year. The work page's "Continue where you left off" link names
+  the chapter in its path and the percentage in a `#pos=` fragment, which the
+  script reads once to scroll back; the work page itself never moves the reader.
 - "Download original epub" serves the file from `originals/` with
   `Content-Disposition: attachment` from `content.rarepair.fans`. It's never
   displayed inline. The link names the current version's upload, or for a
@@ -1498,7 +1510,8 @@ markup: its inline `style` attributes become stylesheet rules, because
 - Observability: Workers Logs and traces are on from day one, except that the
   web and content Workers' per-request invocation logs are off (their URLs carry
   the AO3 work id, and the web Worker's the chapter too); their errors and metrics
-  stay on. Track queue depth, ingest failure
+  stay on, and the content Worker's traces are off too (turned on only for a live
+  fault). Track queue depth, ingest failure
   rate and search p95 on a dashboard, with crawler refusals by reason and throttled
   reads, each counted from a log line holding only the reason.
 

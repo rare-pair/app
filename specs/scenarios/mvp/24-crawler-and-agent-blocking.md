@@ -85,7 +85,7 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - GIVEN a refused request on `content.rarepair.fans`
 - WHEN the refusal is recorded
 - THEN no log line holds the URL, the work id or the client's address
-- AND traces stay as ARCHITECTURE § Why these pieces (Hosts) has them, which may record the request URL
+- AND the content Worker's traces are off, as ARCHITECTURE § Why these pieces (Hosts) has them, so none records the request URL
 
 ### Counting refusals does not log what people read
 - GIVEN the web Worker's logs are on so refusals can be counted
