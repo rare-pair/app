@@ -12,9 +12,9 @@ const WAITLIST_STYLESHEET_PATH = "/assets/waitlist/waitlist.81645bab20ed0f3f.css
 
 /**
  * A whole wait list page: the shared layout, set in the wait list's web fonts (their
- * licences are linked from /about, not here). Put a wait list form in a .waitlist form for its styles. The
- * layout escapes the title; the body and head are trusted markup, never escaped:
- * escape any value first.
+ * licences are linked from /about, not here). Put a wait list form in a .waitlist form
+ * for its styles. The layout escapes the title; the body and head are trusted markup,
+ * never escaped: escape any value first.
  */
 export const waitlistPage = (title: string, body: string, head = "") =>
   layout(title, body, `<link rel="stylesheet" href="${WAITLIST_STYLESHEET_PATH}">${head}`);

@@ -194,15 +194,12 @@ describe("22-waitlist", () => {
     expect((await fetchW("/assets/waitlist/fonts/PROVENANCE.md")).status).toBe(404);
 
     // No other app page loads a web font. (WL2 and WL3 build the other wait list pages
-    // on waitlistPage, which links the same stylesheet.)
-    // /about links the licence files under /assets/waitlist/, so it is checked for
-    // the font and the wait list stylesheet themselves.
+    // on waitlistPage, which links the same stylesheet.) /about links the two licence
+    // files, so those hrefs are taken out of it before it is checked.
     for (const path of ["/about", "/terms", "/privacy"]) {
-      const other = await (await fetchW(path)).text();
-      expect(other, path).not.toMatch(/woff2|@font-face|\/assets\/waitlist\/waitlist\./);
-    }
-    for (const path of ["/terms", "/privacy"]) {
-      expect(await (await fetchW(path)).text(), path).not.toContain("/assets/waitlist/");
+      let other = await (await fetchW(path)).text();
+      for (const licence of Object.keys(UPSTREAM_LICENCES)) other = other.replace(licence, "");
+      expect(other, path).not.toMatch(/\/assets\/waitlist\/|woff2|@font-face/);
     }
   });
 
