@@ -93,6 +93,47 @@ describe("13-reader-settings-and-position: Reading position saved for signed-in 
   });
 });
 
+describe("13-reader-settings-and-position: Furthest point in a chapter is kept", () => {
+  const mine = async () =>
+    (await stored())
+      .filter(([key]) => key.endsWith(`:${W}`))
+      .map(([, value]) => JSON.parse(value ?? "null"));
+
+  it("A lower position in the same chapter leaves the saved one", async () => {
+    const cookie = await signIn("r6-furthest@example.invalid", { acceptTerms: true });
+    expect((await save(cookie, "n=1&pct=60")).status).toBe(204);
+    expect((await save(cookie, "n=1&pct=0")).status).toBe(204);
+    expect(await mine()).toContainEqual({ n: 1, pct: 60 });
+    expect(await mine()).not.toContainEqual({ n: 1, pct: 0 });
+  });
+
+  it("A higher position in the same chapter raises the saved one", async () => {
+    const cookie = await signIn("r6-further@example.invalid", { acceptTerms: true });
+    expect((await save(cookie, "n=1&pct=30")).status).toBe(204);
+    expect((await save(cookie, "n=1&pct=45")).status).toBe(204);
+    expect(await mine()).toContainEqual({ n: 1, pct: 45 });
+    expect(await mine()).not.toContainEqual({ n: 1, pct: 30 });
+  });
+
+  it("Another chapter's position replaces the saved one, even a lower one", async () => {
+    const cookie = await signIn("r6-other-chapter@example.invalid", { acceptTerms: true });
+    expect((await save(cookie, "n=1&pct=90")).status).toBe(204);
+    expect((await save(cookie, "n=2&pct=10")).status).toBe(204);
+    const values = await mine();
+    expect(values).toContainEqual({ n: 2, pct: 10 });
+    expect(values).not.toContainEqual({ n: 1, pct: 90 });
+  });
+
+  it("The entire-work page keeps its furthest point and replaces a chapter's", async () => {
+    const cookie = await signIn("r6-full-furthest@example.invalid", { acceptTerms: true });
+    expect((await save(cookie, "pct=70")).status).toBe(204);
+    expect((await save(cookie, "pct=20")).status).toBe(204);
+    expect(await mine()).toContainEqual({ n: null, pct: 70 });
+    expect((await save(cookie, "n=3&pct=5")).status).toBe(204);
+    expect(await mine()).toContainEqual({ n: 3, pct: 5 });
+  });
+});
+
 describe("13-reader-settings-and-position: Entire work view saves position", () => {
   it("A signed-in entire-work page carries the position script, async, with the page's nonce", async () => {
     const cookie = await signIn("r6-full@example.invalid", { acceptTerms: true });

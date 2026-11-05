@@ -788,7 +788,14 @@ can be snapshotted.
   binding), keyed `pos:<user id>:<AO3 work id>`, with a value of the chapter
   number (none on the entire-work page) and a scroll percentage. A script on
   the reading pages saves it five seconds after the reader stops scrolling, and
-  when the page is hidden. It expires after a year. The work page's "Continue
+  when the page is hidden. Within the same chapter (or on the entire-work page)
+  the save keeps the furthest point: the endpoint reads the stored value and
+  keeps the larger percentage when the chapter number is the same, so scrolling
+  back up and leaving, or rereading from the start, never lowers what the
+  Continue link offers. Only a different chapter number (or the entire-work page
+  after a chapter, or the other way round) replaces the stored place, whatever
+  its percentage. Two tabs can race on that read and write; the last write wins.
+  It expires after a year. The work page's "Continue
   where you left off" link names the chapter in its path and the percentage in a
   `#pos=` fragment, which the script reads once to scroll back; the work page
   itself never moves the reader.
