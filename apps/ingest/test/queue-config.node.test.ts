@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   BACKFILL_QUEUE,
+  INGEST_DLQ,
   INGEST_QUEUE,
   LEASE_RENEW_SECONDS,
   LEASE_SECONDS,
@@ -17,7 +18,7 @@ interface Consumer {
   max_concurrency: number;
   max_retries: number;
   retry_delay: number;
-  dead_letter_queue: string;
+  dead_letter_queue?: string;
 }
 
 /** The consumers in wrangler.jsonc, read with its line comments and trailing commas removed. */
@@ -42,7 +43,27 @@ const consumer = () => consumerOf("ingest");
 
 describe("04-ingest-job-lifecycle", () => {
   it("Consumer concurrency stays bounded under a flood", () => {
-    expect(consumer()).toMatchObject({ queue: "ingest", max_batch_size: 5, max_concurrency: 2 });
+    expect(consumer()).toMatchObject({ queue: "ingest", max_concurrency: 2 });
+  });
+
+  it("One upload is handled per invocation", () => {
+    // So a crash in one job has no batch-mate to spend the retries of.
+    expect(consumer().max_batch_size).toBe(1);
+  });
+
+  it("The dead-letter consumer outlasts a short Postgres outage and a dying job's lease", () => {
+    const dlq = consumerOf(INGEST_DLQ);
+    // One message and one invocation at a time, retried for an hour before it is deleted.
+    expect(dlq).toMatchObject({
+      max_batch_size: 1,
+      max_concurrency: 1,
+      max_retries: 30,
+      retry_delay: 120,
+    });
+    // So the next delivery finds the lease of a job that has just died expired.
+    expect(dlq.retry_delay).toBeGreaterThan(LEASE_SECONDS);
+    // Nothing behind it: a message it can't place is deleted, not moved on.
+    expect(dlq.dead_letter_queue).toBeUndefined();
   });
 
   it("Permanent failure goes to the dead-letter queue as parse_failed", () => {
@@ -79,6 +100,6 @@ describe("07-sanitizing-and-images", () => {
 
   it("The Worker routes the queues wrangler.jsonc binds, and no other", () => {
     // The handler retries a batch from any queue it doesn't name.
-    expect(consumers().map((c) => c.queue)).toEqual([INGEST_QUEUE, BACKFILL_QUEUE]);
+    expect(consumers().map((c) => c.queue)).toEqual([INGEST_QUEUE, INGEST_DLQ, BACKFILL_QUEUE]);
   });
 });
