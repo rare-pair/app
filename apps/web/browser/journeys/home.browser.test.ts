@@ -4,6 +4,7 @@ import { tagHref } from "../../src/tag-links";
 import { seedReadableWork } from "../harness/seed";
 import { useJourneySite } from "../harness/journey";
 import { SITE } from "../harness/site";
+import { startAtHome } from "../harness/walk";
 
 const BIG = "Pw4 Home Bigverse";
 const SMALL = "Pw4 Home Smallverse";
@@ -45,8 +46,7 @@ describe("home journey", () => {
       });
     }
 
-    const page = await (await site.newContext()).newPage();
-    await page.goto(`${SITE}/`);
+    const page = await startAtHome(await site.newContext());
     const titles = () => page.locator("ol.work-list .card-title a").allInnerTexts();
     expect(await page.locator("ul.fandom-list a").allInnerTexts()).toEqual([BIG, SMALL]);
     expect(await titles()).toEqual(WORKS.map((w) => w.title).reverse());

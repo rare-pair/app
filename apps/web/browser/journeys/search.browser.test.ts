@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { seedReadableWork } from "../harness/seed";
 import { useJourneySite } from "../harness/journey";
 import { SITE } from "../harness/site";
+import { startAtHome } from "../harness/walk";
 
 // AO3 work ids 42140-42163 are this file's. One work has a word of its own in its title, its
 // byline and its tag; 22 more share another word in their titles, for a second page of two: the
@@ -67,8 +68,7 @@ describe("search journey", () => {
       tags: [{ type: "fandom", name: BETA }],
     });
 
-    const page = await (await site.newContext()).newPage();
-    await page.goto(`${SITE}/`);
+    const page = await startAtHome(await site.newContext());
 
     // By title from the home page's box, then by tag, then by author, from the results' form.
     await search(page, "Pw4Zephyrine");

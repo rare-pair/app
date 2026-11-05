@@ -12,6 +12,7 @@ import {
 import { seedReadableWork } from "../harness/seed";
 import { signedIn } from "../harness/sessions";
 import { SITE } from "../harness/site";
+import { byAddress, startAtHome, viaHeader } from "../harness/walk";
 
 // A moderator acts on a person: blocking a requester, and banning an uploader. Blocking is checked
 // where it takes effect, when the requester presses their emailed link (confirmRequest reads the
@@ -30,7 +31,7 @@ describe("account journeys", () => {
   it("A blocked requester's confirmed request only queues", async () => {
     const { site } = running;
     const mod = await signedIn(site, { email: requesterEmail("mod-block"), role: "moderator" });
-    const page = await mod.context.newPage();
+    const page = await startAtHome(mod.context);
     const spree = { email: requesterEmail("requester-block"), ipHash: "pw6-ip-block" };
     const first = await seedReadableWork(site, {
       ao3WorkId: 42340,
@@ -55,7 +56,9 @@ describe("account journeys", () => {
       confirmTokenHash: hash,
     });
 
-    await page.goto(`${SITE}/admin/requests`);
+    await viaHeader(page, "Admin");
+    await page.getByRole("link", { name: "Requests" }).click();
+    await page.waitForURL(/\/admin\/requests$/);
     await openRow(page, "(42340)");
     await page.getByRole("button", { name: "Block requester" }).click();
     await expect.poll(() => page.locator("main").innerText()).toContain("Requester blocked.");
@@ -63,7 +66,7 @@ describe("account journeys", () => {
     // The requester presses their link, in a browser of their own.
     const requester = await (await site.newContext()).newPage();
     site.dropRecording(requester);
-    await requester.goto(`${SITE}/remove/confirm?token=${token}`);
+    await byAddress(requester, `/remove/confirm?token=${token}`, "an emailed confirmation link");
     await requester.getByRole("button", { name: "Confirm" }).click();
     await expect
       .poll(() => requester.locator("main").innerText())
@@ -86,7 +89,9 @@ describe("account journeys", () => {
       .execute();
     expect(hid).toHaveLength(0);
     // It waits in the queue for a moderator, confirmed (no "(unconfirmed)" mark).
-    await page.goto(`${SITE}/admin/requests`);
+    await viaHeader(page, "Admin");
+    await page.getByRole("link", { name: "Requests" }).click();
+    await page.waitForURL(/\/admin\/requests$/);
     const queued = page.locator("tr", { hasText: "(42341)" });
     await expect.poll(() => queued.count()).toBe(1);
     expect(await queued.innerText()).not.toContain("(unconfirmed)");
@@ -120,23 +125,29 @@ describe("account journeys", () => {
       site.db.selectFrom("uploads").select("id").where("user_id", "=", uploader.userId).execute();
     const before = (await uploadsOf()).length;
 
-    await page.goto(`${SITE}/admin/works/42350`);
+    // The work is live and not flagged, so no queue lists it: its admin page has no link yet
+    // (#591).
+    await byAddress(page, "/admin/works/42350", "no queue links a live, unflagged work (#591)");
     await page.getByRole("button", { name: "Ban uploader" }).click();
     await expect.poll(() => page.locator("main").innerText()).toContain("The uploader is banned.");
 
     // The uploader's own view, unrecorded: the pending upload ended, and the form is closed.
-    const own = await uploader.context.newPage();
+    const own = await startAtHome(uploader.context);
     site.dropRecording(own);
-    await own.goto(`${SITE}/me/uploads`);
+    await viaHeader(own, "My uploads");
     const row = own.locator(`li[data-upload-id="${pending}"]`);
     await expect.poll(() => row.locator(".badge").innerText()).toContain("account can't upload");
-    const closed = await own.goto(`${SITE}/upload`);
-    expect(closed?.status()).toBe(403);
+    // The header's Add work link lands on the closed form.
+    const [closed] = await Promise.all([
+      own.waitForResponse((res) => res.url() === `${SITE}/upload`),
+      viaHeader(own, "Add work"),
+    ]);
+    expect(closed.status()).toBe(403);
     await expect
       .poll(() => own.locator("main").innerText())
       .toContain("This account can't upload.");
     // A new upload, asked for as the page's script does, is refused and writes no row.
-    await own.goto(`${SITE}/me/uploads`);
+    await viaHeader(own, "My uploads");
     const attempt = await own.evaluate(async (turnstile) => {
       const body = new URLSearchParams({ size: "1234", "cf-turnstile-response": turnstile });
       const res = await fetch("/uploads", { method: "POST", body });

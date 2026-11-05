@@ -1,10 +1,11 @@
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
 import { describe, expect, it } from "vitest";
 import { uploadThroughPage, useJourneySite } from "../harness/journey";
 import { removalLink } from "../harness/requests";
 import { seedReadableWork } from "../harness/seed";
 import { signedIn } from "../harness/sessions";
 import { SITE } from "../harness/site";
+import { byAddress, startAtHome, viaFooter, viaHeader, viaSearch } from "../harness/walk";
 import { generatedEpub } from "./epubs";
 
 // Removal requests and the opt-out, through the real forms: nothing is hidden until the
@@ -42,7 +43,8 @@ async function sendRemoval(
 
 /** Opens the emailed link and presses Confirm, as the requester does. */
 async function confirmByLink(page: Page, link: string) {
-  await page.goto(link);
+  const { pathname, search } = new URL(link);
+  await byAddress(page, pathname + search, "the link in the requester's confirmation email");
   // Opening the link only shows a button: nothing is confirmed until it is pressed.
   expect(await page.getByRole("button", { name: "Confirm" }).count()).toBe(1);
   await Promise.all([
@@ -68,24 +70,27 @@ describe("removal and opt-out journeys", () => {
       chapterTotal: 2,
     });
     const email = "pw5-removal@example.test";
-    const page = await (await site.newContext()).newPage();
+    const page = await startAtHome(await site.newContext());
 
-    await page.goto(`${SITE}/works/42200`);
+    // From the home page's recent works to the work, and its link to ask for removal.
+    await page.locator(".card-title").getByRole("link", { name: "pw5-Removal work" }).click();
+    await page.waitForURL(/\/works\/42200$/);
     await page.getByRole("link", { name: "Ask for this to be removed" }).click();
     await page.waitForURL(/\/remove\?work=42200/);
     await sendRemoval(page, { email, statement: "A synthetic statement for the moderators." });
     expect(await mainText(page)).toContain("Check your email");
 
     // Asking changed nothing: the work and its chapters are still there.
-    const still = await page.goto(`${SITE}/works/42200`);
-    expect(still?.status()).toBe(200);
+    const still = await viaSearch(page, "pw5-Removal work");
+    expect(still.status()).toBe(200);
     expect(await page.locator(".chapters a").count()).toBe(2);
 
     await confirmByLink(page, await removalLink(site, email));
     expect(await mainText(page)).toContain("Your request is confirmed");
 
     for (const path of ["", "/chapters/1", "/full"]) {
-      const res = await page.goto(`${SITE}/works/42200${path}`);
+      // A hidden work is listed nowhere, so nothing links to its pages.
+      const res = await byAddress(page, `/works/42200${path}`, "a hidden work is listed nowhere");
       expect(res?.status(), path).toBe(451);
       const text = await mainText(page);
       expect(text, path).toContain(HIDDEN_LINE);
@@ -99,8 +104,15 @@ describe("removal and opt-out journeys", () => {
     const { site } = running;
     await seedReadableWork(site, { ao3WorkId: 42201, title: "pw5-Unconfirmed work" });
     const email = "pw5-unconfirmed@example.test";
-    const requester = await (await site.newContext()).newPage();
-    await requester.goto(`${SITE}/remove?work=42201`);
+    const requester = await startAtHome(await site.newContext());
+    // The work's own link keeps the prefill that the footer's would lose.
+    await requester
+      .locator(".card-title")
+      .getByRole("link", { name: "pw5-Unconfirmed work" })
+      .click();
+    await requester.waitForURL(/\/works\/42201$/);
+    await requester.getByRole("link", { name: "Ask for this to be removed" }).click();
+    await requester.waitForURL(/\/remove\?work=42201/);
     await sendRemoval(requester, { email, statement: "pw5 unconfirmed statement" });
     expect(await mainText(requester)).toContain("Check your email");
 
@@ -108,8 +120,10 @@ describe("removal and opt-out journeys", () => {
       email: "pw5-mod-unconfirmed@example.test",
       role: "moderator",
     });
-    const page = await moderator.context.newPage();
-    await page.goto(`${SITE}/admin/requests`);
+    const page = await startAtHome(moderator.context);
+    await viaHeader(page, "Admin");
+    await page.getByRole("link", { name: "Requests" }).click();
+    await page.waitForURL(/\/admin\/requests$/);
     const row = page.locator("tr", { hasText: email });
     await expect.poll(() => row.innerText()).toContain("remove_work (unconfirmed)");
     expect(await row.innerText()).toContain("pw5-Unconfirmed work");
@@ -121,10 +135,24 @@ describe("removal and opt-out journeys", () => {
 
     const reader = await (await site.newContext()).newPage();
     site.dropRecording(reader);
-    // Nothing was hidden: every page of the work still answers 200.
-    for (const path of ["", "/chapters/1", "/full"]) {
-      expect((await reader.goto(`${SITE}/works/42201${path}`))?.status(), path).toBe(200);
-    }
+    // Nothing was hidden: every page of the work still answers 200, reached by its links.
+    const clicking = async (link: Locator) => {
+      const [res] = await Promise.all([
+        reader.waitForResponse(
+          (r) => r.request().isNavigationRequest() && r.request().frame() === reader.mainFrame(),
+        ),
+        link.click(),
+      ]);
+      return res.status();
+    };
+    expect((await viaSearch(reader, "pw5-Unconfirmed work")).status(), "work").toBe(200);
+    expect(await clicking(reader.locator(".chapters a").first()), "chapter").toBe(200);
+    await reader.getByRole("heading", { level: 1 }).getByRole("link").click();
+    await reader.waitForURL(`${SITE}/works/42201`);
+    expect(
+      await clicking(reader.getByRole("link", { name: "Read the entire work on one page" })),
+      "full",
+    ).toBe(200);
   });
 
   it("An opt-out hides every work by the pseud, and a later upload by that pseud is refused", async () => {
@@ -138,25 +166,25 @@ describe("removal and opt-out journeys", () => {
       authors: [{ pseud: "Pw5Sun", ao3_user: "pw5sun" }],
     });
     const email = "pw5-optout@example.test";
-    const page = await (await site.newContext()).newPage();
+    const page = await startAtHome(await site.newContext());
 
-    await page.goto(`${SITE}/remove`);
+    await viaFooter(page, "Remove my work");
     // A different case from the pseud's own: the request is matched without it.
     await sendRemoval(page, { email, pseud: "pw5moon", statement: "A synthetic opt-out." });
     expect(await mainText(page)).toContain("Check your email");
     // Nothing is hidden until the link is confirmed.
-    expect((await page.goto(`${SITE}/works/42210`))?.status()).toBe(200);
+    expect((await viaSearch(page, "pw5-Moon one")).status()).toBe(200);
 
     await confirmByLink(page, await removalLink(site, email));
     expect(await mainText(page)).toContain("Your request is confirmed");
 
     for (const id of [42210, 42211]) {
-      const res = await page.goto(`${SITE}/works/${id}`);
+      const res = await byAddress(page, `/works/${id}`, "a hidden work is listed nowhere");
       expect(res?.status(), String(id)).toBe(451);
       expect(await mainText(page)).toContain(HIDDEN_LINE);
     }
     // Another pseud's work is untouched.
-    expect((await page.goto(`${SITE}/works/42212`))?.status()).toBe(200);
+    expect((await viaSearch(page, "pw5-Sun one")).status()).toBe(200);
 
     // A later upload by the pseud goes through real ingest, which refuses it.
     const { context, userId } = await signedIn(site, {
@@ -169,7 +197,7 @@ describe("removal and opt-out journeys", () => {
       bytes: generatedEpub({ workId: 42213, pseud: "Pw5Moon" }),
     });
     await site.waitForUpload(id, "opted_out");
-    await uploader.goto(`${SITE}/me/uploads`);
+    await viaHeader(uploader, "My uploads");
     const row = uploader.locator(`li[data-upload-id="${id}"]`);
     await expect.poll(() => row.locator(".badge").innerText()).toBe("Rejected");
     await expect

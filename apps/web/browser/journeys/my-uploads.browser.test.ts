@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { useJourneySite } from "../harness/journey";
 import { seedReadableWork } from "../harness/seed";
 import { signedIn } from "../harness/sessions";
-import { SITE, type Site } from "../harness/site";
+import type { Site } from "../harness/site";
+import { startAtHome, viaHeader } from "../harness/walk";
 
 // My uploads follows an upload from Processing to Live: in place by the page's script, and by the
 // head's meta refresh when scripts are off. The row is seeded in Processing, as 21-no-js does,
@@ -46,10 +47,10 @@ describe("My uploads journeys", () => {
       role: "uploader",
     });
     const id = await seedProcessing(site, userId);
-    const page = await context.newPage();
+    const page = await startAtHome(context);
     let loads = 0;
     page.on("load", () => (loads += 1));
-    await page.goto(`${SITE}/me/uploads`);
+    await viaHeader(page, "My uploads");
     const row = page.locator(`li[data-upload-id="${id}"]`);
     await expect.poll(() => row.locator(".badge").innerText()).toBe("Processing");
     expect(await row.getAttribute("data-polling")).not.toBeNull();
@@ -73,10 +74,11 @@ describe("My uploads journeys", () => {
     // Signing in needs scripts (the Turnstile stand-in), so the session is copied across.
     const off = await site.newContext({ javaScript: false });
     await off.addCookies(await signed.context.cookies());
-    const page = await off.newPage();
+    // The header is plain HTML, so its My uploads link works with scripts off.
+    const page = await startAtHome(off);
     let loads = 0;
     page.on("load", () => (loads += 1));
-    await page.goto(`${SITE}/me/uploads`);
+    await viaHeader(page, "My uploads");
     const row = page.locator(`li[data-upload-id="${id}"]`);
     await expect.poll(() => row.locator(".badge").innerText()).toBe("Processing");
     const loadsBefore = loads;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { uploadThroughPage, useJourneySite } from "../harness/journey";
 import { signedIn } from "../harness/sessions";
-import { SITE } from "../harness/site";
+import { startAtHome, viaHeader, viaSearch } from "../harness/walk";
 import { generatedEpub } from "./epubs";
 
 // A byline ingest can't read as one pseud (the operator's ruling on #276): the work goes live, and
@@ -46,8 +46,8 @@ describe("byline journeys", () => {
 
       // A reader sees the work, with the notice that it may be imperfect.
       const reader = await (await site.newContext()).newPage();
-      const res = await reader.goto(`${SITE}/works/${workId}`);
-      expect(res?.status()).toBe(200);
+      const res = await viaSearch(reader, `Synthetic Work ${workId}`);
+      expect(res.status()).toBe(200);
       expect(await reader.locator("main").innerText()).toContain(
         "Chapters may be imperfect; a moderator will check.",
       );
@@ -56,8 +56,10 @@ describe("byline journeys", () => {
         email: `${email.replace("@", "-mod@")}`,
         role: "moderator",
       });
-      const queue = await moderator.context.newPage();
-      await queue.goto(`${SITE}/admin/works`);
+      const queue = await startAtHome(moderator.context);
+      await viaHeader(queue, "Admin");
+      await queue.getByRole("link", { name: "Works to check" }).click();
+      await queue.waitForURL(/\/admin\/works$/);
       const row = queue.locator("tr", { hasText: `(${workId})` });
       await expect.poll(() => row.count()).toBe(1);
       // The one reason, with no other after it.

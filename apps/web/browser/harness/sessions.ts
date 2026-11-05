@@ -1,5 +1,6 @@
-import type { BrowserContext } from "playwright";
+import type { BrowserContext, Page } from "playwright";
 import { SITE, type ContextOptions, type Site } from "./site";
+import { viaHeader } from "./walk";
 
 /**
  * Who a context is signed in as. A reader or an uploader is an ordinary account (an uploader
@@ -29,21 +30,34 @@ export async function signInLink(site: Site, email: string): Promise<string> {
 }
 
 /**
- * Signs `account` in, in a new browser context, as a reader does: the sign-in form (its
- * Turnstile widget solved by the stand-in), then the emailed link's Sign in button. The
- * session cookie is the one the Worker set, with its own flags. Then sets the account's role
- * and, unless `acceptTerms` is false, accepts the terms for it. Use a new email for each
- * call: the sign-in form allows three a minute for one address.
+ * Signs `account` in, in a new browser context, as a reader does: from the home page, the
+ * header's Sign in link, the sign-in form (its Turnstile widget solved by the stand-in), then
+ * the emailed link's Sign in button. The session cookie is the one the Worker set, with its
+ * own flags. Then sets the account's role and, unless `acceptTerms` is false, accepts the terms
+ * for it. Use a new email for each call: the sign-in form allows three a minute for one address.
  */
-export async function signedIn(
+export const signedIn = (site: Site, account: Account, options: ContextOptions = {}) =>
+  // From a blank page, `viaHeader` begins at the home page.
+  signIn(site, account, options, (page) => viaHeader(page, "Sign in"));
+
+/**
+ * `signedIn` for setup, which skips the link: it opens the sign-in page by its address. Use it
+ * for an account a journey needs only to have, such as a second uploader or a reader who
+ * looks at what the journey made, never for the journey's own way in.
+ */
+export const signedInDirect = (site: Site, account: Account, options: ContextOptions = {}) =>
+  signIn(site, account, options, (page) => page.goto(`${SITE}/login`).then(() => undefined));
+
+async function signIn(
   site: Site,
   { email, role = "reader", acceptTerms = true }: Account,
-  options: ContextOptions = {},
+  options: ContextOptions,
+  openSignIn: (page: Page) => Promise<void>,
 ): Promise<SignedIn> {
   const context = await site.newContext(options);
   const page = await context.newPage();
   try {
-    await page.goto(`${SITE}/login`);
+    await openSignIn(page);
     await page.getByLabel("Email address").fill(email);
     await Promise.all([
       page.waitForEvent("load"),

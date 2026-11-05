@@ -4,7 +4,8 @@ import { useJourneySite } from "../harness/journey";
 import { expectLogged, insertRequest, openRow, requesterEmail } from "../harness/moderation";
 import { seedReadableWork } from "../harness/seed";
 import { signedIn } from "../harness/sessions";
-import { SITE, type Site } from "../harness/site";
+import type { Site } from "../harness/site";
+import { byAddress, startAtHome, viaHeader } from "../harness/walk";
 
 // A moderator brings hidden works back: rejecting a request lifts what it hid, reversing an
 // opt-out lifts only its own works, and one press restores the works of a spree of requests.
@@ -27,7 +28,7 @@ describe("restore journeys", () => {
   it("Rejecting a request restores the work it hid", async () => {
     const { site } = running;
     const mod = await signedIn(site, { email: requesterEmail("mod-reject"), role: "moderator" });
-    const page = await mod.context.newPage();
+    const page = await startAtHome(mod.context);
     const hid = await seedReadableWork(site, {
       ao3WorkId: 42310,
       title: "Synthetic Work 42310",
@@ -46,7 +47,9 @@ describe("restore journeys", () => {
     });
     expect(await readerStatus(site, 42310)).toBe(451);
 
-    await page.goto(`${SITE}/admin/requests`);
+    await viaHeader(page, "Admin");
+    await page.getByRole("link", { name: "Requests" }).click();
+    await page.waitForURL(/\/admin\/requests$/);
     await openRow(page, "(42310)");
     await page.getByRole("button", { name: "Reject", exact: true }).click();
     await expect.poll(() => page.locator("main").innerText()).toContain("1 work is live again.");
@@ -72,7 +75,7 @@ describe("restore journeys", () => {
   it("Reversing an opt-out restores only its own works", async () => {
     const { site } = running;
     const mod = await signedIn(site, { email: requesterEmail("mod-optout"), role: "moderator" });
-    const page = await mod.context.newPage();
+    const page = await startAtHome(mod.context);
     const byPseud = { authors: [{ pseud: "Pw6 Opt Out Pseud", ao3_user: null }] };
     const [a, b, c, d] = [42320, 42321, 42322, 42323];
     const own = (ao3WorkId: number, cause: "removal_request" | "moderator") =>
@@ -106,8 +109,15 @@ describe("restore journeys", () => {
     await insertRequest(site, { workId: workD.workId, email: requesterEmail("requester-other") });
     for (const id of [a, b, c, d]) expect(await readerStatus(site, id)).toBe(451);
 
-    // An approved opt-out is no longer in the queue: its page is where Reverse opt-out is.
-    await page.goto(`${SITE}/admin/requests/${optOutId}`);
+    // An approved opt-out is no longer in the queue: its page is where Reverse opt-out is, and
+    // no page links to it (the related-requests list needs a shared email or IP hash, which this
+    // opt-out and the other requester don't share). Reversing an approved opt-out has no way in
+    // until #591.
+    await byAddress(
+      page,
+      `/admin/requests/${optOutId}`,
+      "an approved opt-out is in no queue (#591)",
+    );
     await page.getByRole("button", { name: "Reverse opt-out" }).click();
     await expect
       .poll(() => page.locator("main").innerText())
@@ -135,7 +145,7 @@ describe("restore journeys", () => {
   it("Restoring related works brings back every work a spree hid", async () => {
     const { site } = running;
     const mod = await signedIn(site, { email: requesterEmail("mod-bulk"), role: "moderator" });
-    const page = await mod.context.newPage();
+    const page = await startAtHome(mod.context);
     const spree = { email: requesterEmail("requester-spree"), ipHash: "pw6-ip-spree" };
     const ids = [42330, 42331, 42332];
     const requests: string[] = [];
@@ -161,7 +171,9 @@ describe("restore journeys", () => {
       hid: [other.workId],
     });
 
-    await page.goto(`${SITE}/admin/requests`);
+    await viaHeader(page, "Admin");
+    await page.getByRole("link", { name: "Requests" }).click();
+    await page.waitForURL(/\/admin\/requests$/);
     await openRow(page, "(42330)");
     // The page lists the spree's other requests, and not the unrelated one.
     const related = page.locator("table", {

@@ -9,6 +9,7 @@ import {
 import { R2_HOST } from "../harness/r2-put";
 import { signedIn } from "../harness/sessions";
 import { SITE, type Site } from "../harness/site";
+import { startAtHome, viaHeader } from "../harness/walk";
 import { chapterSentence, generatedEpub } from "./epubs";
 
 // An uploader's files from the page to a reader: the page's script asks for URLs, PUTs each file
@@ -32,7 +33,7 @@ describe("upload journeys", () => {
 
   /** The My uploads row for upload `id`. */
   const myUploadsRow = async (page: Page, id: string) => {
-    await page.goto(`${SITE}/me/uploads`);
+    await viaHeader(page, "My uploads");
     return page.locator(`li[data-upload-id="${id}"]`);
   };
 
@@ -80,9 +81,16 @@ describe("upload journeys", () => {
       .executeTakeFirstOrThrow();
     await site.waitForUpload(upload.id);
 
-    // A reader who is not signed in opens the new work and its chapter.
-    const reader = await (await site.newContext()).newPage();
-    await reader.goto(`${SITE}/works/41900`);
+    // A reader who is not signed in opens the new work and its chapter, from the home page,
+    // where the new work shows in "Recently added".
+    const reader = await startAtHome(await site.newContext());
+    await Promise.all([
+      reader.waitForEvent("load"),
+      reader
+        .locator("ol.work-list")
+        .getByRole("link", { name: "Synthetic Work 41900", exact: true })
+        .click(),
+    ]);
     await reader.locator(".chapters a").first().click();
     await expect
       .poll(() => reader.locator("main").innerText())
@@ -104,7 +112,7 @@ describe("upload journeys", () => {
     await Promise.all(uploads.map((id) => site.waitForUpload(id)));
 
     expect(await worksAmong(site, ids)).toEqual(ids);
-    await page.goto(`${SITE}/me/uploads`);
+    await viaHeader(page, "My uploads");
     await expect.poll(() => page.locator("li[data-status='live']").count()).toBe(3);
   });
 

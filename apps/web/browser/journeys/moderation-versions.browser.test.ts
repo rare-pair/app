@@ -4,7 +4,7 @@ import { uploadThroughPage, useJourneySite } from "../harness/journey";
 import { expectLogged, requesterEmail } from "../harness/moderation";
 import { seedReadableWork } from "../harness/seed";
 import { signedIn } from "../harness/sessions";
-import { SITE } from "../harness/site";
+import { byAddress, startAtHome, viaHeader, viaSearch } from "../harness/walk";
 import { chapterSentence, generatedEpub } from "./epubs";
 
 // A moderator changes which version of a work readers get: Make current points the work at an
@@ -22,7 +22,7 @@ describe("version journeys", () => {
   it("Make current changes the version readers see", async () => {
     const { site } = running;
     const mod = await signedIn(site, { email: requesterEmail("mod-current"), role: "moderator" });
-    const page = await mod.context.newPage();
+    const page = await startAtHome(mod.context);
     const first = await seedReadableWork(site, {
       ao3WorkId: 42360,
       title: "Synthetic Work 42360",
@@ -36,21 +36,27 @@ describe("version journeys", () => {
 
     const reader = await (await site.newContext()).newPage();
     site.dropRecording(reader);
-    await reader.goto(`${SITE}/works/42360`);
+    await viaSearch(reader, "Synthetic Work 42360");
     expect(await reader.locator(".chapters a").count()).toBe(3);
 
-    await page.goto(`${SITE}/admin/works/42360`);
+    // The work is live and not flagged, so no queue lists it: its admin page has no link yet
+    // (#591).
+    await byAddress(page, "/admin/works/42360", "no queue links a live, unflagged work (#591)");
     // Oldest first: the first row is the first version.
     await page.locator("tbody tr").first().getByRole("button", { name: "Make current" }).click();
     await expect
       .poll(() => page.locator("main").innerText())
       .toContain("That version is now current.");
 
-    await reader.goto(`${SITE}/works/42360`);
+    await reader.reload();
     await expect.poll(() => reader.locator(".chapters a").count()).toBe(2);
     await reader.locator(".chapters a").first().click();
     await expect.poll(() => reader.locator("main").innerText()).toContain("Text of version 1");
-    const gone = await reader.goto(`${SITE}/works/42360/chapters/3`);
+    const gone = await byAddress(
+      reader,
+      "/works/42360/chapters/3",
+      "a chapter that's gone has no link",
+    );
     expect(gone?.status()).toBe(404);
     await expectLogged(site, {
       action: "make_current",
@@ -64,7 +70,7 @@ describe("version journeys", () => {
   it("A held version is approved from Works to check", async () => {
     const { site } = running;
     const mod = await signedIn(site, { email: requesterEmail("mod-held"), role: "moderator" });
-    const page = await mod.context.newPage();
+    const page = await startAtHome(mod.context);
     const uploader = await signedIn(site, {
       email: requesterEmail("uploader-held"),
       role: "uploader",
@@ -101,10 +107,12 @@ describe("version journeys", () => {
 
     const reader = await (await site.newContext()).newPage();
     site.dropRecording(reader);
-    await reader.goto(`${SITE}/works/42361`);
+    await viaSearch(reader, "Synthetic Work 42361");
     expect(await reader.locator(".chapters a").count()).toBe(2);
 
-    await page.goto(`${SITE}/admin/works`);
+    await viaHeader(page, "Admin");
+    await page.getByRole("link", { name: "Works to check" }).click();
+    await page.waitForURL(/\/admin\/works$/);
     const row = page.locator("tr", { hasText: "(42361)" });
     await expect.poll(() => row.innerText()).toContain("Held version");
     await row.getByRole("link").click();
@@ -114,14 +122,16 @@ describe("version journeys", () => {
       .toContain("That version is approved and now current.");
 
     // Readers get three chapters, and the third now reads.
-    await reader.goto(`${SITE}/works/42361`);
+    await reader.reload();
     await expect.poll(() => reader.locator(".chapters a").count()).toBe(3);
     await reader.locator(".chapters a").nth(2).click();
     await expect
       .poll(() => reader.locator("main").innerText())
       .toContain(chapterSentence(42361, 3));
     // The work has left Works to check.
-    await page.goto(`${SITE}/admin/works`);
+    await viaHeader(page, "Admin");
+    await page.getByRole("link", { name: "Works to check" }).click();
+    await page.waitForURL(/\/admin\/works$/);
     await expect.poll(() => page.locator("h1").innerText()).toContain("Works to check");
     expect(await page.locator("tr", { hasText: "(42361)" }).count()).toBe(0);
     await expectLogged(site, {
