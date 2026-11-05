@@ -827,8 +827,9 @@ export async function hideWork(
  * reporter count and the next report doesn't hide it again. True when it
  * restored it. With `cause`, only a work hidden for that cause comes back (a
  * rejected removal request lifts its own hide, not a moderator's). With
- * `noPendingRequests`, it stays hidden while any confirmed request for it is pending. A live or
- * removed work is left as it is (a hidden work always has
+ * `noPendingRequests`, it stays hidden while any confirmed request for it is pending.
+ * With `keepReportsOpen`, the reports stay open: a decision on a request says
+ * nothing about them. A live or removed work is left as it is (a hidden work always has
  * a current version: the schema's check, so it can't come back without one).
  *
  * With `actor`, the acting moderator's user id, it also logs the restore when it
@@ -838,7 +839,12 @@ export async function hideWork(
 export async function restoreWork(
   db: Kysely<Database>,
   workId: string,
-  options: { cause?: HiddenCause; noPendingRequests?: boolean; actor?: string } = {},
+  options: {
+    cause?: HiddenCause;
+    noPendingRequests?: boolean;
+    keepReportsOpen?: boolean;
+    actor?: string;
+  } = {},
 ): Promise<boolean> {
   return inTransaction(db, async (trx) => {
     let update = trx
@@ -866,12 +872,14 @@ export async function restoreWork(
     }
     const result = await update.executeTakeFirst();
     if (result.numUpdatedRows === 0n) return false;
-    await trx
-      .updateTable("reports")
-      .set({ status: "closed" })
-      .where("work_id", "=", workId)
-      .where("status", "=", "open")
-      .execute();
+    if (options.keepReportsOpen !== true) {
+      await trx
+        .updateTable("reports")
+        .set({ status: "closed" })
+        .where("work_id", "=", workId)
+        .where("status", "=", "open")
+        .execute();
+    }
     if (options.actor !== undefined) {
       await logModerationAction(trx, {
         moderatorId: options.actor,

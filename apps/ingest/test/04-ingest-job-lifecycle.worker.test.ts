@@ -10,6 +10,7 @@ import {
   seededWork,
   failingPut,
   gated,
+  ingestReal,
   liveWork,
   freshAo3WorkId,
   parsedWork,
@@ -17,11 +18,14 @@ import {
   savedRows,
   searchedIds,
   setLease,
+  sweptBucket,
   token,
   uploadRow,
   watchedPuts,
   watchedWorker,
+  withDb,
 } from "./helpers";
+import { sweep } from "../../sweep/src/sweep";
 import type { Steps } from "../src/worker";
 
 // The lease cases look at the upload while its job holds it: their save leaves it `processing`.
@@ -530,6 +534,187 @@ describe("04-ingest-job-lifecycle", () => {
     expect(row.status).toBe("parse_failed");
     expect(row.error_stage).toBe("save");
     expect(row.error).toBe("RangeError");
+  });
+
+  it("A job that dies for good is recorded as failed", async () => {
+    // Never claimed: every delivery died before the job ran.
+    const pending = await pendingUpload(null);
+    // Claimed, and the job died holding it.
+    const processing = await pendingUpload(null);
+    await setLease(processing, "-1 minute");
+
+    const result = await deliver([{ upload_id: pending }, { upload_id: processing }], {
+      queue: "ingest-dlq",
+    });
+
+    for (const id of [pending, processing]) {
+      expect(await uploadRow(id)).toEqual({
+        status: "parse_failed",
+        lease_until: null,
+        // Nothing recorded where it stopped: the stage is unknown.
+        error_stage: null,
+        error: "dead_lettered",
+        work_id: null,
+      });
+    }
+    expect(result.explicitAcks).toEqual(["msg-0", "msg-1"]);
+    expect(result.retryMessages).toEqual([]);
+  });
+
+  it("A dead-letter message for a finished upload changes nothing", async () => {
+    const live = (await ingestReal(ao3Epub({ workId: 60100 }))).id;
+    const duplicate = (await ingestReal(ao3Epub({ workId: 60100 }))).id;
+    const failed = await pendingUpload(ao3Epub({ workId: 60101 }));
+    const { handler } = watchedWorker({
+      process: async () => {
+        throw new TypeError("injected failure at the process stage");
+      },
+    });
+    await deliver([{ upload_id: failed }], { attempts: 4, handler });
+    const rejected = (await ingestReal(new TextEncoder().encode("not a zip"))).id;
+    const ids = [live, duplicate, failed, rejected];
+    const before = await Promise.all(ids.map(uploadRow));
+    expect(before.map((r) => r.status)).toEqual(["live", "duplicate", "parse_failed", "not_epub"]);
+    const bodies = ids.map((upload_id) => ({ upload_id }));
+
+    for (const delivery of [1, 2]) {
+      const result = await deliver(bodies, { queue: "ingest-dlq", attempts: delivery });
+
+      // The job's own stage and error stay on the failed one.
+      expect(await Promise.all(ids.map(uploadRow))).toEqual(before);
+      expect(result.explicitAcks).toEqual(["msg-0", "msg-1", "msg-2", "msg-3"]);
+      expect(result.retryMessages).toEqual([]);
+    }
+  });
+
+  it("A repeat dead-letter message for an upload it failed is harmless", async () => {
+    const id = await pendingUpload(null);
+
+    await deliver([{ upload_id: id }], { queue: "ingest-dlq" });
+    const first = await uploadRow(id);
+    const result = await deliver([{ upload_id: id }], { queue: "ingest-dlq" });
+
+    expect(first.status).toBe("parse_failed");
+    expect(await uploadRow(id)).toEqual(first);
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+  });
+
+  it("A dead-letter message waits while the upload's lease is live", async () => {
+    // A job may be running under this lease, or may have died just before the message moved:
+    // the queue's last delivery can reach the dead-letter queue with its lease still live.
+    const id = await pendingUpload(null);
+    const until = await setLease(id, "1 minute");
+
+    const held = await deliver([{ upload_id: id }], { queue: "ingest-dlq" });
+
+    const row = await uploadRow(id);
+    expect(row.status).toBe("processing");
+    expect(row.lease_until).toEqual(until);
+    expect(held.retryMessages.map((m) => m.msgId)).toEqual(["msg-0"]);
+    expect(held.explicitAcks).toEqual([]);
+
+    // The job died: a later delivery finds the lease expired, and fails the upload.
+    await setLease(id, "-1 second");
+    const later = await deliver([{ upload_id: id }], { queue: "ingest-dlq", attempts: 2 });
+
+    expect((await uploadRow(id)).status).toBe("parse_failed");
+    expect(later.explicitAcks).toEqual(["msg-0"]);
+  });
+
+  it("A job that outlives its lease saves nothing once its upload has failed", async () => {
+    const workId = 60103;
+    const id = await pendingUpload(ao3Epub({ workId }));
+    let enter = () => {};
+    let release = () => {};
+    const entered = new Promise<void>((resolve) => (enter = resolve));
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const { handler } = watchedWorker({
+      // Never renewed while it waits, so its lease lapses with the job still alive.
+      timing: { seconds: 1, renewSeconds: 60 },
+      bucket: beforePut(async (key) => {
+        if (!key.startsWith("originals/")) return;
+        enter();
+        await released;
+      }),
+    });
+
+    const job = deliver([{ upload_id: id }], { handler });
+    await entered;
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const dead = await deliver([{ upload_id: id }], { queue: "ingest-dlq" });
+    release();
+    const result = await job;
+
+    expect(dead.explicitAcks).toEqual(["msg-0"]);
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    const row = await uploadRow(id);
+    expect(row.status).toBe("parse_failed");
+    expect(row.error).toBe("dead_lettered");
+    const saved = await savedRows(workId, id);
+    expect(saved.works).toEqual([]);
+    expect(saved.versions).toEqual([]);
+  });
+
+  it("A dead-letter message for no upload, or with a bad body, is acked", async () => {
+    const result = await deliver(
+      [{ upload_id: crypto.randomUUID() }, { upload_id: 7 }, "not a message"],
+      { queue: "ingest-dlq" },
+    );
+
+    expect(result.explicitAcks).toEqual(["msg-0", "msg-1", "msg-2"]);
+    expect(result.retryMessages).toEqual([]);
+  });
+
+  it("A dead-letter message is retried while Postgres is down", async () => {
+    const id = await pendingUpload(null);
+
+    const result = await deliver([{ upload_id: id }], {
+      queue: "ingest-dlq",
+      connectionString: "postgresql://nobody:nothing@127.0.0.1:1/none",
+    });
+
+    expect(result.retryMessages.map((m) => m.msgId)).toEqual(["msg-0"]);
+    expect(result.explicitAcks).toEqual([]);
+    expect((await uploadRow(id)).status).toBe("pending");
+  });
+
+  it("Once a job has failed for good, the sweep no longer skips its work", async () => {
+    const ao3WorkId = 60102;
+    const work = await seededWork({ ao3WorkId });
+    await putFragments(env.BUCKET, work.fragments);
+    const folder = `works/${ao3WorkId}/`;
+    const image = `${folder}img/${"a".repeat(64)}`;
+    await env.BUCKET.put(image, new Uint8Array([1, 2, 3]));
+    // A job that wrote its fragments, then died on every delivery holding its lease.
+    const id = await pendingUpload(null);
+    await setLease(id, "-1 minute");
+    const left = `${folder}${id}/1.html`;
+    await env.BUCKET.put(left, "<p>Synthetic fragment.</p>");
+
+    // Only this work's folder: the bucket is shared with the other tests' uploads.
+    const run = () =>
+      withDb((db) =>
+        sweep({
+          db,
+          bucket: sweptBucket(folder),
+          // Everything put so far is past the sweep's age limit.
+          cutoff: new Date(Date.now() + 60_000),
+          limits: { works: 1, subrequests: 1000 },
+        }),
+      );
+
+    const stuck = await run();
+    expect(stuck.skipped).toEqual([{ ao3WorkId, reason: "in_flight" }]);
+    expect(await bucketKeys(left)).toEqual([left]);
+    expect(await bucketKeys(image)).toEqual([image]);
+
+    await deliver([{ upload_id: id }], { queue: "ingest-dlq" });
+
+    const after = await run();
+    expect(after.skipped).toEqual([]);
+    expect(after.prefixesDeleted).toBe(1);
+    expect(after.imagesDeleted).toBe(1);
+    expect(await bucketKeys(folder)).toEqual([...work.chapterKeys].sort());
   });
 
   it("logs a failure's class name, never its message", async () => {

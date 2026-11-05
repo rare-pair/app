@@ -159,6 +159,10 @@ export const approveForm = (
 ) =>
   `<form method="post" action="${escapeHtml(`/admin/${queue}/${encodeURIComponent(id)}/approve`)}"><button type="submit">${escapeHtml(label)}</button></form>`;
 
+/** A form that dismisses an open report, by its own id. */
+export const dismissForm = (id: string) =>
+  `<form method="post" action="${escapeHtml(`/admin/reports/${encodeURIComponent(id)}/dismiss`)}"><button type="submit">Dismiss report</button></form>`;
+
 /** A form that restores the works this request and its related removal requests hid. */
 export const restoreRelatedForm = (id: string) =>
   `<form method="post" action="${escapeHtml(`/admin/requests/${encodeURIComponent(id)}/restore-related`)}"><button type="submit">Restore related works (rejects their pending requests)</button></form>`;

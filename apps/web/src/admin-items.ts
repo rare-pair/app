@@ -2,13 +2,14 @@
 // them: hide, restore and remove a work (keyed by its AO3 work ID), and reject or approve an
 // item (keyed by its own id; approving a request or a takedown removes the work). Mounted in admin.ts, behind `adminGate`.
 
-import { hideWork, logModerationAction, restoreWork } from "@archive/db";
+import { dismissReport, hideWork, logModerationAction, restoreWork } from "@archive/db";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import type { AdminEnv } from "./admin";
 import {
   approveConfirmPage,
   approveForm,
   blockRequesterForm,
+  dismissForm,
   itemPage,
   QUEUE_LIMIT,
   rejectForm,
@@ -123,7 +124,8 @@ adminItems.get("/reports/:id{[A-Za-z0-9_-]+}", async (c) => {
     .where("reports.kind", "<>", "wrong_version")
     .executeTakeFirst();
   if (!row) return c.notFound();
-  const self = `/admin/reports/${encodeURIComponent(c.req.param("id"))}`;
+  const id = c.req.param("id");
+  const self = `/admin/reports/${encodeURIComponent(id)}`;
   return c.html(
     itemPage(
       "Report",
@@ -135,7 +137,21 @@ adminItems.get("/reports/:id{[A-Za-z0-9_-]+}", async (c) => {
         ["Work", `${row.title} (${row.ao3_work_id})`],
         ["Work status", workStatusText(row.work_status, row.hidden_cause)],
       ],
-      workActions(row.ao3_work_id, self),
+      `${workActions(row.ao3_work_id, self)}\n${row.status === "open" ? dismissForm(id) : ""}`,
+    ),
+  );
+});
+
+/** Dismissing a report closes it and leaves the work as it is, hidden or live. */
+adminItems.post("/reports/:id{[A-Za-z0-9_-]+}/dismiss", async (c) => {
+  const id = c.req.param("id");
+  const outcome = await dismissReport(c.var.db, id, { actor: c.var.userId });
+  if (outcome === "missing") return c.notFound();
+  if (outcome === "closed") return alreadyDecided(c);
+  return c.html(
+    resultPage(
+      "Report dismissed. This changes nothing on the work: if it is hidden, it stays hidden until you restore it.",
+      `/admin/reports/${encodeURIComponent(id)}`,
     ),
   );
 });
@@ -649,6 +665,10 @@ const notConfirmed = (c: Context<AdminEnv>) =>
     409,
   );
 
+/** The answer to deciding an item that someone already decided. */
+const alreadyDecided = (c: Context<AdminEnv>) =>
+  c.html(resultPage("Nothing changed: it was decided already.", null));
+
 /** A reject that changed no row: 404 for an item that isn't there, else it was decided already. */
 async function decidedOrMissing(c: Context<AdminEnv>, table: "requests" | "takedowns", id: string) {
   const exists = await c.var.db
@@ -657,5 +677,5 @@ async function decidedOrMissing(c: Context<AdminEnv>, table: "requests" | "taked
     .where("id", "=", id)
     .executeTakeFirst();
   if (!exists) return c.notFound();
-  return c.html(resultPage("Nothing changed: it was decided already.", null));
+  return alreadyDecided(c);
 }
