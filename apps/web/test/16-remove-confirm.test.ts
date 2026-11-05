@@ -195,8 +195,14 @@ describe("16-removal-and-opt-out", () => {
       const email = fresh("placeholder");
       let tried = 0;
       const queue: Queue<EmailMessage> = {
-        send: async () => void (tried += 1),
-        sendBatch: async () => void (tried += 1),
+        send: async () => {
+          tried += 1;
+          throw new Error("queue refused");
+        },
+        sendBatch: async () => {
+          tried += 1;
+          throw new Error("queue refused the batch");
+        },
         metrics: async () => ({ backlogCount: 0, backlogBytes: 0 }),
       };
       const { res } = await submit({ email, pseud: "orphan_account" }, { EMAIL: queue });
