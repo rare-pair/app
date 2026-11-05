@@ -106,7 +106,9 @@ an unofficial stopgap.
   - The content Worker keeps no per-request log (invocation logs are off), so its
     logs hold no reader address next to a work id. Errors and metrics are kept;
     traces are off too, so no reading data reaches them (the URL carries the work
-    id). An operator may turn them on to chase a live fault and off again after.
+    id). An operator may turn them on to chase a live fault, which records request
+    URLs until they are turned off again, so only for as long as the fault needs.
+    The config test is changed in the same PR.
   - The content Worker sits in front of the CDN cache, so it keeps its own: a plain
     `GET` for an image or an original is answered from the data centre's cache
     (`caches.default`, keyed by the bare URL) without an R2 read once the first
