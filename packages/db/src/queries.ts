@@ -469,6 +469,7 @@ export interface OwnUpload {
   r2_key: string;
   bytes: number;
   status: UploadStatus;
+  quota_counted_at: Date | null;
 }
 
 /** The upload with this id if `userId` made it, else null: another user's is no different from none. */
@@ -479,7 +480,7 @@ export async function getUploadOf(
 ): Promise<OwnUpload | null> {
   const row = await db
     .selectFrom("uploads")
-    .select(["id", "r2_key", "bytes", "status"])
+    .select(["id", "r2_key", "bytes", "status", "quota_counted_at"])
     .where("id", "=", id)
     .where("user_id", "=", userId)
     .executeTakeFirst();

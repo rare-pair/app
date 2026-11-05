@@ -21,6 +21,7 @@
   // A Worker gets 30 seconds of CPU unless this says more; a run reads and scans many fragments.
   // Five minutes, under the 15-minute wall time a cron invocation has.
   "limits": { "cpu_ms": 300000 },
+  // The upload page's refusal past the cap tells people this age: apps/web/src/quota.ts.
   "vars": { "UNCONFIRMED_UPLOAD_DAYS": "1" },
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "rarepair" }],
   // Neon Postgres. It is the

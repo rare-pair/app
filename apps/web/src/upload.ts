@@ -170,7 +170,8 @@ export async function requestUpload(c: UploadContext) {
     // today's quota has left, so nobody is sent to upload a file that confirm would refuse.
     // Nothing is counted here.
     const quota = await getUploadQuota(db, user.id);
-    if (quota === null) return refuse(401, "Sign in to upload.");
+    // `isBanned` above reads a missing account as banned, so only a race reaches this.
+    if (quota === null) return refuse(403, BANNED_UPLOADER);
     const limit = limitFor(quota.role, c.env);
     const left = Math.max(0, limit - quota.usedToday);
     if (declared.length > left) {

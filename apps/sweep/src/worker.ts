@@ -8,10 +8,10 @@ export interface Env {
   UNCONFIRMED_UPLOAD_DAYS?: string;
 }
 
-/** How old an object must be before the sweep deletes it (operator ruling on #73). */
-const MIN_AGE_MS = 24 * 60 * 60 * 1000;
-
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** How old an object must be before the sweep deletes it (operator ruling on #73). */
+const MIN_AGE_MS = DAY_MS;
 
 /**
  * How old an unconfirmed upload must be before it is removed: the var's whole days, or one when
@@ -33,13 +33,21 @@ export function sweepWorker(limits: Limits = LIMITS) {
       try {
         // The cron's own time, not the clock: a late or retried run judges age the same way.
         const cutoff = new Date(controller.scheduledTime - MIN_AGE_MS);
-        const reaped = await reapUnconfirmedUploads({
-          db,
-          bucket: env.BUCKET,
-          cutoff: new Date(controller.scheduledTime - unconfirmedMaxAgeMs(env)),
-        });
+        // Its own log and its own failure: the next day's run takes what this one leaves, and the
+        // sweep goes on either way.
+        try {
+          const reaped = await reapUnconfirmedUploads({
+            db,
+            bucket: env.BUCKET,
+            cutoff: new Date(controller.scheduledTime - unconfirmedMaxAgeMs(env)),
+          });
+          if (reaped.reapDeleteError === undefined) console.log({ event: "sweep.reap", ...reaped });
+          else console.error({ event: "sweep.reap", ...reaped });
+        } catch (error) {
+          console.error({ event: "sweep.reap", error: errorCode(error) });
+        }
         const report = await sweep({ db, bucket: env.BUCKET, cutoff, limits });
-        console.log({ event: "sweep.run", ...reaped, ...report });
+        console.log({ event: "sweep.run", ...report });
       } catch (error) {
         const code = errorCode(error);
         console.error({ event: "sweep.run", error: code });

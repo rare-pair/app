@@ -116,9 +116,11 @@ export async function completeUpload(c: CompleteContext) {
     };
 
     // Another size than was declared, and signed into the link: refused whatever R2 did at the
-    // PUT, whose check of a signed size Cloudflare's docs don't promise. The row is left as it
-    // is: one never confirmed stays open, so the reaper removes it.
+    // PUT, whose check of a signed size Cloudflare's docs don't promise. The row stays open, so
+    // the reaper removes it. One already counted is in the queue: its confirm is a repeat, and
+    // its object is ingest's to read, as for an over-quota discard.
     const discardWrongSize = async () => {
+      if (upload.quota_counted_at !== null) return taken();
       await deleteObject("an object of the wrong size");
       return refuse(
         400,
@@ -177,13 +179,14 @@ export async function completeUpload(c: CompleteContext) {
 
     // The hash is stored by now, so a failed send leaves a `pending` row that a retried
     // confirm takes through again. Its use of the quota is given back, or the retry would
-    // count it twice.
+    // count it twice. Only by the request that counted it: a repeat's failed send says nothing
+    // of the first's message, and an upload made to look unconfirmed is one the reaper removes.
     try {
       await c.env.INGEST.send({ upload_id: upload.id });
     } catch (error) {
       console.error("ingest queue send failed", error);
       try {
-        await refundUploadQuota(db, user.id, upload.id);
+        if (counted === "counted") await refundUploadQuota(db, user.id, upload.id);
       } catch (refundError) {
         console.error(
           "refunding the quota failed",

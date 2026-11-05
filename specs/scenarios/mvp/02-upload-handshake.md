@@ -140,6 +140,16 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 - AND nothing is counted against the quota and nothing is put on the ingest queue
 - AND the upload stays `pending` and unconfirmed, for the reaper to remove
 
+### A confirmed upload's object is left alone by a repeat confirm of another size
+- GIVEN an upload a confirm has counted and queued, whose object has since been replaced by one of another size
+- WHEN `POST /uploads/:id/complete` is called again
+- THEN the response is 409, and the object stays for ingest to read
+
+### A repeat confirm that can't reach the queue leaves the upload confirmed
+- GIVEN an upload a confirm has counted and queued
+- WHEN `POST /uploads/:id/complete` is called again and the queue refuses the message
+- THEN the response is 503, and the upload stays counted, so the reaper never takes it
+
 ### Asking for links beyond the cap on open uploads is refused
 - GIVEN user U whose open uploads (`pending` and not yet counted by a confirm) would pass the cap, which is U's daily quota for U's tier, with the files asked for
 - WHEN U calls `POST /uploads`

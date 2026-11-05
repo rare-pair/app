@@ -90,7 +90,7 @@ describe("quota journey", () => {
     await expect
       .poll(() => page.locator("#message").innerText())
       .toBe(
-        "You have too many unfinished uploads to start all of these. You can start 1 more now. Unfinished uploads clear by themselves a day or two after they began, so please try again then.",
+        "You have too many unfinished uploads to start all of these. You can start 1 more now. Unfinished uploads clear by themselves after about a day, so please try again then.",
       );
     await expect
       .poll(() => page.locator("#files li").allInnerTexts())
