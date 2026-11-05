@@ -41,6 +41,8 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - THEN it says a copyright notice keeps the sender's name, address, telephone number and email address, and their signature
 - AND it says moderators read a notice to act on it
 - AND it says a notice sent by email is read by a person and stays in that mailbox
+- AND it says the archive keeps notices until the site closes, and then deletes them
+- AND it says the archive does not erase them when a sender asks
 
 ### Footer links to removal
 - GIVEN any app page

@@ -88,6 +88,8 @@ describe("20-site-chrome-and-legal", () => {
     expect(privacy).toMatch(/your signature/i);
     expect(privacy).toMatch(/moderators read them to act on the notice/i);
     expect(privacy).toMatch(/notice you email .* stays in that mailbox/i);
+    expect(privacy).toMatch(/keep notices until the site closes, and then delete them/i);
+    expect(privacy).toMatch(/do not erase them when you ask/i);
   });
 
   it("Footer links to removal", async () => {
