@@ -938,13 +938,31 @@ origin. Work pages, listings and search stay open, so people can still find work
     again after URL normalization, because `/a/..//evil.example` normalizes
     to `//evil.example`.
   Tokens last 15 minutes and are stored hashed (`storeToken: "hashed"`) in
-  Better Auth's `verification` table.
+  Better Auth's `verification` table. An accepted request, and no refused one,
+  also sets the sign-in marker: the cookie `__Host-signin-pending`, with a fixed
+  value that holds nothing about the address, the token or the account,
+  `HttpOnly; Secure; SameSite=Lax; Path=/` and no `Domain`, lasting as long as
+  the link. It is the same whether or not the address has an account. It isn't
+  a session, and it doesn't stop a signed-out reader's pages coming from the
+  edge cache.
 - **Using the link.** The email links to our `GET /login/confirm?token=…`,
-  which only shows a "Sign in" button: a POST form that uses nothing up. Mail
+  which shows a "Sign in" button: a POST form that uses nothing up. Mail
   scanners that open links in advance therefore can't burn it.
   `POST /login/confirm` calls `auth.api.magicLinkVerify`, which redirects to
   `next` with the session cookie. A used, expired or unknown link is
-  redirected to `/login` with a plain message.
+  redirected to `/login` with a plain message. Every answer of the POST, a
+  refusal included, clears the marker.
+- **The browser that asked.** When `GET /login/confirm` sees the marker, the
+  page also carries one nonced script that submits its form once as it loads,
+  so the browser that asked for the link signs in with nothing to press. With
+  JavaScript off, or a press in that instant, the form works as it always does
+  (a second post gets the used-link answer). Without the marker the page has no
+  script, so a mail scanner that runs scripts can't spend the token, someone
+  opening a link planted by another person isn't signed in just by opening it,
+  and asking on a laptop and opening the email on a phone takes one press. The
+  marker says this browser asked for a link recently, not which one: someone who
+  asked for their own and opens a planted one within 15 minutes is signed in to
+  the planter's account with no press, a limit the operator accepted (#606).
 - **Signed-out requests to signed-in pages.** Opening a page that needs an
   account (`/upload`, `/me/uploads`, `/works/:id/report`) while signed out, or
   POSTing a report, redirects to sign in, carrying the page as `next`, so the

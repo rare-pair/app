@@ -146,6 +146,8 @@ describe("21 accessibility and no-JS: Every action reachable by keyboard", () =>
         await page.keyboard.type(email);
         await pressToLoad(page);
         expect(await page.getByText("check your email", { exact: false }).count()).toBe(1);
+        // Without the marker, as a browser that didn't ask: this one would press it by itself.
+        await page.context().clearCookies({ name: "__Host-signin-pending" });
         await page.goto(await signInLink(running.site, email));
         await tabTo(page, 'button "Sign in"');
         await pressToLoad(page);
