@@ -77,7 +77,7 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Load target), § Surge con
 ### Abandoned uploads expire
 - GIVEN an object under `uploads/` whose client never called `/complete`
 - WHEN 7 days have passed
-- THEN the R2 lifecycle rule has deleted it
+- THEN the R2 lifecycle rule has deleted it, if the daily sweep hasn't already removed it with its row (scenario 02)
 
 ### Upload flood becomes a backlog, not an outage
 - GIVEN thousands of uploads confirmed in a short burst

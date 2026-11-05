@@ -40,6 +40,13 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (New versions), § Dedupe, 
 - THEN the per-chapter normalized-text comparison is within the similarity threshold
 - AND `current_version_id` points at the new version
 
+### A card reads 12/? when the version states no total
+- GIVEN work W at v1, whose Stats line gives a total of 3 chapters
+- WHEN a newer version with 4 chapters is ingested from a file whose Stats line states no total
+- THEN `current_version_id` points at the new version and W's chapter total is NULL
+- AND W's card reads "4/? chapters", not "4/3"
+- AND the other columns the file lacks keep W's values
+
 ### Newer upload with changed shared chapters is held
 - GIVEN work W at v1
 - WHEN v2-tampered is ingested

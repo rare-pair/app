@@ -1,3 +1,4 @@
+import { insertUpload } from "@archive/db";
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
 import { sendFiles, uploadFilesThroughPage, useJourneySite } from "../harness/journey";
@@ -65,6 +66,43 @@ describe("quota journey", () => {
     expect(await uploadCount()).toBe(2);
 
     // Each 429 is logged by Chromium as a failed load.
+    await site.assertClean({ allow: [/status of 429/] });
+  });
+
+  it("With too many unfinished uploads, the page says what to do", async () => {
+    const { site } = running;
+    const { context, userId } = await signedIn(site, {
+      email: "uploadcap-open@example.test",
+      role: "uploader",
+    });
+    // Links asked for and never finished: 19 of the 20 the account may hold open.
+    for (let n = 0; n < 19; n++) {
+      const id = crypto.randomUUID();
+      await insertUpload(site.db, { id, userId, r2Key: `uploads/${id}`, bytes: 1000 });
+    }
+    const page = await context.newPage();
+    const file = (workId: number) => ({
+      name: `work-${workId}.epub`,
+      bytes: generatedEpub({ workId }),
+    });
+
+    await sendFiles(page, [file(60000), file(60001)]);
+    await expect
+      .poll(() => page.locator("#message").innerText())
+      .toBe(
+        "You have too many unfinished uploads to start all of these. You can start 1 more now. Unfinished uploads clear by themselves after about a day, so please try again then.",
+      );
+    await expect
+      .poll(() => page.locator("#files li").allInnerTexts())
+      .toEqual([
+        expect.stringContaining("Not uploaded."),
+        expect.stringContaining("Not uploaded."),
+      ]);
+
+    // The one that fits goes up, signed for its own size, and goes live.
+    const [id] = await uploadFilesThroughPage(site, page, userId, [file(60000)]);
+    await site.waitForUpload(id);
+
     await site.assertClean({ allow: [/status of 429/] });
   });
 });
