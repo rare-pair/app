@@ -146,8 +146,8 @@ const wholeNumber = (text: string | undefined | null) => {
  * place, a form of `pct` (0 to 100) and `n` (the chapter, left out on the entire-work
  * page). Within the same `n` the larger percentage wins, so scrolling back up and leaving
  * never lowers it; a different `n` replaces it. It writes only the caller's own key and
- * checks nothing about the work: a
- * position for a work that is gone is never shown, since the link needs a live chapter.
+ * checks nothing about the work: a position for a work that is gone is never shown, since
+ * the link needs a live chapter.
  * A script calls it, so it answers with a status and no body, never a redirect.
  * Nothing about the reader or the work is logged.
  */
