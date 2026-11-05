@@ -1,8 +1,9 @@
 // The queues and the job's timings, which must agree with the queue consumers in wrangler.jsonc
 // (test/queue-config.node.test.ts checks them).
 
-/** The uploads' queue, and the re-sanitize backfill's: the Worker consumes no other. */
+/** The uploads' queue, its dead-letter queue and the re-sanitize backfill's: the Worker consumes no other. */
 export const INGEST_QUEUE = "ingest";
+export const INGEST_DLQ = "ingest-dlq";
 export const BACKFILL_QUEUE = "ingest-backfill";
 
 /** Mirrors `max_retries`: a message is delivered up to this many times after the first. */

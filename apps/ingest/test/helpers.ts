@@ -6,6 +6,7 @@ import { env } from "cloudflare:workers";
 import { sql, type Kysely } from "kysely";
 import { expect } from "vitest";
 import { ao3Epub } from "../../../packages/epub/test/helpers";
+import type { SweepBucket } from "../../sweep/src/sweep";
 import worker, { ingestWorker, type Steps } from "../src/worker";
 
 // Shared by the workerd tests. One database serves every test file (test/global-setup.ts),
@@ -14,7 +15,7 @@ import worker, { ingestWorker, type Steps } from "../src/worker";
 type Handler = Pick<Required<typeof worker>, "queue">;
 
 /** Runs `fn` with a Kysely on the test database, through the Worker's Hyperdrive. */
-async function withDb<T>(fn: (db: Kysely<Database>) => Promise<T>): Promise<T> {
+export async function withDb<T>(fn: (db: Kysely<Database>) => Promise<T>): Promise<T> {
   const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
   try {
     return await fn(db);
@@ -69,7 +70,7 @@ export const uploadRow = (id: string) =>
 
 /**
  * Runs the queue handler on one batch of message bodies from `queue` (the ingest queue unless
- * given), and returns the queue's result.
+ * given), and returns the queue's result. `connectionString` replaces the Worker's database.
  */
 export async function deliver(
   bodies: unknown[],
@@ -77,14 +78,16 @@ export async function deliver(
     attempts = 1,
     handler = worker,
     queue = "ingest",
-  }: { attempts?: number; handler?: Handler; queue?: string } = {},
+    connectionString = env.HYPERDRIVE.connectionString,
+  }: { attempts?: number; handler?: Handler; queue?: string; connectionString?: string } = {},
 ) {
+  const bindings = { ...env, HYPERDRIVE: { ...env.HYPERDRIVE, connectionString } };
   const batch = createMessageBatch(
     queue,
     bodies.map((body, i) => ({ id: `msg-${i}`, timestamp: new Date(1000), attempts, body })),
   );
   const ctx = createExecutionContext();
-  await handler.queue(batch, env, ctx);
+  await handler.queue(batch, bindings, ctx);
   return getQueueResult(batch, ctx);
 }
 
@@ -368,6 +371,25 @@ export function watchedPuts(ao3WorkId: number) {
     puts.push({ key, workExisted: row !== undefined });
   });
   return { bucket, puts, close: () => probe.destroy() };
+}
+
+/**
+ * Runs `fn` with the real bucket as a sweep reads it, showing only `folder` among `works/`'s
+ * folders, so a sweep leaves the objects of the other tests running at the same time alone.
+ */
+export function sweptFolder<T>(
+  folder: string,
+  fn: (bucket: SweepBucket) => Promise<T>,
+): Promise<T> {
+  return fn({
+    list: async (options) => {
+      const page = await env.BUCKET.list(options);
+      if (options.prefix !== "works/") return page;
+      return { ...page, delimitedPrefixes: page.delimitedPrefixes.filter((p) => p === folder) };
+    },
+    get: (key) => env.BUCKET.get(key),
+    delete: (keys) => env.BUCKET.delete(keys),
+  });
 }
 
 /** The keys in the bucket under `prefix`, sorted. */

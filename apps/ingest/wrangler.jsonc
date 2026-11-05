@@ -14,9 +14,9 @@
     "consumers": [
       {
         "queue": "ingest",
-        // About 5 uploads a batch (ARCHITECTURE, Surge controls). A batch's jobs run one after
-        // another, so an invocation holds one epub and its parse in memory, not five.
-        "max_batch_size": 5,
+        // One upload an invocation (ARCHITECTURE, Ingestion pipeline), so a crash in one job can't
+        // spend another upload's retries. It holds one epub and its parse in memory.
+        "max_batch_size": 1,
         "max_batch_timeout": 5,
         // At most two invocations at once: a flood waits in the backlog instead of opening
         // more Postgres connections and Worker memory than that.
@@ -28,6 +28,19 @@
         "retry_delay": 120,
         // A job that fails for good is recorded as parse_failed, then dead-lettered here.
         "dead_letter_queue": "ingest-dlq",
+      },
+      {
+        // Fails an upload whose job never recorded an ending (ARCHITECTURE, EPUB processor,
+        // step 8). One invocation at once, so it holds one Postgres connection. An hour of
+        // retries, to outlast a short outage, each after a job's lease has run out. An outage
+        // longer than that deletes the message, and the upload stays as it was: there is no
+        // redrive, and no dead-letter queue behind this one.
+        "queue": "ingest-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_concurrency": 1,
+        "max_retries": 30,
+        "retry_delay": 120,
       },
       {
         // The re-sanitize backfill (ARCHITECTURE, EPUB processor, step 8): one `{work_id,

@@ -3,7 +3,7 @@
 Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion pipeline (step 4), § Surge controls (Queue backpressure)
 
 ## Setup
-- The ingest Worker consumes the ingest queue with a batch size of about 5, retries and a dead-letter queue
+- The ingest Worker consumes the ingest queue with a batch size of 1, retries and a dead-letter queue, and consumes the dead-letter queue too
 - A maximum consumer concurrency is configured
 - `packages/epub` is a pure function (bytes in, parsed work out); `apps/ingest` handles R2, Postgres and job status
 - An `uploads` row in `pending` with a valid AO3 epub object in R2
@@ -74,6 +74,30 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 - THEN the message goes to the dead-letter queue
 - AND the upload's status is `parse_failed`
 - AND `error_stage` and `error` on the upload row record the failing stage and error
+
+### A job that dies for good is recorded as failed
+- GIVEN an upload still `pending`, or `processing` with an expired lease, because every delivery of its message died before recording an ending
+- WHEN its message reaches the dead-letter queue
+- THEN the upload's status is `parse_failed`, with `error_stage` empty because the stage is unknown, and no lease
+- AND the message is acked
+- AND My uploads shows it failed and tells the uploader to try uploading it again
+
+### A dead-letter message for a finished upload changes nothing
+- GIVEN a `live`, `duplicate`, already failed or rejected upload
+- WHEN its message reaches the dead-letter queue, once or more than once
+- THEN the upload's row stays as it is, the job's own `error_stage` and `error` included
+- AND each message is acked
+
+### A dead-letter message waits while the upload's lease is live
+- GIVEN an upload `processing` under a lease that has not expired, whose job may still end it or may have just died
+- WHEN its message reaches the dead-letter queue
+- THEN the upload's row stays as it is, and the message is retried
+- AND a later delivery that finds the lease expired records the upload as failed
+
+### Once a job has failed for good, the sweep no longer skips its work
+- GIVEN a work whose sweep skips it as `in_flight`, because of an upload left `processing`
+- WHEN the upload's message reaches the dead-letter queue, and the sweep next runs
+- THEN the sweep doesn't skip the work, and deletes the upload's old prefix and the work's unreferenced images
 
 ### Consumer concurrency stays bounded under a flood
 - GIVEN many more uploads enqueued than the maximum consumer concurrency

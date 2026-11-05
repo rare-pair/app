@@ -290,8 +290,16 @@ rule's whitespace and invisible-character removal is blank, and names nobody).
    and the versioning rules, the same rejection, or (for a removed work) the
    opt-out and takedown checks, then `work_removed`, decide it. Otherwise it
    enqueues `{upload_id}`.
-4. **Process.** The ingest consumer runs with a batch size of about 5, retries,
-   and a dead-letter queue. See the EPUB processor section below.
+4. **Process.** The ingest consumer handles one upload per invocation (a batch
+   size of 1), so a crash in one job can't spend another upload's retries, with
+   retries and a dead-letter queue. See the EPUB processor section below. Jobs
+   in a batch always ran one after another, so at the concurrency of 2 at most
+   two run at once at any batch size; size 1 lowers no ceiling. It costs one
+   invocation and Postgres connection set-up per upload, and no batch wait. The
+   throughput is 2 ÷ seconds per job. That is an estimate, not measured on real
+   Queues: at 2 to 20 seconds a job, from a small epub to a 25 MB one with many
+   R2 writes, 6 to 60 uploads a minute. A burst past that waits in the backlog,
+   which is what the concurrency cap is for. It needs no change.
 5. **Track.** The uploader's page polls `GET /uploads/:id` for its status:
    `processing`, `live`, `held_for_review`, `duplicate`, or one of the
    rejection codes below. `held_for_review` and `duplicate` are not
@@ -510,6 +518,35 @@ Chapter text isn't indexed.
    job that fails for good goes to the dead-letter queue as `parse_failed`,
    with the stage and error recorded on the upload row.
 
+   **A consumer on the dead-letter queue catches what no job recorded.** A job
+   that dies on every delivery (a crash, a kill at a platform limit) or whose
+   ending write fails on the last attempt records nothing. The ingest Worker also
+   consumes `ingest-dlq`: an upload whose message arrives there is set
+   `parse_failed`, with the stage unknown (`error_stage` empty, `error`
+   `dead_lettered`), and the existing failure message tells the uploader to try
+   again. It also stops the sweep skipping the work as in flight (#440). The
+   write matches only what `claimLease` would: `pending`, or `processing` with an
+   expired lease. Anything finished stays as it is, the job's own stage and error
+   included, so a repeat delivery is harmless. Under a live lease the row is left
+   and the message retried: a job may yet end it, or may have died a moment
+   before its message moved, and a later delivery finds it ended or expired.
+   The consumer runs at most one invocation at once, in batches of up to 10, and
+   retries every 120 seconds, past the 60-second lease, for an hour (30 retries).
+   That outlasts a short Postgres outage and a job running to the 15-minute
+   wall-time limit. After a longer outage the message is deleted, with no
+   dead-letter queue behind this one, and the upload stays as it was: there is
+   no redrive, and the uploader uploads the file again. Add one only if a real
+   outage shows it's needed. The consumer writes nothing to R2, so an original the
+   job had stored stays (case 1 below). The backfill queue already has a batch
+   size of 1, and needs no such consumer: a failed backfill leaves the work's
+   current version as it was.
+
+   Whether a crash charges an attempt to messages already acked in the same batch
+   is unsettled: Cloudflare's docs say an explicit ack isn't redelivered when a
+   later message fails, and don't describe a hard crash, and no check has been
+   run on real Queues. A batch size of 1 leaves no batch-mate for it to charge, so
+   ingest doesn't depend on the answer.
+
    **A refused upload's original is deleted.** Once the job has recorded a
    refusal (any rejection code, `account_banned` included, and a job that
    failed for good; not `work_removed`, whose save already deleted it), it
@@ -531,9 +568,12 @@ Chapter text isn't indexed.
    touches `originals/`, except that the sweep deletes the original of each upload
    whose prefix it finds under a removed work's folder). Four cases leave an
    epub that nothing deletes, tracked in https://github.com/rare-pair/app/issues/592
-   (the operator chose a ticket over fixing them now): (1) an upload of a removed
-   work whose job dies on every delivery, or whose ending write fails on the last
-   attempt, so it stays `processing` and the sweep skips the work as in flight;
+   (the operator chose a ticket over fixing them now): (1) an upload whose job
+   stored the file and then dies on every delivery, or whose ending write fails on
+   the last attempt, so only the dead-letter consumer ends it and nobody deletes the
+   original (the sweep still finds it if the work is later removed, while the
+   upload's prefix is there), or, past that consumer's hour of retries, it stays
+   `processing` and the sweep skips the work as in flight;
    (2) a duplicate's epub after the ordinary sweep removed its prefix and a removal's
    delete then failed, because the sweep finds originals only from folder prefixes and
    never visits an emptied folder again; (3) a crash between the ending write and
@@ -638,7 +678,8 @@ deletes the upload's `originals/` file like any refusal (step 8). Step 2 lists w
 `not_ao3` covers any file without an AO3 preface "Posted originally" line,
 including one whose AO3 work URL is only in the OPF (step 4). `opted_out`
 covers the opt-out list and the takedown list of moderator-removed works.
-`parse_failed` also covers a job that fails for good (step 8). (`held_for_review`
+`parse_failed` also covers a job that fails for good, whether the job recorded
+it or the dead-letter consumer did (step 8). (`held_for_review`
 and `duplicate` are statuses, not rejections, and review reasons are neither. Nor is
 `over_quota`: the status of an upload whose confirm was refused 429 because the
 account's daily quota was spent, whose object is deleted.)
