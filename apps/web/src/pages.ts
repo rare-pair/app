@@ -132,6 +132,7 @@ export const privacyPage = () =>
 <p>This is what we keep about you.</p>
 <ul>
 <li>Signing in uses an email link. We keep your email address and no password. Each session also keeps the network address and browser (user agent) it was started from, for as long as the session lasts.</li>
+<li>Asking for a sign-in link sets a short-lived cookie that holds nothing about you. It lets the browser that asked sign in without pressing a button, and it goes when the link is used or after ${LINK_LIFETIME_MINUTES} minutes.</li>
 <li>Accepted uploads are public. We do not publish your email address.</li>
 <li>Removal and opt-out requests keep what you send with them: your email address, a hashed form of your network address, the work or pseud you name, and any statement you write. A block on a requester keeps the same email address and hashed network address. We keep this until the site closes, and then delete it. We do not erase it when you ask.</li>
 <li>Copyright notices keep what you send with them: your name, address, telephone number and email address, the work you name, your statements and your signature. Moderators read them to act on the notice. A notice you email instead is read by a person and stays in that mailbox. We keep notices until the site closes, and then delete them. We do not erase them when you ask.</li>
@@ -233,18 +234,25 @@ export const notSignedInPage = () =>
   );
 
 /**
- * The emailed link's page: only a button that posts the token. Opening the link
- * uses nothing up, so a mail scanner's prefetch can't spend it. No script, so it
- * works with JavaScript off. `next` is already reduced to a same-site path.
+ * The emailed link's page: a button that posts the token. Opening the link uses
+ * nothing up, so a mail scanner's prefetch can't spend it. For the browser that asked
+ * for the link, `submitNonce` adds a script that presses it once; for any other there
+ * is no script. Either way it works with JavaScript off. `next` is already reduced to
+ * a same-site path.
  */
-export const confirmPage = (token: string, next: string) =>
+export const confirmPage = (token: string, next: string, submitNonce?: string) =>
   layout(
     "Sign in",
     `<form method="post" action="/login/confirm">
 <input type="hidden" name="token" value="${escapeHtml(token)}">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
 <button type="submit">Sign in</button>
-</form>`,
+</form>${
+      submitNonce === undefined
+        ? ""
+        : `
+<script nonce="${escapeHtml(submitNonce)}">document.querySelector('form[action="/login/confirm"]').submit();</script>`
+    }`,
   );
 
 /**

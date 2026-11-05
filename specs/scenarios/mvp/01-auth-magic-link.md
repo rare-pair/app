@@ -62,10 +62,50 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - AND a plain page says when to try again
 
 ### Opening the emailed link uses nothing up
-- GIVEN an unused token issued less than 15 minutes ago
+- GIVEN an unused token issued less than 15 minutes ago, and a browser with no sign-in marker
 - WHEN the link `GET /login/confirm?token=<token>` is opened, as a mail scanner prefetching it would
 - THEN the page shows a "Sign in" button in a POST form
 - AND the token is still unused and no session is created
+
+### The browser that asked for the link signs in without a press
+- GIVEN a browser whose `POST /login` was accepted and an unused token
+- WHEN it opens the emailed link with JavaScript on
+- THEN it is signed in and redirected to its `next`, and nothing was pressed
+
+### Opening the link still uses nothing up
+- GIVEN an unused token
+- WHEN `GET /login/confirm` is opened, with or without the marker
+- THEN it spends no token and creates no session
+- AND only `POST /login/confirm` does, with its origin check unchanged
+
+### Another browser still gets the button
+- GIVEN an unused token and a browser with no marker
+- WHEN it opens the emailed link
+- THEN the page has the "Sign in" button and no script
+- AND the token stays unused until the button is pressed
+
+### A browser with JavaScript off still gets the button
+- GIVEN a browser with the marker and JavaScript off
+- WHEN it opens the emailed link and presses "Sign in"
+- THEN it is signed in
+
+### Going back after signing in shows no error
+- GIVEN a browser with the marker
+- WHEN `POST /login/confirm` answers it in any way, a refusal included
+- THEN the answer clears the marker, so going back to or reloading the link page posts nothing by itself
+
+### A refused request sets no marker
+- GIVEN a `POST /login`
+- WHEN the origin check, Turnstile or a rate limit refuses it, or its address or size is refused
+- THEN it sets no marker
+- AND an accepted request sets it the same way whether or not the address has an account
+
+### The marker says nothing about who asked
+- GIVEN an accepted `POST /login`
+- WHEN its marker cookie is set
+- THEN it holds nothing about the address, the token or the account
+- AND it has `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` and no `Domain`, and lasts no longer than the link
+- AND it isn't treated as a session, and a signed-out reader holding it still gets edge-cached chapter pages
 
 ### Confirming signs the user in
 - GIVEN an unused token issued less than 15 minutes ago
@@ -76,7 +116,7 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - AND the cookie has no `Domain` attribute, so it covers `rarepair.fans` only and never `content.rarepair.fans`
 
 ### Confirming works without JavaScript
-- GIVEN an unused token and a browser with JavaScript off
+- GIVEN an unused token and a browser with JavaScript off and no marker
 - WHEN the user opens the emailed link and presses "Sign in"
 - THEN they are signed in and redirected, with no script involved
 

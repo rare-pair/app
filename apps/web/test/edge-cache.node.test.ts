@@ -49,6 +49,10 @@ describe("pageCacheable", () => {
     expect(pageCacheable("GET", { "__Host-warned": "25001" }, signedOut)).toBe(true);
   });
 
+  it("keeps a signed-out reader holding the sign-in marker eligible", () => {
+    expect(pageCacheable("GET", { "__Host-signin-pending": "1" }, signedOut)).toBe(true);
+  });
+
   it("skips the page cache for a settings, session or flash cookie", () => {
     for (const cookie of [
       "__Host-reader",

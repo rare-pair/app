@@ -17,6 +17,7 @@ import {
   nonceOf,
   LOGIN_TOKEN,
   postLogin,
+  signIn,
   windowHeadroom,
 } from "./helpers";
 
@@ -384,6 +385,56 @@ describe("01-auth-magic-link", () => {
       const res = await postLogin({ email: " ", "cf-turnstile-response": LOGIN_TOKEN });
       expect(res.status).toBe(400);
       expect(await res.text()).toContain('<p role="alert">Enter a valid email address.</p>');
+    }
+  });
+
+  it("A refused request sets no marker", async () => {
+    const refused = async (
+      status: number,
+      fields: Record<string, string>,
+      options?: Parameters<typeof postLogin>[1],
+    ) => {
+      const res = await postLogin(fields, options);
+      expect(res.status).toBe(status);
+      expect(res.headers.getSetCookie()).toEqual([]);
+    };
+    const email = "marker-refused@example.test";
+    const passing = { email, "cf-turnstile-response": LOGIN_TOKEN };
+
+    // The origin check, Turnstile, the address and the size.
+    await refused(403, passing, { headers: { origin: "https://evil.example" } });
+    await refused(400, { email, "cf-turnstile-response": "a-failing-token" });
+    await refused(503, { email, "cf-turnstile-response": "siteverify-down" });
+    await refused(400, { email: "not-an-address", "cf-turnstile-response": LOGIN_TOKEN });
+    await refused(413, {}, { body: `email=x&padding=${"x".repeat(17 * 1024)}` });
+
+    // The limit per IP.
+    await windowHeadroom(LOGIN_WINDOW_SECONDS);
+    const ip = freshIp();
+    await fillIpLimit(ip);
+    await refused(429, passing, { headers: { "cf-connecting-ip": ip } });
+
+    // The limit per address.
+    const limited = `marker-limited-${crypto.randomUUID()}@example.test`;
+    for (let i = 0; i < LOGIN_EMAIL_LIMIT; i++) {
+      const res = await postLogin({ email: limited, "cf-turnstile-response": LOGIN_TOKEN });
+      expect(res.status).toBe(200);
+    }
+    await refused(429, { email: limited, "cf-turnstile-response": LOGIN_TOKEN });
+  });
+
+  it("An accepted request sets the marker the same way whether or not the address has an account", async () => {
+    const existing = "marker-account@example.test";
+    await signIn(existing);
+
+    for (const email of [existing, "marker-no-account@example.test"]) {
+      const res = await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN });
+      expect(res.status, email).toBe(200);
+      // Exactly this: a fixed value that holds nothing about the address, the token or
+      // the account, no Domain, and the link's 15 minutes.
+      expect(res.headers.getSetCookie(), email).toEqual([
+        "__Host-signin-pending=1; Max-Age=900; Path=/; SameSite=Lax; Secure; HttpOnly",
+      ]);
     }
   });
 

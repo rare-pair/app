@@ -1,7 +1,17 @@
 import { createDb } from "@archive/db";
+import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
-import { emailsTo, fetchW, LOGIN_TOKEN, postLogin, STRICT, withoutNonce } from "./helpers";
+import app from "../src/index";
+import {
+  emailsTo,
+  fetchW,
+  LOGIN_TOKEN,
+  nonceOf,
+  postLogin,
+  STRICT,
+  withoutNonce,
+} from "./helpers";
 
 // A2's cases from 01-auth-magic-link (and one from 09-content-origin): the emailed
 // link's confirm page, and the POST that signs in. A1's cases are in 01-auth-magic-link.test.ts.
@@ -45,6 +55,19 @@ async function issued(email: string, next?: string) {
 /** The confirm page's POST, as a browser on rarepair.fans submits it. */
 const confirm = (fields: Record<string, string>, headers: Record<string, string> = {}) =>
   postLogin(fields, { url: "/login/confirm", headers });
+
+// The browser that asked for a link sends this; an answer to the POST sends the second.
+const MARKER = "__Host-signin-pending=1";
+const MARKER_CLEARED = "__Host-signin-pending=; Max-Age=0; Path=/; SameSite=Lax; Secure; HttpOnly";
+
+/** The hidden fields of a confirm page, as its form posts them. */
+const formFields = (page: string) =>
+  Object.fromEntries(
+    [...page.matchAll(/<input type="hidden" name="(\w+)" value="([^"]*)">/g)].map((m) => [
+      m[1]!,
+      m[2]!,
+    ]),
+  );
 
 /** The session cookies a response sets. */
 const sessionCookies = (res: Response) =>
@@ -91,6 +114,189 @@ describe("01-auth-magic-link", () => {
     expect(withoutNonce(res.headers.get("content-security-policy"))).toBe(STRICT);
   });
 
+  it("The browser that asked for the link signs in without a press", async () => {
+    const email = "asked-here@example.test";
+    const asked = await postLogin({
+      email,
+      next: "/works/60500",
+      "cf-turnstile-response": LOGIN_TOKEN,
+    });
+    expect(asked.status).toBe(200);
+    const cookie = asked.headers.getSetCookie()[0]!.split(";")[0]!;
+    const [sent] = await emailsTo(email);
+
+    const opened = await fetchW(sent!.url, { headers: { cookie } });
+    expect(opened.status).toBe(200);
+    const nonce = nonceOf(opened.headers.get("content-security-policy"));
+    const page = await opened.text();
+
+    // One script, under this response's nonce, with no retry in it: it submits the form once.
+    expect(page.match(/<script\b/g)).toHaveLength(1);
+    expect(page).toContain(
+      `<script nonce="${nonce}">document.querySelector('form[action="/login/confirm"]').submit();</script>`,
+    );
+    expect(page).not.toMatch(/\son\w+=/);
+
+    // What it submits: the form, as a page on the site posts it.
+    const res = await confirm(formFields(page), { cookie });
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("https://rarepair.fans/works/60500");
+    expect(sessionCookies(res)).toHaveLength(1);
+    expect(await sessionCount(email)).toBe(1);
+  });
+
+  it("Each opening of the link page has its own nonce", async () => {
+    const { link } = await issued("asked-nonces@example.test");
+    const nonces = await Promise.all(
+      [1, 2].map(async () => {
+        const res = await fetchW(link.href, { headers: { cookie: MARKER } });
+        const nonce = nonceOf(res.headers.get("content-security-policy"));
+        expect(await res.text()).toContain(`<script nonce="${nonce}">`);
+        return nonce;
+      }),
+    );
+    expect(nonces[0]).not.toBe(nonces[1]);
+  });
+
+  it("Opening the link still uses nothing up", async () => {
+    const email = "opening-marker@example.test";
+    const { link, row, token } = await issued(email);
+
+    for (const headers of [{}, { cookie: MARKER }]) {
+      const res = await fetchW(link.href, { headers });
+      expect(res.status).toBe(200);
+      // The token is in the URL, with the marker as without it.
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(res.headers.get("referrer-policy")).toBe("strict-origin");
+      expect(withoutNonce(res.headers.get("content-security-policy"))).toBe(STRICT);
+      expect(await tokensFor(email)).toEqual([row]);
+      expect(await sessionCount(email)).toBe(0);
+    }
+
+    // The POST's origin check is the same for the browser that asked.
+    const refused = await confirm(
+      { token, next: "/" },
+      { cookie: MARKER, origin: "https://evil.example", "sec-fetch-site": "cross-site" },
+    );
+    expect(refused.status).toBe(403);
+    expect(await tokensFor(email)).toEqual([row]);
+    expect(await sessionCount(email)).toBe(0);
+  });
+
+  it("Another browser still gets the button", async () => {
+    const email = "another-browser@example.test";
+    const { link, row } = await issued(email);
+
+    // No marker, or a value the Worker never set.
+    for (const headers of [{}, { cookie: "__Host-signin-pending=0" }]) {
+      const page = await (await fetchW(link.href, { headers })).text();
+      expect(page).not.toMatch(/<script/i);
+      expect(page).toMatch(/<button type="submit">Sign in<\/button>/);
+      expect(await tokensFor(email)).toEqual([row]);
+    }
+  });
+
+  it("A browser with JavaScript off still gets the button", async () => {
+    const email = "marker-no-script@example.test";
+    const { link } = await issued(email);
+
+    const page = await (await fetchW(link.href, { headers: { cookie: MARKER } })).text();
+    expect(page.match(/<form\b[^>]*>/g)).toEqual(['<form method="post" action="/login/confirm">']);
+    expect(page).toMatch(/<button type="submit">Sign in<\/button>\s*<\/form>/);
+
+    // With the script not run, pressing it is the same plain form post.
+    const res = await confirm(formFields(page), { cookie: MARKER });
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("https://rarepair.fans/");
+    expect(sessionCookies(res)).toHaveLength(1);
+    expect(await sessionCount(email)).toBe(1);
+  });
+
+  it("Going back after signing in shows no error", async () => {
+    const email = "going-back@example.test";
+    const { link, row, token } = await issued(email);
+
+    // Signed in: the session cookie first, and the marker cleared beside it.
+    const signedIn = await confirm({ token, next: "/" }, { cookie: MARKER });
+    expect(signedIn.status).toBe(303);
+    const cookies = signedIn.headers.getSetCookie();
+    expect(cookies).toHaveLength(2);
+    expect(cookies[0]).toMatch(/^__Secure-better-auth\.session_token=/);
+    expect(cookies[1]).toBe(MARKER_CLEARED);
+    expect(await tokensFor(email)).not.toContain(row);
+
+    // With the marker gone, going back shows the button, and nothing posts by itself.
+    const page = await (await fetchW(link.href)).text();
+    expect(page).not.toMatch(/<script/i);
+    expect(page).toMatch(/<button type="submit">Sign in<\/button>/);
+  });
+
+  it("Every answer to the confirm POST clears the marker", async () => {
+    const expired = await issued("clears-expired@example.test");
+    await db
+      .updateTable("verification")
+      .set({ expires_at: new Date(Date.now() - 60_000) })
+      .where("id", "=", expired.row)
+      .execute();
+    const used = await issued("clears-used@example.test");
+    await confirm({ token: used.token, next: "/" });
+    const cookie = MARKER;
+
+    const answers: [string, number, Promise<Response>][] = [
+      ["used", 303, confirm({ token: used.token, next: "/" }, { cookie })],
+      ["expired", 303, confirm({ token: expired.token, next: "/" }, { cookie })],
+      ["unknown", 303, confirm({ token: "never-issued-marker-0123456789", next: "/" }, { cookie })],
+      ["no token", 303, confirm({ next: "/" }, { cookie })],
+      ["oversized", 303, confirm({ padding: "x".repeat(20 * 1024) }, { cookie })],
+      [
+        "not a form",
+        303,
+        postLogin({}, { url: "/login/confirm", headers: { cookie, "content-type": "text/plain" } }),
+      ],
+      [
+        "cross-site",
+        403,
+        confirm({ token: "x", next: "/" }, { cookie, origin: "https://evil.example" }),
+      ],
+    ];
+    for (const [name, status, answer] of answers) {
+      const res = await answer;
+      expect(res.status, name).toBe(status);
+      expect(res.headers.getSetCookie(), name).toEqual([MARKER_CLEARED]);
+    }
+  });
+
+  it("A fault on the confirm POST clears the marker too", async () => {
+    const { token } = await issued("clears-fault@example.test");
+    const ctx = createExecutionContext();
+    const res = await app.fetch(
+      new Request("https://rarepair.fans/login/confirm", {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          origin: "https://rarepair.fans",
+          "sec-fetch-site": "same-origin",
+          cookie: MARKER,
+        },
+        body: new URLSearchParams({ token, next: "/" }).toString(),
+      }),
+      {
+        ...env,
+        HYPERDRIVE: { connectionString: "postgresql://nobody:nothing@127.0.0.1:1/none" },
+      } as unknown as typeof env,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(res.status).toBe(500);
+    expect(res.headers.getSetCookie()).toEqual([MARKER_CLEARED]);
+  });
+
+  it("The sign-in marker isn't a session", async () => {
+    const res = await fetchW("/me/uploads", { headers: { cookie: MARKER } });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/login?next=%2Fme%2Fuploads");
+  });
+
   it("Confirming signs the user in", async () => {
     const email = "confirming@example.test";
     const { row, token } = await issued(email);
@@ -106,9 +312,9 @@ describe("01-auth-magic-link", () => {
     expect(await tokensFor(email)).not.toContain(row);
     expect(await sessionCount(email)).toBe(1);
 
-    // One cookie, with exactly the attributes ARCHITECTURE fixes, and Better Auth's
-    // default lifetime of seven days.
-    expect(res.headers.getSetCookie()).toHaveLength(1);
+    // One session cookie, with exactly the attributes ARCHITECTURE fixes, and Better
+    // Auth's default lifetime of seven days. The only other cookie clears the marker.
+    expect(res.headers.getSetCookie()).toEqual([expect.anything(), MARKER_CLEARED]);
     const [cookie] = sessionCookies(res);
     const attributes = cookie!.split(/;\s*/).slice(1);
     expect(attributes.map((a) => a.toLowerCase())).toEqual(
@@ -293,7 +499,7 @@ describe("01-auth-magic-link", () => {
     ]) {
       const res = await confirm({ token, next: "/" }, headers);
       expect(res.status).toBe(403);
-      expect(res.headers.getSetCookie()).toEqual([]);
+      expect(res.headers.getSetCookie()).toEqual([MARKER_CLEARED]);
     }
     // A POST with neither header is refused too.
     const bare = await fetchW("/login/confirm", {
@@ -332,12 +538,12 @@ describe("09-content-origin", () => {
 });
 
 /**
- * Shows a confirm POST was refused: no session cookie, and a redirect to /login,
- * which shows a plain message that the link is used or expired.
+ * Shows a confirm POST was refused: no cookie but the marker's clearing, and a redirect
+ * to /login, which shows a plain message that the link is used or expired.
  */
 async function expectRefused(res: Response) {
   expect(res.status).toBe(303);
-  expect(res.headers.getSetCookie()).toEqual([]);
+  expect(res.headers.getSetCookie()).toEqual([MARKER_CLEARED]);
   expect(res.headers.get("location")).toBe("/login?error=INVALID_TOKEN");
 
   const page = await fetchW(res.headers.get("location")!);
