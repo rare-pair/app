@@ -4,8 +4,7 @@ import { uploadThroughPage, useJourneySite } from "../harness/journey";
 import { expectLogged, requesterEmail } from "../harness/moderation";
 import { seedReadableWork } from "../harness/seed";
 import { signedIn } from "../harness/sessions";
-import { SITE } from "../harness/site";
-import { byAddress, startAtHome, viaHeader } from "../harness/walk";
+import { byAddress, startAtHome, viaHeader, viaSearch } from "../harness/walk";
 import { chapterSentence, generatedEpub } from "./epubs";
 
 // A moderator changes which version of a work readers get: Make current points the work at an
@@ -37,7 +36,7 @@ describe("version journeys", () => {
 
     const reader = await (await site.newContext()).newPage();
     site.dropRecording(reader);
-    await reader.goto(`${SITE}/works/42360`);
+    await viaSearch(reader, "Synthetic Work 42360");
     expect(await reader.locator(".chapters a").count()).toBe(3);
 
     // The work is live and not flagged, so no queue lists it: its admin page has no link yet
@@ -49,7 +48,7 @@ describe("version journeys", () => {
       .poll(() => page.locator("main").innerText())
       .toContain("That version is now current.");
 
-    await reader.goto(`${SITE}/works/42360`);
+    await reader.reload();
     await expect.poll(() => reader.locator(".chapters a").count()).toBe(2);
     await reader.locator(".chapters a").first().click();
     await expect.poll(() => reader.locator("main").innerText()).toContain("Text of version 1");
@@ -108,7 +107,7 @@ describe("version journeys", () => {
 
     const reader = await (await site.newContext()).newPage();
     site.dropRecording(reader);
-    await reader.goto(`${SITE}/works/42361`);
+    await viaSearch(reader, "Synthetic Work 42361");
     expect(await reader.locator(".chapters a").count()).toBe(2);
 
     await viaHeader(page, "Admin");
@@ -123,7 +122,7 @@ describe("version journeys", () => {
       .toContain("That version is approved and now current.");
 
     // Readers get three chapters, and the third now reads.
-    await reader.goto(`${SITE}/works/42361`);
+    await reader.reload();
     await expect.poll(() => reader.locator(".chapters a").count()).toBe(3);
     await reader.locator(".chapters a").nth(2).click();
     await expect

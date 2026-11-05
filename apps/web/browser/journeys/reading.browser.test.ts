@@ -115,7 +115,10 @@ async function openWork(page: Page, ao3WorkId: number, title: string) {
   ]);
 }
 
-/** Back to home by the header's site name, then to the work's page by its card. */
+/**
+ * For going to another work than the one being read: back to home by the header's site name,
+ * then to that work's page by its card. (The same work is one click on its title in the bar.)
+ */
 async function backToWork(page: Page, ao3WorkId: number, title: string) {
   await viaHeader(page, "rarepair");
   await openWork(page, ao3WorkId, title);
@@ -183,10 +186,14 @@ describe("reading journeys", () => {
     expect(await nav.getByRole("link", { name: "Next chapter" }).count()).toBe(0);
     expect(await nav.getByRole("link", { name: "Previous chapter" }).count()).toBe(1);
 
-    // The chapter page has no link back to its work, so the header's site name leads home and the
-    // card to the work (a stable path, where Back would count the Go form's redirect). The entire
-    // work is that page's link. The page streams: the last heading is there once all is parsed.
-    await backToWork(page, NAVIGATION, "pw3-Work in three chapters");
+    // The work's title in the reader bar links back to the work (a stable path, where Back would
+    // count the Go form's redirect). The entire work is that page's link. The page streams: the
+    // last heading is there once all is parsed.
+    await page
+      .getByRole("heading", { level: 1 })
+      .getByRole("link", { name: "pw3-Work in three chapters" })
+      .click();
+    await page.waitForURL(`${SITE}/works/${NAVIGATION}`);
     await Promise.all([
       page.waitForURL(`${SITE}/works/${NAVIGATION}/full`),
       page.getByRole("link", { name: "Read the entire work on one page" }).click(),
@@ -330,8 +337,8 @@ describe("reading journeys", () => {
     const { y } = await scrollState(page);
     const pct = Math.round((y / room) * 100);
 
-    // The chapter has no link to its work. The site name is at the top, and scrolling up to click
-    // it would save position 0 over the one under test, so a reader presses Back.
+    // The title in the reader bar links to the work, but the bar is at the top: scrolling up to
+    // click it would save position 0 over the one under test (#598), so a reader presses Back.
     await backByHistory(page, POSITION);
     const href = await page.locator("p.continue a").getAttribute("href");
     const [, shown] = /^\/works\/\d+\/chapters\/1#pos=(\d+)$/.exec(href ?? "") ?? [];
@@ -347,11 +354,13 @@ describe("reading journeys", () => {
 
   // #405: measured in Chromium, the 302 to the warnings screen keeps the Continue link's #pos=50
   // (the screen's URL ends in it), and the form's POST then answers 303 with a Location that has no
-  // fragment, so the chapter opens at the top. It fails on the last assertion, not before. It goes
-  // red when #405 is fixed; then make it a plain test. `it.fails` counts any thrown error, so an
-  // earlier step breaking would also read as the known failure: the position journey above runs
-  // the same save and Continue steps as a plain test.
-  it.fails("Continue returns to the saved position through the warnings screen (known failure: #405)", async () => {
+  // fragment, so the chapter opens at the top. `it.fails` counts any thrown error as the known
+  // failure, so a step breaking before the last would pass it unseen. So this is a plain test that
+  // asserts the bug: each step before the last is checked, and only the final poll, whether the
+  // chapter opened part way down, is expected to find it did not. It goes red when a step before
+  // it breaks, and when #405 is fixed (the poll then succeeds): change that assertion to the
+  // position being restored, and the title to a plain test's.
+  it("Continue returns to the saved position through the warnings screen (known failure: #405)", async () => {
     const { site } = running;
     const { context } = await signedIn(site, { email: "pw3-position-warned@example.test" });
     const page = await startAtHome(context);
@@ -366,20 +375,30 @@ describe("reading journeys", () => {
     await saveHalfway(page, WARNED_POSITION, room);
 
     // A new session: the screen comes back before the chapter.
-    // Back, not the site name: scrolling up to it would save position 0 over the saved one.
+    // Back, not the bar's title link: scrolling up to it would save position 0 (#598).
     await backByHistory(page, WARNED_POSITION);
     await context.clearCookies({ name: "__Host-warned" });
+    // The Continue link carries the saved position, and the warnings screen's address keeps it.
+    const href = await page.locator("p.continue a").getAttribute("href");
+    const [, pos] = /^\/works\/\d+\/chapters\/1#pos=(\d+)$/.exec(href ?? "") ?? [];
+    expect(pos, `the Continue href ${href} ends in #pos=N`).toBeDefined();
     await page.locator("p.continue a").click();
     await page.waitForURL(new RegExp(`/works/${WARNED_POSITION}/warnings\\?next=`));
+    expect(page.url()).toMatch(new RegExp(`#pos=${pos}$`));
     await Promise.all([
       page.waitForEvent("load"),
       page.getByRole("button", { name: "Continue" }).click(),
     ]);
     await page.waitForURL(`${SITE}/works/${WARNED_POSITION}/chapters/1`);
-    // The position is back: the chapter opens part way down, not at the top.
-    await expect
+    // The bug: the chapter opens at the top, where a restore would put it part way down.
+    const restored = await expect
       .poll(async () => (await scrollState(page)).y, { timeout: 3000 })
-      .toBeGreaterThan(0);
+      .toBeGreaterThan(0)
+      .then(
+        () => true,
+        () => false,
+      );
+    expect(restored, "#405 is fixed: assert the position is restored").toBe(false);
   });
 
   it("Hidden and removed works show their 451 and 410 pages", async () => {

@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { useJourneySite } from "../harness/journey";
 import { seedReadableWork } from "../harness/seed";
 import { signedIn } from "../harness/sessions";
-import { SITE, type Site } from "../harness/site";
-import { byAddress, startAtHome, viaFooter, viaHeader } from "../harness/walk";
+import type { Site } from "../harness/site";
+import { byAddress, startAtHome, viaFooter, viaHeader, viaSearch } from "../harness/walk";
 
 // A DMCA notice reaching the takedowns queue, and three accounts' reports hiding a work, through
 // the real forms. Works here take AO3 ids 42220 (notice) and 42240 (reports).
@@ -44,7 +44,7 @@ describe("reports and notices journeys", () => {
     // Unlike a removal request, a notice hides nothing: the work stays up until a moderator decides.
     const reader = await (await site.newContext()).newPage();
     site.dropRecording(reader);
-    expect((await reader.goto(`${SITE}/works/42220`))?.status()).toBe(200);
+    expect((await viaSearch(reader, "pw5-Noticed work")).status()).toBe(200);
 
     // The queue is the moderator's result, so it stays on video.
     const moderator = await signedIn(site, {
@@ -119,5 +119,5 @@ describe("reports and notices journeys", () => {
 async function stillLive(site: Site) {
   const reader = await (await site.newContext()).newPage();
   site.dropRecording(reader);
-  expect((await reader.goto(`${SITE}/works/42240`))?.status()).toBe(200);
+  expect((await viaSearch(reader, "pw5-Reported work")).status()).toBe(200);
 }

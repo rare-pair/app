@@ -10,8 +10,8 @@ import {
 } from "../harness/moderation";
 import { seedReadableWork } from "../harness/seed";
 import { signedIn } from "../harness/sessions";
-import { SITE, type Site } from "../harness/site";
-import { byAddress, startAtHome, viaHeader } from "../harness/walk";
+import type { Site } from "../harness/site";
+import { byAddress, startAtHome, viaHeader, viaSearch } from "../harness/walk";
 import { chapterSentence, generatedEpub } from "./epubs";
 
 // A moderator approves a removal: the work's pages answer 410 and its files leave the bucket the
@@ -77,7 +77,7 @@ describe("removal journeys", () => {
     });
 
     // Before: a reader reads it, and the bucket holds its fragments, image and original.
-    await reader.goto(`${SITE}/works/42300`);
+    await viaSearch(reader, "Synthetic Work 42300");
     await expect.poll(() => reader.locator(".chapters a").count()).toBe(2);
     expect((await site.bucket.list({ prefix: "works/42300/" })).objects.length).toBeGreaterThan(2);
     expect(await site.bucket.head(originalKey)).not.toBeNull();

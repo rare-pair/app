@@ -3,6 +3,7 @@ import { tabTo } from "../a11y/keyboard";
 import { useJourneySite } from "../harness/journey";
 import { signedIn } from "../harness/sessions";
 import { SITE } from "../harness/site";
+import { byAddress } from "../harness/walk";
 
 // The site header, as a person meets it: from the home page, each link is there by its role
 // and name and goes where it says. Which links each visitor gets on every page is
@@ -77,7 +78,11 @@ describe("site header journeys", () => {
     expect(await header.getByRole("button", { name: "Sign out" }).count()).toBe(0);
     expect(await header.getByRole("link", { name: "My uploads" }).count()).toBe(0);
     // The session ended on the server too: a page for signed-in accounts sends the browser to sign in.
-    await page.goto(`${SITE}/me/uploads`);
+    await byAddress(
+      page,
+      "/me/uploads",
+      "a saved address of a page for signed-in accounts, opened after signing out",
+    );
     await page.waitForURL(/\/login/);
   });
 

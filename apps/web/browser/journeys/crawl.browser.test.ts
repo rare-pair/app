@@ -83,6 +83,10 @@ describe("crawl: the open archive", () => {
 
   // The proof that the crawl fails when a link goes: the real Worker's pages with one link
   // taken out of the HTML before the crawl reads it, naming what the crawl then can't reach.
+  // `hrefsTo` turns every href that starts with `path` (a prefix: `/admin` also takes the links
+  // to /admin/requests) into "#", in the HTML the crawl reads. So each case below proves only
+  // that the crawl misses the page when those links are gone from that HTML. It doesn't prove
+  // the link is there, visible or usable on the real page: the journeys click for that.
   const hrefsTo = (path: RegExp) => (html: string) =>
     html.replace(new RegExp(`href="${path.source}[^"]*"`, "g"), 'href="#"');
 
@@ -190,8 +194,9 @@ describe("crawl: before launch", () => {
     },
   );
 
-  it("Shows Add work, My uploads, Remove and the DMCA notice without a link", () => {
-    // SAFETY: before launch these are disabled, with no href, so they lead nowhere.
+  it("Reaches none of /upload, /me/uploads, /remove and /dmca by a link before launch", () => {
+    // Before launch these are disabled, with no href, so they lead nowhere. This reads the
+    // crawl's record of the pages it reached, not how the disabled items look or read.
     const { seen } = results.moderator;
     for (const closed of ["/upload", "/me/uploads", "/remove", "/dmca"]) {
       expect(seen.has(closed)).toBe(false);

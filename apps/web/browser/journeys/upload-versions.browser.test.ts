@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { uploadThroughPage, useJourneySite } from "../harness/journey";
 import { signedIn } from "../harness/sessions";
 import { SITE } from "../harness/site";
-import { byAddress, viaHeader } from "../harness/walk";
+import { byAddress, viaHeader, viaSearch } from "../harness/walk";
 import { chapterSentence, generatedEpub } from "./epubs";
 
 /** Opens the uploaded work as its uploader does: My uploads, then the upload's row link. */
@@ -95,11 +95,7 @@ describe("version journeys", () => {
 
     // A reader still sees the version before, and nothing of the held one.
     const reader = await (await site.newContext()).newPage();
-    await byAddress(
-      reader,
-      "/works/41921",
-      "a reader opens a work from an address shared with them",
-    );
+    await viaSearch(reader, "Synthetic Work 41921");
     expect(await reader.locator(".chapters a").count()).toBe(2);
     const [res] = await Promise.all([
       reader.waitForResponse((r) => r.url() === `${SITE}/works/41921/chapters/3`),

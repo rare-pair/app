@@ -1,11 +1,11 @@
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
 import { describe, expect, it } from "vitest";
 import { uploadThroughPage, useJourneySite } from "../harness/journey";
 import { removalLink } from "../harness/requests";
 import { seedReadableWork } from "../harness/seed";
 import { signedIn } from "../harness/sessions";
 import { SITE } from "../harness/site";
-import { byAddress, startAtHome, viaFooter, viaHeader } from "../harness/walk";
+import { byAddress, startAtHome, viaFooter, viaHeader, viaSearch } from "../harness/walk";
 import { generatedEpub } from "./epubs";
 
 // Removal requests and the opt-out, through the real forms: nothing is hidden until the
@@ -43,7 +43,8 @@ async function sendRemoval(
 
 /** Opens the emailed link and presses Confirm, as the requester does. */
 async function confirmByLink(page: Page, link: string) {
-  await page.goto(link);
+  const { pathname, search } = new URL(link);
+  await byAddress(page, pathname + search, "the link in the requester's confirmation email");
   // Opening the link only shows a button: nothing is confirmed until it is pressed.
   expect(await page.getByRole("button", { name: "Confirm" }).count()).toBe(1);
   await Promise.all([
@@ -80,8 +81,8 @@ describe("removal and opt-out journeys", () => {
     expect(await mainText(page)).toContain("Check your email");
 
     // Asking changed nothing: the work and its chapters are still there.
-    const still = await page.goto(`${SITE}/works/42200`);
-    expect(still?.status()).toBe(200);
+    const still = await viaSearch(page, "pw5-Removal work");
+    expect(still.status()).toBe(200);
     expect(await page.locator(".chapters a").count()).toBe(2);
 
     await confirmByLink(page, await removalLink(site, email));
@@ -134,10 +135,24 @@ describe("removal and opt-out journeys", () => {
 
     const reader = await (await site.newContext()).newPage();
     site.dropRecording(reader);
-    // Nothing was hidden: every page of the work still answers 200.
-    for (const path of ["", "/chapters/1", "/full"]) {
-      expect((await reader.goto(`${SITE}/works/42201${path}`))?.status(), path).toBe(200);
-    }
+    // Nothing was hidden: every page of the work still answers 200, reached by its links.
+    const clicking = async (link: Locator) => {
+      const [res] = await Promise.all([
+        reader.waitForResponse(
+          (r) => r.request().isNavigationRequest() && r.request().frame() === reader.mainFrame(),
+        ),
+        link.click(),
+      ]);
+      return res.status();
+    };
+    expect((await viaSearch(reader, "pw5-Unconfirmed work")).status(), "work").toBe(200);
+    expect(await clicking(reader.locator(".chapters a").first()), "chapter").toBe(200);
+    await reader.getByRole("heading", { level: 1 }).getByRole("link").click();
+    await reader.waitForURL(`${SITE}/works/42201`);
+    expect(
+      await clicking(reader.getByRole("link", { name: "Read the entire work on one page" })),
+      "full",
+    ).toBe(200);
   });
 
   it("An opt-out hides every work by the pseud, and a later upload by that pseud is refused", async () => {
@@ -158,7 +173,7 @@ describe("removal and opt-out journeys", () => {
     await sendRemoval(page, { email, pseud: "pw5moon", statement: "A synthetic opt-out." });
     expect(await mainText(page)).toContain("Check your email");
     // Nothing is hidden until the link is confirmed.
-    expect((await page.goto(`${SITE}/works/42210`))?.status()).toBe(200);
+    expect((await viaSearch(page, "pw5-Moon one")).status()).toBe(200);
 
     await confirmByLink(page, await removalLink(site, email));
     expect(await mainText(page)).toContain("Your request is confirmed");
@@ -169,7 +184,7 @@ describe("removal and opt-out journeys", () => {
       expect(await mainText(page)).toContain(HIDDEN_LINE);
     }
     // Another pseud's work is untouched.
-    expect((await page.goto(`${SITE}/works/42212`))?.status()).toBe(200);
+    expect((await viaSearch(page, "pw5-Sun one")).status()).toBe(200);
 
     // A later upload by the pseud goes through real ingest, which refuses it.
     const { context, userId } = await signedIn(site, {
