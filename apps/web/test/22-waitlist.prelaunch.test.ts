@@ -181,9 +181,10 @@ describe("22-waitlist", () => {
     }
     expect(html).not.toMatch(/<style\b|\sstyle=/i);
 
-    // The fonts' OFL licence files, linked from the page and served from rarepair.fans.
+    // The fonts' OFL licence files, linked from /about and served from rarepair.fans.
+    const about = await (await fetchW("/about")).text();
     for (const [path, digest] of Object.entries(UPSTREAM_LICENCES)) {
-      expect(html).toContain(`href="${path}"`);
+      expect(about).toContain(`href="${path}"`);
       const res = await fetchW(path);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toMatch(/^text\/plain/);
@@ -194,9 +195,42 @@ describe("22-waitlist", () => {
 
     // No other app page loads a web font. (WL2 and WL3 build the other wait list pages
     // on waitlistPage, which links the same stylesheet.)
+    // /about links the licence files under /assets/waitlist/, so it is checked for
+    // the font and the wait list stylesheet themselves.
     for (const path of ["/about", "/terms", "/privacy"]) {
       const other = await (await fetchW(path)).text();
-      expect(other).not.toMatch(/\/assets\/waitlist\/|woff2|@font-face/);
+      expect(other, path).not.toMatch(/woff2|@font-face|\/assets\/waitlist\/waitlist\./);
+    }
+    for (const path of ["/terms", "/privacy"]) {
+      expect(await (await fetchW(path)).text(), path).not.toContain("/assets/waitlist/");
+    }
+  });
+
+  it("The fonts' licences are linked from the about page", async () => {
+    const html = await (await fetchW("/about")).text();
+    expect(html).toContain(
+      'The wait list pages are set in Fraunces (<a href="/assets/waitlist/fonts/fraunces/OFL.txt">licence</a>) and IBM Plex Mono (<a href="/assets/waitlist/fonts/ibm-plex-mono/license.txt">licence</a>).',
+    );
+    // Live before launch: plain links, not shown disabled.
+    for (const path of Object.keys(UPSTREAM_LICENCES)) {
+      expect(html).toMatch(new RegExp(`<a href="${path}">licence</a>`));
+      expect((await fetchW(path)).status, path).toBe(200);
+    }
+  });
+
+  it("The wait list pages don't carry the licence line", async () => {
+    // A well-formed unsubscribe token (43 base64url characters); the GET reads nothing.
+    const token = "a".repeat(43);
+    const pages = [
+      "/",
+      "/waitlist/confirm?token=x",
+      `/waitlist/unsubscribe?token=${token}`,
+      "/waitlist/unsubscribe",
+    ];
+    for (const path of pages) {
+      const html = await (await fetchW(path)).text();
+      expect(html, path).toContain("/assets/waitlist/waitlist.");
+      expect(html, path).not.toMatch(/Set in|OFL\.txt|license\.txt/);
     }
   });
 

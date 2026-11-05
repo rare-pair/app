@@ -38,6 +38,17 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Wait list), § Wait list, 
 - AND the fonts' OFL licence files are served from `rarepair.fans` too
 - AND the other wait list pages (check your email, confirm, unsubscribe) use the same fonts, and no other app page loads a web font
 
+### The fonts' licences are linked from the about page
+- GIVEN `PRELAUNCH` is on, and again with it off
+- WHEN a visitor opens `/about`
+- THEN it carries "The wait list pages are set in Fraunces (licence) and IBM Plex Mono (licence)." with each "licence" linking to that font's OFL file
+- AND each link is live, not shown disabled, and answers 200 from `rarepair.fans`
+
+### The wait list pages don't carry the licence line
+- GIVEN `PRELAUNCH` is on
+- WHEN a visitor opens the coming-soon page or another wait list page (check your email, confirm, unsubscribe)
+- THEN the page doesn't show the "Set in" line or link either licence file
+
 ### Other app pages are closed before launch
 - GIVEN `PRELAUNCH` is on
 - WHEN a visitor opens any app page other than `/`, the `/waitlist` pages, `/terms`, `/privacy`, `/welcome/terms`, sign-out (`/logout`) or `/admin`

@@ -81,6 +81,10 @@ export const notFoundPage = () =>
 ${SEARCH_FORM}`,
   );
 
+// The wait list fonts' OFL files (public/assets/waitlist/fonts/), linked from /about.
+const FRAUNCES_LICENCE = "/assets/waitlist/fonts/fraunces/OFL.txt";
+const PLEX_LICENCE = "/assets/waitlist/fonts/ibm-plex-mono/license.txt";
+
 export const DRAFT = `<p class="draft">Draft: this text has not been proofread yet.</p>`;
 
 // Drafts for the operator to proof before launch. They describe provenance
@@ -91,7 +95,8 @@ export const aboutPage = () =>
     `${DRAFT}
 <p>rarepair is a temporary, community-run reading archive for fanworks. It is an unofficial stopgap, not the original archive, and it is not affiliated with or approved by that archive or the organisation behind it.</p>
 <p>People upload the epub files they downloaded from the original archive while it is offline. Anyone can browse and read the works that have been uploaded and accepted. Work pages link back to the original page, and the credit belongs to its author.</p>
-<p>Accepted uploads are public. Anyone can ask for a work to be removed, with no need to prove who they are, using the "Remove my work" link in the footer.</p>`,
+<p>Accepted uploads are public. Anyone can ask for a work to be removed, with no need to prove who they are, using the "Remove my work" link in the footer.</p>
+<p>The wait list pages are set in Fraunces (<a href="${FRAUNCES_LICENCE}">licence</a>) and IBM Plex Mono (<a href="${PLEX_LICENCE}">licence</a>).</p>`,
   );
 
 export const termsPage = () =>
