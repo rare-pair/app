@@ -118,9 +118,10 @@ export function positionsKv({
   };
 }
 
-const counted = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const counted = (n, one) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
-const same = (typed, address) => typed.trim().toLowerCase() === address.trim().toLowerCase();
+/** Addresses are compared in any case. */
+const normalized = (address) => address.trim().toLowerCase();
 
 const BANNED = "this account is banned, and the ban would go with the row";
 
@@ -152,8 +153,8 @@ export async function accountDelete({ connectionString, address, kv, ask, log = 
   pool.on("error", () => {});
   try {
     const { rows: found } = await pool.query(
-      `select id, email, role, banned_at from "user" where lower(email) = lower($1)`,
-      [address.trim()],
+      `select id, email, role, banned_at from "user" where lower(email) = $1`,
+      [normalized(address)],
     );
     if (found.length === 0) return refuse("no account has that address");
     // Sign-in lowercases addresses, so this needs an older row or a hand edit. Which one is meant
@@ -162,6 +163,7 @@ export async function accountDelete({ connectionString, address, kv, ask, log = 
     const [user] = found;
     if (user.banned_at !== null) return refuse(BANNED);
 
+    // apps/web's positionKey, whose TypeScript and imports a script can't load.
     const prefix = `pos:${user.id}:`;
     const { rows } = await pool.query(
       `select
@@ -184,7 +186,7 @@ export async function accountDelete({ connectionString, address, kv, ask, log = 
     );
 
     const typed = await ask("type the address again to delete this account: ");
-    if (!same(typed, address)) return refuse("not confirmed");
+    if (normalized(typed) !== normalized(address)) return refuse("not confirmed");
 
     const ended = await pool.query("delete from session where user_id = $1", [user.id]);
     const keys = await kv.listKeys(prefix);
@@ -221,13 +223,9 @@ function askOnStdin(prompt) {
 
 async function main() {
   const args = process.argv.slice(2);
-  if (args.some((arg) => arg.startsWith("-"))) {
-    console.error("account-delete: unknown flag, only an address is accepted");
-    console.error(USAGE);
-    return 2;
-  }
-  if (args.length !== 1 || !args[0].includes("@")) {
-    console.error("account-delete: give one address");
+  // The flag check too: a database URL given as a flag has an @ in it.
+  if (args.length !== 1 || args[0].startsWith("-") || !args[0].includes("@")) {
+    console.error("account-delete: give one address and no flags");
     console.error(USAGE);
     return 2;
   }

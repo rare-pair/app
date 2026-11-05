@@ -1,11 +1,15 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { accountDelete } from "../../../scripts/account-delete.mjs";
-import { getLiveWork, hideWork, insertUpload, isUploaderBanned } from "../src/index";
+import {
+  banUser,
+  getLiveWork,
+  hideWork,
+  insertUpload,
+  isUploaderBanned,
+  logModerationAction,
+} from "../src/index";
 import { seedWork } from "../src/seed";
 import { createTestDb, type TestDb } from "../src/testing";
 
@@ -91,10 +95,12 @@ async function activeAccount(ao3WorkId: number) {
     .values({ contact_email: `blocked-${user.id}@example.test`, created_by: user.id })
     .returning("id")
     .executeTakeFirstOrThrow();
-  await t.db
-    .insertInto("moderation_actions")
-    .values({ moderator_id: user.id, action: "hide", target_kind: "work", target_id: work.workId })
-    .execute();
+  await logModerationAction(t.db, {
+    moderatorId: user.id,
+    action: "hide",
+    targetKind: "work",
+    targetId: work.workId,
+  });
   return { ...user, work, report: report.id, takedown: takedown.id, block: block.id };
 }
 
@@ -150,10 +156,8 @@ const NO_CLOUDFLARE = `data:text/javascript,${encodeURIComponent(`
 const SCRIPT = fileURLToPath(new URL("../../../scripts/account-delete.mjs", import.meta.url));
 
 function cli(address: string, stdin: string) {
-  const dir = mkdtempSync(join(tmpdir(), "account-delete-test-"));
   return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
     const child = spawn(process.execPath, ["--import", NO_CLOUDFLARE, SCRIPT, address], {
-      cwd: dir,
       env: {
         ...process.env,
         DATABASE_URL: t.connectionString,
@@ -167,10 +171,7 @@ function cli(address: string, stdin: string) {
     child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
     child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
     child.stdin.end(stdin);
-    child.on("close", (code) => {
-      rmSync(dir, { recursive: true, force: true });
-      resolve({ code, stdout, stderr });
-    });
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
   });
 }
 
@@ -353,7 +354,7 @@ describe("18-moderation", () => {
 
   it("Deleting a banned account is refused: the ban would go with the row", async () => {
     const a = await addUser();
-    await t.db.updateTable("user").set({ banned_at: new Date() }).where("id", "=", a.id).execute();
+    await banUser(t.db, a.id, { actor: "acctdel-moderator" });
     await signedIn(a.id);
     const kv = fakeKv([`pos:${a.id}:60908`]);
 
@@ -371,11 +372,7 @@ describe("18-moderation", () => {
     const a = await addUser();
 
     const result = await run(a.email, fakeKv(), a.email, async () => {
-      await t.db
-        .updateTable("user")
-        .set({ banned_at: new Date() })
-        .where("id", "=", a.id)
-        .execute();
+      await banUser(t.db, a.id, { actor: "acctdel-moderator" });
     });
 
     expect(result.deleted).toBe(false);
@@ -409,28 +406,21 @@ describe("18-moderation", () => {
     expect(result.lines.join("\n")).not.toMatch(/60910|pos:/);
   });
 
-  it("Secrets only from the environment: an unreachable database is reported by code, not quoted", async () => {
-    const result = await accountDelete({
-      connectionString: "postgres://user:not-a-password@127.0.0.1:1/db",
-      address: "a@example.test",
-      kv: fakeKv(),
-      ask: async () => "",
-      log: () => {},
-    });
-    expect(result.deleted).toBe(false);
-    expect(result.error).toMatch(/^database error \(\w+\)$/);
-  });
-
-  it("Secrets only from the environment: a malformed connection string is refused without quoting it", async () => {
-    const result = await accountDelete({
-      connectionString: "postgres://user:not-a-password@host:notaport/db",
-      address: "a@example.test",
-      kv: fakeKv(),
-      ask: async () => "",
-      log: () => {},
-    });
-    expect(result.deleted).toBe(false);
-    expect(result.error).toMatch(/^database error \(\w+\)$/);
+  it("Secrets only from the environment: a bad or unreachable database is reported by code, not quoted", async () => {
+    for (const connectionString of [
+      "postgres://user:not-a-password@127.0.0.1:1/db",
+      "postgres://user:not-a-password@host:notaport/db",
+    ]) {
+      const result = await accountDelete({
+        connectionString,
+        address: "a@example.test",
+        kv: fakeKv(),
+        ask: async () => "",
+        log: () => {},
+      });
+      expect(result.deleted).toBe(false);
+      expect(result.error).toMatch(/^database error \(\w+\)$/);
+    }
   });
 
   it("Deleting an account needs confirmation: at the command line, closed input deletes nothing", async () => {

@@ -1013,7 +1013,9 @@ What stays, and why:
   row as banned.
 - **Reports**, with `reporter_id` as it was. It has no foreign key, so a deleted
   account's report still counts toward the automatic hide (Author requests &
-  takedowns). No page shows a reporter's id.
+  takedowns). No page shows a reporter's id. A blocked reporter's report is left
+  out of that count by way of the account's email and sessions, so once the account
+  is gone that report counts again.
 - **`takedowns.resolved_by` and `requester_blocks.created_by`**, with the id as it
   was and no foreign key: the record of who acted stays, as it does for
   `moderation_actions.moderator_id` (Moderation).

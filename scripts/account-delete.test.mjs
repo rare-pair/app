@@ -12,18 +12,6 @@ import { positionsKv } from "./account-delete.mjs";
 
 const script = fileURLToPath(new URL("account-delete.mjs", import.meta.url));
 
-const NAMES = [
-  "DATABASE_URL",
-  "CLOUDFLARE_ACCOUNT_ID",
-  "CLOUDFLARE_API_TOKEN",
-  "POSITIONS_NAMESPACE_ID",
-];
-
-// None of the developer's real variables reach the script under test.
-const clean = Object.fromEntries(
-  Object.entries(process.env).filter(([name]) => !NAMES.includes(name)),
-);
-
 const FAKE_URL = "postgresql://nobody:not-a-password@127.0.0.1:1/none";
 const FULL_ENV = {
   DATABASE_URL: FAKE_URL,
@@ -31,6 +19,12 @@ const FULL_ENV = {
   CLOUDFLARE_API_TOKEN: "test-not-a-token",
   POSITIONS_NAMESPACE_ID: "test-namespace",
 };
+const NAMES = Object.keys(FULL_ENV);
+
+// None of the developer's real variables reach the script under test.
+const clean = Object.fromEntries(
+  Object.entries(process.env).filter(([name]) => !NAMES.includes(name)),
+);
 
 // Runs the script from an empty directory, so a stray .env file would be found if it read one.
 function run(env, args = []) {
