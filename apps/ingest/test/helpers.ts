@@ -374,14 +374,11 @@ export function watchedPuts(ao3WorkId: number) {
 }
 
 /**
- * Runs `fn` with the real bucket as a sweep reads it, showing only `folder` among `works/`'s
- * folders, so a sweep leaves the objects of the other tests running at the same time alone.
+ * The real bucket as a sweep reads it, showing only `folder` among `works/`'s folders, so a sweep
+ * leaves the objects of the other tests running at the same time alone.
  */
-export function sweptFolder<T>(
-  folder: string,
-  fn: (bucket: SweepBucket) => Promise<T>,
-): Promise<T> {
-  return fn({
+export function sweptBucket(folder: string): SweepBucket {
+  return {
     list: async (options) => {
       const page = await env.BUCKET.list(options);
       if (options.prefix !== "works/") return page;
@@ -389,7 +386,7 @@ export function sweptFolder<T>(
     },
     get: (key) => env.BUCKET.get(key),
     delete: (keys) => env.BUCKET.delete(keys),
-  });
+  };
 }
 
 /** The keys in the bucket under `prefix`, sorted. */

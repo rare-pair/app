@@ -18,7 +18,7 @@ import {
   savedRows,
   searchedIds,
   setLease,
-  sweptFolder,
+  sweptBucket,
   token,
   uploadRow,
   watchedPuts,
@@ -572,16 +572,16 @@ describe("04-ingest-job-lifecycle", () => {
     });
     await deliver([{ upload_id: failed }], { attempts: 4, handler });
     const rejected = (await ingestReal(new TextEncoder().encode("not a zip"))).id;
-    const ids = { live, duplicate, failed, rejected };
-    const before = await Promise.all(Object.values(ids).map(uploadRow));
+    const ids = [live, duplicate, failed, rejected];
+    const before = await Promise.all(ids.map(uploadRow));
     expect(before.map((r) => r.status)).toEqual(["live", "duplicate", "parse_failed", "not_epub"]);
-    const bodies = Object.values(ids).map((upload_id) => ({ upload_id }));
+    const bodies = ids.map((upload_id) => ({ upload_id }));
 
     for (const delivery of [1, 2]) {
       const result = await deliver(bodies, { queue: "ingest-dlq", attempts: delivery });
 
       // The job's own stage and error stay on the failed one.
-      expect(await Promise.all(Object.values(ids).map(uploadRow))).toEqual(before);
+      expect(await Promise.all(ids.map(uploadRow))).toEqual(before);
       expect(result.explicitAcks).toEqual(["msg-0", "msg-1", "msg-2", "msg-3"]);
       expect(result.retryMessages).toEqual([]);
     }
@@ -659,16 +659,14 @@ describe("04-ingest-job-lifecycle", () => {
 
     // Only this work's folder: the bucket is shared with the other tests' uploads.
     const run = () =>
-      sweptFolder(folder, async (bucket) =>
-        withDb((db) =>
-          sweep({
-            db,
-            bucket,
-            // Everything put so far is past the sweep's age limit.
-            cutoff: new Date(Date.now() + 60_000),
-            limits: { works: 1, subrequests: 1000 },
-          }),
-        ),
+      withDb((db) =>
+        sweep({
+          db,
+          bucket: sweptBucket(folder),
+          // Everything put so far is past the sweep's age limit.
+          cutoff: new Date(Date.now() + 60_000),
+          limits: { works: 1, subrequests: 1000 },
+        }),
       );
 
     const stuck = await run();

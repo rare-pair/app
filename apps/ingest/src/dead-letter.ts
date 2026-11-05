@@ -1,6 +1,7 @@
 import type { Database } from "@archive/db";
-import { sql, type Kysely } from "kysely";
+import type { Kysely } from "kysely";
 import { errorCode } from "./job";
+import { claimable } from "./lease";
 import { parseMessage } from "./message";
 
 /**
@@ -37,10 +38,10 @@ export async function deadLetterBatch(batch: MessageBatch, db: Kysely<Database>)
 }
 
 /**
- * Sets the upload `parse_failed`, with its stage unknown, only if no job could still end it: it
- * is `pending`, or its lease has expired, the rows `claimLease` would match. An upload left under
- * a live lease says `leased`: a job may still be running, or may have died a moment ago, and the
- * lease alone can't tell. A later delivery finds its ending, or its lease expired.
+ * Sets the upload `parse_failed`, with its stage unknown, only if no job could still end it (the
+ * rows `claimLease` matches). An upload left under a live lease says `leased`: a job may still be
+ * running, or may have died a moment ago, and the lease alone can't tell. A later delivery finds
+ * its ending, or its lease expired.
  */
 async function failDeadLettered(
   db: Kysely<Database>,
@@ -50,12 +51,7 @@ async function failDeadLettered(
     .updateTable("uploads")
     .set({ status: "parse_failed", lease_until: null, error_stage: null, error: "dead_lettered" })
     .where("id", "=", uploadId)
-    .where((eb) =>
-      eb.or([
-        eb("status", "=", "pending"),
-        eb.and([eb("status", "=", "processing"), eb("lease_until", "<", sql<Date>`now()`)]),
-      ]),
-    )
+    .where(claimable)
     .returning("id")
     .executeTakeFirst();
   if (failed !== undefined) return "failed";
