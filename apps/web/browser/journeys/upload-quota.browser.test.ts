@@ -101,7 +101,7 @@ describe("quota journey", () => {
 
     // The one that fits goes up, signed for its own size, and goes live.
     const [id] = await uploadFilesThroughPage(site, page, userId, [file(60000)]);
-    await site.waitForUpload(id ?? "");
+    await site.waitForUpload(id);
 
     await site.assertClean({ allow: [/status of 429/] });
   });

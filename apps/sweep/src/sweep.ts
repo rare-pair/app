@@ -282,7 +282,7 @@ async function listAll(
   }
 }
 
-async function deleteKeys(bucket: SweepBucket, keys: string[]): Promise<void> {
+async function deleteKeys(bucket: Pick<SweepBucket, "delete">, keys: string[]): Promise<void> {
   for (let i = 0; i < keys.length; i += PAGE) {
     await bucket.delete(keys.slice(i, i + PAGE));
   }
@@ -299,7 +299,7 @@ export async function reapUnconfirmedUploads({
   db,
   bucket,
   cutoff,
-}: Pick<SweepDeps, "db" | "bucket" | "cutoff">): Promise<{
+}: Pick<SweepDeps, "db" | "cutoff"> & { bucket: Pick<SweepBucket, "delete"> }): Promise<{
   uploadsReaped: number;
   reapDeleteError?: string;
 }> {

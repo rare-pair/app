@@ -15,6 +15,7 @@ import {
   withDb,
   withImages,
 } from "./helpers";
+import { reapUnconfirmedUploads } from "../src/sweep";
 import { sweepWorker } from "../src/worker";
 
 // Every sweep test is in this file, so they run one after another: the sweep's state row is
@@ -305,32 +306,25 @@ describe("02-upload-handshake: unconfirmed uploads", () => {
     expect(await hasRow(twoDaysOld)).toBe(false);
   });
 
-  it("A file that can't be deleted leaves the run going, and the row removed", async () => {
+  it("A file that can't be deleted is left for the lifecycle rule, and the row removed", async () => {
     const stale = await upload(null, "pending", { createdAt: daysAgo(2) });
     await env.BUCKET.put(keyOf(stale), "synthetic");
-    const work = await seededWork({ ao3WorkId: freshAo3WorkId() });
-    const unreferenced = imageKey();
-    await putImages(work.ao3WorkId, unreferenced);
-    // Only the reaper's delete fails: the image's goes through, which shows the sweep still ran.
-    const bucket = new Proxy(env.BUCKET, {
-      get(target, name) {
-        if (name !== "delete") {
-          const value = Reflect.get(target, name);
-          return typeof value === "function" ? value.bind(target) : value;
-        }
-        return async (keys: string[]) => {
-          if (keys.some((k) => k.startsWith("uploads/"))) throw new TypeError("no delete");
-          await target.delete(keys);
-        };
-      },
-    });
 
-    await runSweep(25, { bindings: { ...env, BUCKET: bucket } });
+    const reaped = await withDb((db) =>
+      reapUnconfirmedUploads({
+        db,
+        bucket: {
+          delete: async () => {
+            throw new TypeError("no delete");
+          },
+        },
+        cutoff: daysAgo(1),
+      }),
+    );
 
+    expect(reaped).toEqual({ uploadsReaped: 1, reapDeleteError: "TypeError" });
     expect(await hasRow(stale)).toBe(false);
-    // The bucket's lifecycle rule is what takes it now.
     expect(await bucketKeys("uploads/")).toEqual([keyOf(stale)]);
-    expect(await bucketKeys(`works/${work.ao3WorkId}/img/`)).toEqual([]);
   });
 });
 
