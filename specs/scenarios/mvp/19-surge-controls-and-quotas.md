@@ -108,4 +108,4 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Load target), § Surge con
 ### Operations dashboard
 - GIVEN the deployed Workers
 - WHEN an operator opens the dashboard
-- THEN queue depth, ingest failure rate and search p95 are shown, with Workers Logs and traces enabled
+- THEN queue depth, ingest failure rate and search p95 are shown, with Workers Logs and traces enabled (the content Worker's traces are off)
