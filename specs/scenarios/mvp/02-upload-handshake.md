@@ -145,6 +145,16 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 - WHEN `POST /uploads/:id/complete` is called again
 - THEN the response is 409, and the object stays for ingest to read
 
+### A confirmed upload's object is left alone by a repeat confirm of an oversized file
+- GIVEN an upload a confirm has counted and queued, whose object has since been replaced by one over 25 MB
+- WHEN `POST /uploads/:id/complete` is called again
+- THEN the response is 409, the upload stays `pending` and the object stays for ingest to read and refuse
+
+### Confirming an upload the reaper has removed answers as an unknown one
+- GIVEN an unconfirmed upload the reaper has removed
+- WHEN its browser tab, resumed later, calls `POST /uploads/:id/complete`
+- THEN the response is 404
+
 ### A repeat confirm that can't reach the queue leaves the upload confirmed
 - GIVEN an upload a confirm has counted and queued
 - WHEN `POST /uploads/:id/complete` is called again and the queue refuses the message
@@ -181,6 +191,11 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 - WHEN the daily sweep runs
 - THEN the row is deleted, and its object if it has one
 - AND nothing under `works/` or `originals/` is touched for it
+
+### A run removes a bounded number of uploads, and the next run takes the rest
+- GIVEN more stale unconfirmed uploads than one run's reaper may remove
+- WHEN the daily sweep runs
+- THEN it removes that many, with their files, and the next run removes the others
 
 ### An unconfirmed upload removed as stale no longer shows on My uploads
 - GIVEN an unconfirmed upload that has been removed as stale

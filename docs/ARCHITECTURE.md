@@ -1396,16 +1396,25 @@ markup: its inline `style` attributes become stylesheet rules, because
   `Content-Length`, but nothing shows that this stops a PUT of another size:
   Cloudflare's docs say a signed `Content-Type` is enforced and, as far as two searches
   on 2026-11-05 found, don't say whether a signed `Content-Length` is. The live check on
-  real R2 is on the operator's list for after deploy. So `/complete` holds either way: it deletes
-  an object over 25 MB or of any other size than was declared. A client may also never call
-  `/complete`, so three more limits apply. An account's open uploads (`pending` and not
+  real R2 is on the operator's list for after deploy. So a file that reaches `/complete` is checked
+  either way: it deletes an object over 25 MB or of any other size than was declared, unless a
+  confirm has already counted the upload, when the object is ingest's. A client may also never
+  call `/complete`, so three more limits apply. An account's open uploads (`pending` and not
   counted by a confirm) can't pass its daily quota for its tier: asking past that cap gets 429
   with a `Retry-After` of an hour, the row lock in `insertUploadsWithinCap` holding it under
   parallel asks. The daily sweep's reaper deletes open uploads older than `UNCONFIRMED_UPLOAD_DAYS`
-  (`apps/sweep`, 1 day), the row first and then the objects of the rows actually deleted, so
-  they leave My uploads; with a daily run, a row lives one to two days. A confirmed upload is
-  never reaped, whatever its age. And an R2 lifecycle rule expires anything under `uploads/`
-  after 7 days, which also takes an object whose delete failed.
+  (`apps/sweep`, 1 day, 7 at most), the row first and then the objects of the rows actually
+  deleted, so they leave My uploads; with a daily run, a row lives one to two days. A run reaps
+  at most 500,000 rows, and the next takes the rest. A confirmed upload is never reaped, whatever
+  its age. And an R2 lifecycle rule expires anything under `uploads/` after 7 days, which also
+  takes an object whose delete failed.
+  **The worst case depends on the live check.** Nothing checks the size of an object nobody
+  confirms. If R2 enforces the signed size, an account holds at most its cap times 25 MB through
+  unfinished links: 500 MB on the new-account quota of 20, 2.5 GB on the trusted 100. If R2
+  doesn't, each link can hold what one PUT can (5 GiB by R2's limit, as far as its docs say), so
+  about 100 GiB per new account for the day or two until the reaper runs. Since the cap is the
+  daily quota, raising `UPLOAD_QUOTA_NEW` raises these bounds with it, and a quota under 10 can't
+  take a full batch of 10.
   Raw files the archive keeps are copied to `originals/` during ingest.
 - Queue backpressure: set a maximum consumer concurrency so Neon connections
   stay bounded. Hyperdrive pools connections, and Neon autoscales compute. Each Hyperdrive

@@ -305,6 +305,30 @@ describe("02-upload-handshake: unconfirmed uploads", () => {
       expect(await hasRow(hourOld), bad).toBe(true);
     }
     expect(await hasRow(twoDaysOld)).toBe(false);
+
+    // Past the bucket's 7-day lifecycle rule, rows would outlive their files and hold cap slots.
+    const overTheRule = await upload(null, "pending", { createdAt: daysAgo(2) });
+    await runSweepAt(NOW, { bindings: { ...env, UNCONFIRMED_UPLOAD_DAYS: "8" } });
+    expect(await hasRow(overTheRule)).toBe(false);
+  });
+
+  it("A run removes a bounded number of uploads, and the next run takes the rest", async () => {
+    const stale = [
+      await upload(null, "pending", { createdAt: daysAgo(2) }),
+      await upload(null, "pending", { createdAt: daysAgo(2) }),
+      await upload(null, "pending", { createdAt: daysAgo(2) }),
+    ];
+    for (const id of stale) await env.BUCKET.put(keyOf(id), "synthetic");
+    const reap = (limits: { rows: number; batches: number }) =>
+      withDb((db) =>
+        reapUnconfirmedUploads({ db, bucket: env.BUCKET, cutoff: daysAgo(1), limits }),
+      );
+
+    expect(await reap({ rows: 1, batches: 2 })).toEqual({ uploadsReaped: 2 });
+    expect(await bucketKeys("uploads/")).toHaveLength(1);
+
+    expect(await reap({ rows: 2, batches: 5 })).toEqual({ uploadsReaped: 1 });
+    expect(await bucketKeys("uploads/")).toEqual([]);
   });
 
   it("A file that can't be deleted is left for the lifecycle rule, and the row removed", async () => {

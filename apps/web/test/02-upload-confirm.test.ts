@@ -277,6 +277,26 @@ describe("02-upload-handshake", () => {
     expect(await env.BUCKET.head(up.key)).not.toBeNull();
   });
 
+  it("A confirmed upload's object is left alone by a repeat confirm of an oversized file", async () => {
+    const { userId, cookie } = await signIn("uploadcap-oversized-counted@example.test");
+    const up = await uploaded(userId, randomBytes(1000));
+    expect((await complete(up.id, { cookie })).status).toBe(200);
+    await env.BUCKET.put(up.key, new Uint8Array(MAX + 1));
+
+    await expectRefused(await complete(up.id, { cookie }), 409);
+
+    expect(await env.BUCKET.head(up.key)).not.toBeNull();
+    expect((await rowOf(up.id)).status).toBe("pending");
+  });
+
+  it("Confirming an upload the reaper has removed answers as an unknown one", async () => {
+    const { userId, cookie } = await signIn("uploadcap-confirm-reaped@example.test");
+    const up = await uploaded(userId, randomBytes(1000));
+    await db.deleteFrom("uploads").where("id", "=", up.id).execute();
+
+    await expectRefused(await complete(up.id, { cookie }), 404);
+  });
+
   it("A repeat confirm that can't reach the queue leaves the upload confirmed", async () => {
     const { userId, cookie } = await signIn("uploadcap-repeat-refund@example.test");
     const up = await uploaded(userId, randomBytes(1000));

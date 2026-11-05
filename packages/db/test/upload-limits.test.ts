@@ -49,7 +49,9 @@ describe("02-upload-handshake: the cap on open uploads", () => {
     ]);
   });
 
-  it("parallel asks can't pass the cap together", async () => {
+  // The test database runs one client's transaction at a time, so this shows the count and the
+  // inserts are one transaction. It can't show the row lock, which only real Postgres needs.
+  it("parallel asks stop at the cap", async () => {
     const userId = await freshUser();
     const clients = [0, 1, 2, 3].map(() =>
       createDb({ connectionString: t.connectionString, max: 1 }),

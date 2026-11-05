@@ -445,19 +445,29 @@ export async function insertUploadsWithinCap(
 }
 
 /**
- * Deletes every upload still unconfirmed (`pending`, not counted by a confirm) and created before
- * `cutoff`, and returns the R2 keys of the rows it deleted. The row goes first: a confirm's claim
- * uses the same predicate, so a row is either claimed or deleted, and only a deleted row's object
- * is the caller's to remove.
+ * Deletes up to `limit` uploads still unconfirmed (`pending`, not counted by a confirm) and
+ * created before `cutoff`, and returns the R2 keys of the rows it deleted. The row goes first: a
+ * confirm's claim uses the same predicate, so a row is either claimed or deleted, and only a
+ * deleted row's object is the caller's to remove. A row someone holds locked is passed over for
+ * a later run, so this waits on no confirm or ban.
  */
 export async function deleteUnconfirmedUploads(
   db: Kysely<Database>,
   cutoff: Date,
+  limit = 1000,
 ): Promise<string[]> {
   const rows = await db
     .deleteFrom("uploads")
-    .where(isOpenUpload)
-    .where("created_at", "<", cutoff)
+    .where("id", "in", (eb) =>
+      eb
+        .selectFrom("uploads")
+        .select("id")
+        .where(isOpenUpload)
+        .where("created_at", "<", cutoff)
+        .limit(limit)
+        .forUpdate()
+        .skipLocked(),
+    )
     .returning("r2_key")
     .execute();
   return rows.map((row) => row.r2_key);
@@ -531,13 +541,16 @@ export async function recordUploadHash(
   });
 }
 
-/** Marks a `pending` upload `too_large`. False when it wasn't `pending`. */
+/**
+ * Marks an open upload `too_large`. False when it wasn't `pending`, or when a confirm has counted
+ * it: that upload is in the queue, and its object is ingest's to read and to refuse.
+ */
 export async function rejectOversizedUpload(db: Kysely<Database>, id: string): Promise<boolean> {
   const row = await db
     .updateTable("uploads")
     .set({ status: "too_large" })
     .where("id", "=", id)
-    .where("status", "=", "pending")
+    .where(isOpenUpload)
     .returning("id")
     .executeTakeFirst();
   return row !== undefined;

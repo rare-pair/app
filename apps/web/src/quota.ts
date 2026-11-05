@@ -64,10 +64,13 @@ const OPEN_RETRY_SECONDS = 3600;
  * Worker can't read.
  */
 export function tooManyOpen(c: Context, left: number): Response {
-  const room = left === 0 ? "" : ` You can start ${left} more now.`;
+  const room =
+    left === 0
+      ? "You have too many unfinished uploads to start another."
+      : `You have too many unfinished uploads to start all of these. You can start ${left} more now.`;
   return tooManyRequestsJson(
     c,
-    `You have too many unfinished uploads to start all of these.${room} Unfinished uploads clear by themselves after about a day, so please try again then.`,
+    `${room} Unfinished uploads clear by themselves after about a day, so please try again then.`,
     OPEN_RETRY_SECONDS,
   );
 }
