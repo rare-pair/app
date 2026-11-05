@@ -1,0 +1,147 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { dismissReport, hideWork, restoreWork } from "../src/index";
+import { seedWork } from "../src/seed";
+import { createTestDb, type TestDb } from "../src/testing";
+
+let t: TestDb;
+beforeAll(async () => {
+  t = await createTestDb();
+});
+afterAll(async () => {
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- unset if beforeAll failed
+  await t?.close();
+});
+
+let users = 0;
+async function addUser() {
+  const id = `dismiss-user-${++users}`;
+  await t.db
+    .insertInto("user")
+    .values({ id, name: id, email: `${id}@example.test`, email_verified: true })
+    .execute();
+  return id;
+}
+
+const addReport = async (workId: string, reporter: string, kind = "other") => {
+  const row = await t.db
+    .insertInto("reports")
+    .values({ work_id: workId, reporter_id: reporter, kind })
+    .returning("id")
+    .executeTakeFirstOrThrow();
+  return row.id;
+};
+
+const reportStatus = async (id: string) =>
+  (await t.db.selectFrom("reports").select("status").where("id", "=", id).executeTakeFirstOrThrow())
+    .status;
+
+const workState = (workId: string) =>
+  t.db
+    .selectFrom("works")
+    .select(["status", "hidden_cause"])
+    .where("id", "=", workId)
+    .executeTakeFirstOrThrow();
+
+const logFor = (targetId: string) =>
+  t.db
+    .selectFrom("moderation_actions")
+    .select(["moderator_id", "action", "target_kind", "target_id", "note", "created_at"])
+    .where("target_id", "=", targetId)
+    .execute();
+
+describe("18-moderation", () => {
+  it("A moderator dismisses a report", async () => {
+    const { workId } = await seedWork(t.db);
+    const moderator = await addUser();
+    const id = await addReport(workId, await addUser());
+
+    expect(await dismissReport(t.db, id, { actor: moderator })).toBe(true);
+
+    expect(await reportStatus(id)).toBe("closed");
+    const [row, ...rest] = await logFor(id);
+    expect(rest).toEqual([]);
+    expect(row).toMatchObject({
+      moderator_id: moderator,
+      action: "dismiss",
+      target_kind: "report",
+      target_id: id,
+    });
+    expect(row?.created_at).toBeInstanceOf(Date);
+    expect(await workState(workId)).toEqual({ status: "live", hidden_cause: null });
+    expect(await logFor(workId)).toEqual([]);
+  });
+
+  it("A work the reports hid stays hidden when its reports are dismissed", async () => {
+    const { workId } = await seedWork(t.db, { status: "hidden", hiddenCause: "reports" });
+    const id = await addReport(workId, await addUser());
+    expect(await dismissReport(t.db, id, { actor: await addUser() })).toBe(true);
+    expect(await workState(workId)).toEqual({ status: "hidden", hidden_cause: "reports" });
+  });
+
+  it("A report on a removed work can still be dismissed", async () => {
+    // The Reports queue lists it, and nothing else would take it off.
+    const { workId } = await seedWork(t.db, { status: "removed" });
+    const id = await addReport(workId, await addUser());
+    expect(await dismissReport(t.db, id, { actor: await addUser() })).toBe(true);
+    expect(await reportStatus(id)).toBe("closed");
+    expect((await workState(workId)).status).toBe("removed");
+  });
+
+  it("Dismissing a report twice changes nothing and logs once", async () => {
+    const { workId } = await seedWork(t.db);
+    const moderator = await addUser();
+    const id = await addReport(workId, await addUser());
+    expect(await dismissReport(t.db, id, { actor: moderator })).toBe(true);
+    expect(await dismissReport(t.db, id, { actor: moderator })).toBe(false);
+    expect(await logFor(id)).toHaveLength(1);
+  });
+
+  it("A wrong-version report or an unknown id is not dismissed", async () => {
+    const { workId } = await seedWork(t.db);
+    const moderator = await addUser();
+    const wrong = await addReport(workId, await addUser(), "wrong_version");
+    expect(await dismissReport(t.db, wrong, { actor: moderator })).toBe(false);
+    expect(await reportStatus(wrong)).toBe("open");
+    expect(await logFor(wrong)).toEqual([]);
+    expect(await dismissReport(t.db, "dismiss-no-such-report", { actor: moderator })).toBe(false);
+  });
+
+  it("A dismissed report stops counting toward the automatic hide", async () => {
+    const { workId } = await seedWork(t.db);
+    const [u, u2, u3, u4] = [await addUser(), await addUser(), await addUser(), await addUser()];
+    await addReport(workId, u);
+    await addReport(workId, u2);
+    const dismissed = await addReport(workId, u3);
+    await dismissReport(t.db, dismissed, { actor: await addUser() });
+
+    expect(await hideWork(t.db, workId, "reports", { minReporters: 3 })).toBe(false);
+    expect((await workState(workId)).status).toBe("live");
+
+    await addReport(workId, u4);
+    expect(await hideWork(t.db, workId, "reports", { minReporters: 3 })).toBe(true);
+  });
+
+  it("A dismissal rolls back with the caller's transaction, log row and all", async () => {
+    const { workId } = await seedWork(t.db);
+    const id = await addReport(workId, await addUser());
+    const moderator = await addUser();
+    await expect(
+      t.db.transaction().execute(async (trx) => {
+        await dismissReport(trx, id, { actor: moderator });
+        throw new Error("rolled back");
+      }),
+    ).rejects.toThrow("rolled back");
+    expect(await reportStatus(id)).toBe("open");
+    expect(await logFor(id)).toEqual([]);
+  });
+
+  it("restoreWork with closeReports off leaves the work's reports open", async () => {
+    const { workId } = await seedWork(t.db, { status: "hidden", hiddenCause: "removal_request" });
+    const id = await addReport(workId, await addUser());
+    const wrong = await addReport(workId, await addUser(), "wrong_version");
+    expect(await restoreWork(t.db, workId, { closeReports: false })).toBe(true);
+    expect((await workState(workId)).status).toBe("live");
+    expect(await reportStatus(id)).toBe("open");
+    expect(await reportStatus(wrong)).toBe("open");
+  });
+});

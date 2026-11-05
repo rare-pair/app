@@ -50,7 +50,7 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 ### Each item has a detail page with actions
 - GIVEN an item in the reports, takedowns or requests queue
 - WHEN M opens its detail page
-- THEN the page offers hide, remove, restore, approve, reject, block requester and ban uploader actions
+- THEN the page offers hide, remove, restore, approve, reject, block requester and ban uploader actions, and an open report's page offers "Dismiss report"
 
 ### Works to check detail page has its own actions
 - GIVEN an item in *Works to check*
@@ -100,6 +100,37 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 - WHEN M uses the remove action, choosing a reason where scenario 23 asks for one
 - THEN W is `removed`, its R2 files and raw upload are deleted, and the sweep deletes what that delete missed, except the cases in https://github.com/rare-pair/app/issues/592
 - AND its cached pages, fragments, images and download URLs are purged where the purge reaches them (what it cannot reach is in specs/scenarios/mvp/09-content-origin.md)
+
+### A moderator dismisses a report
+- GIVEN a live work W with an open report
+- WHEN M uses "Dismiss report" on the report's detail page
+- THEN the report is `closed` and leaves `/admin/reports`
+- AND one moderation log row records `dismiss` on the report, with M's user id and the time
+- AND W stays live
+- AND a work the reports hid automatically stays hidden, because only Restore lifts a hide
+
+### A dismissed report stops counting toward the automatic hide
+- GIVEN a live work W with open reports from U and U2, and a report from U3 that M dismissed
+- WHEN U2 reports W again
+- THEN W stays live, because only U and U2 count
+- AND when a new account U4 reports W, W is hidden automatically
+
+### Rejecting a removal request leaves reports open
+- GIVEN work W hidden after a removal request, with an open report
+- WHEN M rejects the request
+- THEN W is `live` again
+- AND the report is still `open` and listed on `/admin/reports`
+- AND the same holds when M reverses an opt-out or restores related works in bulk
+
+### A moderator's restore closes reports
+- GIVEN a hidden work W with an open report
+- WHEN M uses the restore action on W
+- THEN W is `live` again and the report is `closed`
+
+### Replacing a version leaves wrong-version reports open
+- GIVEN work BV with a "This version is wrong" report
+- WHEN a newer upload replaces BV's current version
+- THEN the report is still `open` and BV stays in *Works to check*
 
 ### Related requests are listed together
 - GIVEN one of the five requests from the same email and IP
