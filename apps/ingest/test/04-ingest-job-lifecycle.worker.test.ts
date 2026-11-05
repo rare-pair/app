@@ -879,16 +879,19 @@ describe("04-ingest-job-lifecycle", () => {
   it.each([
     ["its object is gone", null, "parse_failed"],
     ["its object is over the size limit", new Uint8Array(25 * 1024 * 1024 + 1), "too_large"],
-  ] as const)("An upload no job read keeps the hash confirm stored: %s", async (_, bytes, status) => {
-    const confirmed = ao3Epub({ workId: 60406 });
-    const id = await pendingUpload(bytes);
-    await confirmAs(id, confirmed);
+  ] as const)(
+    "An upload no job read keeps the hash confirm stored: %s",
+    async (_, bytes, status) => {
+      const confirmed = ao3Epub({ workId: 60406 });
+      const id = await pendingUpload(bytes);
+      await confirmAs(id, confirmed);
 
-    await deliver([{ upload_id: id }]);
+      await deliver([{ upload_id: id }]);
 
-    expect((await uploadRow(id)).status).toBe(status);
-    expect(await uploadHash(id)).toBe(await sha256Hex(confirmed));
-  });
+      expect((await uploadRow(id)).status).toBe(status);
+      expect(await uploadHash(id)).toBe(await sha256Hex(confirmed));
+    },
+  );
 
   it("An upload no job read keeps the hash confirm stored: its account is banned", async () => {
     const file = ao3Epub({ workId: 60407 });
