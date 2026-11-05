@@ -179,11 +179,12 @@ describe("18-moderation", () => {
       expect(await res.text()).toBe(notFound);
     }
     const notFound = await (await get("/dismiss-no-such-page", moderator)).text();
-    for (const headers of [
+    const crossSite: Record<string, string>[] = [
       { origin: "https://evil.example", "sec-fetch-site": "cross-site" },
       { "sec-fetch-site": "same-site" },
       {},
-    ] as Record<string, string>[]) {
+    ];
+    for (const headers of crossSite) {
       const res = await post(path, moderator, headers);
       expect(res.status, JSON.stringify(headers)).toBe(404);
       expect(await res.text()).toBe(notFound);

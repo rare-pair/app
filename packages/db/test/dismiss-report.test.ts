@@ -91,8 +91,11 @@ describe("18-moderation", () => {
     const { workId } = await seedWork(t.db);
     const moderator = await addUser();
     const id = await addReport(workId, await addUser());
-    expect(await dismissReport(t.db, id, { actor: moderator })).toBe(true);
-    expect(await dismissReport(t.db, id, { actor: moderator })).toBe(false);
+    const dismissals = [
+      await dismissReport(t.db, id, { actor: moderator }),
+      await dismissReport(t.db, id, { actor: moderator }),
+    ];
+    expect(dismissals).toEqual([true, false]);
     expect(await logFor(id)).toHaveLength(1);
   });
 
