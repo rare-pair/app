@@ -160,7 +160,7 @@ describe("18-moderation", () => {
     // The log has no foreign key to fail on, so make every insert fail with a trigger.
     await sql`
       create function dismiss_refuse() returns trigger language plpgsql as
-      $ begin raise exception 'log refused'; end $`.execute(t.db);
+      $$ begin raise exception 'log refused'; end $$`.execute(t.db);
     await sql`
       create trigger dismiss_refuse before insert on moderation_actions
       for each row execute function dismiss_refuse()`.execute(t.db);
