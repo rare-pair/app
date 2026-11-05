@@ -1,10 +1,10 @@
-import { createDb, getUploadQuota, insertUpload, isBanned } from "@archive/db";
+import { createDb, getUploadQuota, insertUploadsWithinCap, isBanned } from "@archive/db";
 import type { Context, MiddlewareHandler } from "hono";
 import type { Bindings } from "./env";
 import { readForm } from "./login";
 import { DRAFT, layout, uploadPage } from "./pages";
 import { presignPut } from "./presign";
-import { limitFor, quotaShort, quotaSpent } from "./quota";
+import { limitFor, quotaShort, quotaSpent, tooManyOpen } from "./quota";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
 import {
@@ -170,11 +170,11 @@ export async function requestUpload(c: UploadContext) {
     // today's quota has left, so nobody is sent to upload a file that confirm would refuse.
     // Nothing is counted here.
     const quota = await getUploadQuota(db, user.id);
-    if (quota !== null) {
-      const left = Math.max(0, limitFor(quota.role, c.env) - quota.usedToday);
-      if (declared.length > left) {
-        return left === 0 ? quotaSpent(c) : quotaShort(c, left);
-      }
+    if (quota === null) return refuse(401, "Sign in to upload.");
+    const limit = limitFor(quota.role, c.env);
+    const left = Math.max(0, limit - quota.usedToday);
+    if (declared.length > left) {
+      return left === 0 ? quotaSpent(c) : quotaShort(c, left);
     }
 
     // The keys are ours alone: nothing in them comes from the request.
@@ -197,12 +197,16 @@ export async function requestUpload(c: UploadContext) {
         return { id, key, bytes, url };
       }),
     );
-    // All the rows or none.
-    await db.transaction().execute(async (trx) => {
-      for (const { id, key, bytes } of files) {
-        await insertUpload(trx, { id, userId: user.id, r2Key: key, bytes });
-      }
-    });
+    // All the rows or none, and none past the cap on links never finished, which is the daily
+    // quota's number: asking counts nothing above, so without it one account could hold any
+    // amount of storage through links it never confirms.
+    const stored = await insertUploadsWithinCap(
+      db,
+      user.id,
+      files.map(({ id, key, bytes }) => ({ id, r2Key: key, bytes })),
+      limit,
+    );
+    if (!stored.inserted) return tooManyOpen(c, stored.left);
     const [only] = files;
     return c.json(
       files.length === 1 && only !== undefined

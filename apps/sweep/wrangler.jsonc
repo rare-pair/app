@@ -4,7 +4,9 @@
   // owns, older than 24 hours (ARCHITECTURE, EPUB processor). Under a removed work's folder it
   // deletes everything, of any age, plus `originals/<upload_id>.epub` for each upload prefix
   // there, unless a job of the work is running (ARCHITECTURE, Removal really removes). It
-  // reads Postgres through Hyperdrive. No routes: nothing reaches it but the cron.
+  // reads Postgres through Hyperdrive. It also removes uploads left unconfirmed past
+  // UNCONFIRMED_UPLOAD_DAYS, rows and `uploads/` objects (ARCHITECTURE, Orphaned uploads). No
+  // routes: nothing reaches it but the cron.
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "rarepair-sweep",
   "main": "src/worker.ts",
@@ -19,6 +21,7 @@
   // A Worker gets 30 seconds of CPU unless this says more; a run reads and scans many fragments.
   // Five minutes, under the 15-minute wall time a cron invocation has.
   "limits": { "cpu_ms": 300000 },
+  "vars": { "UNCONFIRMED_UPLOAD_DAYS": "1" },
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "rarepair" }],
   // Neon Postgres. It is the
   // config with caching off, the one apps/web's HYPERDRIVE uses (ARCHITECTURE, Connections): the

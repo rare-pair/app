@@ -118,7 +118,74 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 ### Confirm is never called
 - GIVEN an object PUT to `uploads/` whose client never calls `/complete`
 - WHEN 7 days have passed since the object was written
-- THEN the R2 lifecycle rule has expired the object
+- THEN the R2 lifecycle rule has expired the object, if the reaper hasn't already deleted it
+
+### Each link is signed for the size declared when it was asked for
+- GIVEN user U with a passing Turnstile token and remaining quota
+- WHEN U calls `POST /uploads` declaring sizes of 25 MB or less, for one file or several
+- THEN each presigned URL signs `Content-Length` with the size declared for its file, as well as `Content-Type`
+- AND a URL signed for one size has a different signature from one signed for another
+
+### Whether R2 enforces the signed size is checked after deploy
+- GIVEN a presigned PUT URL signed for one size, on real R2
+- WHEN the browser PUTs a file of another size to it
+- THEN what R2 does isn't known: Cloudflare's docs promise a signed `Content-Type` is enforced and don't say so of `Content-Length`
+- AND this case is on the operator's review list for after deploy, not shown by any local test
+- AND the case below holds whichever way R2 goes
+
+### Confirm refuses and deletes a file of another size than declared
+- GIVEN an upload whose stored object is larger or smaller than its declared size, and 25 MB or less
+- WHEN `POST /uploads/:id/complete` is called
+- THEN the response is 400 with a plain message, and the object is deleted from R2
+- AND nothing is counted against the quota and nothing is put on the ingest queue
+- AND the upload stays `pending` and unconfirmed, for the reaper to remove
+
+### Asking for links beyond the cap on open uploads is refused
+- GIVEN user U whose open uploads (`pending` and not yet counted by a confirm) would pass the cap, which is U's daily quota for U's tier, with the files asked for
+- WHEN U calls `POST /uploads`
+- THEN the response is 429 with `Retry-After: 3600`, with no `uploads` row inserted and no presigned URL returned
+- AND the upload page shows a plain message saying how many more U can start, that unfinished uploads clear by themselves, and to try again then
+
+### A batch that fits under the cap works, and one past it is refused whole
+- GIVEN user U two uploads short of the cap on open uploads
+- WHEN U asks for three, and then for two
+- THEN the three are refused with no row inserted, and the two get their rows and URLs
+
+### A full batch of 10 files still works under the cap
+- GIVEN user U with 10 open uploads, on the new-account daily quota of 20
+- WHEN U asks for 10 more
+- THEN each file gets its own `uploads` row and presigned URL
+
+### The cap is the account's daily quota for its tier
+- GIVEN trusted user T with open uploads past the new-account limit, and under the trusted one
+- WHEN T asks for one more
+- THEN T gets a presigned URL, and once T is at the trusted limit T is refused
+
+### Only the account's own unconfirmed uploads are open
+- GIVEN user U one short of the cap, with confirmed, processing and rejected uploads besides, and another user's open uploads
+- WHEN U asks for one more
+- THEN U gets a presigned URL
+
+### An unconfirmed upload older than a day is removed, with any file
+- GIVEN an upload that is `pending`, not counted by a confirm, and created longer ago than the configured age of 1 day
+- WHEN the daily sweep runs
+- THEN the row is deleted, and its object if it has one
+- AND nothing under `works/` or `originals/` is touched for it
+
+### An unconfirmed upload removed as stale no longer shows on My uploads
+- GIVEN an unconfirmed upload that has been removed as stale
+- WHEN its uploader opens `/me/uploads`
+- THEN it isn't listed, and their newer unconfirmed uploads still are
+
+### An unconfirmed upload not yet a day old stays
+- GIVEN an unconfirmed upload created exactly the configured age before the run
+- WHEN the daily sweep runs
+- THEN the row and its object stay
+
+### A confirmed upload is never removed, whatever its age
+- GIVEN an upload of any age that a confirm has counted, or that is `processing`, `live`, `held_for_review`, `duplicate` or rejected
+- WHEN the daily sweep runs
+- THEN the row and its object stay
 
 ### Upload requests are rate-limited
 - GIVEN user U, or U's IP address, has reached the upload-request rate limit in the current window

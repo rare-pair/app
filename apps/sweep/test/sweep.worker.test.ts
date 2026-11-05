@@ -215,13 +215,119 @@ describe("sweep of orphaned version prefixes", () => {
     const ao3WorkId = freshAo3WorkId();
     const work = await seededWork({ ao3WorkId });
     const processing = await putPrefix(ao3WorkId, await upload(work.userId, "processing"), 2);
-    const pending = await putPrefix(ao3WorkId, await upload(work.userId, "pending"), 1);
+    // Pending and confirmed: one in the queue. An unconfirmed one this old would be reaped.
+    const queued = await upload(work.userId, "pending", { confirmed: new Date() });
+    const pending = await putPrefix(ao3WorkId, queued, 1);
 
     await runSweep(25);
 
     expect(await bucketKeys(`works/${ao3WorkId}/`)).toEqual(
       [...work.chapterKeys, ...processing, ...pending].sort(),
     );
+  });
+});
+
+describe("02-upload-handshake: unconfirmed uploads", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const NOW = Date.now();
+  const daysAgo = (days: number) => new Date(NOW - days * DAY);
+  const keyOf = (id: string) => `uploads/${id}.epub`;
+
+  /** Whether the upload's row is still there. */
+  const hasRow = (id: string) =>
+    withDb(async (db) => {
+      const row = await db
+        .selectFrom("uploads")
+        .select("id")
+        .where("id", "=", id)
+        .executeTakeFirst();
+      return row !== undefined;
+    });
+
+  it("An unconfirmed upload older than a day is removed, with any file", async () => {
+    const withFile = await upload(null, "pending", { createdAt: daysAgo(2) });
+    await env.BUCKET.put(keyOf(withFile), "synthetic");
+    const neverPut = await upload(null, "pending", { createdAt: daysAgo(2) });
+    // Young, so the sweep's own rules keep them: what goes here is the reaper's doing.
+    await env.BUCKET.put("works/60000/1.html", "<p>Synthetic fragment.</p>");
+    await env.BUCKET.put("originals/60000.epub", "synthetic");
+
+    await runSweep(0, { at: NOW });
+
+    expect(await hasRow(withFile)).toBe(false);
+    expect(await hasRow(neverPut)).toBe(false);
+    expect(await bucketKeys("")).toEqual(["originals/60000.epub", "works/60000/1.html"]);
+  });
+
+  it("An unconfirmed upload not yet a day old stays", async () => {
+    const atTheLine = await upload(null, "pending", { createdAt: daysAgo(1) });
+    await env.BUCKET.put(keyOf(atTheLine), "synthetic");
+    const justOver = await upload(null, "pending", { createdAt: new Date(NOW - DAY - 1) });
+
+    await runSweep(0, { at: NOW });
+
+    expect(await hasRow(atTheLine)).toBe(true);
+    expect(await bucketKeys("uploads/")).toEqual([keyOf(atTheLine)]);
+    expect(await hasRow(justOver)).toBe(false);
+  });
+
+  it("A confirmed upload is never removed, whatever its age", async () => {
+    const old = { createdAt: daysAgo(400) };
+    const ids = [
+      await upload(null, "pending", { ...old, confirmed: daysAgo(400) }),
+      await upload(null, "processing", old),
+      await upload(null, "live", old),
+      await upload(null, "held_for_review", old),
+      await upload(null, "duplicate", old),
+      await upload(null, "parse_failed", old),
+      await upload(null, "too_large", old),
+      await upload(null, "over_quota", old),
+    ];
+    for (const id of ids) await env.BUCKET.put(keyOf(id), "synthetic");
+
+    await runSweep(0, { at: NOW });
+
+    for (const id of ids) expect(await hasRow(id), id).toBe(true);
+    expect(await bucketKeys("uploads/")).toEqual(ids.map(keyOf).sort());
+  });
+
+  it("The age is the deployed configuration's, and a bad value is a day", async () => {
+    const twoDaysOld = await upload(null, "pending", { createdAt: daysAgo(2) });
+    await runSweep(0, { at: NOW, bindings: { ...env, UNCONFIRMED_UPLOAD_DAYS: "3" } });
+    expect(await hasRow(twoDaysOld)).toBe(true);
+
+    // Zero would take a link still in use: never less than the day it falls back to.
+    const hourOld = await upload(null, "pending", { createdAt: new Date(NOW - DAY / 24) });
+    for (const bad of ["0", "-1", "1e3", "", "soon"]) {
+      await runSweep(0, { at: NOW, bindings: { ...env, UNCONFIRMED_UPLOAD_DAYS: bad } });
+      expect(await hasRow(hourOld), bad).toBe(true);
+    }
+    expect(await hasRow(twoDaysOld)).toBe(false);
+  });
+
+  it("A file that can't be deleted leaves the run going, and the row removed", async () => {
+    const stale = await upload(null, "pending", { createdAt: daysAgo(2) });
+    await env.BUCKET.put(keyOf(stale), "synthetic");
+    const work = await seededWork({ ao3WorkId: freshAo3WorkId() });
+    const unreferenced = imageKey();
+    await putImages(work.ao3WorkId, unreferenced);
+    // Only the reaper's delete fails: the image's goes through, which shows the sweep still ran.
+    // SAFETY: the Worker calls only these three of the bucket's methods (SweepBucket).
+    const bucket = {
+      list: (options?: R2ListOptions) => env.BUCKET.list(options),
+      get: (key: string) => env.BUCKET.get(key),
+      delete: async (keys: string[]) => {
+        if (keys.some((k) => k.startsWith("uploads/"))) throw new TypeError("no delete");
+        await env.BUCKET.delete(keys);
+      },
+    } as unknown as R2Bucket;
+
+    await runSweep(25, { bindings: { ...env, BUCKET: bucket } });
+
+    expect(await hasRow(stale)).toBe(false);
+    // The bucket's lifecycle rule is what takes it now.
+    expect(await bucketKeys("uploads/")).toEqual([keyOf(stale)]);
+    expect(await bucketKeys(`works/${work.ao3WorkId}/img/`)).toEqual([]);
   });
 });
 

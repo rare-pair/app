@@ -405,6 +405,56 @@ export async function insertUpload(
   return { id: row.id, status: "pending" };
 }
 
+/**
+ * Inserts a batch of `pending` uploads, all or none, unless they would take the account's open
+ * uploads (`pending` and not counted by a confirm) past `cap`; then says how many still fit. The
+ * user's row is locked first, so parallel asks count one after another and can't pass the cap
+ * together.
+ */
+export async function insertUploadsWithinCap(
+  db: Kysely<Database>,
+  userId: string,
+  uploads: { id: string; r2Key: string; bytes: number }[],
+  cap: number,
+): Promise<{ inserted: true } | { inserted: false; left: number }> {
+  return db.transaction().execute(async (trx) => {
+    await trx.selectFrom("user").select("id").where("id", "=", userId).forNoKeyUpdate().execute();
+    const { open } = await trx
+      .selectFrom("uploads")
+      .select((eb) => eb.fn.countAll<string>().as("open"))
+      .where("user_id", "=", userId)
+      .where("status", "=", "pending")
+      .where("quota_counted_at", "is", null)
+      .executeTakeFirstOrThrow();
+    const left = Math.max(0, cap - Number(open));
+    if (uploads.length > left) return { inserted: false, left };
+    for (const { id, r2Key, bytes } of uploads) {
+      await insertUpload(trx, { id, userId, r2Key, bytes });
+    }
+    return { inserted: true };
+  });
+}
+
+/**
+ * Deletes every upload still unconfirmed (`pending`, not counted by a confirm) and created before
+ * `cutoff`, and returns the R2 keys of the rows it deleted. The row goes first: a confirm's claim
+ * uses the same predicate, so a row is either claimed or deleted, and only a deleted row's object
+ * is the caller's to remove.
+ */
+export async function deleteUnconfirmedUploads(
+  db: Kysely<Database>,
+  cutoff: Date,
+): Promise<string[]> {
+  const rows = await db
+    .deleteFrom("uploads")
+    .where("status", "=", "pending")
+    .where("quota_counted_at", "is", null)
+    .where("created_at", "<", cutoff)
+    .returning("r2_key")
+    .execute();
+  return rows.map((row) => row.r2_key);
+}
+
 /** The upload `/complete` needs to act on: its R2 key, its declared size and where it stands. */
 export interface OwnUpload {
   id: string;

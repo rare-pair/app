@@ -55,6 +55,22 @@ export function quotaSpent(c: Context): Response {
   return tooManyRequestsJson(c, quotaSpentMessage(retryAfter), retryAfter);
 }
 
+/** How long to wait before asking again past the cap on open uploads: the reaper is daily, so no moment is exact. */
+const OPEN_RETRY_SECONDS = 3600;
+
+/**
+ * The 429 of asking past the cap on open uploads: links asked for and never confirmed, which
+ * the daily reaper clears, so unfinished ones go by themselves a day or two after they began.
+ */
+export function tooManyOpen(c: Context, left: number): Response {
+  const room = left === 0 ? "" : ` You can start ${left} more now.`;
+  return tooManyRequestsJson(
+    c,
+    `You have too many unfinished uploads to start all of these.${room} Unfinished uploads clear by themselves a day or two after they began, so please try again then.`,
+    OPEN_RETRY_SECONDS,
+  );
+}
+
 /**
  * The 429 of a batch bigger than the quota left: how many uploads remain today, and when
  * the quota resets, as `quotaSpent` says it.

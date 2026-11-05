@@ -1,4 +1,4 @@
-import type { Database } from "@archive/db";
+import { deleteUnconfirmedUploads, type Database } from "@archive/db";
 import { sql, type Kysely } from "kysely";
 import { imageRefs } from "./refs";
 
@@ -286,6 +286,30 @@ async function deleteKeys(bucket: SweepBucket, keys: string[]): Promise<void> {
   for (let i = 0; i < keys.length; i += PAGE) {
     await bucket.delete(keys.slice(i, i + PAGE));
   }
+}
+
+/**
+ * Removes uploads never confirmed and created before `cutoff`, with their files (ARCHITECTURE,
+ * Orphaned uploads). Rows go first, and only the objects of rows actually deleted, so a confirm
+ * that claims a row in the meantime keeps its file. Outside the walk's budget: one query, and one
+ * R2 call per thousand rows. A delete that fails leaves the file for the bucket's 7-day lifecycle
+ * rule, so it stops neither this nor the sweep.
+ */
+export async function reapUnconfirmedUploads({
+  db,
+  bucket,
+  cutoff,
+}: Pick<SweepDeps, "db" | "bucket" | "cutoff">): Promise<{
+  uploadsReaped: number;
+  reapDeleteError?: string;
+}> {
+  const keys = await deleteUnconfirmedUploads(db, cutoff);
+  try {
+    await deleteKeys(bucket, keys);
+  } catch (error) {
+    return { uploadsReaped: keys.length, reapDeleteError: errorCode(error) };
+  }
+  return { uploadsReaped: keys.length };
 }
 
 /** A work folder as R2 and Postgres show it at one moment. */
