@@ -69,6 +69,19 @@ Relates to: docs/ARCHITECTURE.md § Reading; docs/FRONTEND-DISCOVERY.md § Where
 - WHEN they scroll through the chapter
 - THEN the chapter and scroll percentage are saved to KV under `U:W` every few seconds, with a short debounce
 
+### Scrolling back up does not lower the saved position
+- GIVEN signed-in reader U who has read to 60% of chapter 3 of W, and whose position is saved
+- WHEN U scrolls back to the top of chapter 3 and leaves, by the title link in the reader bar or by closing the page
+- THEN the saved position is still chapter 3 at 60%
+- AND U rereading chapter 3 from the start, and leaving short of 60%, is still offered 60% on W's work page
+- AND reading further than 60% in chapter 3 saves the further point
+
+### Another chapter saves its own position
+- GIVEN signed-in reader U whose saved position is 60% of chapter 3 of W
+- WHEN U reads chapter 4 and scrolls, even to a point lower than 60%
+- THEN the saved position is chapter 4 at that point
+- AND the furthest-point rule applies within one chapter only: going to another chapter, or to the entire-work page, replaces the saved position, and each of those keeps its own furthest point
+
 ### Entire work view saves position
 - GIVEN signed-in reader U on `/works/:id/full` with JavaScript on
 - WHEN they scroll
