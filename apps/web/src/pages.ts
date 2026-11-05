@@ -233,6 +233,10 @@ export const notSignedInPage = () =>
     `<p>You are not signed in.<span data-sign-in-offer> <a href="/login">Sign in</a>.</span></p>`,
   );
 
+/** Presses the confirm form once. It follows the form, which is on the page as this runs. */
+const submitConfirmForm = (nonce: string) =>
+  `<script nonce="${escapeHtml(nonce)}">document.querySelector('form[action="/login/confirm"]').submit();</script>`;
+
 /**
  * The emailed link's page: a button that posts the token. Opening the link uses
  * nothing up, so a mail scanner's prefetch can't spend it. For the browser that asked
@@ -247,12 +251,7 @@ export const confirmPage = (token: string, next: string, submitNonce?: string) =
 <input type="hidden" name="token" value="${escapeHtml(token)}">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
 <button type="submit">Sign in</button>
-</form>${
-      submitNonce === undefined
-        ? ""
-        : `
-<script nonce="${escapeHtml(submitNonce)}">document.querySelector('form[action="/login/confirm"]').submit();</script>`
-    }`,
+</form>${submitNonce === undefined ? "" : submitConfirmForm(submitNonce)}`,
   );
 
 /**

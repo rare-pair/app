@@ -154,8 +154,9 @@ describe("01-auth-magic-link", () => {
     const email = "opening-marker@example.test";
     const { link, row, token } = await issued(email);
 
-    for (const cookie of [undefined, MARKER]) {
-      const res = await fetchW(link.href, cookie === undefined ? {} : { headers: { cookie } });
+    const browsers: Record<string, string>[] = [{}, { cookie: MARKER }];
+    for (const headers of browsers) {
+      const res = await fetchW(link.href, { headers });
       expect(res.status).toBe(200);
       // The token is in the URL, with the marker as without it.
       expect(res.headers.get("cache-control")).toBe("no-store");
@@ -180,9 +181,9 @@ describe("01-auth-magic-link", () => {
     const { link, row } = await issued(email);
 
     // No marker, or a value the Worker never set.
-    for (const cookie of [undefined, "__Host-signin-pending=0"]) {
-      const opened = await fetchW(link.href, cookie === undefined ? {} : { headers: { cookie } });
-      const page = await opened.text();
+    const browsers: Record<string, string>[] = [{}, { cookie: "__Host-signin-pending=0" }];
+    for (const headers of browsers) {
+      const page = await (await fetchW(link.href, { headers })).text();
       expect(page).not.toMatch(/<script/i);
       expect(page).toMatch(/<button type="submit">Sign in<\/button>/);
       expect(await tokensFor(email)).toEqual([row]);
@@ -326,12 +327,7 @@ describe("01-auth-magic-link", () => {
     const page = await (await fetchW(link.href)).text();
     expect(page).not.toMatch(/<script/i);
     expect(page.match(/<form\b[^>]*>/g)).toEqual(['<form method="post" action="/login/confirm">']);
-    const fields = Object.fromEntries(
-      [...page.matchAll(/<input type="hidden" name="(\w+)" value="([^"]*)">/g)].map((m) => [
-        m[1]!,
-        m[2]!,
-      ]),
-    );
+    const fields = formFields(page);
 
     // Pressing "Sign in" is a plain form post: it signs in and redirects.
     const res = await confirm(fields);
