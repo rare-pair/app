@@ -5,9 +5,11 @@ import type { KyselyPlugin } from "kysely";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ao3Epub } from "../../../packages/epub/test/helpers";
 import { runJob } from "../src/job";
+import { TAKEDOWN_REMOVED } from "../src/lists";
 import { SaveRejected, saveWork, WorkRemoved } from "../src/save";
 import {
   addOptOut,
+  addTakedown,
   banUploader,
   bucketKeys,
   deliver,
@@ -360,6 +362,17 @@ describe("04-ingest-job-lifecycle: A refused upload's staging file is deleted", 
       uploadId: id,
       deleted: 1,
     });
+  });
+
+  it("deletes it when a re-upload of a taken-down work ends opted_out", async () => {
+    const seeded = await seededWork({ ao3WorkId: 60312, status: "removed" });
+    await addTakedown(seeded.workId, TAKEDOWN_REMOVED);
+    const id = await pendingUpload(ao3Epub({ workId: 60312 }));
+
+    await deliver([{ upload_id: id }], { handler: watchedWorker().handler });
+
+    expect(await uploadRow(id)).toMatchObject({ status: "opted_out", error: "opted_out" });
+    expect(await bucketKeys(staging(id))).toEqual([]);
   });
 
   it("deletes it when a retry ends opted_out", async () => {

@@ -606,7 +606,8 @@ Chapter text isn't indexed.
    `uploads/`, by the same rule: after the ending write, only when that write
    matched, best effort, and logged by upload id and count. An attempt that will be
    retried keeps it, and so does an ending write that fails, since the next attempt
-   reads it. Every other final refusal leaves the file to the 7-day expiry.
+   reads it. `opted_out` covers a takedown too. Every other refusal the job ends
+   leaves the file to the 7-day expiry.
 
    A later upload of a known work is decided in the same transaction, from
    facts read before it (the current version's chapter text comes from R2,

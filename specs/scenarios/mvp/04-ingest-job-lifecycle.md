@@ -153,7 +153,7 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 
 ### A refused upload's staging file is deleted
 - GIVEN an upload whose raw file is at its own key under `uploads/`
-- WHEN the job ends the upload `opted_out` or `work_removed`
+- WHEN the job ends the upload `opted_out`, for an opt-out or a takedown, or `work_removed`
 - THEN that file is deleted after the ending write, and only when that write matched
 - AND the log says what was deleted with the upload id and a count, never the file or the reader
 - AND a failed delete changes neither the upload's status nor the message's verdict
