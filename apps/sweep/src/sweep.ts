@@ -299,8 +299,8 @@ const REAP_LIMITS = { rows: PAGE, batches: 500 };
  * Removes uploads never confirmed and created before `cutoff`, with their files (ARCHITECTURE,
  * Orphaned uploads). Rows go first, and only the objects of rows actually deleted, so a confirm
  * that claims a row in the meantime keeps its file. A delete that fails leaves that batch's files
- * for the bucket's 7-day lifecycle rule, and ends this run's reaping, so an R2 outage doesn't free
- * cap slots while their files stay. It doesn't stop the sweep.
+ * for the bucket's 7-day lifecycle rule, and ends this run's reaping, so an R2 outage frees one
+ * batch of cap slots a day while their files stay, and no more. It doesn't stop the sweep.
  */
 export async function reapUnconfirmedUploads({
   db,

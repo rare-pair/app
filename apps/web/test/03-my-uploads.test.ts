@@ -82,7 +82,7 @@ describe("03-upload-status: My uploads", () => {
       .execute();
     expect(await (await page(cookie)).text()).toContain(`data-upload-id="${stale}"`);
 
-    await deleteUnconfirmedUploads(db, new Date("2000-01-02T00:00:00Z"));
+    await deleteUnconfirmedUploads(db, new Date("2000-01-02T00:00:00Z"), 1000);
 
     const html = await (await page(cookie)).text();
     expect(html).not.toContain(`data-upload-id="${stale}"`);

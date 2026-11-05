@@ -1408,13 +1408,17 @@ markup: its inline `style` attributes become stylesheet rules, because
   at most 500,000 rows, and the next takes the rest. A confirmed upload is never reaped, whatever
   its age. And an R2 lifecycle rule expires anything under `uploads/` after 7 days, which also
   takes an object whose delete failed.
-  **The worst case depends on the live check.** Nothing checks the size of an object nobody
-  confirms. If R2 enforces the signed size, an account holds at most its cap times 25 MB through
-  unfinished links: 500 MB on the new-account quota of 20, 2.5 GB on the trusted 100. If R2
+  **What an account can store depends on the live check.** Nothing checks the size of an object
+  nobody confirms. If R2 enforces the signed size, an account holds at most its cap times 25 MB
+  through unfinished links: 500 MB on the new-account quota of 20, 2.5 GB on the trusted 100. If R2
   doesn't, each link can hold what one PUT can (5 GiB by R2's limit, as far as its docs say), so
-  about 100 GiB per new account for the day or two until the reaper runs. Since the cap is the
-  daily quota, raising `UPLOAD_QUOTA_NEW` raises these bounds with it, and a quota under 10 can't
-  take a full batch of 10.
+  about 100 GiB per new account for the day or two until the reaper runs. Those are the bounds on
+  unfinished links, not on an account. A link still works for its 10 minutes after confirm, so a
+  file can be replaced behind a counted upload, where neither the cap nor the reaper sees it
+  until the 7-day rule: a day's quota of 20 for 8 days holds about 4 GB if R2 enforces the size,
+  about 800 GiB if it doesn't. A link whose upload has ended has no per-account bound at all,
+  only the rate limits and Turnstile (the open bugs #635 and #637). Since the cap is the daily quota, raising
+  `UPLOAD_QUOTA_NEW` raises these bounds with it, and a quota under 10 can't take a full batch of 10.
   Raw files the archive keeps are copied to `originals/` during ingest.
 - Queue backpressure: set a maximum consumer concurrency so Neon connections
   stay bounded. Hyperdrive pools connections, and Neon autoscales compute. Each Hyperdrive

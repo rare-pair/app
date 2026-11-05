@@ -454,7 +454,7 @@ export async function insertUploadsWithinCap(
 export async function deleteUnconfirmedUploads(
   db: Kysely<Database>,
   cutoff: Date,
-  limit = 1000,
+  limit: number,
 ): Promise<string[]> {
   const rows = await db
     .deleteFrom("uploads")
