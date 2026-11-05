@@ -57,6 +57,7 @@ export {
   closeWrongVersionReports,
   dismissReport,
   type ApproveOutcome,
+  type DismissOutcome,
 } from "./approvals";
 export { refreshWorkSearch } from "./search-index";
 export { getImageAccess, getOriginalAccess, type ContentAccess } from "./content-access";

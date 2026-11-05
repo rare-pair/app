@@ -828,7 +828,7 @@ export async function hideWork(
  * restored it. With `cause`, only a work hidden for that cause comes back (a
  * rejected removal request lifts its own hide, not a moderator's). With
  * `noPendingRequests`, it stays hidden while any confirmed request for it is pending.
- * With `closeReports: false`, the reports stay open: a decision on a request says
+ * With `keepReportsOpen`, the reports stay open: a decision on a request says
  * nothing about them. A live or removed work is left as it is (a hidden work always has
  * a current version: the schema's check, so it can't come back without one).
  *
@@ -842,7 +842,7 @@ export async function restoreWork(
   options: {
     cause?: HiddenCause;
     noPendingRequests?: boolean;
-    closeReports?: boolean;
+    keepReportsOpen?: boolean;
     actor?: string;
   } = {},
 ): Promise<boolean> {
@@ -872,7 +872,7 @@ export async function restoreWork(
     }
     const result = await update.executeTakeFirst();
     if (result.numUpdatedRows === 0n) return false;
-    if (options.closeReports !== false) {
+    if (options.keepReportsOpen !== true) {
       await trx
         .updateTable("reports")
         .set({ status: "closed" })

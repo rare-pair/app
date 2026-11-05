@@ -35,12 +35,17 @@ const get = (path: string, cookie?: string) =>
 const post = (
   path: string,
   cookie?: string,
+  fields: Record<string, string> = {},
   headers: Record<string, string> = { origin: BASE, "sec-fetch-site": "same-origin" },
 ) => {
   const sent = new Headers(headers);
   sent.set("content-type", "application/x-www-form-urlencoded");
   if (cookie !== undefined) sent.set("cookie", cookie);
-  return fetchW(path, { method: "POST", headers: sent, body: "" });
+  return fetchW(path, {
+    method: "POST",
+    headers: sent,
+    body: new URLSearchParams(fields).toString(),
+  });
 };
 
 const seed = (ao3WorkId: number, options: Parameters<typeof seedWork>[1] = {}) =>
@@ -63,7 +68,7 @@ const addReport = (id: string, workId: string, reporterId: string, kind = "dismi
 const addRequest = async (
   id: string,
   workId: string | null,
-  options: { pseud?: string; status?: string; hid?: string[]; ip?: string } = {},
+  options: { pseud?: string; status?: string; hid?: string[] } = {},
 ) => {
   await db
     .insertInto("requests")
@@ -74,7 +79,7 @@ const addRequest = async (
       pseud_norm: options.pseud ?? null,
       contact_email: `${id}@example.test`,
       statement: `${id}-statement`,
-      ip_hash: options.ip ?? `${id}-ip`,
+      ip_hash: `${id}-ip`,
       status: options.status ?? "pending",
       confirmed_at: "2001-06-01T00:05:00Z",
     })
@@ -185,7 +190,7 @@ describe("18-moderation", () => {
       {},
     ];
     for (const headers of crossSite) {
-      const res = await post(path, moderator, headers);
+      const res = await post(path, moderator, {}, headers);
       expect(res.status, JSON.stringify(headers)).toBe(404);
       expect(await res.text()).toBe(notFound);
     }
@@ -196,17 +201,7 @@ describe("18-moderation", () => {
   it("A dismissed report stops counting toward the automatic hide", async () => {
     const W = 60805;
     await seed(W);
-    const report = (cookie: string) =>
-      fetchW(`/works/${W}/report`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-          origin: BASE,
-          "sec-fetch-site": "same-origin",
-          cookie,
-        },
-        body: new URLSearchParams({ reason: "other" }).toString(),
-      });
+    const report = (cookie: string) => post(`/works/${W}/report`, cookie, { reason: "other" });
     const signInReporter = (n: number) =>
       signIn(`dismiss-count-${n}@example.test`, { acceptTerms: true });
     const [u, u2, u3, u4] = [

@@ -142,24 +142,18 @@ adminItems.get("/reports/:id{[A-Za-z0-9_-]+}", async (c) => {
   );
 });
 
-/** Dismissing a report closes it and leaves the work as it is, hidden or live. Same rows as the page above: a `wrong_version` report isn't an item here. */
+/** Dismissing a report closes it and leaves the work as it is, hidden or live. */
 adminItems.post("/reports/:id{[A-Za-z0-9_-]+}/dismiss", async (c) => {
   const id = c.req.param("id");
-  if (await dismissReport(c.var.db, id, { actor: c.var.userId })) {
-    return c.html(
-      resultPage(
-        "Report dismissed. The work stays as it is.",
-        `/admin/reports/${encodeURIComponent(id)}`,
-      ),
-    );
-  }
-  const report = await c.var.db
-    .selectFrom("reports")
-    .select("id")
-    .where("id", "=", id)
-    .where("kind", "<>", "wrong_version")
-    .executeTakeFirst();
-  return report ? alreadyDecided(c) : c.notFound();
+  const outcome = await dismissReport(c.var.db, id, { actor: c.var.userId });
+  if (outcome === "missing") return c.notFound();
+  if (outcome === "closed") return alreadyDecided(c);
+  return c.html(
+    resultPage(
+      "Report dismissed. The work stays as it is.",
+      `/admin/reports/${encodeURIComponent(id)}`,
+    ),
+  );
 });
 
 adminItems.get("/takedowns/:id{[A-Za-z0-9_-]+}", async (c) => {

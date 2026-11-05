@@ -137,18 +137,25 @@ export async function closeWrongVersionReports(
   });
 }
 
+export type DismissOutcome =
+  /** It was open, and is now closed. */
+  | "dismissed"
+  /** It was closed already: nothing changed. */
+  | "closed"
+  /** No such report, or a `wrong_version` one, which `closeWrongVersionReports` closes. */
+  | "missing";
+
 /**
  * Closes one open report a moderator found no merit in, and logs one `dismiss` on it with the
- * moderator's user id. True when it closed it. It leaves the work alone, so a hide stays until
- * Restore lifts it, and takes a report on a removed work too, since the Reports queue lists
- * those. Not for `wrong_version` reports, which `closeWrongVersionReports` closes. It runs in
- * the caller's transaction when `db` is one.
+ * moderator's user id. It leaves the work alone, so a hide stays until Restore lifts it, and
+ * takes a report on a removed work too, since the Reports queue lists those. It runs in the
+ * caller's transaction when `db` is one.
  */
 export async function dismissReport(
   db: Kysely<Database>,
   reportId: string,
   options: { actor: string },
-): Promise<boolean> {
+): Promise<DismissOutcome> {
   return inTransaction(db, async (trx) => {
     const closed = await trx
       .updateTable("reports")
@@ -157,13 +164,21 @@ export async function dismissReport(
       .where("status", "=", "open")
       .where("kind", "<>", "wrong_version")
       .executeTakeFirst();
-    if (closed.numUpdatedRows === 0n) return false;
+    if (closed.numUpdatedRows === 0n) {
+      const report = await trx
+        .selectFrom("reports")
+        .select("id")
+        .where("id", "=", reportId)
+        .where("kind", "<>", "wrong_version")
+        .executeTakeFirst();
+      return report === undefined ? "missing" : "closed";
+    }
     await logModerationAction(trx, {
       moderatorId: options.actor,
       action: "dismiss",
       targetKind: "report",
       targetId: reportId,
     });
-    return true;
+    return "dismissed";
   });
 }

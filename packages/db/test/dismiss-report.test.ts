@@ -55,7 +55,7 @@ describe("18-moderation", () => {
     const moderator = await addUser();
     const id = await addReport(workId, await addUser());
 
-    expect(await dismissReport(t.db, id, { actor: moderator })).toBe(true);
+    expect(await dismissReport(t.db, id, { actor: moderator })).toBe("dismissed");
 
     expect(await reportStatus(id)).toBe("closed");
     const [row, ...rest] = await logFor(id);
@@ -74,7 +74,7 @@ describe("18-moderation", () => {
   it("A work the reports hid stays hidden when its reports are dismissed", async () => {
     const { workId } = await seedWork(t.db, { status: "hidden", hiddenCause: "reports" });
     const id = await addReport(workId, await addUser());
-    expect(await dismissReport(t.db, id, { actor: await addUser() })).toBe(true);
+    expect(await dismissReport(t.db, id, { actor: await addUser() })).toBe("dismissed");
     expect(await workState(workId)).toEqual({ status: "hidden", hidden_cause: "reports" });
   });
 
@@ -82,7 +82,7 @@ describe("18-moderation", () => {
     // The Reports queue lists it, and nothing else would take it off.
     const { workId } = await seedWork(t.db, { status: "removed" });
     const id = await addReport(workId, await addUser());
-    expect(await dismissReport(t.db, id, { actor: await addUser() })).toBe(true);
+    expect(await dismissReport(t.db, id, { actor: await addUser() })).toBe("dismissed");
     expect(await reportStatus(id)).toBe("closed");
     expect((await workState(workId)).status).toBe("removed");
   });
@@ -95,7 +95,7 @@ describe("18-moderation", () => {
       await dismissReport(t.db, id, { actor: moderator }),
       await dismissReport(t.db, id, { actor: moderator }),
     ];
-    expect(dismissals).toEqual([true, false]);
+    expect(dismissals).toEqual(["dismissed", "closed"]);
     expect(await logFor(id)).toHaveLength(1);
   });
 
@@ -103,10 +103,12 @@ describe("18-moderation", () => {
     const { workId } = await seedWork(t.db);
     const moderator = await addUser();
     const wrong = await addReport(workId, await addUser(), "wrong_version");
-    expect(await dismissReport(t.db, wrong, { actor: moderator })).toBe(false);
+    expect(await dismissReport(t.db, wrong, { actor: moderator })).toBe("missing");
     expect(await reportStatus(wrong)).toBe("open");
     expect(await logFor(wrong)).toEqual([]);
-    expect(await dismissReport(t.db, "dismiss-no-such-report", { actor: moderator })).toBe(false);
+    expect(await dismissReport(t.db, "dismiss-no-such-report", { actor: moderator })).toBe(
+      "missing",
+    );
   });
 
   it("A dismissed report stops counting toward the automatic hide", async () => {
@@ -138,11 +140,11 @@ describe("18-moderation", () => {
     expect(await logFor(id)).toEqual([]);
   });
 
-  it("restoreWork with closeReports off leaves the work's reports open", async () => {
+  it("restoreWork with keepReportsOpen leaves the work's reports open", async () => {
     const { workId } = await seedWork(t.db, { status: "hidden", hiddenCause: "removal_request" });
     const id = await addReport(workId, await addUser());
     const wrong = await addReport(workId, await addUser(), "wrong_version");
-    expect(await restoreWork(t.db, workId, { closeReports: false })).toBe(true);
+    expect(await restoreWork(t.db, workId, { keepReportsOpen: true })).toBe(true);
     expect((await workState(workId)).status).toBe("live");
     expect(await reportStatus(id)).toBe("open");
     expect(await reportStatus(wrong)).toBe("open");

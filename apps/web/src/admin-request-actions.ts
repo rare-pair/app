@@ -131,7 +131,7 @@ export async function restoreOwnWorks(
     const lifted = await restoreWork(trx, work.id, {
       cause: "removal_request",
       noPendingRequests: true,
-      closeReports: false,
+      keepReportsOpen: true,
       actor,
     });
     if (lifted) {
