@@ -16,7 +16,7 @@ describe("walking helpers", () => {
 
   /**
    * The documents `page` (or every page `context` opens) is asked for, in order, with how each
-   * was started: a `goto` carries no `Referer`, and a click on a link or a button on a page does.
+   * was started: a `goto` carries no `Referer`, and a click on a link or a button on a page that sends a `Referer` does (all the pages here do).
    */
   const navigations = (watched: Page | BrowserContext) => {
     const asked: (readonly [string, "address" | "click"])[] = [];
