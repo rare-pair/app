@@ -41,7 +41,21 @@ The model the operator saw in the plan is the one you launch. If the notes chang
 You follow `/escalate` like every agent. Your part in it for the others:
 
 - An engineer that stops with `needs-consult` couldn't launch its own consult: run step 2 for it, one tier above the engineer, and send the answer back with `SendMessage`.
-- A question that reaches the operator, from anyone, goes to them with its evidence. Send their ruling back to the agent that asked, quoting their words.
+- A question that reaches the operator, from anyone, goes to them with its evidence, at the time *Questions* below allows. Send their ruling back to the agent that asked, quoting their words.
+
+## Questions
+
+A running wave doesn't stop to ask the operator anything. In wave 10 it stopped at least 9 times, and only one of those needed a ruling; the operator named this as the biggest problem with the wave.
+
+**Find gaps at planning.** Before the operator's start word, read each item's ticket and the code it touches, and list every decision it leaves open, missing links and pages included. Ask them all together in §2. A gap found here costs no one any waiting.
+
+**Once the wave runs, file the gap and carry on.** Filing isn't deciding: leave the undecided thing unbuilt and say so in the report, or mark its journey as a known failure naming the issue. Add the question to `## For the operator` in `wave.md`, and set `needsOperator` on its ledger follow-up. If the operator's standing rulings already answer it, follow them and record which one. A delay of minutes after a hide or removal needs no question.
+
+**A piece that can't go on without a ruling parks.** It waits, its question goes on the list, and everything else keeps running. A ruling that changes a ticket's design also parks the pieces that depend on it.
+
+**Interrupt only for:** an irreversible or outward-facing step nobody has approved, a permission refusal, a missing install, or a wave where nothing at all can run. Launch all that can start before you ask, because an open question holds up the reports that come back while it waits.
+
+**Ask once, at the end.** The list goes to the operator through the ask tool in §7, with the evidence and your recommendation for each, ordered by what it blocks. An idea the operator raises mid-wave is filed for the next wave's planning, with no follow-up questions until then.
 
 ## 1. Set up the scratchpad
 
@@ -68,8 +82,11 @@ The scratchpad lasts for this session.
 2. Find the frontier: open items in `docs/project-tracking.md` whose `Depends on:` items have all merged, not merely closed. A blocker counts when its ledger status is `merged` or `done` (the board's own Ready test) and a PR that closed its issue merged (`gh issue view <n> --json closedByPullRequestsReferences`). An issue closed without a merged PR still blocks. Narrow it to what the arguments name.
 3. Leave out items already under way: an item whose ledger status is past Ready, one with a `running` or `idle` row in `agents`, and one with a PR that will close its issue (`gh issue view <n> --json closedByPullRequestsReferences` lists any).
 4. Show the operator the proposed wave: each item, its issue, its predicted gate tier, and the model line from *Models*. Flag any two items likely to touch the same files (the root `package.json`, a shared type, `packages/db/migrations/index.ts`, `apps/web/src/index.ts`, an admin page), since their worktrees will conflict at merge. Order such items one after the other in the plan (§4, *Shared files*).
+5. Ask every open decision you found in one batch (*Questions*), so the wave can run without asking.
 
 **Stop here until the operator names the items to start.** `docs/process.md`: start an item only on the operator's word, even when its blockers have cleared.
+
+**On the start word, keep the machine awake.** Call `mcp__ccd_host__request_keep_awake` with `until: "session_idle"`, and call it again if the session goes quiet between turns. Wave 10 lost about 6 h 35 min when Windows idle-slept mid-wave, and every agent stopped with it. It covers idle sleep only: a closed lid or choosing Sleep still stops the wave. If the hold is refused or isn't available, tell the operator.
 
 ## 3. Explore
 
@@ -116,6 +133,9 @@ Write your final report to <scratch>/<ITEM>/report.md as well as returning it.
 Ledger: https://claude.ai/artifact/TxUtdLCvqUiySs749b8sMn, your row is agents/<row id>, which exists already (<ITEM>-builder, or <ITEM>-builder-2 for the first relaunch).
 Test data: AO3 work ids <first>-<last> are yours. Use no other fixed ids in tests you add.
 Migration: <its number, or "none">.
+Installs: install nothing from a third party, Playwright's browsers included. If one is missing, report it and stop; the operator installs it.
+Refusals: if a command is refused, don't work around it. Report what was refused and keep any draft in your scratch folder.
+Gaps: if your definition of done can be met without an answer, file the gap, leave it unbuilt, name it in your report and carry on. Stop only if you can't go on without a ruling.
 ```
 
 Write each agent's id, model, branch and start time into `wave.md`, and its row onto the ledger (§6), before you launch it: an engineer's brief names a row that has to exist.
@@ -185,3 +205,5 @@ End with:
 - **Not done:** <each item not merged, with the reason>
 - **Bugs filed:** <each issue the merge gates filed>
 ```
+
+Then ask everything in `## For the operator` through the ask tool, in one sitting (*Questions*).
