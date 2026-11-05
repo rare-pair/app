@@ -9,7 +9,7 @@ argument-hint: "[pr|merge] [issue number or branch]"
 The mode comes from the arguments, and without one it is `pr`.
 
 - **`pr`** runs §1–§5 and §7 on the branch, after committing, before the PR is opened.
-- **`merge`** runs §1–§5 on the PR's pushed head, then §6. When the PR body's *What was run* block has a **Head:** line whose full sha equals `git rev-parse HEAD`, cite the §1–§5 results it lists as passed instead of running them again, and say so in the report. Never cite results from another commit: a block without a **Head:** line, or with a different or abbreviated sha, runs all of §1–§5, as does any head they haven't run on, such as one with a fix pushed after them, or one that merged `main` (§6.5). A check the block lists as failed runs again, and one it lists as not run is tried again and reported not run if it still can't run. After §1–§5, merge mode goes on to §6, and ends with §7's report, which replaces the PR body's *What was run* block. First check that the checkout has no uncommitted changes (`git status --short --untracked-files=no` prints nothing) and that `HEAD` is `origin/<branch>`.
+- **`merge`** runs §1–§5 on the PR's pushed head, then §6. When the PR body's *What was run* block has a **Head:** line whose full sha equals `git rev-parse HEAD`, cite the §1–§5 results it lists as passed instead of running them again, and say so in the report. Never cite results from another commit: a block without a **Head:** line, or with a different or abbreviated sha, runs all of §1–§5, as does any head they haven't run on, such as one with a fix pushed after them, or one that merged `main` (§6.4). A check the block lists as failed runs again, and one it lists as not run is tried again and reported not run if it still can't run. After §1–§5, merge mode goes on to §6, and ends with §7's report, which replaces the PR body's *What was run* block. First check that the checkout has no uncommitted changes (`git status --short --untracked-files=no` prints nothing) and that `HEAD` is `origin/<branch>`.
 
 Put any output whose path you choose (logs, screenshots, scratch tests) in your Claude Code session's scratchpad directory, in a subfolder named for the branch. Never in the repo.
 
@@ -47,6 +47,8 @@ npm run build
 
 The root `package.json` defines these scripts. `lint` (oxlint with ai-deslop's rules, `oxlint.config.ts`) and `format:check` (oxfmt, `.oxfmtrc.jsonc`) run once from the root over every workspace and `scripts/`; `npm run format` fixes what `format:check` finds. The other three run in each workspace with `--if-present`, which silently skips a workspace that lacks the script: report that workspace's check **not run: not defined yet**, never pass. A cache hit is not a run: pass the tool's force flag when the runner caches.
 
+When the protocols include `web` or `integration`, also run the browser suite: `npm run test:browser`. It needs Playwright's Chromium, which `npm ci` doesn't download. If it's missing, don't install it: report it and stop, because the operator installs browsers.
+
 A check that fails in a workspace the item should not have touched is a stop event, not a fix. Report it under *Deviations* with the failing output, and name the choice in the final report for the operator.
 
 ## 4. Protocols
@@ -79,7 +81,7 @@ The parser and sanitizer are the security boundary (ARCHITECTURE, *Sanitizing*).
 
 ### web — `apps/web` changed
 
-- Every HTML response carries the CSP from ARCHITECTURE, *Reading*, with a nonce that differs between two requests. No `<script>` lacks it. Only the Turnstile pages (`/login`, `/upload`, `/remove`, and `/` while `PRELAUNCH` is on) add `frame-src https://challenges.cloudflare.com`; reader and work pages never do.
+- Every HTML response carries the CSP from ARCHITECTURE, *Reading*, with a nonce that differs between two requests. No `<script>` lacks it. Only the Turnstile pages (`/login`, `/upload`, `/remove`, `/dmca`, and `/` and `/waitlist` while `PRELAUNCH` is on) add `frame-src https://challenges.cloudflare.com`; reader and work pages never do.
 - Those pages show a `<noscript>` message with JS off. Reading, browsing, search and reader settings still work fully without JS.
 - Chapter HTML reaches a page only from a sanitized fragment under `works/`, never from `uploads/` or `originals/`.
 - Session cookies are `HttpOnly; Secure; SameSite=Lax` with no `Domain`, so they cover the app host only.
@@ -88,24 +90,24 @@ The parser and sanitizer are the security boundary (ARCHITECTURE, *Sanitizing*).
   - `POST /login` refuses with 403 a present `Origin` other than `https://rarepair.fans` or a present `Sec-Fetch-Site` other than `same-origin`, so a sibling host such as `content.rarepair.fans` is refused too.
   - `next` is reduced to a same-site path, checked after URL normalization, so `/a/..//evil.example` can't become `//evil.example`.
   - Sign-in is rate limited per IP and per email.
-  - `GET /login/confirm` uses nothing up.
+  - `GET /login/confirm` spends no token and creates no session: only `POST /login/confirm` does.
   - Magic-link tokens stay in the Postgres `verification` table, never KV.
 - A work rated Mature or Explicit, or with archive warnings, or with no rating (shown as "Not Rated"), shows the interstitial on first entry to its reading pages from any entry point (any chapter or `/full`), remembered per work for the session. Only signed-in readers can turn it off, and that choice is stored on the account.
 - Login, upload and search are throttled when their rate limit is exceeded, and a spent upload quota is refused the same way: the response is 429 with `Retry-After` and a plain page saying when to try again (ARCHITECTURE, *Surge controls*, Status codes).
-- Live check (§5): walk each story the issue names. At 360 px wide the page does not scroll sideways (`document.documentElement.scrollWidth <= innerWidth`). Screenshot the changed page at 1280 px and 360 px into the scratchpad subfolder and list the paths.
+- Live check (§5): a browser journey walks each story the issue names, starting at the home page and following links. At 360 px wide the page does not scroll sideways (`document.documentElement.scrollWidth <= innerWidth`). For a visual change, screenshot the changed page at 1280 px and 360 px into the scratchpad subfolder and list the paths.
 
 ### content — `apps/content` changed
 
 - It serves images, original downloads and its `robots.txt` only. It never serves `text/html`.
 - No response sets a cookie. Every response sends `X-Content-Type-Options: nosniff`. Downloads send `Content-Disposition: attachment`.
-- `Cache-Control: immutable` appears only on versioned paths. A removed work's paths return 404 after removal.
+- No response is `Cache-Control: immutable`, because these files can go away (ARCHITECTURE, *Edge cache*). A removed work's paths return 404 after removal.
 
 ### mailer — `apps/mailer` changed
 
 The mailer is the only Worker holding email-provider keys (ARCHITECTURE, *Auth*, Email).
 - It only sends. It has no Hyperdrive, KV or R2 binding in its `wrangler` config.
-- It sends through Resend's batch API, and a Resend refusal (rate limit, quota, outage) goes to the failover provider. A test reaches each path with stub senders, and no test calls a real provider.
-- A message that fails on both providers is retried by the queue, then dead-lettered. It's never dropped silently. The dead-letter queue's retention is one day at most, and nothing prints its messages (address plus link) to logs.
+- It sends through Resend's batch API. There is no failover provider at launch (operator's ruling, 2026-11-05). A test reaches each path with a stub sender, and no test calls a real provider.
+- A message that fails is retried by the queue, then dead-lettered. It's never dropped silently. The dead-letter queue's retention is one day at most, and nothing prints its messages (address plus link) to logs.
 - No log line contains an email address or a link. It logs provider message IDs and outcomes only.
 
 ### integration — anything else changed
@@ -127,17 +129,16 @@ Root configuration, `wrangler` configs, dependencies, `scripts/`, `.github` and 
 
 ## 5. Live checks
 
-A live check runs the app and confirms the change against it, not against tests. Use the `/verify` skill when the session has one, otherwise the bundled `/run` skill, and give it the issue's stories and the protocol's live bullets from §4. Take evidence from the Browser pane's text tools (`read_page`, `read_console_messages`, `read_network_requests`), and take screenshots only for what is visual.
+A live check runs the app and confirms the change against it. Here that is the browser suite (§3), which runs the real Workers in a real browser. A story the suite doesn't reach yet gets a new journey in the PR, starting at the home page and following links.
 
-This repo has no run recipe yet, so a live check is reported **not run: no run skill yet** until one exists. When it does, record the branch, the port and the database the stack ran against, and stop every `wrangler dev` you started.
+A bullet only a deployed environment can show, such as real R2, Queues, Turnstile or the live zone, is reported **not run**, with the reason.
 
 ## 6. Merge mode only: the merge gate
 
-1. `git fetch`. Don't bring `main` in yet: §6.5 does it once, just before the merge, so the ladder reviews the branch's own work.
+1. `git fetch`. Don't bring `main` in yet: §6.4 does it once, just before the merge, so the ladder reviews the branch's own work.
 2. CI on the PR's head is green, or report it not run when the repo has no CI yet.
-3. The review ladder below, scaled by the PR's risk tier. The operator may waive it or stop it at any rung. *What was run* names the tier and the rungs that ran. A rung starts once the fixes from the rung before are pushed.
-4. One Copilot review on the settled head, after the ladder's fixes are pushed: `gh pr edit <n> --add-reviewer "@copilot"`. This works on a draft. Never request a second, not even when this gate runs again on the same PR. The request doesn't show in `requested_reviewers`, so wait on `.../pulls/<n>/reviews`. If no review arrives within 30 minutes, record it as not run. A finding is critical when Copilot's comment calls it high severity, when it is a real defect on the security boundary (the tier 3 bullet of that name below), or when it means a *Definition of done* bullet doesn't hold. A critical finding is fixed in the PR, and the fix is verified by rerunning the §3–§5 checks it touches and one `/code-review` round on the fix, without re-requesting Copilot. Reply on its thread with the fixing commit. While one is open, the PR doesn't merge; one you can't fix with confidence goes up `/escalate`. File every other finding as a bug issue, linked to the PR and the comment, and reply on its thread with the link.
-5. Merge with `gh pr merge <n> --squash` only when the operator has said to merge. For a PR built under `/orchestrate`, the standing rule in `docs/process.md` (*Work items*, "The orchestrator merges") is that word, and only the orchestrator merges: a builder, or any agent launched to run this gate, never merges the PR. Bring `main` in once, just before the merge, if the branch doesn't contain it (`git merge-base --is-ancestor origin/main origin/<branch>`). It isn't needed after each other merge that lands meanwhile. Then rerun §3 on the merged head. Under `/orchestrate`, the orchestrator has an agent on a cheap model try the merge (`/orchestrate` §5), and the builder resolves a conflict. Otherwise whoever merges the PR brings it in, resolves a conflict, and adds a line to the PR's *What was run* block naming the merged head and the §3 results. A conflict resolved by hand goes through the ladder again, but not Copilot. Then a draft is marked ready for review (`gh pr ready <n>`) by whoever merges.
+3. The review ladder below, scaled by the PR's risk tier. The operator may waive it or stop it at any rung. *What was run* names the tier and the rungs that ran. A rung starts once the fixes from the rung before are pushed. There is no Copilot review (operator's ruling).
+4. Merge with `gh pr merge <n> --squash` only when the operator has said to merge. For a PR built under `/orchestrate`, the standing rule in `docs/process.md` (*Work items*, "The orchestrator merges") is that word, and only the orchestrator merges: a builder, or any agent launched to run this gate, never merges the PR. Bring `main` in once, just before the merge, if the branch doesn't contain it (`git merge-base --is-ancestor origin/main origin/<branch>`). It isn't needed after each other merge that lands meanwhile. Then rerun §3 on the merged head. Under `/orchestrate`, the orchestrator has an agent on a cheap model try the merge (`/orchestrate` §5), and the builder resolves a conflict. Otherwise whoever merges the PR brings it in, resolves a conflict, and adds a line to the PR's *What was run* block naming the merged head and the §3 results. A conflict resolved by hand goes through the ladder again. Then a draft is marked ready for review (`gh pr ready <n>`) by whoever merges.
 
 **Risk tiers.** Each changed file gets a tier by the first rule it matches, checked from tier 3 down, and the PR takes the highest tier any file gets. When unsure, use the higher.
 
@@ -155,10 +156,10 @@ This repo has no run recipe yet, so a live check is reported **not run: no run s
 **The rungs:**
 
 1. This skill, §1–§5: in `merge` mode, the run that started this gate.
-2. `/simplify`, report only.
+2. `/simplify`. It reports first, then apply the worthwhile findings and push them before rung 3. Say in the report which you applied and which you left, and why.
 3. `/code-review` rounds, as many as the tier names, each with its own error class. The specification-completeness class checks every field at its edge values (empty, zero, maximum and one past it), every absolute claim ("every", "always", "never") for truth, each limit multiplied out to its worst case, repeated and concurrent operations, and agreement with the *Decisions so far* table.
 
-Before any rung, read what is already on the PR: `gh api --paginate repos/rare-pair/app/pulls/<n>/reviews`, `.../pulls/<n>/comments` and `.../issues/<n>/comments`. Confirm each round's fixes against a numbered list of every earlier finding, each marked resolved, moot or open. File findings outside the PR's scope as issues. After the last fixes, rerun the §3–§5 checks those fixes touch.
+Before any rung, read what is already on the PR: `gh api --paginate repos/rare-pair/app/pulls/<n>/reviews`, `.../pulls/<n>/comments` and `.../issues/<n>/comments`. Confirm each round's fixes against a numbered list of every earlier finding, each marked resolved, moot or open. Fix findings in the PR's scope in the PR, and it doesn't merge while one is open; one you can't fix with confidence goes up `/escalate`. File findings outside the PR's scope as issues. After the last fixes, rerun the §3–§5 checks those fixes touch.
 
 ## 7. The report
 
