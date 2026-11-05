@@ -21,26 +21,22 @@
     "binding": "ASSETS",
     "run_worker_first": true,
   },
-  // Neon Postgres, through two Hyperdrive configs (ARCHITECTURE, Connections). The ids are
-  // placeholders until the configs are created; tests replace the local connection string with
-  // their own database.
+  // Neon Postgres, through two Hyperdrive configs (ARCHITECTURE, Connections). Tests replace the
+  // local connection string with their own database.
   // HYPERDRIVE is the one with caching off: sessions, roles, moderation, uploads, and every read
   // a public page doesn't make. HYPERDRIVE_CACHED has caching on and serves public pages only
   // (src/home.ts, listing.ts, search.ts, work-page.ts, reader.ts, full.ts, warnings.ts).
   // The two ids must differ: one id pasted into both puts every read in the cache, and nothing
-  // in the repo can see it. The operator runs these in the order of the list in ARCHITECTURE, Connections (it also puts real ids in the other three wrangler files and deploys them):
-  //   wrangler hyperdrive create <name> --connection-string=<url>   (for HYPERDRIVE_CACHED)
-  //   deploy this Worker with both ids, then
-  //   wrangler hyperdrive update <HYPERDRIVE id> --caching-disabled
+  // in the repo can see it. Check caching on each with `wrangler hyperdrive list`.
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "00000000000000000000000000000000",
+      "id": "4513add0a933451b8b1657e6caec3537",
       "localConnectionString": "postgresql://postgres:postgres@127.0.0.1:5432/postgres",
     },
     {
       "binding": "HYPERDRIVE_CACHED",
-      "id": "00000000000000000000000000000001",
+      "id": "2ed351f55aa644fd9483e3c79ee66401",
       "localConnectionString": "postgresql://postgres:postgres@127.0.0.1:5432/postgres",
     },
   ],
@@ -48,10 +44,9 @@
   // apps/content serves images and originals from.
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "rarepair" }],
   // Reading positions: one `pos:<user id>:<work id>` key per signed-in reader and work, holding a
-  // chapter number and a scroll percentage, expiring after a year (src/position.ts). The id is a
-  // placeholder, like Hyperdrive's, until the operator creates the namespace
-  // (wrangler kv namespace create POSITIONS); tests use a local one.
-  "kv_namespaces": [{ "binding": "POSITIONS", "id": "00000000000000000000000000000000" }],
+  // chapter number and a scroll percentage, expiring after a year (src/position.ts). Tests use a
+  // local one.
+  "kv_namespaces": [{ "binding": "POSITIONS", "id": "ef28ee98accc48da818bed1a468846e6" }],
   // Sign-in emails, sent by apps/mailer. This Worker also consumes email-bulk-dlq, where a launch
   // email both providers refused lands: src/launch-dead-letter.ts clears its address's
   // notified_at so the launch send queues it again (ARCHITECTURE, Wait list). Retention is
@@ -145,10 +140,9 @@
     // page and other app pages redirect to it. Only "off" turns it off; a missing or
     // misspelt value keeps it on.
     "PRELAUNCH": "on",
-    // The public Turnstile sitekey of every Turnstile form: coming-soon, sign-in, upload, removal and copyright notice. This is Cloudflare's
-    // always-passes test sitekey: replace it with the real one before launch. Cloudflare
-    // refuses its tokens under a real secret key, so until then those forms fail closed (the copyright notice form too: the page's email address is the only way to send one).
-    "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
+    // The public Turnstile sitekey of every Turnstile form: coming-soon, sign-in, upload, removal and copyright notice. The widget is for
+    // rarepair.fans, with its secret in TURNSTILE_SECRET_KEY. Without a matching pair those forms fail closed (the copyright notice form too: the page's email address is the only way to send one).
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAF0X4q4IwNS4pX4A",
     // The bucket presigned upload URLs PUT into, under uploads/ (src/presign.ts). It must be
     // the BUCKET binding's bucket_name above, which /complete and ingest read uploads from.
     "R2_BUCKET": "rarepair",

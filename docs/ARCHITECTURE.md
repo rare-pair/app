@@ -1511,11 +1511,10 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
      their store.
 
   Also before launch, not tied to the order above:
-  - **The real Turnstile key.** Put the real site key on `TURNSTILE_SITE_KEY` in
-    `apps/web/wrangler.jsonc` and the real secret as the `TURNSTILE_SECRET_KEY` secret.
-    The repo holds Cloudflare's always-passes test site key, and Cloudflare refuses its
-    tokens under a real secret, so without both every Turnstile form (sign-in, upload,
-    the wait list, `/remove`, `/dmca`) fails closed.
+  - **The real Turnstile key.** `TURNSTILE_SITE_KEY` in `apps/web/wrangler.jsonc` is the
+    rarepair.fans widget's, and its secret is the `TURNSTILE_SECRET_KEY` secret. Without a
+    matching pair every Turnstile form (sign-in, upload, the wait list, `/remove`, `/dmca`)
+    fails closed.
   - **The notices mailbox.** `admin@rarepair.fans` (the `NOTICES_EMAIL` var) must exist
     and be read. The copyright notice page names it for a visitor without JavaScript and
     on a refusal that stops the form working (rate limit, failed or unreachable Turnstile check). Mail sent there doesn't reach the takedowns queue: a person reads it

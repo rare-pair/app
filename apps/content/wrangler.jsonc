@@ -12,14 +12,14 @@
   "routes": [{ "pattern": "content.rarepair.fans", "custom_domain": true }],
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "rarepair" }],
   // Neon Postgres, to read a work's status before a miss is served (ARCHITECTURE, Author
-  // requests & takedowns). The id is a placeholder until the config is created. It is the config
+  // requests & takedowns). It is the config
   // with caching off, the one apps/web's HYPERDRIVE uses (ARCHITECTURE, Connections): a hide must
   // be seen by the next miss, not after a cached read expires. Tests replace the local connection
   // string with their own database.
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "00000000000000000000000000000000",
+      "id": "4513add0a933451b8b1657e6caec3537",
       "localConnectionString": "postgresql://postgres:postgres@127.0.0.1:5432/postgres",
     },
   ],

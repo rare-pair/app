@@ -200,7 +200,7 @@ describe("02-upload-handshake", () => {
     expect(withoutHeader(html)).not.toMatch(/<form\b[^>]*\baction=/i);
     expect(html).toMatch(/<input[^>]*type="file"[^>]*accept="\.epub,application\/epub\+zip"/);
     expect(html).toContain(
-      '<div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-action="upload">',
+      `<div class="cf-turnstile" data-sitekey="${env.TURNSTILE_SITE_KEY}" data-action="upload">`,
     );
     const scripts = html.match(/<script\b[^>]*>/g) ?? [];
     expect(scripts.length).toBeGreaterThan(0);
