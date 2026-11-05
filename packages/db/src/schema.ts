@@ -231,7 +231,7 @@ export interface UploadTable {
   /** NULL once the account that uploaded it is deleted. */
   user_id: string | null;
   r2_key: string;
-  /** NULL until `/complete` hashes the file. */
+  /** NULL until `/complete` hashes the file. A job's ending write replaces it with what it read. */
   sha256: string | null;
   bytes: number;
   status: ColumnType<UploadStatus, UploadStatus | undefined, UploadStatus>;

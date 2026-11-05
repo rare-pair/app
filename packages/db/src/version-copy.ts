@@ -12,8 +12,9 @@ const ROWS_PER_INSERT = 1_000;
 /**
  * Makes the work describe one of its versions: each of the version's columns that isn't NULL
  * is copied onto the work, and a NULL one (a field the version's file lacked, or a version
- * saved before migration 0012) keeps the work's value. The chapter count is always the
- * version's. The byline and tags are rewritten from the version's own, unless they are NULL
+ * saved before migration 0012) keeps the work's value. The chapter count and total are
+ * always the version's, so a version that states no total leaves the work's total NULL
+ * (a card reads "12/?") rather than keeping an old one that no longer fits. The byline and tags are rewritten from the version's own, unless they are NULL
  * (a version saved before migration 0010), and the search text is refreshed. It leaves
  * `current_version_id` and `status` to the caller, which must already hold the work's row
  * lock in this transaction (it has moved the pointer, or locked the row), so the copy and the
@@ -32,7 +33,7 @@ export async function copyVersionToWork(
       language = coalesce(v.language, works.language),
       words = coalesce(v.words, works.words),
       chapters_count = v.chapter_count,
-      chapters_total = coalesce(v.chapter_total, works.chapters_total),
+      chapters_total = v.chapter_total,
       complete = coalesce(v.complete, works.complete),
       published_at = coalesce(v.published_at, works.published_at),
       updated_at = coalesce(v.updated_at, works.updated_at),

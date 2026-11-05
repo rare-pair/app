@@ -13,7 +13,7 @@ afterAll(() => db.destroy());
 /** The header's anchors, as [text, attributes]. */
 const anchorsOf = (html: string) =>
   [...headerOf(html).matchAll(/<a\b([^>]*)>([^<]*)<\/a>/g)].flatMap((m) =>
-    m[2] === "rarepair" ? [] : [[m[2]!, m[1]!] as const],
+    m[1]!.includes('class="site-name"') ? [] : [[m[2]!, m[1]!] as const],
   );
 
 /** The anchor with `text`: its attributes. */
