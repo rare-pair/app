@@ -125,13 +125,17 @@ async function backToWork(page: Page, ao3WorkId: number, title: string) {
 }
 
 /**
- * Presses Back until the work's page, then reloads it: the page was drawn before the position
- * was saved, and the Continue link is drawn by the server.
+ * Scrolls back to the top, as a reader does to reach the bar, and clicks the work's title in the
+ * reader bar, then reloads the work's page: it was drawn before the position was saved, and the
+ * Continue link is drawn by the server. The scroll up and the leave send position 0 for the
+ * chapter, which the server must not let lower the furthest point (#598).
  */
-async function backByHistory(page: Page, ao3WorkId: number) {
-  for (let i = 0; i < 4 && new URL(page.url()).pathname !== `/works/${ao3WorkId}`; i += 1) {
-    await page.goBack();
-  }
+async function backByTitle(page: Page, ao3WorkId: number, title: string) {
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await Promise.all([
+    page.waitForURL(`${SITE}/works/${ao3WorkId}`),
+    page.getByRole("heading", { level: 1 }).getByRole("link", { name: title }).click(),
+  ]);
   await page.reload();
   expect(new URL(page.url()).pathname).toBe(`/works/${ao3WorkId}`);
 }
@@ -337,9 +341,8 @@ describe("reading journeys", () => {
     const { y } = await scrollState(page);
     const pct = Math.round((y / room) * 100);
 
-    // The title in the reader bar links to the work, but the bar is at the top: scrolling up to
-    // click it would save position 0 over the one under test (#598), so a reader presses Back.
-    await backByHistory(page, POSITION);
+    // Back to the top and out by the bar's title link: the furthest point stays saved (#598).
+    await backByTitle(page, POSITION, "pw3-Position work 42004");
     const href = await page.locator("p.continue a").getAttribute("href");
     const [, shown] = /^\/works\/\d+\/chapters\/1#pos=(\d+)$/.exec(href ?? "") ?? [];
     expect(Math.abs(Number(shown) - pct)).toBeLessThanOrEqual(1);
@@ -375,8 +378,7 @@ describe("reading journeys", () => {
     await saveHalfway(page, WARNED_POSITION, room);
 
     // A new session: the screen comes back before the chapter.
-    // Back, not the bar's title link: scrolling up to it would save position 0 (#598).
-    await backByHistory(page, WARNED_POSITION);
+    await backByTitle(page, WARNED_POSITION, "pw3-Position work 42007");
     await context.clearCookies({ name: "__Host-warned" });
     // The Continue link carries the saved position, and the warnings screen's address keeps it.
     const href = await page.locator("p.continue a").getAttribute("href");

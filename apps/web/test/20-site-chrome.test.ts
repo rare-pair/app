@@ -20,6 +20,12 @@ const count = (html: string, pattern: RegExp) => (html.match(pattern) ?? []).len
 const stylesheetHref = (html: string) =>
   html.match(/<link rel="stylesheet" href="([^"]+)"/)?.[1] ?? null;
 
+/** What sits inside the header's home link. */
+const homeLinkOf = (html: string) =>
+  html.match(/<header><a class="site-name" href="\/">([\s\S]*?)<\/a>/)?.[1] ?? "";
+
+const iconHref = (html: string) => html.match(/<link rel="icon"[^>]*href="([^"]+)"/)?.[1] ?? "";
+
 const stylesheetOf = async () => {
   const href = stylesheetHref(await htmlOf("/about"));
   const res = await fetchW(href ?? "/missing.css");
@@ -109,6 +115,67 @@ describe("20-site-chrome-and-legal", () => {
     expect(html).toMatch(/<button type="submit">/);
     expect(html).toMatch(/<main[\s\S]*<a href="\/">[\s\S]*<\/main>/);
   });
+
+  it("The logo is in the site header", async () => {
+    // A cross-site post is refused before the session is read: the bare header.
+    const refusal = await fetchW("/login", {
+      method: "POST",
+      headers: { Origin: "https://evil.example" },
+    });
+    expect(refusal.status).toBe(403);
+    const pages = [
+      ...(await Promise.all(APP_PAGES.map(async (path) => [path, await htmlOf(path)] as const))),
+      ["a refusal before the session", await refusal.text()] as const,
+    ];
+    for (const [path, html] of pages) {
+      const link = homeLinkOf(html);
+      expect(link, path).toMatch(/✯[\s\S]*rarepair$/);
+      expect(link.indexOf("✯"), path).toBeLessThan(link.indexOf("rarepair"));
+    }
+  });
+
+  it("The logo isn't read out", async () => {
+    for (const path of APP_PAGES) {
+      const link = homeLinkOf(await htmlOf(path));
+      const star = link.match(/<span[^>]*>✯<\/span>/)?.[0] ?? "";
+      expect(star, path).toContain('aria-hidden="true"');
+      // Outside the hidden span the link reads exactly "rarepair".
+      expect(link.replace(star, "").trim(), path).toBe("rarepair");
+    }
+  });
+
+  it("The tab shows the star", async () => {
+    for (const path of APP_PAGES) {
+      const html = await htmlOf(path);
+      expect(count(html, /<link rel="icon"/g), path).toBe(1);
+      expect(html, path).toMatch(
+        /<link rel="icon" type="image\/svg\+xml" href="\/assets\/logo\.[0-9a-f]+\.svg">/,
+      );
+    }
+    const page = await fetchW("/about");
+    const res = await fetchW(iconHref(await page.text()));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/svg+xml");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("strict-transport-security")).toMatch(/max-age/);
+    expect(res.headers.get("set-cookie")).toBeNull();
+    // The page's CSP lets a same-origin image load.
+    expect(page.headers.get("content-security-policy")).toMatch(/img-src 'self'[ ;]/);
+  });
+
+  it("The icon is our own drawing, with nothing to fetch or run", async () => {
+    const svg = await (await fetchW(iconHref(await htmlOf("/about")))).text();
+    expect(svg).toMatch(/^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 32 32"/);
+    expect(svg).toContain("<path ");
+    expect(svg).not.toMatch(/<text|<script|<image|href=|@font-face|font-family|url\(|<style/i);
+  });
+
+  it("The logo follows the site name's colour", async () => {
+    const rule = (await stylesheetOf()).match(/\.logo\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(rule).not.toBe("");
+    expect(rule).not.toMatch(/(^|[;\s])color\s*:/);
+  });
 });
 
 describe("21-accessibility-and-no-js", () => {
@@ -139,7 +206,12 @@ describe("21-accessibility-and-no-js", () => {
     expect(css).toContain('Charter, "Bitstream Charter", "Iowan Old Style", Georgia, serif');
     for (const path of APP_PAGES) {
       const html = await htmlOf(path);
-      expect(html.match(/<link\b[^>]*>/g) ?? [], path).toHaveLength(1);
+      // The stylesheet, and the tab icon: nothing else is linked, no font among it.
+      const links = html.match(/<link\b[^>]*>/g) ?? [];
+      expect(
+        links.map((l) => l.match(/rel="([^"]+)"/)?.[1]),
+        path,
+      ).toEqual(["stylesheet", "icon"]);
       expect(html).not.toMatch(/<style\b|style="/);
     }
   });

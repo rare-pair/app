@@ -96,6 +96,7 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (step 5), § EPUB process
 - GIVEN an upload by U that the versioning rules held, for a work that is live at an earlier version
 - WHEN U views it on `/me/uploads`
 - THEN it is listed with the badge "Held for review"
+- AND its name is the work's title, as plain text with no link, while the work is live; for a hidden or removed work it is "Upload of" and the date
 - AND V does not see it on V's `/me/uploads`
 
 ### Live upload with review reasons is still live

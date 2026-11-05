@@ -143,6 +143,11 @@ body > header nav button {
   text-decoration: none;
 }
 
+/* A character in the system fonts, so it takes the site name's colour in both themes. */
+.logo {
+  margin-right: var(--space);
+}
+
 main {
   padding-top: calc(var(--space) * 6);
   padding-bottom: calc(var(--space) * 12);

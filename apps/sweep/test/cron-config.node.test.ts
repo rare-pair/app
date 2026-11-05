@@ -9,6 +9,7 @@ interface Config {
   r2_buckets: { binding: string }[];
   hyperdrive: { binding: string }[];
   limits: { cpu_ms: number };
+  vars: { UNCONFIRMED_UPLOAD_DAYS: string };
 }
 
 /** wrangler.jsonc, read with its line comments and trailing commas removed. */
@@ -35,6 +36,10 @@ describe("sweep schedule", () => {
     const c = config();
     expect(c.r2_buckets.map((b) => b.binding)).toEqual(["BUCKET"]);
     expect(c.hyperdrive.map((h) => h.binding)).toEqual(["HYPERDRIVE"]);
+  });
+
+  it("An unconfirmed upload is removed after a day, as configured", () => {
+    expect(config().vars.UNCONFIRMED_UPLOAD_DAYS).toBe("1");
   });
 
   it("A run has more CPU than a Worker's default 30 seconds", () => {

@@ -230,7 +230,7 @@ export interface UploadTable {
   id: Generated<string>;
   user_id: string;
   r2_key: string;
-  /** NULL until `/complete` hashes the file. */
+  /** NULL until `/complete` hashes the file. A job's ending write replaces it with what it read. */
   sha256: string | null;
   bytes: number;
   status: ColumnType<UploadStatus, UploadStatus | undefined, UploadStatus>;

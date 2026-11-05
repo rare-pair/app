@@ -1,4 +1,11 @@
-import { createDb, getLiveWork, insertUpload, searchLiveWorks, type Database } from "@archive/db";
+import {
+  createDb,
+  getLiveWork,
+  insertUpload,
+  recordUploadHash,
+  searchLiveWorks,
+  type Database,
+} from "@archive/db";
 import { seedWork, type SeedWorkOptions } from "@archive/db/seed";
 import { processEpub, type ParsedWork } from "@archive/epub";
 import { createExecutionContext, createMessageBatch, getQueueResult } from "cloudflare:test";
@@ -67,6 +74,23 @@ export const uploadRow = (id: string) =>
       .where("id", "=", id)
       .executeTakeFirstOrThrow(),
   );
+
+/** The hash on the upload's row, kept out of `uploadRow` for the tests that compare whole rows. */
+export const uploadHash = (id: string) =>
+  withDb(async (db) => {
+    const row = await db
+      .selectFrom("uploads")
+      .select("sha256")
+      .where("id", "=", id)
+      .executeTakeFirstOrThrow();
+    return row.sha256;
+  });
+
+/** Confirm's half of the handshake: stores `bytes`' hash on the upload, and says if it matched. */
+export const confirmAs = async (id: string, bytes: Uint8Array) => {
+  const hash = await sha256Hex(bytes);
+  return withDb((db) => recordUploadHash(db, id, hash));
+};
 
 /**
  * Runs the queue handler on one batch of message bodies from `queue` (the ingest queue unless
@@ -430,7 +454,7 @@ export async function bucketText(key: string): Promise<string | null> {
   return object === null ? null : object.text();
 }
 
-/** SHA-256 of `bytes` as lowercase hex, the key an image is stored under. */
+/** SHA-256 of `bytes` as lowercase hex: an upload's hash, and the key an image is stored under. */
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");

@@ -3,6 +3,7 @@
 
 import { TURNSTILE_ORIGIN } from "./security";
 import { LINK_LIFETIME_MINUTES } from "./signin";
+import { LOGO_PATH } from "./logo";
 import { STYLESHEET_PATH } from "./styles";
 import { TURNSTILE_ACTIONS } from "./turnstile";
 import { EPUB_TYPE, MAX_UPLOAD_MB } from "./upload-limit";
@@ -52,11 +53,11 @@ export const layoutAround = (
 ) => ({
   before: `<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)} · rarepair</title><link rel="stylesheet" href="${STYLESHEET_PATH}">${head}</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)} · rarepair</title><link rel="stylesheet" href="${STYLESHEET_PATH}"><link rel="icon" type="image/svg+xml" href="${LOGO_PATH}">${head}</head>
 <body>
 <a class="skip" href="#main">Skip to the main content</a>
 <aside class="banner" aria-label="Notice">rarepair is an unofficial, temporary stopgap. <a href="/about">About this site</a></aside>
-<header><a class="site-name" href="/">rarepair</a></header>
+<header><a class="site-name" href="/"><span class="logo" aria-hidden="true">✯</span> rarepair</a></header>
 <main id="main">
 ${heading}
 `,

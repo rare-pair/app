@@ -84,7 +84,7 @@ describe("02-upload-handshake", () => {
       expect(put.origin).toBe(`https://${S3_HOST}`);
       expect(put.pathname).toBe(`/rarepair/uploads/${id}`);
       expect(put.searchParams.get("X-Amz-Expires")).toBe("600");
-      expect(put.searchParams.get("X-Amz-SignedHeaders")).toBe("content-type;host");
+      expect(put.searchParams.get("X-Amz-SignedHeaders")).toBe("content-length;content-type;host");
       expect(rows.find((r) => r.id === id)).toMatchObject({
         r2_key: `uploads/${id}`,
         status: "pending",

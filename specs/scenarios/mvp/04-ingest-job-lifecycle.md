@@ -1,6 +1,6 @@
 # Scenario: Ingest job lifecycle (lease, save order, retries, dead-letter)
 
-Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion pipeline (step 4), § Surge controls (Queue backpressure)
+Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1, 2 and 8), § Ingestion pipeline (steps 3 and 4), § Dedupe, § Surge controls (Queue backpressure)
 
 ## Setup
 - The ingest Worker consumes the ingest queue with a batch size of 1, retries and a dead-letter queue, and consumes the dead-letter queue too
@@ -164,3 +164,57 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 - GIVEN an upload whose raw file is at its own key under `uploads/`
 - WHEN the job ends the upload refused any other way, such as `account_banned` or `parse_failed`
 - THEN the file stays, for the 7-day expiry to delete
+
+### A file swapped after confirm is recorded by what was read
+- GIVEN an upload confirmed as file A, whose object has since been replaced by file B through the same presigned URL
+- WHEN the job runs
+- THEN the job handles file B, as it would any upload, with no new rejection code and nothing new for the uploader to see
+- AND the upload's row ends with the hash of B, the bytes the job read, in place of A's
+
+### A swap doesn't block the original file
+- GIVEN an upload confirmed as file A and ingested as file B
+- WHEN a later genuine upload of A is confirmed
+- THEN it isn't told it's a duplicate of the swapped upload, and its job runs like any other
+- AND a later upload of B is told it's a duplicate of the swapped upload's work, while that work is `live` or `hidden`
+
+### A swap to a file already in the archive goes through the versioning rules
+- GIVEN an upload confirmed as file A, whose object has since been replaced by file B, already ingested
+- WHEN the job runs
+- THEN the versioning rules end the upload `duplicate` of B's work, with its original kept
+- AND its row ends with the hash of B
+
+### An upload that wasn't swapped ends as it always has
+- GIVEN an upload confirmed as the file its object still holds
+- WHEN the job runs
+- THEN the row ends as it would without the hash being taken, with the hash confirm stored
+
+### An upload the job read and refused keeps the hash of what was read
+- GIVEN an upload confirmed as file A, whose object has since been replaced by a file the processor refuses
+- WHEN the job runs
+- THEN the upload ends with the refusal's code, and its row with the hash of the refused file
+
+### An upload no job read keeps the hash confirm stored
+- GIVEN a confirmed upload no job has read, whose job ends before reading the file: its object is gone or over the size limit, or its account is banned
+- OR a confirmed upload no job has read, which the dead-letter consumer fails
+- WHEN it ends
+- THEN its row keeps the hash confirm stored
+
+### A retry records what its own read saw
+- GIVEN an upload whose job read file A and failed with attempts left, and whose object has since been replaced by file B
+- WHEN the job runs again and saves the upload
+- THEN its row ends with the hash of B
+
+### A later attempt that reads nothing leaves the last read's hash
+- GIVEN an upload confirmed as file A, whose job read file B and failed with attempts left
+- WHEN its object is then gone and the job runs again, or the dead-letter consumer fails it
+- THEN the upload ends `parse_failed`, and its row with the hash of B
+
+### An upload a ban refuses at the save keeps the hash of what was read
+- GIVEN an upload confirmed as file A, whose job read file B, and whose account is banned while the job runs
+- WHEN the save refuses it
+- THEN the upload ends `account_banned`, and its row with the hash of B
+
+### A job that has lost its lease records no hash
+- GIVEN a job that has read a file, whose upload another job has taken over
+- WHEN it reaches its ending write
+- THEN the row keeps the hash it had
