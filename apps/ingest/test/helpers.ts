@@ -199,6 +199,9 @@ export const addWrongVersionReport = (workId: string, uploadId: string) =>
       .selectFrom("uploads")
       .select("user_id")
       .where("id", "=", uploadId)
+      // Null only once the account is deleted, and a report needs an account to make it.
+      .where("user_id", "is not", null)
+      .$narrowType<{ user_id: string }>()
       .executeTakeFirstOrThrow();
     const { id } = await db
       .insertInto("reports")
