@@ -50,7 +50,7 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 ### Each item has a detail page with actions
 - GIVEN an item in the reports, takedowns or requests queue
 - WHEN M opens its detail page
-- THEN the page offers hide, remove, restore, approve, reject, block requester and ban uploader actions
+- THEN the page offers hide, remove, restore, approve, reject, block requester and ban uploader actions, and an open report's page offers "Dismiss report"
 
 ### Works to check detail page has its own actions
 - GIVEN an item in *Works to check*
@@ -100,6 +100,59 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 - WHEN M uses the remove action, choosing a reason where scenario 23 asks for one
 - THEN W is `removed`, its R2 files and raw upload are deleted, and the sweep deletes what that delete missed, except the cases in https://github.com/rare-pair/app/issues/592
 - AND its cached pages, fragments, images and download URLs are purged where the purge reaches them (what it cannot reach is in specs/scenarios/mvp/09-content-origin.md)
+
+### A moderator dismisses a report
+- GIVEN a live work W with an open report
+- WHEN M uses "Dismiss report" on the report's detail page
+- THEN the report is `closed` and leaves `/admin/reports`
+- AND one moderation log row records `dismiss` on the report, with M's user id and the time
+- AND W stays live
+
+### Dismissing a report leaves a hidden work hidden
+- GIVEN a work W the reports hid automatically, with an open report
+- WHEN M dismisses the report
+- THEN the report is `closed` and W stays hidden, because a dismissal lifts no hide
+- AND the answer tells M that W stays hidden until restored
+
+### Dismissing a closed report changes nothing
+- GIVEN a report M has dismissed
+- WHEN M dismisses it again
+- THEN the answer says nothing changed, and the log still has one row for it
+
+### A wrong-version report can't be dismissed
+- GIVEN a "This version is wrong" report, or an id no report has
+- WHEN M posts a dismissal for it
+- THEN the response is 404 and the report stays `open`, for its own form on the work's admin page
+
+### A report on a removed work can be dismissed
+- GIVEN an open report on a removed work, which the Reports queue still lists
+- WHEN M dismisses it
+- THEN the report is `closed` and the work stays `removed`
+
+### A dismissed report stops counting toward the automatic hide
+- GIVEN a live work W with open reports from U and U2, and a report from U3 that M dismissed
+- WHEN U2 reports W again
+- THEN W stays live, because only U and U2 count
+- AND when a new account U4 reports W, W is hidden automatically
+- AND an account with another open report on W still counts, since the count is per account
+
+### Rejecting a removal request leaves reports open
+- GIVEN work W hidden after a removal request, with an open report
+- WHEN M rejects the request
+- THEN W is `live` again
+- AND the report is still `open` and listed on `/admin/reports`
+- AND the same holds when M reverses an opt-out or restores related works in bulk
+
+### A moderator's restore closes reports
+- GIVEN a hidden work W with an open report
+- WHEN M uses the restore action on W
+- THEN W is `live` again and the report is `closed`
+- AND restoring a work that isn't hidden changes nothing, its open reports included
+
+### Replacing a version leaves wrong-version reports open
+- GIVEN work BV with a "This version is wrong" report
+- WHEN a newer upload replaces BV's current version
+- THEN the report is still `open`, so BV stays in *Works to check*
 
 ### Related requests are listed together
 - GIVEN one of the five requests from the same email and IP
