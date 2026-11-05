@@ -877,44 +877,38 @@ describe("04-ingest-job-lifecycle", () => {
   });
 
   it.each([
-    ["its object is gone", null, "parse_failed"],
-    ["its object is over the size limit", new Uint8Array(25 * 1024 * 1024 + 1), "too_large"],
-  ] as const)(
-    "An upload no job read keeps the hash confirm stored: %s",
-    async (_, bytes, status) => {
+    { name: "its object is gone", object: null, status: "parse_failed" },
+    {
+      name: "its object is over the size limit",
+      object: new Uint8Array(25 * 1024 * 1024 + 1),
+      status: "too_large",
+    },
+    {
+      name: "its account is banned",
+      object: ao3Epub({ workId: 60408 }),
+      status: "account_banned",
+      banned: true,
+    },
+    {
+      name: "the dead-letter consumer fails it",
+      object: ao3Epub({ workId: 60410 }),
+      status: "parse_failed",
+      queue: "ingest-dlq",
+    },
+  ])(
+    "An upload no job read keeps the hash confirm stored: $name",
+    async ({ object, status, banned, queue }) => {
       const confirmed = ao3Epub({ workId: 60406 });
-      const id = await pendingUpload(bytes);
+      const id = await pendingUpload(object);
       await confirmAs(id, confirmed);
+      if (banned) await banUploader(id);
 
-      await deliver([{ upload_id: id }]);
+      await deliver([{ upload_id: id }], { queue });
 
       expect((await uploadRow(id)).status).toBe(status);
       expect(await uploadHash(id)).toBe(await sha256Hex(confirmed));
     },
   );
-
-  it("An upload no job read keeps the hash confirm stored: its account is banned", async () => {
-    const file = ao3Epub({ workId: 60407 });
-    const id = await pendingUpload(ao3Epub({ workId: 60408 }));
-    await confirmAs(id, file);
-    await banUploader(id);
-
-    await deliver([{ upload_id: id }]);
-
-    expect((await uploadRow(id)).status).toBe("account_banned");
-    expect(await uploadHash(id)).toBe(await sha256Hex(file));
-  });
-
-  it("An upload no job read keeps the hash confirm stored: the dead-letter consumer fails it", async () => {
-    const file = ao3Epub({ workId: 60409 });
-    const id = await pendingUpload(ao3Epub({ workId: 60410 }));
-    await confirmAs(id, file);
-
-    await deliver([{ upload_id: id }], { queue: "ingest-dlq" });
-
-    expect((await uploadRow(id)).status).toBe("parse_failed");
-    expect(await uploadHash(id)).toBe(await sha256Hex(file));
-  });
 
   it("A retry records what its own read saw", async () => {
     const fileA = ao3Epub({ workId: 60411 });
