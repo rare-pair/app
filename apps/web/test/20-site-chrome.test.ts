@@ -98,6 +98,8 @@ describe("20-site-chrome-and-legal", () => {
     expect(privacy).toMatch(/delete your account, your sessions and your saved reading positions/i);
     expect(privacy).toMatch(/accepted works stay public/i);
     expect(privacy).toMatch(/reports you made stay/i);
+    expect(privacy).toMatch(/your email asking for this stays in that mailbox/i);
+    expect(privacy).toMatch(/do not delete a banned account/i);
   });
 
   it("Footer links to removal", async () => {

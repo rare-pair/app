@@ -57,6 +57,10 @@ export const banUploader = (id: string) =>
       .execute(),
   );
 
+/** Deletes the account that made `pendingUpload`'s upload `id`, as the operator's script does. */
+export const deleteUploader = (id: string) =>
+  withDb((db) => db.deleteFrom("user").where("id", "=", `ingest-${id}`).execute());
+
 /** The upload's row, as the job leaves it. */
 export const uploadRow = (id: string) =>
   withDb((db) =>

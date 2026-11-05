@@ -2,7 +2,7 @@ import { createDb } from "@archive/db";
 import { seedVersion, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { fetchW, signIn } from "./helpers";
+import { fetchW, LOGIN_TOKEN, postLoginOpen, signIn } from "./helpers";
 
 // ACCTDEL's page case: a moderator looks at a work whose uploader's account is gone. One database
 // serves every test file in the run. This file keeps to AO3 work IDs 60950 to 60959 and gives
@@ -20,6 +20,16 @@ beforeAll(async () => {
 });
 
 describe("18-moderation", () => {
+  it("An account is deleted on request: a sign-in link is stored in the form the script looks for", async () => {
+    // scripts/account-delete.mjs finds unspent links by this text in the value.
+    const email = "acctdel-link@example.test";
+    expect((await postLoginOpen({ email, "cf-turnstile-response": LOGIN_TOKEN })).status).toBe(200);
+
+    const rows = await db.selectFrom("verification").select("value").execute();
+
+    expect(rows.some((row) => row.value.toLowerCase().includes(`"email":"${email}"`))).toBe(true);
+  });
+
   it("A version whose uploader was deleted shows Deleted account", async () => {
     // GIVEN a work with one version by an account since deleted, and one by an account that stays.
     const gone = "acctdel-gone@example.test";

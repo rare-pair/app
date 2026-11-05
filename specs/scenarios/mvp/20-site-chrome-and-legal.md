@@ -50,7 +50,8 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - THEN it says to ask at admin@rarepair.fans
 - AND it says the archive deletes the account, its sessions and its saved reading positions
 - AND it says accepted works stay public
-- AND it says reports the account made stay
+- AND it says reports the account made stay, and that the email asking stays in that mailbox
+- AND it says a banned account is not deleted
 
 ### Footer links to removal
 - GIVEN any app page

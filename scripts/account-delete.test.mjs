@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { positionsKv } from "./account-delete.mjs";
+import { KV_LAG_MS, positionsKv } from "./account-delete.mjs";
 
 const script = fileURLToPath(new URL("account-delete.mjs", import.meta.url));
 
@@ -68,6 +68,10 @@ await test("An unreachable database exits 1 and prints a code, never the URL", (
   assert.equal(code, 1);
   assert.match(stderr, /database error \(\w+\)/);
   assert.ok(!stdout.includes("not-a-password") && !stderr.includes("not-a-password"));
+});
+
+await test("The wait outlasts KV's list lag, which Cloudflare gives as up to 60 seconds", () => {
+  assert.ok(KV_LAG_MS > 60_000);
 });
 
 /** A fetch that answers from `replies` in order and keeps each call. */

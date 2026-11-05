@@ -30,7 +30,7 @@ const LIST_LIMIT = 1000;
 const DELETE_LIMIT = 10_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 // KV lists can lag a write by up to 60 seconds (Cloudflare KV, How KV works).
-const KV_LAG_MS = 61_000;
+export const KV_LAG_MS = 61_000;
 
 const NAMES = [
   "DATABASE_URL",
@@ -128,6 +128,15 @@ const normalized = (address) => address.trim().toLowerCase();
 
 const BANNED = "this account is banned, and the ban would go with the row";
 
+/** Runs a KV call, so whatever it throws is reported as KV's and not the database's. */
+const kvStep = async (call) => {
+  try {
+    return await call();
+  } catch (caught) {
+    throw caught instanceof KvError ? caught : new KvError(`KV request failed (${codeOf(caught)})`);
+  }
+};
+
 /**
  * The start of every key apps/web's positionKey makes for this user. A script can't load that
  * TypeScript, so apps/web's position.node.test.ts holds the two together.
@@ -141,6 +150,7 @@ export const positionPrefix = (userId) => `pos:${userId}:`;
  * @property {string} address
  * @property {{ listKeys: (prefix: string) => Promise<string[]>, deleteKeys: (keys: string[]) => Promise<void> }} kv
  * @property {(prompt: string) => Promise<string>} ask
+ * @property {() => Promise<void>} [settle] Waits for KV lists to catch up.
  * @property {(line: string) => void} [log]
  */
 
@@ -197,7 +207,7 @@ export async function accountDelete({
       [user.id],
     );
     const { sessions, uploads, reports, takedowns, blocks, actions } = rows[0];
-    const positions = (await kv.listKeys(prefix)).length;
+    const positions = (await kvStep(() => kv.listKeys(prefix))).length;
     log(`account: ${user.email}${user.role === null ? "" : `, role ${user.role}`}`);
     log(
       `will delete: the account, ${counted(sessions, "session")}, ${counted(positions, "saved reading position")}`,
@@ -215,21 +225,28 @@ export async function accountDelete({
     if (current.length === 0) return refuse("the account went while the prompt waited");
     if (current[0].banned_at !== null) return refuse(BANNED);
 
-    const ended = await pool.query("delete from session where user_id = $1", [user.id]);
-    // An unspent link would make a new account at this address. Better Auth keeps its email in
-    // a JSON value, and the other rows in the table are not all JSON, so it is matched as text.
-    await pool.query("delete from verification where position($1 in lower(value)) > 0", [
-      `"email":${JSON.stringify(normalized(user.email))}`,
-    ]);
-    // As a ban ends them. A confirmed one is ingest's: it finds no account, and refuses it.
-    await pool.query(
-      `update uploads set status = 'account_banned' where user_id = $1 and status = 'pending'`,
-      [user.id],
-    );
+    // What lets the person act, and what they left unfinished. Twice, because the row is there
+    // through the wait, and they can sign in again during it.
+    const stopActivity = async () => {
+      const { rowCount } = await pool.query("delete from session where user_id = $1", [user.id]);
+      // An unspent link would make a new account at this address. Better Auth keeps its email in
+      // a JSON value, and not every row in the table is JSON, so it is matched as text.
+      await pool.query("delete from verification where position($1 in lower(value)) > 0", [
+        `"email":${JSON.stringify(normalized(user.email))}`,
+      ]);
+      // As a ban ends them. A `processing` one is ingest's: it finds no account, and refuses it.
+      await pool.query(
+        `update uploads set status = 'account_banned' where user_id = $1 and status = 'pending'`,
+        [user.id],
+      );
+      return rowCount ?? 0;
+    };
+    const ended = await stopActivity();
     log("waiting a minute, so a position saved just now shows up in KV's list");
     await settle();
-    const keys = await kv.listKeys(prefix);
-    await kv.deleteKeys(keys);
+    const endedLate = await stopActivity();
+    const keys = await kvStep(() => kv.listKeys(prefix));
+    await kvStep(() => kv.deleteKeys(keys));
     const gone = await pool.query(`delete from "user" where id = $1 and banned_at is null`, [
       user.id,
     ]);
@@ -239,7 +256,7 @@ export async function accountDelete({
       );
     }
     log(
-      `deleted the account, ${counted(ended.rowCount ?? 0, "session")}, ${counted(keys.length, "saved reading position")}`,
+      `deleted the account, ${counted(ended + endedLate, "session")}, ${counted(keys.length, "saved reading position")}`,
     );
     return { deleted: true, refused: null, error: null };
   } catch (caught) {

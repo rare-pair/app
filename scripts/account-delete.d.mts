@@ -24,6 +24,9 @@ export interface AccountDeleteResult {
 
 export function accountDelete(options: AccountDeleteOptions): Promise<AccountDeleteResult>;
 
+/** How long the script waits for KV lists to catch up with a write. */
+export const KV_LAG_MS: number;
+
 /** The start of every key `apps/web`'s `positionKey` makes for this user. */
 export function positionPrefix(userId: string): string;
 

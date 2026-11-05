@@ -147,10 +147,10 @@ async function run(
 
 // The command line against a real database. spawn, not spawnSync: PGlite runs in this process.
 // --import swaps fetch before the script loads, so nothing reaches Cloudflare, and skips the
-// script's wait for KV, which is the only timer of that length.
+// script's wait for KV, the only timer of a minute or more.
 const NO_CLOUDFLARE = `data:text/javascript,${encodeURIComponent(`
   const realTimeout = globalThis.setTimeout;
-  globalThis.setTimeout = (run, ms, ...rest) => realTimeout(run, ms === 61000 ? 0 : ms, ...rest);
+  globalThis.setTimeout = (run, ms, ...rest) => realTimeout(run, ms >= 60000 ? 0 : ms, ...rest);
   globalThis.fetch = async (url, init) => {
     const body = init?.method === "POST"
       ? { success: true, result: { successful_key_count: 0 } }
@@ -239,7 +239,7 @@ describe("18-moderation", () => {
     expect(await hideWork(t.db, work.workId, "reports", { minReporters: 2 })).toBe(true);
   });
 
-  it("An account is deleted on request: an upload still waiting is refused like a banned uploader's", async () => {
+  it("An account is deleted on request: an upload in progress is refused like a banned uploader's", async () => {
     const user = await addUser();
     const { id } = await insertUpload(t.db, {
       userId: user.id,
@@ -251,6 +251,9 @@ describe("18-moderation", () => {
     await deleteUser(user.id);
 
     expect(await isUploaderBanned(t.db, id)).toBe(true);
+    await t.db.transaction().execute(async (trx) => {
+      expect(await isUploaderBanned(trx, id, { lock: true })).toBe(true);
+    });
   });
 
   it("An account is deleted on request: the script removes the account, its sessions and its pos: keys", async () => {
@@ -393,19 +396,50 @@ describe("18-moderation", () => {
     const a = await addUser();
     await signedIn(a.id);
 
-    const result = await run(
-      a.email,
-      fakeKv([`pos:${a.id}:60912`]),
-      a.email,
-      undefined,
-      async () => {
-        await banUser(t.db, a.id, { actor: "acctdel-moderator" });
-      },
-    );
+    const kv = fakeKv([`pos:${a.id}:60912`]);
+
+    const result = await run(a.email, kv, a.email, undefined, async () => {
+      await banUser(t.db, a.id, { actor: "acctdel-moderator" });
+    });
 
     expect(result.deleted).toBe(false);
     expect(result.refused).toMatch(/banned or deleted .* sessions and positions are already gone/);
     expect(await userExists(a.id)).toBe(true);
+    expect(await sessionCount(a.id)).toBe(0);
+    expect(kv.held.size).toBe(0);
+  });
+
+  it("An account is deleted on request: a sign-in during the wait goes too", async () => {
+    const a = await addUser();
+    const link = {
+      id: `late-link-${a.id}`,
+      identifier: `magic-link-late-${a.id}`,
+      value: JSON.stringify({ type: "magic-link", email: a.email }),
+      expires_at: new Date(Date.now() + 60_000),
+      updated_at: new Date(),
+    };
+    let uploadId = "";
+
+    const result = await run(a.email, fakeKv(), a.email, undefined, async () => {
+      await t.db.insertInto("verification").values(link).execute();
+      const upload = await insertUpload(t.db, {
+        userId: a.id,
+        r2Key: `uploads/${crypto.randomUUID()}`,
+        bytes: 10,
+      });
+      uploadId = upload.id;
+    });
+
+    expect(result.deleted).toBe(true);
+    expect(
+      await t.db.selectFrom("verification").select("id").where("id", "=", link.id).execute(),
+    ).toEqual([]);
+    const upload = await t.db
+      .selectFrom("uploads")
+      .select("status")
+      .where("id", "=", uploadId)
+      .executeTakeFirstOrThrow();
+    expect(upload.status).toBe("account_banned");
   });
 
   it("An account is deleted on request: a position saved just before the delete goes too", async () => {
@@ -420,7 +454,7 @@ describe("18-moderation", () => {
     expect(kv.held.size).toBe(0);
   });
 
-  it("An account is deleted on request: an upload never confirmed ends as a banned uploader's does", async () => {
+  it("An account is deleted on request: a pending upload ends as a banned uploader's does", async () => {
     const a = await addUser();
     const { id } = await insertUpload(t.db, {
       userId: a.id,
@@ -475,7 +509,7 @@ describe("18-moderation", () => {
     const failed = await run(a.email, kv);
 
     expect(failed.deleted).toBe(false);
-    expect(failed.error).not.toBeNull();
+    expect(failed.error).toMatch(/^KV request failed/);
     expect(await userExists(a.id)).toBe(true);
 
     kv.failDelete = false;

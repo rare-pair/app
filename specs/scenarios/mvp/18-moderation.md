@@ -133,8 +133,8 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 - AND A's account, sessions and `pos:<A's id>:` keys are gone, and nobody else's
 - AND A's upload rows stay with no user attached, and A's works and versions stay public
 - AND A's reports still count toward hiding a work, and the takedowns A resolved, the blocks A made and A's `moderation_actions` rows keep A's id
-- AND an upload of A's still waiting is refused as a banned uploader's is, and one never confirmed ends `account_banned`
-- AND A's unspent sign-in links are gone, and a position A saved just before the delete
+- AND A's `pending` uploads end `account_banned`, and one already `processing` is refused as a banned uploader's is
+- AND A's unspent sign-in links are gone, and a position A saved just before the delete, and a link or upload made while the script waits
 
 ### Deleting an account needs confirmation
 - GIVEN account A
