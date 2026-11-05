@@ -155,6 +155,41 @@ describe("03-upload-status: My uploads", () => {
     expect(html).toContain("Upload of 2026-03-04 05:06 UTC");
   });
 
+  it("Held upload is shown to its uploader", async () => {
+    const u = await signIn();
+    const v = await signIn();
+    const live = await seedWork(db, { ao3WorkId: 61600, title: "smallfix-held-live" });
+    const gone = await seedWork(db, {
+      ao3WorkId: 61601,
+      title: "smallfix-held-hidden",
+      status: "hidden",
+      hiddenCause: "moderator",
+    });
+    const mine = await upload(u.userId, "held_for_review", { workId: live.workId });
+    const mineHidden = await upload(u.userId, "held_for_review", { workId: gone.workId });
+    const theirs = await upload(v.userId, "held_for_review", { workId: live.workId });
+
+    const html = await (await page(u.cookie)).text();
+    const theirHtml = await (await page(v.cookie)).text();
+
+    // The uploader sees the work's title as a plain name, with no link to the work.
+    expect(html).toMatch(
+      new RegExp(
+        `data-upload-id="${mine}"[^>]*><span class="upload-name"><bdi>smallfix-held-live</bdi></span>`,
+      ),
+    );
+    expect(badgeOf(html, mine)).toBe("Held for review");
+    expect(html).not.toContain('<a href="/works/61600">');
+    // A hidden work keeps the dated name: the uploader isn't told of such a work.
+    expect(html).toMatch(
+      new RegExp(`data-upload-id="${mineHidden}"[^>]*><span class="upload-name">Upload of `),
+    );
+    expect(html).not.toContain("smallfix-held-hidden");
+    // Another user's page holds no row of this one's.
+    expect(theirHtml).not.toContain(mine);
+    expect(theirHtml).toContain(theirs);
+  });
+
   it("The list is newest first and holds at most 50 uploads", async () => {
     const { userId, cookie } = await signIn();
     const ids: string[] = [];

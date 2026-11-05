@@ -85,6 +85,20 @@ describe("makeVersionCurrent", () => {
     expect((await searchLiveWorks(t.db, "mcrollsecond")).works).toEqual([]);
   });
 
+  it("A card reads 12/? when the version states no total", async () => {
+    const w = await replacedWork("mctotal");
+    await t.db
+      .updateTable("work_versions")
+      .set({ chapter_total: null })
+      .where("id", "=", w.v1)
+      .execute();
+
+    expect(await makeVersionCurrent(t.db, w.workId, w.v1)).toBe(true);
+
+    const live = await getLiveWork(t.db, w.ao3WorkId);
+    expect(live?.work.chapters_total).toBeNull();
+  });
+
   it("A field the version lacks keeps the work's value", async () => {
     const w = await replacedWork("mcnull");
     // As a version saved before migrations 0010 and 0012 has: nothing but its title kept.
@@ -99,7 +113,6 @@ describe("makeVersionCurrent", () => {
         published_at: null,
         updated_at: null,
         raw_meta: null,
-        chapter_total: null,
         tags: null,
         authors: null,
       })
@@ -116,7 +129,6 @@ describe("makeVersionCurrent", () => {
       language: "English",
       words: 500,
       chapters_count: 1,
-      chapters_total: 5,
       complete: false,
     });
     expect(live?.work.updated_at).toEqual(new Date("2020-03-01T00:00:00Z"));

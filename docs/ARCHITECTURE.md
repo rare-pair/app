@@ -514,7 +514,9 @@ Chapter text isn't indexed.
    `copyVersionToWork` in `packages/db`, in the transaction that moves the
    pointer: each non-NULL field of the version is copied, a NULL one keeps
    the work's value (so a replace whose file lacks a field never blanks the
-   stored one, and the title is never NULL), the byline and tags are
+   stored one, and the title is never NULL), except the chapter count and
+   total, which are always the version's (a version that states no total
+   leaves the work's NULL, and its card reads "12/?"), the byline and tags are
    rewritten from the version's own unless those are NULL, and the search
    text is refreshed.
 8. **Save, in order.** Write chapter fragments and images to R2. Then run one
