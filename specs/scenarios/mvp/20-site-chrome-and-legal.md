@@ -90,8 +90,8 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 ### Site header before launch
 - GIVEN the archive before launch
 - WHEN a page renders its header
-- THEN "Search", "Add work" and "My uploads" show disabled, as the footer's "Remove my work" link does: no `href`, `aria-disabled="true"`, skipped by Tab, because `/search`, `/upload` and `/me/uploads` are closed
-- AND "Sign in", "Sign out" and "Admin" stay live
+- THEN "Search", "Add work", "My uploads" and "Sign in" show disabled, as the footer's "Remove my work" link does: no `href`, `aria-disabled="true"`, skipped by Tab, because `/search`, `/upload`, `/me/uploads` and `/login` are closed
+- AND "Sign out" and "Admin" stay live
 
 ### Site header is never in a shared cache
 - GIVEN a signed-in user or a moderator opens a chapter

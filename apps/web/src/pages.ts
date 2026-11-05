@@ -227,7 +227,10 @@ export const logoutPage = () => layout("Sign out", SIGN_OUT_FORM);
 
 /** `GET /logout` for someone who isn't signed in. */
 export const notSignedInPage = () =>
-  layout("Sign out", `<p>You are not signed in. <a href="/login">Sign in</a>.</p>`);
+  layout(
+    "Sign out",
+    `<p>You are not signed in.<span data-sign-in-offer> <a href="/login">Sign in</a>.</span></p>`,
+  );
 
 /**
  * The emailed link's page: only a button that posts the token. Opening the link

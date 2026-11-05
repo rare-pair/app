@@ -100,9 +100,6 @@ describe("22-waitlist", () => {
       const res = await fetchW(path, { method });
       expect(withoutNonce(res.headers.get("content-security-policy"))).toBe(TURNSTILE);
     }
-    // Sign-in, open before launch, keeps its own Turnstile policy.
-    const login = await fetchW("/login");
-    expect(withoutNonce(login.headers.get("content-security-policy"))).toBe(TURNSTILE);
   });
 
   it("Coming-soon page serves its own fonts", async () => {
@@ -197,7 +194,7 @@ describe("22-waitlist", () => {
 
     // No other app page loads a web font. (WL2 and WL3 build the other wait list pages
     // on waitlistPage, which links the same stylesheet.)
-    for (const path of ["/login", "/login/confirm?token=x", "/about", "/terms", "/privacy"]) {
+    for (const path of ["/about", "/terms", "/privacy"]) {
       const other = await (await fetchW(path)).text();
       expect(other).not.toMatch(/\/assets\/waitlist\/|woff2|@font-face/);
     }
@@ -210,6 +207,10 @@ describe("22-waitlist", () => {
       ["/upload", "GET"],
       ["/upload", "POST"],
       ["/remove", "GET"],
+      ["/login", "GET"],
+      ["/login", "POST"],
+      ["/login/confirm?token=x", "GET"],
+      ["/login/confirm", "POST"],
       // Exceptions match whole path segments, not prefixes of a name.
       ["/administrator", "GET"],
       ["/waitlistx", "GET"],
@@ -247,12 +248,7 @@ describe("22-waitlist", () => {
       ["/terms", "GET"],
       ["/privacy", "GET"],
       ["/about", "GET"],
-      ["/login", "GET"],
-      ["/login", "POST"],
-      ["/login/confirm?token=x", "GET"],
-      // Where the first admin signs in before launch.
-      ["/login/confirm", "POST"],
-      // Signed in before launch (an admin), a reader can still leave.
+      // A session from before sign-in closed can still leave.
       ["/logout", "GET"],
       ["/logout", "POST"],
       ["/admin", "GET"],
@@ -266,7 +262,8 @@ describe("22-waitlist", () => {
       expect(res.status, `${method} ${path}`).not.toBe(302);
       expect(res.headers.get("location")).toBeNull();
     }
-    // The terms page is open too, and signed out it asks to sign in, not to wait.
+    // The terms page is open too, for such a session. Signed out it sends the visitor to
+    // sign in, as it always does, and that redirect ends at the coming-soon page.
     const terms = await fetchW("/welcome/terms");
     expect(terms.status).toBe(302);
     expect(terms.headers.get("location")).toBe("/login?next=%2Fwelcome%2Fterms");

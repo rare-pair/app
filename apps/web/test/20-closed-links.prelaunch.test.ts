@@ -12,7 +12,7 @@ const footerLinks = (html: string) => {
 
 describe("20-closed-links before launch", () => {
   it("Every app page's footer shows Remove my work as a disabled link", async () => {
-    for (const path of ["/", "/about", "/terms", "/privacy", "/login"]) {
+    for (const path of ["/", "/about", "/terms", "/privacy"]) {
       const res = await fetchW(path);
       expect(res.status, path).toBe(200);
       const links = footerLinks(await res.text());

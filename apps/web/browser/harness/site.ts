@@ -79,6 +79,8 @@ export type ContextOptions = {
 
 /** The running site: the Workers, their database and bucket, and a browser to visit them with. */
 export type Site = {
+  /** Whether PRELAUNCH is on, so sign-in is closed. */
+  prelaunch: boolean;
   /** The database the Workers read, for seeding and for reading what they stored. */
   db: Kysely<Database>;
   /** The R2 bucket the Workers share, for seeding fragments and reading what they stored. */
@@ -235,6 +237,7 @@ export async function startSite({
   }
 
   return {
+    prelaunch,
     db: t.db,
     bucket,
     newContext,

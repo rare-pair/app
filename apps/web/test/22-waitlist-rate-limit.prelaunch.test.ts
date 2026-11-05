@@ -14,7 +14,7 @@ import {
   freshIp,
   LOGIN_TOKEN,
   WAITLIST_TOKEN,
-  postLogin,
+  postLoginOpen,
   windowHeadroom,
 } from "./helpers";
 import { WAITLIST_EMAIL_LIMIT, WAITLIST_IP_LIMIT } from "./limits";
@@ -59,9 +59,9 @@ const rowOf = (email: string) =>
  */
 async function queuedFor(to: string) {
   const sentinel = `ratelimit-sentinel-${crypto.randomUUID().slice(0, 8)}@example.test`;
-  expect((await postLogin({ email: sentinel, "cf-turnstile-response": LOGIN_TOKEN })).status).toBe(
-    200,
-  );
+  expect(
+    (await postLoginOpen({ email: sentinel, "cf-turnstile-response": LOGIN_TOKEN })).status,
+  ).toBe(200);
   await emailsTo(sentinel);
   const field = `"to":${JSON.stringify(to)}`;
   return (await deliveredEmails()).filter((body) => JSON.stringify(body).includes(field)).length;

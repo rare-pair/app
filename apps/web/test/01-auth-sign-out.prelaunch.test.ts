@@ -1,7 +1,7 @@
 import { createDb } from "@archive/db";
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
-import { fetchW, postLogin, signIn } from "./helpers";
+import { fetchW, postLogin, signIn, withoutHeader } from "./helpers";
 
 // Runs in the "prelaunch" project, with PRELAUNCH on as wrangler.jsonc deploys it:
 // an admin signed in before launch can still sign out.
@@ -47,6 +47,9 @@ describe("01-auth-magic-link sign-out before launch", () => {
     // Signed out, the page still opens and says so (not a redirect, not a 404).
     const after = await fetchW("/logout", { headers: { cookie } });
     expect(after.status).toBe(200);
-    expect(await after.text()).toContain("You are not signed in");
+    const text = await after.text();
+    expect(text).toContain("You are not signed in");
+    // Sign-in is closed, so the page doesn't offer it: neither a link nor a dead one.
+    expect(withoutHeader(text)).not.toMatch(/sign in/i);
   });
 });
