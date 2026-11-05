@@ -127,7 +127,7 @@ describe("18-moderation", () => {
     expect(await reportStatus("dismiss-one")).toBe("closed");
     expect(await queueHtml()).not.toContain('href="/admin/reports/dismiss-one"');
     expect(await logFor("dismiss-one")).toMatchObject([
-      { moderator_id: moderatorId, action: "dismiss", target_kind: "report" },
+      { moderator_id: moderatorId, action: "dismiss", target_kind: "report", note: null },
     ]);
     expect(await state(W)).toEqual(LIVE);
     expect((await get(`/works/${W}`)).status).toBe(200);
@@ -280,12 +280,34 @@ describe("18-moderation", () => {
     expect(await queueHtml()).toContain('href="/admin/reports/dismiss-kept-bulk"');
   });
 
+  it("A bulk restore of an already decided request leaves reports open", async () => {
+    const W = 60810;
+    const { workId, userId } = await seed(W, { status: "hidden", hiddenCause: "removal_request" });
+    await addReport("dismiss-kept-decided", workId, userId);
+    await addRequest("dismiss-decided", workId, { status: "rejected", hid: [workId] });
+
+    expect((await post("/admin/requests/dismiss-decided/restore-related", moderator)).status).toBe(
+      200,
+    );
+
+    expect(await state(W)).toEqual(LIVE);
+    expect(await reportStatus("dismiss-kept-decided")).toBe("open");
+    expect(await logFor(workId)).toMatchObject([{ action: "restore", moderator_id: moderatorId }]);
+  });
+
   it("A moderator's restore closes reports", async () => {
     const W = 60809;
     const { workId, userId } = await seed(W, { status: "hidden", hiddenCause: "removal_request" });
     await addReport("dismiss-closed-restore", workId, userId);
+    await addReport("dismiss-closed-wrong", workId, userId, "wrong_version");
     expect((await post(`/admin/works/${W}/restore`, moderator)).status).toBe(200);
     expect(await state(W)).toEqual(LIVE);
     expect(await reportStatus("dismiss-closed-restore")).toBe("closed");
+    expect(await reportStatus("dismiss-closed-wrong")).toBe("closed");
+
+    // Restoring it again, now it is live, changes nothing, its open reports included.
+    await addReport("dismiss-open-live", workId, userId);
+    expect((await post(`/admin/works/${W}/restore`, moderator)).status).toBe(200);
+    expect(await reportStatus("dismiss-open-live")).toBe("open");
   });
 });

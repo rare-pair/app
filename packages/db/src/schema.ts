@@ -254,7 +254,7 @@ export interface ReportTable {
   kind: string;
   /** The optional details. */
   body: string | null;
-  /** `open`, then `closed` by a dismissal, a Restore or a wrong-version close (the log row tells them apart). */
+  /** `open`, then `closed` by a dismissal (logged on the report), a Restore or a wrong-version close. */
   status: Generated<string>;
   created_at: CreatedTimestamp;
 }

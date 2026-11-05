@@ -14,7 +14,7 @@ import {
 } from "./no-js-browser";
 
 // One database serves every test file in the run, and each queue lists every open item in
-// it. So this file keeps to AO3 work IDs 40810 to 40829, gives every row a marker starting
+// it. So this file keeps to AO3 work IDs 40810 to 40829 and 60850, gives every row a marker starting
 // "nojsmod-", and finds its own rows by that marker. Text is synthetic.
 const REPORTED = 40810; // a report: hide, restore, remove
 const TAKEDOWN_REJECTED = 40811;
