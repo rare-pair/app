@@ -62,7 +62,12 @@ class KvError extends Error {}
  * @param {string} options.namespaceId
  * @param {typeof fetch} [options.fetch]
  */
-export function positionsKv({ accountId, apiToken, namespaceId, fetch: doFetch = globalThis.fetch }) {
+export function positionsKv({
+  accountId,
+  apiToken,
+  namespaceId,
+  fetch: doFetch = globalThis.fetch,
+}) {
   const base = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/storage/kv/namespaces/${encodeURIComponent(namespaceId)}`;
 
   const call = async (url, init = {}) => {
@@ -94,7 +99,7 @@ export function positionsKv({ accountId, apiToken, namespaceId, fetch: doFetch =
       do {
         const params = new URLSearchParams({ prefix, limit: String(LIST_LIMIT) });
         if (cursor !== "") params.set("cursor", cursor);
-        const body = await call(`${base}/keys?${params}`);
+        const body = await call(`${base}/keys?${params.toString()}`);
         for (const key of body.result ?? []) keys.push(key.name);
         cursor = body.result_info?.cursor ?? "";
       } while (cursor !== "");

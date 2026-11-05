@@ -120,14 +120,18 @@ function fakeKv(keys: string[] = []) {
 async function run(
   address: string,
   kv: ReturnType<typeof fakeKv>,
-  typed: string | (() => Promise<string>) = address,
+  typed = address,
+  atPrompt: () => Promise<void> = async () => {},
 ) {
   const lines: string[] = [];
   const result = await accountDelete({
     connectionString: t.connectionString,
     address,
     kv,
-    ask: async () => (typeof typed === "string" ? typed : typed()),
+    ask: async () => {
+      await atPrompt();
+      return typed;
+    },
     log: (line: string) => lines.push(line),
   });
   return { ...result, lines };
@@ -320,9 +324,8 @@ describe("18-moderation", () => {
     const kv = fakeKv([`pos:${other.id}:60907`]);
     let asked = false;
 
-    const result = await run("nobody-acctdel@example.test", kv, async () => {
+    const result = await run("nobody-acctdel@example.test", kv, undefined, async () => {
       asked = true;
-      return "nobody-acctdel@example.test";
     });
 
     expect(result).toMatchObject({
@@ -369,13 +372,12 @@ describe("18-moderation", () => {
   it("Deleting a banned account is refused: a ban that lands at the prompt keeps the row", async () => {
     const a = await addUser();
 
-    const result = await run(a.email, fakeKv(), async () => {
+    const result = await run(a.email, fakeKv(), a.email, async () => {
       await t.db
         .updateTable("user")
         .set({ banned_at: new Date() })
         .where("id", "=", a.id)
         .execute();
-      return a.email;
     });
 
     expect(result.deleted).toBe(false);
