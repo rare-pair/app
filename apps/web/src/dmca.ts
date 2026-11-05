@@ -9,6 +9,7 @@ import { createDb } from "@archive/db";
 import type { Context } from "hono";
 import type { Bindings } from "./env";
 import { readForm } from "./login";
+import { siteCard } from "./cards";
 import { escapeHtml, layout, TURNSTILE_API } from "./pages";
 import { DMCA_WINDOW_SECONDS, ipKey, isLimited, tooManyRequests } from "./rate-limit";
 import type { SecurityVariables } from "./security";
@@ -149,7 +150,7 @@ ${escapeHtml(notice.contact)}</textarea>
 <button type="submit">Send notice</button>
 </form>
 <script nonce="${escapeHtml(nonce)}">document.getElementById("dmca").hidden = false;</script>`,
-    `<script src="${TURNSTILE_API}" nonce="${escapeHtml(nonce)}" async defer></script>`,
+    `<script src="${TURNSTILE_API}" nonce="${escapeHtml(nonce)}" async defer></script>${siteCard()}`,
   );
 
 /** What happens next. Draft copy. */

@@ -107,6 +107,7 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - GIVEN a link preview service that identifies itself
 - WHEN it fetches W's work page, and then one of W's chapters
 - THEN the work page is served and the chapter is refused, so a shared chapter link shows no preview
+- AND the work page carries its card, the same one a browser gets (spec 20, "A work page has a card")
 
 ### Readers are never challenged on protected paths
 - GIVEN a reader with an ordinary browser, JavaScript on or off

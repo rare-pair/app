@@ -4,6 +4,7 @@
 //
 // Draft copy, written from specs/scenarios/mvp/22-waitlist.md for the operator to proof.
 
+import { siteCard } from "./cards";
 import { escapeHtml, layout, TURNSTILE_API } from "./pages";
 import { TURNSTILE_ACTIONS } from "./turnstile";
 
@@ -46,7 +47,7 @@ ${form.error === undefined ? "" : `<p role="alert">${escapeHtml(form.error)}</p>
 function waitlistReady() { document.getElementById("join").disabled = false; }
 function waitlistExpired() { document.getElementById("join").disabled = true; }
 </script>
-<script src="${TURNSTILE_API}" nonce="${n}" async defer></script>`,
+<script src="${TURNSTILE_API}" nonce="${n}" async defer></script>${siteCard()}`,
   );
 };
 

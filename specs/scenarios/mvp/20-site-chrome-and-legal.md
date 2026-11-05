@@ -123,6 +123,57 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - AND the icon answers 200 from `rarepair.fans` with an image content type, with no session lookup and no cookie
 - AND the page's content security policy lets it load, with no violation
 
+### A work page has a card
+- GIVEN a live work with a title, one or more pseuds, a rating, archive warnings and fandoms
+- WHEN its work page is fetched
+- THEN it carries `og:title` (the work's title), `og:description`, `og:site_name` (rarepair), `og:type` (`article`), `og:url` and `twitter:card` (`summary`), and no `og:image`
+- AND the description runs, joined by " · ": "by" and the byline, the rating, every archive warning, then the fandoms
+- AND a work with no author says "Anonymous", one with no rating says "Not Rated", and one with a blank title has the title "Untitled work"
+- AND `og:url` is the work page's own address on `rarepair.fans`, with no query
+
+### A work's card has no summary
+- GIVEN works with a summary, one Mature, one General and one with no rating
+- WHEN their work pages are fetched
+- THEN no card tag holds any of the summary's text
+
+### The other public pages share the site card
+- GIVEN the home page, search with and without a query, a tag listing with and without filters and a page number, a tag with no works, `/about`, `/terms`, `/privacy`, `/remove` and `/dmca`
+- WHEN each is fetched
+- THEN each carries `og:title` rarepair, `og:description` "An unofficial, temporary, community-run reading archive for fanworks.", `og:site_name`, `og:type` (`website`) and `twitter:card` (`summary`), with no `og:url` and no `og:image`
+- AND no card repeats the search query or the tag
+
+### Chapters have no card
+- GIVEN a work, with a Mature one that shows the warnings screen first
+- WHEN a chapter, `/works/:id/full`, `/works/:id/chapters` or the warnings screen is fetched, by a browser or by a link preview service
+- THEN none of them carries an `og:` or `twitter:` tag
+
+### A hidden or removed work has no card
+- GIVEN a hidden work and a removed work
+- WHEN each work page is fetched
+- THEN the 451 and the 410 answers carry no card, and nothing about the work
+
+### A card never carries a token
+- GIVEN the sign-in page, the sign-in confirm page, the removal confirm page and the wait list confirm and unsubscribe pages, each with a token in its address
+- WHEN each is fetched
+- THEN none carries a card
+- AND no `og:url` on any page holds a query
+
+### A card's text is escaped
+- GIVEN a work whose title, pseud, warning and fandom hold quotes and angle brackets
+- WHEN its work page is fetched
+- THEN every card tag's `content` ends at its own closing quote and holds no raw `<` or `"`
+- AND the browser shows the text as plain text
+
+### Before launch the coming-soon page has the site card
+- GIVEN the site before launch
+- WHEN a signed-out visitor fetches `/`
+- THEN the coming-soon page carries the site card
+
+### Admin and signed-in pages show no detail in a card
+- GIVEN a signed-in moderator
+- WHEN they fetch `/`, a work page, `/admin`, `/me/uploads` and `/settings/reader`
+- THEN `/` and the work page carry the card a signed-out visitor gets, with no email or account detail, and the other pages carry no card
+
 ### Not-found page
 - GIVEN a URL that matches no page
 - WHEN a visitor opens it

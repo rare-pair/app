@@ -1,6 +1,7 @@
 // The removal form's pages (ARCHITECTURE, Author requests & takedowns): the form and its
 // 400, 413 and 503 answers, and the confirmation. Draft copy, for the operator to proof.
 
+import { siteCard } from "./cards";
 import { DRAFT, escapeHtml, layout, TURNSTILE_API } from "./pages";
 import { TURNSTILE_ACTIONS } from "./turnstile";
 
@@ -72,7 +73,7 @@ ${escapeHtml(values.statement ?? "")}</textarea>
 <button type="submit">Send request</button>
 </form>
 <script nonce="${n}">document.getElementById("remove").hidden = false;</script>`,
-    `<script src="${TURNSTILE_API}" nonce="${n}" async defer></script>`,
+    `<script src="${TURNSTILE_API}" nonce="${n}" async defer></script>${siteCard()}`,
   );
 };
 
