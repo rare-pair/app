@@ -213,7 +213,7 @@ describe("removal and opt-out journeys", () => {
   });
 
   it("A placeholder pseud is refused, and the form tells authors to opt out each pseud", async () => {
-    const site = running();
+    const { site } = running;
     const page = await startAtHome(await site.newContext());
 
     await viaFooter(page, "Remove my work");
