@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ao3Epub } from "../../../packages/epub/test/helpers";
 import {
+  addWrongVersionReport,
   beforePut,
   bucketKeys,
   bucketText,
@@ -13,6 +14,7 @@ import {
   parsedWork,
   pendingUpload,
   rendezvous,
+  reportStatus,
   savedRows,
   searchedIds,
   token,
@@ -73,6 +75,21 @@ async function workAtV1() {
   expect(v1.row.status).toBe("live");
   return { workId, v1 };
 }
+
+describe("18-moderation", () => {
+  it("Replacing a version leaves wrong-version reports open", async () => {
+    const { workId, v1 } = await workAtV1();
+    const before = await versionsOf(workId);
+    const report = await addWrongVersionReport(before.workId, v1.id);
+
+    const v2 = await ingestParsed(fixture(workId, { count: 4 }));
+
+    const after = await versionsOf(workId);
+    expect(after.current).toBe(after.versions.find((v) => v.upload_id === v2.id)?.id);
+    expect(after.current).not.toBe(before.current);
+    expect(await reportStatus(report)).toBe("open");
+  });
+});
 
 describe("08-versioning-and-dedupe", () => {
   it("First upload creates the work", async () => {

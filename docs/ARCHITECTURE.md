@@ -1174,7 +1174,7 @@ epub, under the normal versioning rules.
   reports from **3 distinct signed-in accounts** is hidden automatically until
   a moderator looks at it; several reports from one account count once.
   Reports from banned accounts can't be made, and reports matching a blocked
-  requester don't count. One reason is "This version is wrong"
+  requester don't count, nor does a closed report, a dismissed one included. One reason is "This version is wrong"
   (`wrong_version`), which only queues the work in *Works to check*: those
   reports never count toward the 3-account auto-hide. (Authors asking for
   removal use `/remove`, which needs no account.)
@@ -1186,8 +1186,10 @@ epub, under the normal versioning rules.
   - *Works to check*: works with a held version, works live with the "may be
     imperfect" notice, and works reported as "This version is wrong"
 
-  Actions are hide, remove, restore, approve, reject, block a requester, ban
-  an uploader and withhold a removal list entry. A *Works to check* item's page has approve (clears the notice,
+  Actions are hide, remove, restore, approve, reject, dismiss a report, block a requester, ban
+  an uploader and withhold a removal list entry. "Dismiss report", on an open report's page,
+  sets it `closed` and logs `dismiss` on the report. It hides and restores nothing, so a work the
+  reports hid stays hidden until Restore lifts the hide. A `wrong_version` report keeps its own form. A *Works to check* item's page has approve (clears the notice,
   or publishes the held version), make a version current, hide and remove;
   each work's admin page lists every version with "Make current" and "Approve". Approving a held version
   makes it current and checked; each approve is logged once, on the version. Make current and
@@ -1202,7 +1204,7 @@ epub, under the normal versioning rules.
   transaction.) A reject that also lifts a hide logs only the reject. A hide
   no moderator chose (the reports' automatic hide, a removal request's hide)
   writes none. Hide, restore, remove, approve and make current (logged on the version, and only when
-  something changed, and for make current only when the pointer moved), ban, the wrong-version close and the request and takedown rejects write a row
+  something changed, and for make current only when the pointer moved), ban, dismiss, the wrong-version close and the request and takedown rejects write a row
   today, and so does approving a removal request or a takedown. That approve asks to
   confirm, runs the removal (a `remove` row on the work, when its status changed), then marks
   the item and logs `approve` on it: a request becomes `approved`, a takedown `removed`
@@ -1221,8 +1223,10 @@ epub, under the normal versioning rules.
   removal request, and not one that another pending removal request or another active opt-out
   naming one of its authors still covers. Each logs one `reject` per request, with the restored
   works' AO3 work IDs in its note (led by "Opt-out reversed." or "Bulk restore from <request id>.") and no row per work (a request already decided gets a `restore`
-  row per work instead). The explicit Restore of a work is a moderator's deliberate act and checks
-  none of this. Each later action calls the same helper, `logModerationAction`, when
+  row per work instead). These leave the works' reports open: deciding a request doesn't read them, so they stay in the
+  queue and go on counting toward the automatic hide. A replacing upload leaves `wrong_version`
+  reports open too. The explicit Restore of a work is a moderator's deliberate act: it checks
+  none of this, and it closes the work's open reports of every kind. Each later action calls the same helper, `logModerationAction`, when
   it is built. The row's `moderator_id` has no foreign key to `user`, so
   deleting an account keeps its log rows, with the id as it was. Anyone
   without the moderator or admin role, signed out included, gets 404 for every

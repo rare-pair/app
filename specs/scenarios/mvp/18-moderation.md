@@ -130,7 +130,7 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 ### Replacing a version leaves wrong-version reports open
 - GIVEN work BV with a "This version is wrong" report
 - WHEN a newer upload replaces BV's current version
-- THEN the report is still `open` and BV stays in *Works to check*
+- THEN the report is still `open`, so BV stays in *Works to check*
 
 ### Related requests are listed together
 - GIVEN one of the five requests from the same email and IP
