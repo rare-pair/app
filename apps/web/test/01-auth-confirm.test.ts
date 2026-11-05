@@ -3,15 +3,7 @@ import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
 import app from "../src/index";
-import {
-  emailsTo,
-  fetchW,
-  LOGIN_TOKEN,
-  nonceOf,
-  postLogin,
-  STRICT,
-  withoutNonce,
-} from "./helpers";
+import { emailsTo, fetchW, LOGIN_TOKEN, nonceOf, postLogin, STRICT, withoutNonce } from "./helpers";
 
 // A2's cases from 01-auth-magic-link (and one from 09-content-origin): the emailed
 // link's confirm page, and the POST that signs in. A1's cases are in 01-auth-magic-link.test.ts.
@@ -162,8 +154,8 @@ describe("01-auth-magic-link", () => {
     const email = "opening-marker@example.test";
     const { link, row, token } = await issued(email);
 
-    for (const headers of [{}, { cookie: MARKER }]) {
-      const res = await fetchW(link.href, { headers });
+    for (const cookie of [undefined, MARKER]) {
+      const res = await fetchW(link.href, cookie === undefined ? {} : { headers: { cookie } });
       expect(res.status).toBe(200);
       // The token is in the URL, with the marker as without it.
       expect(res.headers.get("cache-control")).toBe("no-store");
@@ -188,8 +180,9 @@ describe("01-auth-magic-link", () => {
     const { link, row } = await issued(email);
 
     // No marker, or a value the Worker never set.
-    for (const headers of [{}, { cookie: "__Host-signin-pending=0" }]) {
-      const page = await (await fetchW(link.href, { headers })).text();
+    for (const cookie of [undefined, "__Host-signin-pending=0"]) {
+      const opened = await fetchW(link.href, cookie === undefined ? {} : { headers: { cookie } });
+      const page = await opened.text();
       expect(page).not.toMatch(/<script/i);
       expect(page).toMatch(/<button type="submit">Sign in<\/button>/);
       expect(await tokensFor(email)).toEqual([row]);
@@ -268,6 +261,10 @@ describe("01-auth-magic-link", () => {
 
   it("A fault on the confirm POST clears the marker too", async () => {
     const { token } = await issued("clears-fault@example.test");
+    const down = {
+      ...env,
+      HYPERDRIVE: { connectionString: "postgresql://nobody:nothing@127.0.0.1:1/none" },
+    };
     const ctx = createExecutionContext();
     const res = await app.fetch(
       new Request("https://rarepair.fans/login/confirm", {
@@ -280,10 +277,7 @@ describe("01-auth-magic-link", () => {
         },
         body: new URLSearchParams({ token, next: "/" }).toString(),
       }),
-      {
-        ...env,
-        HYPERDRIVE: { connectionString: "postgresql://nobody:nothing@127.0.0.1:1/none" },
-      } as unknown as typeof env,
+      down,
       ctx,
     );
     await waitOnExecutionContext(ctx);
