@@ -105,7 +105,10 @@ an unofficial stopgap.
     (Crawlers and agents).
   - The content Worker keeps no per-request log (invocation logs are off), so its
     logs hold no reader address next to a work id. Errors and metrics are kept;
-    traces stay on and may record the request URL.
+    traces are off too, so no reading data reaches them (the URL carries the work
+    id). An operator may turn them on to chase a live fault, which records request
+    URLs until they are turned off again, so only for as long as the fault needs.
+    `apps/content/test/wrangler.test.ts` holds traces off, so that change edits it too.
   - The content Worker sits in front of the CDN cache, so it keeps its own: a plain
     `GET` for an image or an original is answered from the data centre's cache
     (`caches.default`, keyed by the bare URL) without an R2 read once the first
@@ -1498,7 +1501,8 @@ markup: its inline `style` attributes become stylesheet rules, because
 - Observability: Workers Logs and traces are on from day one, except that the
   web and content Workers' per-request invocation logs are off (their URLs carry
   the AO3 work id, and the web Worker's the chapter too); their errors and metrics
-  stay on. Track queue depth, ingest failure
+  stay on, and the content Worker's traces are off too (turned on only for a live
+  fault). Track queue depth, ingest failure
   rate and search p95 on a dashboard, with crawler refusals by reason and throttled
   reads, each counted from a log line holding only the reason.
 
