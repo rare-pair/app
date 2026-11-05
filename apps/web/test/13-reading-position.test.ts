@@ -94,6 +94,8 @@ describe("13-reader-settings-and-position: Reading position saved for signed-in 
 });
 
 describe("13-reader-settings-and-position: Furthest point in a chapter is kept", () => {
+  // Every value a test saves here is one no other test in the file saves, since the store is
+  // shared by every reader of W.
   const mine = async () =>
     (await stored())
       .filter(([key]) => key.endsWith(`:${W}`))
@@ -101,38 +103,38 @@ describe("13-reader-settings-and-position: Furthest point in a chapter is kept",
 
   it("A lower position in the same chapter leaves the saved one", async () => {
     const cookie = await signIn("r6-furthest@example.invalid", { acceptTerms: true });
-    expect((await save(cookie, "n=1&pct=60")).status).toBe(204);
-    expect((await save(cookie, "n=1&pct=0")).status).toBe(204);
+    expect((await save(cookie, "n=1&pct=61")).status).toBe(204);
+    expect((await save(cookie, "n=1&pct=3")).status).toBe(204);
     const values = await mine();
-    expect(values).toContainEqual({ n: 1, pct: 60 });
-    expect(values).not.toContainEqual({ n: 1, pct: 0 });
+    expect(values).toContainEqual({ n: 1, pct: 61 });
+    expect(values).not.toContainEqual({ n: 1, pct: 3 });
   });
 
   it("A higher position in the same chapter raises the saved one", async () => {
     const cookie = await signIn("r6-further@example.invalid", { acceptTerms: true });
-    expect((await save(cookie, "n=1&pct=30")).status).toBe(204);
-    expect((await save(cookie, "n=1&pct=45")).status).toBe(204);
+    expect((await save(cookie, "n=1&pct=31")).status).toBe(204);
+    expect((await save(cookie, "n=1&pct=46")).status).toBe(204);
     const values = await mine();
-    expect(values).toContainEqual({ n: 1, pct: 45 });
-    expect(values).not.toContainEqual({ n: 1, pct: 30 });
+    expect(values).toContainEqual({ n: 1, pct: 46 });
+    expect(values).not.toContainEqual({ n: 1, pct: 31 });
   });
 
   it("Another chapter's position replaces the saved one, even a lower one", async () => {
     const cookie = await signIn("r6-other-chapter@example.invalid", { acceptTerms: true });
-    expect((await save(cookie, "n=1&pct=90")).status).toBe(204);
-    expect((await save(cookie, "n=2&pct=10")).status).toBe(204);
+    expect((await save(cookie, "n=1&pct=91")).status).toBe(204);
+    expect((await save(cookie, "n=2&pct=11")).status).toBe(204);
     const values = await mine();
-    expect(values).toContainEqual({ n: 2, pct: 10 });
-    expect(values).not.toContainEqual({ n: 1, pct: 90 });
+    expect(values).toContainEqual({ n: 2, pct: 11 });
+    expect(values).not.toContainEqual({ n: 1, pct: 91 });
   });
 
   it("The entire-work page keeps its furthest point and replaces a chapter's", async () => {
     const cookie = await signIn("r6-full-furthest@example.invalid", { acceptTerms: true });
-    expect((await save(cookie, "pct=70")).status).toBe(204);
-    expect((await save(cookie, "pct=20")).status).toBe(204);
-    expect(await mine()).toContainEqual({ n: null, pct: 70 });
-    expect((await save(cookie, "n=3&pct=5")).status).toBe(204);
-    expect(await mine()).toContainEqual({ n: 3, pct: 5 });
+    expect((await save(cookie, "pct=71")).status).toBe(204);
+    expect((await save(cookie, "pct=21")).status).toBe(204);
+    expect(await mine()).toContainEqual({ n: null, pct: 71 });
+    expect((await save(cookie, "n=3&pct=6")).status).toBe(204);
+    expect(await mine()).toContainEqual({ n: 3, pct: 6 });
   });
 });
 

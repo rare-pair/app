@@ -794,7 +794,10 @@ can be snapshotted.
   back up and leaving, or rereading from the start, never lowers what the
   Continue link offers. Only a different chapter number (or the entire-work page
   after a chapter, or the other way round) replaces the stored place, whatever
-  its percentage. Two tabs can race on that read and write; the last write wins.
+  its percentage. The read and the write are not atomic, and KV can return a value
+  a little stale from another location, so two tabs, or two saves from different
+  places in quick succession, can race and the last write wins: the furthest point is
+  kept in practice, not guaranteed.
   It expires after a year. The work page's "Continue
   where you left off" link names the chapter in its path and the percentage in a
   `#pos=` fragment, which the script reads once to scroll back; the work page
