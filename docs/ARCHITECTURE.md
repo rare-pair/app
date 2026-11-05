@@ -1171,10 +1171,11 @@ epub, under the normal versioning rules.
   account, so each report has a reporter who can be rate limited or blocked;
   signed-out readers, opening the form or POSTing a report, are redirected to
   sign in, carrying `next`, and brought back to the form. A work with open
-  reports from **3 distinct signed-in accounts** is hidden automatically until
-  a moderator looks at it; several reports from one account count once.
+  reports from **3 distinct signed-in accounts** is hidden automatically, when the report that makes
+  the third comes in, until a moderator restores it; several reports from one account count once.
   Reports from banned accounts can't be made, and reports matching a blocked
-  requester don't count, nor does a closed report, a dismissed one included. One reason is "This version is wrong"
+  requester don't count, nor does a closed report, a dismissed one included (an account with another
+  open report on the work still counts). One reason is "This version is wrong"
   (`wrong_version`), which only queues the work in *Works to check*: those
   reports never count toward the 3-account auto-hide. (Authors asking for
   removal use `/remove`, which needs no account.)
@@ -1223,10 +1224,11 @@ epub, under the normal versioning rules.
   removal request, and not one that another pending removal request or another active opt-out
   naming one of its authors still covers. Each logs one `reject` per request, with the restored
   works' AO3 work IDs in its note (led by "Opt-out reversed." or "Bulk restore from <request id>.") and no row per work (a request already decided gets a `restore`
-  row per work instead). These leave the works' reports open: deciding a request doesn't read them, so they stay in the
-  queue and go on counting toward the automatic hide. A replacing upload leaves `wrong_version`
-  reports open too. The explicit Restore of a work is a moderator's deliberate act: it checks
-  none of this, and it closes the work's open reports of every kind. Each later action calls the same helper, `logModerationAction`, when
+  row per work instead). These leave the works' reports open: deciding a request doesn't read them, so they stay in their
+  queues, and those that counted toward the automatic hide go on counting, at the next report. A
+  replacing upload leaves `wrong_version` reports open too. The explicit Restore of a work is a
+  moderator's deliberate act: it checks none of this, and when it lifts a hide it closes the work's
+  open reports of every kind (on a work that isn't hidden it changes nothing). Each later action calls the same helper, `logModerationAction`, when
   it is built. The row's `moderator_id` has no foreign key to `user`, so
   deleting an account keeps its log rows, with the id as it was. Anyone
   without the moderator or admin role, signed out included, gets 404 for every

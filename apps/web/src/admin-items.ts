@@ -150,7 +150,7 @@ adminItems.post("/reports/:id{[A-Za-z0-9_-]+}/dismiss", async (c) => {
   if (outcome === "closed") return alreadyDecided(c);
   return c.html(
     resultPage(
-      "Report dismissed. The work stays as it is.",
+      "Report dismissed. This changes nothing on the work: if it is hidden, it stays hidden until you restore it.",
       `/admin/reports/${encodeURIComponent(id)}`,
     ),
   );

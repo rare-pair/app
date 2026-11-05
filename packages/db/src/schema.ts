@@ -254,7 +254,7 @@ export interface ReportTable {
   kind: string;
   /** The optional details. */
   body: string | null;
-  /** `open` until a moderator acts, then `closed`, a dismissal included (its log row tells them apart). */
+  /** `open`, then `closed` by a dismissal, a Restore or a wrong-version close (the log row tells them apart). */
   status: Generated<string>;
   created_at: CreatedTimestamp;
 }

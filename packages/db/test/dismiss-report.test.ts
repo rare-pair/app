@@ -71,14 +71,14 @@ describe("18-moderation", () => {
     expect(await logFor(workId)).toEqual([]);
   });
 
-  it("A work the reports hid stays hidden when its reports are dismissed", async () => {
+  it("Dismissing a report leaves a hidden work hidden", async () => {
     const { workId } = await seedWork(t.db, { status: "hidden", hiddenCause: "reports" });
     const id = await addReport(workId, await addUser());
     expect(await dismissReport(t.db, id, { actor: await addUser() })).toBe("dismissed");
     expect(await workState(workId)).toEqual({ status: "hidden", hidden_cause: "reports" });
   });
 
-  it("A report on a removed work can still be dismissed", async () => {
+  it("A report on a removed work can be dismissed", async () => {
     // The Reports queue lists it, and nothing else would take it off.
     const { workId } = await seedWork(t.db, { status: "removed" });
     const id = await addReport(workId, await addUser());
@@ -87,7 +87,7 @@ describe("18-moderation", () => {
     expect((await workState(workId)).status).toBe("removed");
   });
 
-  it("Dismissing a report twice changes nothing and logs once", async () => {
+  it("Dismissing a closed report changes nothing", async () => {
     const { workId } = await seedWork(t.db);
     const moderator = await addUser();
     const id = await addReport(workId, await addUser());
@@ -99,7 +99,7 @@ describe("18-moderation", () => {
     expect(await logFor(id)).toHaveLength(1);
   });
 
-  it("A wrong-version report or an unknown id is not dismissed", async () => {
+  it("A wrong-version report can't be dismissed", async () => {
     const { workId } = await seedWork(t.db);
     const moderator = await addUser();
     const wrong = await addReport(workId, await addUser(), "wrong_version");

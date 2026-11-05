@@ -137,11 +137,13 @@ describe("18-moderation", () => {
     expect(after).not.toContain("dismiss-one/dismiss");
   });
 
-  it("A work the reports hid stays hidden after its report is dismissed", async () => {
+  it("Dismissing a report leaves a hidden work hidden", async () => {
     const W = 60801;
     const { workId, userId } = await seed(W, { status: "hidden", hiddenCause: "reports" });
     await addReport("dismiss-hidden", workId, userId);
-    expect((await post("/admin/reports/dismiss-hidden/dismiss", moderator)).status).toBe(200);
+    const res = await post("/admin/reports/dismiss-hidden/dismiss", moderator);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("it stays hidden until you restore it");
     expect(await reportStatus("dismiss-hidden")).toBe("closed");
     expect(await state(W)).toEqual({ status: "hidden", hidden_cause: "reports" });
     expect((await get(`/works/${W}`)).status).toBe(451);
@@ -157,7 +159,7 @@ describe("18-moderation", () => {
     expect(await logFor("dismiss-twice")).toHaveLength(1);
   });
 
-  it("A wrong-version report or an unknown report can't be dismissed", async () => {
+  it("A wrong-version report can't be dismissed", async () => {
     const { workId, userId } = await seed(60803);
     await addReport("dismiss-wrong", workId, userId, "wrong_version");
     for (const path of [
