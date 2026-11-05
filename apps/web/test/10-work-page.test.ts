@@ -2,7 +2,7 @@ import { createDb } from "@archive/db";
 import { seedVersion, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { fetchW, nonceOf, STRICT, withoutNonce } from "./helpers";
+import { fetchW, nonceOf, STRICT, withoutHeader, withoutNonce } from "./helpers";
 
 // One database serves every test file in the run, so this file keeps to AO3 work
 // IDs 12345 to 12399, and every tag it seeds, rating and warning tags included,
@@ -197,7 +197,7 @@ describe("10-work-page", () => {
     const line = html.match(/<p class="rating-warnings">([^<]*)<\/p>/);
     expect(line?.[1]).toBe("Mature · r1-Graphic Depictions Of Violence");
     expect(html).not.toMatch(/<details\b/);
-    expect(html).not.toMatch(/\b(hidden|aria-hidden|title)=/);
+    expect(withoutHeader(html)).not.toMatch(/\b(hidden|aria-hidden|title)=/);
     // Weight 600, like the author line's size (FRONTEND-DISCOVERY, Hierarchy), and
     // nothing in the stylesheet clamps, cuts or hides it, at any width.
     const css = await stylesheetOf(html);

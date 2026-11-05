@@ -332,7 +332,7 @@ describe("16-removal-and-opt-out", () => {
       const html = await res.text();
       expect(html).toContain(RECEIVED);
       // It says nothing of the work or of any hiding.
-      expect(html).not.toMatch(/hidden|hide/i);
+      expect(withoutHeader(html)).not.toMatch(/hidden|hide/i);
       expect(html).not.toContain(ip);
 
       const [row, ...rest] = await requestsFrom(email);

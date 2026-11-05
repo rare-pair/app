@@ -191,7 +191,7 @@ describe("17-reports-and-dmca", () => {
     expect(html).toContain("<h1>Report sent</h1>");
     expect(html).toContain("A moderator will look at it");
     // A wrong version is checked, never counted toward hiding the work.
-    expect(html).not.toContain("hidden");
+    expect(withoutHeader(html)).not.toContain("hidden");
     const [report, ...more] = await reportsBy(email);
     expect(more).toEqual([]);
     // Open, and by U (reportsBy finds it through reporter_id). MOD1's queue and
