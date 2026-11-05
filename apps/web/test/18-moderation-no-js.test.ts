@@ -14,7 +14,7 @@ import {
 } from "./no-js-browser";
 
 // One database serves every test file in the run, and each queue lists every open item in
-// it. So this file keeps to AO3 work IDs 40810 to 40829, gives every row a marker starting
+// it. So this file keeps to AO3 work IDs 40810 to 40829 and 60850, gives every row a marker starting
 // "nojsmod-", and finds its own rows by that marker. Text is synthetic.
 const REPORTED = 40810; // a report: hide, restore, remove
 const TAKEDOWN_REJECTED = 40811;
@@ -24,6 +24,7 @@ const REQUEST_REJECTED = 40814;
 const REQUEST_BLOCKED = 40815;
 const REQUEST_RESTORED = 40816;
 const CHECKED = 40817; // versions: make current, approve, wrong-version reports, ban
+const DISMISSED = 60850; // a report a moderator dismisses
 
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 afterAll(() => db.destroy());
@@ -84,6 +85,18 @@ beforeAll(async () => {
     .returning("id")
     .execute();
   reportId = report!.id;
+
+  const toDismiss = await seedWork(db, { ao3WorkId: DISMISSED, title: "nojsmod-dismissed" });
+  await db
+    .insertInto("reports")
+    .values({
+      work_id: toDismiss.workId,
+      reporter_id: toDismiss.userId,
+      kind: "nojsmod-reason",
+      body: "nojsmod-report-dismissed",
+      created_at: created,
+    })
+    .execute();
 
   const takedown = async (ao3WorkId: number, basis: string) => {
     const seeded = await seedWork(db, { ao3WorkId, title: `nojsmod-${ao3WorkId}` });
@@ -262,6 +275,13 @@ describe("18-moderation", () => {
     done = record(await press(confirm, "/remove"));
     expectDone(done, /removed/);
     expect(await statusOf(REPORTED)).toBe("removed");
+
+    // Another report: dismiss it, and it leaves the queue while the work stays live.
+    item = record(await openItem("Reports", "nojsmod-report-dismissed"));
+    expect(item.html).toContain("Dismiss report");
+    expectDone(record(await press(item, "/dismiss")), /Report dismissed/);
+    expect(await statusOf(DISMISSED)).toBe("live");
+    expect(record(await openQueue("Reports")).html).not.toContain("nojsmod-report-dismissed");
 
     // A takedown: reject one, approve (and confirm) another.
     item = record(await openItem("Takedowns", "nojsmod-takedown-rejected"));

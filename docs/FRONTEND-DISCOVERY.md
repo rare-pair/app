@@ -133,7 +133,8 @@ Reading never requires an account (ARCHITECTURE, *Auth*).
    check* (held versions, works live with the "may be imperfect" notice, and
    "This version is wrong" reports). Each is a plain table, oldest first.
 2. Each item has a detail page with actions: hide, remove, restore, approve,
-   reject, block requester, ban uploader. Removing can ask for a public reason, and
+   reject, block requester, ban uploader. An open report also has "Dismiss report",
+   which closes it for having no merit and changes nothing on the work. Removing can ask for a public reason, and
    a removal list entry can be withheld (`/admin/listed-pseuds`, or the work's admin
    page). A request's page lists the other
    requests from the same email or IP, so a mass-hiding spree can be undone at
@@ -176,7 +177,7 @@ without it. Elsewhere the
 | Removal list | `/removed`, `/removed/pseuds` | all | Paged lists, newest first. Removed works: title, byline, "The original work" link with its ID and note, date, reason. Opted-out pseuds: name, date, reason. Says that nobody's identity is checked, and gives the moderators' contact address | — |
 | Report | `/works/:id/report` | signed in (others are redirected to sign in, carrying `next`) | Form, then a confirmation page | — |
 | DMCA notice | `/dmca` | all | `<noscript>` message: the form needs JavaScript; it names the notices address (`NOTICES_EMAIL`) and lists what a notice must say, so a notice can be emailed; a refusal that stops the form working (rate limit, failed or unreachable Turnstile check) names it too | Statutory notice form with Turnstile |
-| Moderation queues | `/admin/{reports,takedowns,requests,works}` | moderator (404 for anyone else) | Tables with detail pages; `/admin/works` is *Works to check* | — |
+| Moderation queues | `/admin/{reports,takedowns,requests,works}` | moderator (404 for anyone else) | Tables with detail pages; an open report's page has "Dismiss report"; `/admin/works` is *Works to check* | — |
 | Work admin | `/admin/works/:id` | moderator (404 for anyone else) | Every version (date, uploader, chapter count, hold and review reasons) with "Make current" and "Approve"; close wrong-version reports, hide, remove; withhold a removed work's details from the removal list | — |
 | Listed pseuds | `/admin/listed-pseuds` | moderator (404 for anyone else) | Every pseud on the removal list, listed or withheld, with withhold and un-withhold | — |
 | About / terms / privacy | `/about`, `/terms`, `/privacy` | all | Static | — |

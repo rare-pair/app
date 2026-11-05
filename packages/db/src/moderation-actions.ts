@@ -10,7 +10,8 @@ export type ModerationAction =
   | "approve"
   | "make_current"
   | "ban"
-  | "block";
+  | "block"
+  | "dismiss";
 
 export type ModerationTargetKind = "work" | "request" | "takedown" | "report" | "version" | "user";
 

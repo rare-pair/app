@@ -188,6 +188,35 @@ export const addTakedown = (workId: string, status: string) =>
       .execute(),
   );
 
+/** A "This version is wrong" report on the work, by the upload's own uploader. Returns its id. */
+export const addWrongVersionReport = (workId: string, uploadId: string) =>
+  withDb(async (db) => {
+    const { user_id } = await db
+      .selectFrom("uploads")
+      .select("user_id")
+      .where("id", "=", uploadId)
+      .executeTakeFirstOrThrow();
+    const { id } = await db
+      .insertInto("reports")
+      .values({ work_id: workId, reporter_id: user_id, kind: "wrong_version" })
+      .returning("id")
+      .executeTakeFirstOrThrow();
+    return id;
+  });
+
+/** A report's status, as the database holds it. */
+export const reportStatus = (id: string) =>
+  withDb(
+    async (db) =>
+      (
+        await db
+          .selectFrom("reports")
+          .select("status")
+          .where("id", "=", id)
+          .executeTakeFirstOrThrow()
+      ).status,
+  );
+
 /** A work seeded as ingest leaves it (`@archive/db/seed`). */
 export const seededWork = (options: SeedWorkOptions) => withDb((db) => seedWork(db, options));
 
