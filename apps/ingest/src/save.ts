@@ -124,7 +124,8 @@ export class SaveRejected extends Error {
 
 /**
  * The work the upload is of has been removed: nothing is saved, and the job ends the upload as
- * `work_removed`, at once, since a removed work stays removed (restoring one is #565, still open).
+ * `work_removed`, at once, since removal is permanent: a removed work can't be restored, and a
+ * successful counter-notice means uploading it again.
  */
 export class WorkRemoved extends Error {}
 
@@ -709,7 +710,14 @@ async function endUpload(
 ): Promise<void> {
   const upload = await trx
     .updateTable("uploads")
-    .set({ status, work_id: workId, lease_until: null, error_stage: null, error: null })
+    .set({
+      status,
+      work_id: workId,
+      lease_until: null,
+      error_stage: null,
+      error: null,
+      sha256: lease.sha256,
+    })
     .where("id", "=", lease.id)
     .where("status", "=", "processing")
     .where("lease_until", "=", lease.until)

@@ -21,6 +21,7 @@ an unofficial stopgap.
 | Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend |
 | Accepted files | AO3-native epub exports only. FanFicFare support comes later |
 | New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) |
+| A file swapped after confirm | Ingest handles the file it read and records that file's hash. A mismatch with confirm's hash isn't refused, and no locked copy is made (operator ruling, 2026-11-05) |
 | Author identity | No work claims and no author verification while AO3 is down. Removal and opt-out are requests anyone can make, without proving who they are, and they take effect once the requester confirms control of the contact email |
 | Removal list | Removed works (title, byline, a link to the original with its ID, date, reason) are public at `/removed`, and pseuds with an approved opt-out at `/removed/pseuds`. Reasons come from a fixed list, never free text. Open requests and hidden works are never listed, and a moderator can withhold an entry |
 | Search scope | Metadata only: title, author, tags, summary |
@@ -172,7 +173,8 @@ work_tags    (work_id, tag_id,
               position)  -- the tag's place in the work's tags, in the author's order
 uploads      (id, user_id, r2_key, sha256, bytes, status, lease_until,
               error_stage, error, work_id NULL, created_at,
-              quota_counted_at NULL)  -- set when confirm counted it against the daily quota, once
+              quota_counted_at NULL)  -- set when confirm counted it against the daily quota, once;
+                                      -- `pending` with this NULL is an open upload (Orphaned uploads)
 reports      (id, work_id, reporter_id, kind, body, status, created_at)  -- reporting needs an account;
                                                   -- kind includes wrong_version ("This version is wrong")
 takedowns    (id, work_id, requester, basis, status, resolved_by, created_at,
@@ -228,7 +230,11 @@ processor section. Files without an AO3 preface carrying that URL are
 rejected in v1, even if the OPF names an AO3 work. Byte-identical
 re-uploads are caught at `/complete` by the file's SHA-256: the upload is marked
 `duplicate` straight away, with no ingest run and no second copy kept
-(Ingestion pipeline, step 3).
+(Ingestion pipeline, step 3). That check sees the file as it was at confirm: one
+swapped afterwards for a file already in the archive goes through ingest and the
+versioning rules, with its original kept. An ingested upload's hash, which later
+uploads are matched against, is that of the bytes ingest read (EPUB processor,
+step 2); uploads ingested before this was added keep confirm's, with no backfill.
 
 **Tags.** AO3's tag wrangling (canonical tags and synonyms) can't be rebuilt in
 a week. Store tags exactly as written, plus a normalized form (`name_norm`:
@@ -265,9 +271,11 @@ rule's whitespace and invisible-character removal is blank, and names nobody).
    JSON `{ error, retryAfter }`, and the upload page shows the message. A banned
    account gets 403 with `{ error }` for the whole batch, checked just before the
    quota (Moderation, *Block and ban*), and `GET /upload` shows it a page saying
-   it can't upload. Otherwise it inserts an `uploads` row for each file, all in
-   one transaction, and returns a presigned R2 `PUT` URL for each, valid for 10 minutes
-   and locked to `Content-Type: application/epub+zip`: JSON `{ id, url }` for one file,
+   it can't upload. A batch that would take the account's open uploads past the cap
+   gets 429 (Orphaned uploads). Otherwise it inserts an `uploads` row for each file, all in
+   one transaction, and returns a presigned R2 `PUT` URL for each, valid for 10 minutes,
+   locked to `Content-Type: application/epub+zip` and signed for the file's declared
+   size as `Content-Length`: JSON `{ id, url }` for one file,
    `{ uploads: [{ id, url }, ...] }` for several. R2 presigned URLs support PUT but not
    form POST, and the bucket needs a CORS rule for `rarepair.fans`.
 2. **Upload.** The browser PUTs each file straight to R2 and shows each file's
@@ -281,7 +289,9 @@ rule's whitespace and invisible-character removal is blank, and names nobody).
    says so (FRONTEND-DISCOVERY, *Where the frontend changes the architecture*).
 3. **Confirm.** For a banned account, `POST /uploads/:id/complete` answers 403
    and ends the upload `account_banned` before reading the object. Otherwise it HEADs the object, checks its size,
-   and hashes it (SHA-256). If the hash matches an earlier upload that was
+   and hashes it (SHA-256). An object over 25 MB is deleted and the upload ends `too_large`
+   (413). An object of any other size than was declared is deleted with a plain 400, and
+   the upload stays `pending` and uncounted for the reaper (Orphaned uploads). If the hash matches an earlier upload that was
    ingested into a work that is `live` or `hidden` (that upload's status is
    `live`, `held_for_review` or `duplicate`, with a `work_id`), the new upload
    is marked `duplicate` straight away, with `work_id` set to that work:
@@ -292,7 +302,12 @@ rule's whitespace and invisible-character removal is blank, and names nobody).
    was removed) gets no shortcut: the new upload is enqueued like any other,
    and the versioning rules, the same rejection, or (for a removed work) the
    opt-out and takedown checks, then `work_removed`, decide it. Otherwise it
-   enqueues `{upload_id}`.
+   enqueues `{upload_id}`. The presigned PUT stays valid after confirm, so the
+   object can change: on an enqueued upload, the hash stored here stands until a
+   job records the hash of what it read (EPUB processor, step 2). A repeat confirm
+   of an upload still `pending` hashes the object again and stores that, and a job
+   that reads the file afterwards replaces it in turn. An upload marked `duplicate`
+   here has no job, so it keeps this hash.
 4. **Process.** The ingest consumer handles one upload per invocation (a batch
    size of 1), so a crash in one job has no batch-mate to spend the retries of, with
    retries and a dead-letter queue. See the EPUB processor section below. An
@@ -335,8 +350,16 @@ Chapter text isn't indexed.
    every 15 seconds (the lease is 60) and checks it still holds the upload before each
    stage and each R2 write. A job that finds it lost stops, logs it and writes or
    deletes nothing more; the fenced write in the Postgres transaction has the last word.
-2. **Unzip with limits.** Read the object from R2 (25 MB or less) and check
-   the zip's file index before decompressing anything:
+2. **Unzip with limits.** Read the object from R2 (25 MB or less) and hash the
+   bytes read (SHA-256). That hash replaces the one on the row in the job's fenced
+   ending write, whatever the job ends as, a rejection or a retry included. A job
+   that lost its lease or died before that write records none, so the row holds
+   the last recorded read's hash. A hash that differs from confirm's isn't refused
+   or shown to the uploader, and no locked copy of the file is made: the job
+   handles what it read. An attempt that ends without a whole read (the object is
+   gone or over the limit, the account is banned first, or the read fails), and the
+   dead-letter consumer, leave the hash as it is: confirm's, until a job has
+   recorded a read. Check the zip's file index before decompressing anything:
    - at most 2,000 entries
    - at most 40 MB uncompressed in total
    - at most 20 MB per entry
@@ -514,7 +537,9 @@ Chapter text isn't indexed.
    `copyVersionToWork` in `packages/db`, in the transaction that moves the
    pointer: each non-NULL field of the version is copied, a NULL one keeps
    the work's value (so a replace whose file lacks a field never blanks the
-   stored one, and the title is never NULL), the byline and tags are
+   stored one, and the title is never NULL), except the chapter count and
+   total, which are always the version's (a version that states no total
+   leaves the work's NULL, and its card reads "12/?"), the byline and tags are
    rewritten from the version's own unless those are NULL, and the search
    text is refreshed.
 8. **Save, in order.** Write chapter fragments and images to R2. Then run one
@@ -1459,9 +1484,33 @@ markup: its inline `style` attributes become stylesheet rules, because
   Object). There are two daily tiers: new accounts get a lower limit, trusted
   users a higher one. The numbers and the rule for "trusted" are configuration,
   set before launch from load testing.
-- **Orphaned uploads.** A presigned PUT can't enforce a size limit, and a
-  client may never call `/complete`. So `/complete` deletes oversized objects,
-  and an R2 lifecycle rule expires anything under `uploads/` after 7 days.
+- **Orphaned uploads.** Each presigned PUT signs the size declared for its file as
+  `Content-Length`, but nothing shows that this stops a PUT of another size:
+  Cloudflare's docs say a signed `Content-Type` is enforced and, as far as two searches
+  on 2026-11-05 found, don't say whether a signed `Content-Length` is. The live check on
+  real R2 is on the operator's list for after deploy. So a file that reaches `/complete` is checked
+  either way: it deletes an object over 25 MB or of any other size than was declared, unless a
+  confirm has already counted the upload, when the object is ingest's. A client may also never
+  call `/complete`, so three more limits apply. An account's open uploads (`pending` and not
+  counted by a confirm) can't pass its daily quota for its tier: asking past that cap gets 429
+  with a `Retry-After` of an hour, the row lock in `insertUploadsWithinCap` holding it under
+  parallel asks. The daily sweep's reaper deletes open uploads older than `UNCONFIRMED_UPLOAD_DAYS`
+  (`apps/sweep`, 1 day, 7 at most), the row first and then the objects of the rows actually
+  deleted, so they leave My uploads; with a daily run, a row lives one to two days. A run reaps
+  at most 500,000 rows, and the next takes the rest. A confirmed upload is never reaped, whatever
+  its age. And an R2 lifecycle rule expires anything under `uploads/` after 7 days, which also
+  takes an object whose delete failed.
+  **What an account can store depends on the live check.** Nothing checks the size of an object
+  nobody confirms. If R2 enforces the signed size, an account holds at most its cap times 25 MB
+  through unfinished links: 500 MB on the new-account quota of 20, 2.5 GB on the trusted 100. If R2
+  doesn't, each link can hold what one PUT can (5 GiB by R2's limit, as far as its docs say), so
+  about 100 GiB per new account for the day or two until the reaper runs. Those are the bounds on
+  unfinished links, not on an account. A link still works for its 10 minutes after confirm, so a
+  file can be replaced behind a counted upload, where neither the cap nor the reaper sees it
+  until the 7-day rule: a day's quota of 20 for 8 days holds about 4 GB if R2 enforces the size,
+  about 800 GiB if it doesn't. A link whose upload has ended has no per-account bound at all,
+  only the rate limits and Turnstile (the open bugs #635 and #637). Since the cap is the daily quota, raising
+  `UPLOAD_QUOTA_NEW` raises these bounds with it, and a quota under 10 can't take a full batch of 10.
   Raw files the archive keeps are copied to `originals/` during ingest.
 - Queue backpressure: set a maximum consumer concurrency so Neon connections
   stay bounded. Hyperdrive pools connections, and Neon autoscales compute. Each Hyperdrive
@@ -1632,7 +1681,7 @@ apps/web/          Hono Worker: pages, auth, upload handshake, search, admin
 apps/content/      Worker serving epub images and original downloads from R2
 apps/ingest/       Queue consumer: epub processing
 apps/mailer/       Queue consumer: sends email (Resend, with failover)
-apps/sweep/        Daily cron: deletes unreferenced images, orphaned upload prefixes and removed works' leftovers from R2
+apps/sweep/        Daily cron: deletes unreferenced images, orphaned upload prefixes and removed works' leftovers from R2, and uploads left unconfirmed
 packages/epub/     unzip + OPF + AO3 preface parser + sanitizer (tested in workerd)
 packages/db/       SQL migrations + typed queries
 fixtures/epubs/    real AO3 epub samples for parser and sanitizer tests

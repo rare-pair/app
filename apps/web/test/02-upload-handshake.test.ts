@@ -1,12 +1,14 @@
-import { createDb } from "@archive/db";
+import { createDb, type UploadStatus } from "@archive/db";
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { sql } from "kysely";
 import { afterAll, describe, expect, it } from "vitest";
 import app from "../src/index";
+import { presignPut } from "../src/presign";
 import {
   BASE,
   fetchW,
+  freshIp,
   TURNSTILE,
   nonceOf,
   UPLOAD_TOKEN,
@@ -56,6 +58,25 @@ const uploadsOf = (userId: string) =>
 
 type Reply = { id?: string; url?: string; error?: string };
 
+/** The URL `presignPut` gives upload `id` for `bytes`, at the moment `put` was signed. */
+const signedFor = (id: string, bytes: number, put: URL) =>
+  presignPut({
+    accountId: env.R2_ACCOUNT_ID,
+    bucket: env.R2_BUCKET,
+    accessKeyId: env.R2_ACCESS_KEY_ID,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+    key: `uploads/${id}`,
+    contentType: "application/epub+zip",
+    contentLength: bytes,
+    expiresSeconds: 600,
+    now: new Date(
+      (put.searchParams.get("X-Amz-Date") ?? "").replace(
+        /^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)Z$/,
+        "$1-$2-$3T$4:$5:$6Z",
+      ),
+    ),
+  });
+
 /** The JSON reply of a refused request: an error to show, and nothing else. */
 async function expectRefused(res: Response, status: number) {
   expect(res.status).toBe(status);
@@ -103,8 +124,37 @@ describe("02-upload-handshake", () => {
     expect(put.origin).toBe(`https://${S3_HOST}`);
     expect(put.pathname).toBe(`/rarepair/uploads/${id}`);
     expect(put.searchParams.get("X-Amz-Expires")).toBe("600");
-    expect(put.searchParams.get("X-Amz-SignedHeaders")).toBe("content-type;host");
+    expect(put.searchParams.get("X-Amz-SignedHeaders")).toBe("content-length;content-type;host");
     expect(put.searchParams.get("X-Amz-Signature")).toMatch(/^[0-9a-f]{64}$/);
+    // Signed for the size declared, in workerd too: the Request keeps its Content-Length.
+    expect(url).toBe(await signedFor(id!, 123456, put));
+    expect(url).not.toBe(await signedFor(id!, 123457, put));
+  });
+
+  it("Each link is signed for the size declared when it was asked for", async () => {
+    const { userId, cookie } = await signIn("uploadcap-three-sizes@example.test");
+    const sizes = [1000, 2000, 3000];
+    const res = await postLogin(
+      {},
+      {
+        url: "/uploads",
+        headers: { cookie },
+        body: new URLSearchParams([
+          ...sizes.map((size): [string, string] => ["size", String(size)]),
+          ["cf-turnstile-response", UPLOAD_TOKEN],
+        ]).toString(),
+      },
+    );
+    expect(res.status).toBe(200);
+    // SAFETY: POST /uploads answers JSON, with one entry per file for several.
+    const { uploads } = (await res.json()) as { uploads: { id: string; url: string }[] };
+    const rows = await uploadsOf(userId);
+    expect(rows.map((row) => row.bytes).sort((a, b) => a - b)).toEqual(sizes);
+    for (const { id, url } of uploads) {
+      const put = new URL(url);
+      const bytes = rows.find((row) => row.id === id)?.bytes ?? 0;
+      expect(url).toBe(await signedFor(id, bytes, put));
+    }
   });
 
   it("Declared size of exactly 25 MB is accepted", async () => {
@@ -296,6 +346,89 @@ describe("02-upload-handshake: the daily quota", () => {
     // SAFETY: POST /uploads answers JSON.
     expect(((await res.json()) as { retryAfter?: number }).retryAfter).toBe(seconds);
     expect(await uploadsOf(userId)).toEqual([]);
+  });
+});
+
+describe("02-upload-handshake: the cap on open uploads", () => {
+  /** `n` uploads by `userId` in `status`, as `POST /uploads` leaves one that was never confirmed. */
+  async function opened(
+    userId: string,
+    n: number,
+    fields: { status?: UploadStatus; quota_counted_at?: Date } = {},
+  ) {
+    const rows = Array.from({ length: n }, () => {
+      const id = crypto.randomUUID();
+      return { id, user_id: userId, r2_key: `uploads/${id}`, bytes: 1000, ...fields };
+    });
+    await db.insertInto("uploads").values(rows).execute();
+  }
+
+  const ask = (cookie: string, files: number) =>
+    postLogin(
+      {},
+      {
+        url: "/uploads",
+        // Its own address: the rate limit isn't what these cases are about.
+        headers: { cookie, "cf-connecting-ip": freshIp() },
+        body: new URLSearchParams([
+          ...Array.from({ length: files }, (): [string, string] => ["size", "1000"]),
+          ["cf-turnstile-response", UPLOAD_TOKEN],
+        ]).toString(),
+      },
+    );
+
+  it("Asking for links beyond the cap on open uploads is refused", async () => {
+    const { userId, cookie } = await signIn("uploadcap-at-cap@example.test");
+    await opened(userId, NEW_LIMIT);
+
+    const res = await ask(cookie, 1);
+
+    const error = await expectRefused(res.clone(), 429);
+    expect(error).toMatch(/unfinished uploads/);
+    expect(error).toMatch(/try again/);
+    expect(res.headers.get("retry-after")).toBe("3600");
+    // SAFETY: POST /uploads answers JSON.
+    expect(((await res.json()) as { retryAfter?: number }).retryAfter).toBe(3600);
+    expect(await uploadsOf(userId)).toHaveLength(NEW_LIMIT);
+  });
+
+  it("A batch that fits under the cap works, and one past it is refused whole", async () => {
+    const { userId, cookie } = await signIn("uploadcap-fits@example.test");
+    await opened(userId, NEW_LIMIT - 2);
+
+    expect(await expectRefused(await ask(cookie, 3), 429)).toMatch(/2 more/);
+    expect(await uploadsOf(userId)).toHaveLength(NEW_LIMIT - 2);
+
+    expect((await ask(cookie, 2)).status).toBe(200);
+    expect(await uploadsOf(userId)).toHaveLength(NEW_LIMIT);
+  });
+
+  it("A full batch of 10 files still works under the cap", async () => {
+    const { userId, cookie } = await signIn("uploadcap-ten@example.test");
+    await opened(userId, NEW_LIMIT - 10);
+    expect((await ask(cookie, 10)).status).toBe(200);
+    expect(await uploadsOf(userId)).toHaveLength(NEW_LIMIT);
+  });
+
+  it("The cap is the account's daily quota for its tier", async () => {
+    const { userId, cookie } = await signIn("uploadcap-trusted@example.test");
+    await db.updateTable("user").set({ role: "moderator" }).where("id", "=", userId).execute();
+    await opened(userId, NEW_LIMIT);
+    expect((await ask(cookie, 1)).status).toBe(200);
+
+    await opened(userId, TRUSTED_LIMIT - NEW_LIMIT - 1);
+    await expectRefused(await ask(cookie, 1), 429);
+  });
+
+  it("Only the account's own unconfirmed uploads are open", async () => {
+    const { userId, cookie } = await signIn("uploadcap-not-open@example.test");
+    const other = await signIn("uploadcap-not-open-other@example.test");
+    await opened(other.userId, NEW_LIMIT);
+    await opened(userId, 5, { status: "pending", quota_counted_at: new Date() });
+    await opened(userId, 5, { status: "processing" });
+    await opened(userId, 5, { status: "too_large" });
+    await opened(userId, NEW_LIMIT - 1);
+    expect((await ask(cookie, 1)).status).toBe(200);
   });
 });
 

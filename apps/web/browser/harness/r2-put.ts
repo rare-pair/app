@@ -5,8 +5,10 @@ import { SECRETS } from "../../test/stand-ins";
 // The browser's presigned PUT, standing in for R2's S3 endpoint: not R2. It's a Worker rather
 // than a Playwright route because a route can't read a File's body (`postDataBuffer()` is null
 // for `xhr.send(file)`). The web Worker never sees this request in production either, so it
-// can't notice the swap. Like R2 it refuses a URL not signed for its key, content type and
-// time, but R2's own signature check and the bucket's CORS rule are only shown by a deploy.
+// can't notice the swap. It refuses a URL not signed for its key, content type, size and time.
+// That shows the browser's own Content-Length matches what was signed; it doesn't show R2. R2's
+// own signature check, whether it enforces a signed size at all, and the bucket's CORS rule are
+// only shown by a deploy.
 
 /** wrangler.jsonc's R2_BUCKET: a URL naming any other is signed wrongly. */
 const R2_BUCKET = "rarepair";
@@ -19,13 +21,14 @@ const amzDate = (value: string) =>
 
 /**
  * The key `url` was presigned for, signing again with `presignPut` and the throwaway keys, or
- * null when it is forged, altered, late, or for another content type. Those are the refusals
- * the harness shows, not all of R2's: it doesn't cap X-Amz-Expires, or decode the key, which
- * for `uploads/<uuid>` doesn't matter.
+ * null when it is forged, altered, late, or for another content type or size. Those are the
+ * refusals the harness shows, not all of R2's: it doesn't cap X-Amz-Expires, or decode the key,
+ * which for `uploads/<uuid>` doesn't matter.
  */
 export async function signedKey(
   url: string,
   contentType: string,
+  contentLength: number,
   now = new Date(),
 ): Promise<string | null> {
   const { pathname, searchParams } = new URL(url);
@@ -41,6 +44,7 @@ export async function signedKey(
     secretAccessKey: SECRETS.R2_SECRET_ACCESS_KEY,
     key,
     contentType,
+    contentLength,
     expiresSeconds,
     now: signedAt,
   });
@@ -64,8 +68,12 @@ export default {
     }
     if (request.method !== "PUT") return new Response(null, { status: 405, headers: cors });
     const contentType = request.headers.get("content-type") ?? "";
+    // Under a name of its own: this request has no body, so Content-Length wouldn't survive it.
     const signed = await env.SIGNATURE.fetch(request.url, {
-      headers: { "content-type": contentType },
+      headers: {
+        "content-type": contentType,
+        "x-put-length": request.headers.get("content-length") ?? "",
+      },
     });
     if (!signed.ok) return new Response("SignatureDoesNotMatch", { status: 403, headers: cors });
     await env.BUCKET.put(await signed.text(), request.body, { httpMetadata: { contentType } });
@@ -84,7 +92,11 @@ export const r2PutWorker = {
   r2Buckets: { BUCKET: { id: R2_BUCKET } },
   serviceBindings: {
     SIGNATURE: async (request: Request) => {
-      const key = await signedKey(request.url, request.headers.get("content-type") ?? "");
+      const key = await signedKey(
+        request.url,
+        request.headers.get("content-type") ?? "",
+        Number(request.headers.get("x-put-length")),
+      );
       return key === null ? new Response(null, { status: 403 }) : new Response(key);
     },
   },

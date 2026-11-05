@@ -146,6 +146,8 @@ async function run(
     return { status: "too_large", failure: { stage: "read", error: "too_large" } };
   }
   const bytes = new Uint8Array(await object.arrayBuffer());
+  // What the job read, not what confirm hashed: the same URL can have replaced the file since.
+  lease.sha256 = await sha256Hex(bytes);
   // Still the job's before the slow step? Throws `LeaseLost` if another job took it over.
   await lease.keeper?.renew();
   enter("process");
@@ -177,7 +179,7 @@ async function run(
     // the save sets it in the work's transaction.
     await deps.save(lease, work, bytes, images);
   } catch (error) {
-    // Removal is permanent today (restoring one is #565, still open): no retry changes the verdict.
+    // Removal is permanent (a removed work can't be restored): no retry changes the verdict.
     if (error instanceof WorkRemoved) {
       return { status: "work_removed", failure: { stage: "save", error: "work_removed" } };
     }
@@ -186,6 +188,12 @@ async function run(
     return { status: "parse_failed", failure: { stage: "save", error: error.code } };
   }
   return null;
+}
+
+/** SHA-256 of `bytes` as lowercase hex, as confirm stores it. */
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**
