@@ -3,7 +3,7 @@
 Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion pipeline (step 4), § Surge controls (Queue backpressure)
 
 ## Setup
-- The ingest Worker consumes the ingest queue with a batch size of about 5, retries and a dead-letter queue
+- The ingest Worker consumes the ingest queue with a batch size of 1, retries and a dead-letter queue, and consumes the dead-letter queue too
 - A maximum consumer concurrency is configured
 - `packages/epub` is a pure function (bytes in, parsed work out); `apps/ingest` handles R2, Postgres and job status
 - An `uploads` row in `pending` with a valid AO3 epub object in R2
@@ -75,6 +75,62 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 - AND the upload's status is `parse_failed`
 - AND `error_stage` and `error` on the upload row record the failing stage and error
 
+### A job that dies for good is recorded as failed
+- GIVEN an upload still `pending`, or `processing` with an expired lease, because every delivery of its message died before recording an ending
+- WHEN its message reaches the dead-letter queue
+- THEN the upload's status is `parse_failed`, with `error_stage` empty because the stage is unknown, and no lease
+- AND the message is acked
+- AND My uploads shows it failed and tells the uploader to try uploading it again
+- AND any stored original stays: the consumer writes nothing to R2 (https://github.com/rare-pair/app/issues/592)
+
+### A dead-letter message for a finished upload changes nothing
+- GIVEN a `live`, `duplicate`, already failed or rejected upload
+- WHEN its message reaches the dead-letter queue, once or more than once
+- THEN the upload's row stays as it is, the job's own `error_stage` and `error` included
+- AND each message is acked
+
+### A dead-letter message waits while the upload's lease is live
+- GIVEN an upload `processing` under a lease that has not expired, whose job may still end it or may have just died
+- WHEN its message reaches the dead-letter queue
+- THEN the upload's row stays as it is, and the message is retried
+- AND a later delivery that finds the lease expired records the upload as failed
+
+### A job that outlives its lease saves nothing once its upload has failed
+- GIVEN a job still running whose lease has lapsed
+- WHEN a dead-letter message for its upload fails the upload, and the job then reaches its transaction
+- THEN the job's transaction rolls back, leaving no work or version, and its message is acked
+- AND the upload stays `parse_failed`
+
+### A repeat dead-letter message for an upload it failed is harmless
+- GIVEN an upload a dead-letter message has already recorded as failed
+- WHEN the message is delivered again
+- THEN the upload's row stays as it is, and the message is acked
+
+### A dead-letter message for no upload, or with a bad body, is acked
+- GIVEN a dead-letter message naming no upload, or whose body doesn't keep the message contract
+- WHEN it is delivered
+- THEN it is acked, since no retry can change it
+
+### A dead-letter message is retried while Postgres is down
+- GIVEN an upload still `pending`, and Postgres unreachable
+- WHEN its dead-letter message is delivered
+- THEN the message is retried
+- AND a message still undelivered after the consumer's retries is deleted, leaving the upload as it was: there is no redrive
+
+### The dead-letter consumer outlasts a short Postgres outage and a dying job's lease
+- GIVEN the dead-letter queue's consumer as configured
+- THEN it takes one message per invocation, one invocation at once, retrying for an hour with a delay longer than the job's lease
+- AND no dead-letter queue sits behind it
+
+### One upload is handled per invocation
+- GIVEN the ingest queue's consumer as configured
+- THEN its batch size is 1, so a crash in one job has no batch-mate to spend the retries of
+
+### Once a job has failed for good, the sweep no longer skips its work
+- GIVEN a work whose sweep skips it as `in_flight`, because of an upload left `processing`
+- WHEN the upload's message reaches the dead-letter queue, and the sweep next runs
+- THEN the sweep doesn't skip the work, and deletes the upload's old prefix and the work's unreferenced images
+
 ### Consumer concurrency stays bounded under a flood
 - GIVEN many more uploads enqueued than the maximum consumer concurrency
 - WHEN the queue drains
@@ -88,7 +144,7 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 
 ### A refused upload's stored epub is deleted
 - GIVEN an upload whose raw epub is stored under `originals/<upload_id>.epub`
-- WHEN the job ends the upload refused: a save the database refused inside its transaction, a retry that ends `opted_out`, a ban that lands while or between attempts, or a failure for good (not `work_removed`, whose save already deleted its files)
+- WHEN the job ends the upload refused: a save the database refused inside its transaction, a retry that ends `opted_out`, a ban that lands while or between attempts, or a failure for good the job records itself (not `work_removed`, whose save already deleted its files)
 - THEN `originals/<upload_id>.epub` is deleted after the ending write, and only when that write matched
 - AND the log says what was deleted with the upload id and a count, never the file or the reader
 - AND a failed delete changes neither the upload's status nor the message's verdict
