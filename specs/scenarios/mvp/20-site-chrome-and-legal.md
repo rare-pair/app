@@ -35,6 +35,13 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - AND it says the archive keeps that until the site closes, and then deletes it
 - AND it says the archive does not erase it when a requester asks
 
+### The privacy page says what a copyright notice keeps
+- GIVEN any visitor
+- WHEN they open `/privacy`
+- THEN it says a copyright notice keeps the sender's name, address, telephone number and email address, and their signature
+- AND it says moderators read a notice to act on it
+- AND it says a notice sent by email is read by a person and stays in that mailbox
+
 ### Footer links to removal
 - GIVEN any app page
 - WHEN it renders
