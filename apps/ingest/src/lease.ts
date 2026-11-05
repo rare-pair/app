@@ -1,6 +1,6 @@
 import type { Database, UploadStatus } from "@archive/db";
 import type { EpubErrorCode } from "@archive/epub";
-import { sql, type Kysely } from "kysely";
+import { sql, type ExpressionBuilder, type Kysely } from "kysely";
 import { LEASE_RENEW_SECONDS, LEASE_SECONDS } from "./config";
 
 /** How long a job holds its upload, and how often it renews that; tests shorten both. */
@@ -30,6 +30,13 @@ export interface Lease {
   keeper?: LeaseKeeper;
 }
 
+/** An upload no job holds and none has ended: `pending`, or its lease has expired. */
+export const claimable = (eb: ExpressionBuilder<Database, "uploads">) =>
+  eb.or([
+    eb("status", "=", "pending"),
+    eb.and([eb("status", "=", "processing"), eb("lease_until", "<", sql<Date>`now()`)]),
+  ]);
+
 /**
  * Claims the upload for one job, with one atomic `UPDATE` that matches only when it is
  * `pending` or its lease has expired (ARCHITECTURE, EPUB processor, step 1). The database's
@@ -49,12 +56,7 @@ export async function claimLease(
       lease_until: sql<Date>`date_trunc('milliseconds', now() + make_interval(secs => ${seconds}))`,
     })
     .where("id", "=", uploadId)
-    .where((eb) =>
-      eb.or([
-        eb("status", "=", "pending"),
-        eb.and([eb("status", "=", "processing"), eb("lease_until", "<", sql<Date>`now()`)]),
-      ]),
-    )
+    .where(claimable)
     .returning(["id", "r2_key", "lease_until"])
     .executeTakeFirst();
   // SAFETY: the update above sets lease_until on the row it returns.

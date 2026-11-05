@@ -26,6 +26,7 @@ fandoms and pseuds in it are invented placeholders.
 | Home page | Leads with search. Popular fandoms and recently added works go below |
 | Original AO3 link | A live link with a note that it works again once AO3 is back. Nothing changes automatically when AO3 returns; redirecting works to AO3 is part of a later wind-down the operator starts by hand |
 | Discovery output | This doc plus low-fidelity clickable wireframes |
+| Page fill | Every page fills the screen. `body` has a minimum height of the screen (`100dvh`, with `100vh` as the fallback, because on phones `100vh` is taller than the visible screen and a short page would scroll), `main` grows, and the footer sits at the bottom of a short page. A long page scrolls as before, with the footer after its content. The header, main and footer keep their centred column width, and the banner stays full width |
 | Coming-soon typography | The coming-soon page and the other wait list pages are set in Fraunces, with IBM Plex Mono for labels and buttons. Both are self-hosted on `rarepair.fans` as their publishers' own woff2 files, unmodified, with their OFL licences beside them. They aren't subset or renamed internally by us, because IBM Plex's licence reserves the name "Plex". Only their file names are ours, content-hashed. Never a third-party font host. Every other page keeps the system stacks (*Typographic system*) |
 
 ## Principles
@@ -133,7 +134,8 @@ Reading never requires an account (ARCHITECTURE, *Auth*).
    check* (held versions, works live with the "may be imperfect" notice, and
    "This version is wrong" reports). Each is a plain table, oldest first.
 2. Each item has a detail page with actions: hide, remove, restore, approve,
-   reject, block requester, ban uploader. Removing can ask for a public reason, and
+   reject, block requester, ban uploader. An open report also has "Dismiss report",
+   which closes it for having no merit and changes nothing on the work. Removing can ask for a public reason, and
    a removal list entry can be withheld (`/admin/listed-pseuds`, or the work's admin
    page). A request's page lists the other
    requests from the same email or IP, so a mass-hiding spree can be undone at
@@ -176,7 +178,7 @@ without it. Elsewhere the
 | Removal list | `/removed`, `/removed/pseuds` | all | Paged lists, newest first. Removed works: title, byline, "The original work" link with its ID and note, date, reason. Opted-out pseuds: name, date, reason. Says that nobody's identity is checked, and gives the moderators' contact address | — |
 | Report | `/works/:id/report` | signed in (others are redirected to sign in, carrying `next`) | Form, then a confirmation page | — |
 | DMCA notice | `/dmca` | all | `<noscript>` message: the form needs JavaScript; it names the notices address (`NOTICES_EMAIL`) and lists what a notice must say, so a notice can be emailed; a refusal that stops the form working (rate limit, failed or unreachable Turnstile check) names it too | Statutory notice form with Turnstile |
-| Moderation queues | `/admin/{reports,takedowns,requests,works}` | moderator (404 for anyone else) | Tables with detail pages; `/admin/works` is *Works to check* | — |
+| Moderation queues | `/admin/{reports,takedowns,requests,works}` | moderator (404 for anyone else) | Tables with detail pages; an open report's page has "Dismiss report"; `/admin/works` is *Works to check* | — |
 | Work admin | `/admin/works/:id` | moderator (404 for anyone else) | Every version (date, uploader, chapter count, hold and review reasons) with "Make current" and "Approve"; close wrong-version reports, hide, remove; withhold a removed work's details from the removal list | — |
 | Listed pseuds | `/admin/listed-pseuds` | moderator (404 for anyone else) | Every pseud on the removal list, listed or withheld, with withhold and un-withhold | — |
 | About / terms / privacy | `/about`, `/terms`, `/privacy` | all | Static | — |

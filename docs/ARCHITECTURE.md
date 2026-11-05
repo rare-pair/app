@@ -105,7 +105,10 @@ an unofficial stopgap.
     (Crawlers and agents).
   - The content Worker keeps no per-request log (invocation logs are off), so its
     logs hold no reader address next to a work id. Errors and metrics are kept;
-    traces stay on and may record the request URL.
+    traces are off too, so no reading data reaches them (the URL carries the work
+    id). An operator may turn them on to chase a live fault, which records request
+    URLs until they are turned off again, so only for as long as the fault needs.
+    `apps/content/test/wrangler.test.ts` holds traces off, so that change edits it too.
   - The content Worker sits in front of the CDN cache, so it keeps its own: a plain
     `GET` for an image or an original is answered from the data centre's cache
     (`caches.default`, keyed by the bare URL) without an R2 read once the first
@@ -295,8 +298,21 @@ rule's whitespace and invisible-character removal is blank, and names nobody).
    and the versioning rules, the same rejection, or (for a removed work) the
    opt-out and takedown checks, then `work_removed`, decide it. Otherwise it
    enqueues `{upload_id}`.
-4. **Process.** The ingest consumer runs with a batch size of about 5, retries,
-   and a dead-letter queue. See the EPUB processor section below.
+4. **Process.** The ingest consumer handles one upload per invocation (a batch
+   size of 1), so a crash in one job has no batch-mate to spend the retries of, with
+   retries and a dead-letter queue. See the EPUB processor section below. An
+   invocation runs its jobs one after another, so with a concurrency of 2 at most
+   two jobs run at once at any batch size. A size of 1 lowers no ceiling: it costs
+   one invocation and Postgres connection set-up per upload, and no batch wait.
+   Throughput is 2 ÷ seconds per job. No job has been timed on real Queues, so
+   this is an estimate: 2 seconds for a small epub (the processor takes well under
+   a second on the synthetic epubs in tests; R2 and Postgres add the rest) and 20
+   for a 25 MB one with many R2 writes, reasoned from those limits, give 6 to 60
+   uploads a minute. A burst past that waits in the backlog, which is what the
+   concurrency cap is for, so the concurrency needs no change. The backlog has a
+   limit: at those rates the queue's default four days of retention hold about
+   35,000 to 345,000 uploads, and a message that expires never reaches the
+   dead-letter queue, so its upload stays `pending`.
 5. **Track.** The uploader's page polls `GET /uploads/:id` for its status:
    `processing`, `live`, `held_for_review`, `duplicate`, or one of the
    rejection codes below. `held_for_review` and `duplicate` are not
@@ -512,8 +528,45 @@ Chapter text isn't indexed.
    `live` last. If the job fails before the transaction, R2 is left with
    orphaned files under its `<upload_id>/` prefix, which the sweep deletes once
    the prefix is a day old and no version points at it. A
-   job that fails for good goes to the dead-letter queue as `parse_failed`,
-   with the stage and error recorded on the upload row.
+   job that fails for good and can record it goes to the dead-letter queue as
+   `parse_failed`, with the stage and error recorded on the upload row.
+
+   **A consumer on the dead-letter queue catches what no job recorded,** among the
+   messages that reach it. (A message that expires doesn't, and #629 tracks a
+   crashed job's retry being acked under its own lease.) A job that dies on every
+   delivery (a crash, a kill at a platform limit) or whose ending write fails on
+   the last attempt records nothing, and an outage of Postgres longer than the
+   ingest queue's retries, about 6 minutes, dead-letters uploads no job has run, whose
+   files may be fine (#630). The ingest Worker also
+   consumes `ingest-dlq`: an upload whose message arrives there is set
+   `parse_failed`, with the stage unknown (`error_stage` empty, `error`
+   `dead_lettered`), and the existing failure message tells the uploader to try
+   again. It also stops the sweep skipping the work as in flight (#440). The
+   write matches only what `claimLease` would: `pending`, or `processing` with an
+   expired lease. Anything finished stays as it is, the job's own stage and error
+   included, so a repeat delivery is harmless. Under a live lease the row is left
+   and the message retried: a job may yet end it, or may have died a moment
+   before its message moved, and a later delivery finds it ended or expired.
+   A duplicate of the message that is still retrying then finds the upload ended,
+   and a job still running on a lapsed lease loses it and saves nothing, so the
+   uploader is told to try again even if that job might have saved it.
+   The consumer handles one message per invocation, one invocation at once, and
+   retries every 120 seconds, past the 60-second lease, for an hour (30 retries),
+   with a 10-second limit on connecting and on each query, so a stalled connection
+   fails and retries. That outlasts a short Postgres outage and a job running to the 15-minute
+   wall-time limit. After a longer outage the message is deleted, with no
+   dead-letter queue behind this one, and the upload stays as it was: there is
+   no redrive, and the uploader uploads the file again. Add one only if a real
+   outage shows it's needed (operator ruling, 2026-11-05). The consumer writes nothing to R2, so an original the
+   job had stored stays (case 1 below). The backfill queue already has a batch
+   size of 1, and needs no such consumer: a failed backfill leaves the work's
+   current version as it was.
+
+   Whether a crash charges an attempt to messages already acked in the same batch
+   is unsettled: Cloudflare's docs say an explicit ack isn't redelivered when a
+   later message fails, and don't describe a hard crash, and no check has been
+   run on real Queues. A batch size of 1 leaves no batch-mate for it to charge, so
+   ingest doesn't depend on the answer.
 
    **A refused upload's original is deleted.** Once the job has recorded a
    refusal (any rejection code, `account_banned` included, and a job that
@@ -536,9 +589,12 @@ Chapter text isn't indexed.
    touches `originals/`, except that the sweep deletes the original of each upload
    whose prefix it finds under a removed work's folder). Four cases leave an
    epub that nothing deletes, tracked in https://github.com/rare-pair/app/issues/592
-   (the operator chose a ticket over fixing them now): (1) an upload of a removed
-   work whose job dies on every delivery, or whose ending write fails on the last
-   attempt, so it stays `processing` and the sweep skips the work as in flight;
+   (the operator chose a ticket over fixing them now): (1) an upload whose job
+   stored the file and then dies on every delivery, or whose ending write fails on
+   the last attempt, so only the dead-letter consumer ends it and nobody deletes the
+   original (the sweep still finds it if the work is later removed, while the
+   upload's prefix is there), or a Postgres outage that outlasts that consumer's
+   retries, so it stays `processing` and the sweep skips the work as in flight;
    (2) a duplicate's epub after the ordinary sweep removed its prefix and a removal's
    delete then failed, because the sweep finds originals only from folder prefixes and
    never visits an emptied folder again; (3) a crash between the ending write and
@@ -643,7 +699,8 @@ deletes the upload's `originals/` file like any refusal (step 8). Step 2 lists w
 `not_ao3` covers any file without an AO3 preface "Posted originally" line,
 including one whose AO3 work URL is only in the OPF (step 4). `opted_out`
 covers the opt-out list and the takedown list of moderator-removed works.
-`parse_failed` also covers a job that fails for good (step 8). (`held_for_review`
+`parse_failed` also covers a job that fails for good, whether the job recorded
+it or the dead-letter consumer did (step 8). (`held_for_review`
 and `duplicate` are statuses, not rejections, and review reasons are neither. Nor is
 `over_quota`: the status of an upload whose confirm was refused 429 because the
 account's daily quota was spent, whose object is deleted.)
@@ -793,10 +850,19 @@ can be snapshotted.
   binding), keyed `pos:<user id>:<AO3 work id>`, with a value of the chapter
   number (none on the entire-work page) and a scroll percentage. A script on
   the reading pages saves it five seconds after the reader stops scrolling, and
-  when the page is hidden. It expires after a year. The work page's "Continue
-  where you left off" link names the chapter in its path and the percentage in a
-  `#pos=` fragment, which the script reads once to scroll back; the work page
-  itself never moves the reader.
+  when the page is hidden. The save keeps the furthest point within a chapter, and
+  within the entire-work page: the endpoint reads the stored value and keeps the
+  larger percentage when the chapter number is the same (none against none counts as
+  the same), so scrolling back up and leaving, or rereading from the start, never
+  lowers what the Continue link offers. Only a different chapter number replaces the
+  stored place, whatever its percentage, and going between a chapter and the
+  entire-work page counts as a different place too. The read and the write are not
+  atomic, and KV can return a value a little stale from another location, so two
+  tabs, or two saves from different places in quick succession, can race and the
+  last write wins: the furthest point is kept in practice, not guaranteed. It
+  expires after a year. The work page's "Continue where you left off" link names
+  the chapter in its path and the percentage in a `#pos=` fragment, which the
+  script reads once to scroll back; the work page itself never moves the reader.
 - "Download original epub" serves the file from `originals/` with
   `Content-Disposition: attachment` from `content.rarepair.fans`. It's never
   displayed inline. The link names the current version's upload, or for a
@@ -1176,10 +1242,11 @@ epub, under the normal versioning rules.
   account, so each report has a reporter who can be rate limited or blocked;
   signed-out readers, opening the form or POSTing a report, are redirected to
   sign in, carrying `next`, and brought back to the form. A work with open
-  reports from **3 distinct signed-in accounts** is hidden automatically until
-  a moderator looks at it; several reports from one account count once.
+  reports from **3 distinct signed-in accounts** is hidden automatically, when the report that makes
+  the third comes in, until a moderator restores it; several reports from one account count once.
   Reports from banned accounts can't be made, and reports matching a blocked
-  requester don't count. One reason is "This version is wrong"
+  requester don't count, nor does a closed report, a dismissed one included (an account with another
+  open report on the work still counts). One reason is "This version is wrong"
   (`wrong_version`), which only queues the work in *Works to check*: those
   reports never count toward the 3-account auto-hide. (Authors asking for
   removal use `/remove`, which needs no account.)
@@ -1191,8 +1258,10 @@ epub, under the normal versioning rules.
   - *Works to check*: works with a held version, works live with the "may be
     imperfect" notice, and works reported as "This version is wrong"
 
-  Actions are hide, remove, restore, approve, reject, block a requester, ban
-  an uploader and withhold a removal list entry. A *Works to check* item's page has approve (clears the notice,
+  Actions are hide, remove, restore, approve, reject, dismiss a report, block a requester, ban
+  an uploader and withhold a removal list entry. "Dismiss report", on an open report's page,
+  sets it `closed` and logs `dismiss` on the report. It hides and restores nothing, so a work the
+  reports hid stays hidden until Restore lifts the hide. A `wrong_version` report keeps its own form. A *Works to check* item's page has approve (clears the notice,
   or publishes the held version), make a version current, hide and remove;
   each work's admin page lists every version with "Make current" and "Approve". Approving a held version
   makes it current and checked; each approve is logged once, on the version. Make current and
@@ -1207,7 +1276,7 @@ epub, under the normal versioning rules.
   transaction.) A reject that also lifts a hide logs only the reject. A hide
   no moderator chose (the reports' automatic hide, a removal request's hide)
   writes none. Hide, restore, remove, approve and make current (logged on the version, and only when
-  something changed, and for make current only when the pointer moved), ban, the wrong-version close and the request and takedown rejects write a row
+  something changed, and for make current only when the pointer moved), ban, dismiss, the wrong-version close and the request and takedown rejects write a row
   today, and so does approving a removal request or a takedown. That approve asks to
   confirm, runs the removal (a `remove` row on the work, when its status changed), then marks
   the item and logs `approve` on it: a request becomes `approved`, a takedown `removed`
@@ -1226,8 +1295,11 @@ epub, under the normal versioning rules.
   removal request, and not one that another pending removal request or another active opt-out
   naming one of its authors still covers. Each logs one `reject` per request, with the restored
   works' AO3 work IDs in its note (led by "Opt-out reversed." or "Bulk restore from <request id>.") and no row per work (a request already decided gets a `restore`
-  row per work instead). The explicit Restore of a work is a moderator's deliberate act and checks
-  none of this. Each later action calls the same helper, `logModerationAction`, when
+  row per work instead). These leave the works' reports open: deciding a request doesn't read them, so they stay in their
+  queues, and those that counted toward the automatic hide go on counting, at the next report. A
+  replacing upload leaves `wrong_version` reports open too. The explicit Restore of a work is a
+  moderator's deliberate act: it checks none of this, and when it lifts a hide it closes the work's
+  open reports of every kind (on a work that isn't hidden it changes nothing). Each later action calls the same helper, `logModerationAction`, when
   it is built. The row's `moderator_id` has no foreign key to `user`, so
   deleting an account keeps its log rows, with the id as it was. Anyone
   without the moderator or admin role, signed out included, gets 404 for every
@@ -1467,7 +1539,8 @@ markup: its inline `style` attributes become stylesheet rules, because
 - Observability: Workers Logs and traces are on from day one, except that the
   web and content Workers' per-request invocation logs are off (their URLs carry
   the AO3 work id, and the web Worker's the chapter too); their errors and metrics
-  stay on. Track queue depth, ingest failure
+  stay on, and the content Worker's traces are off too (turned on only for a live
+  fault). Track queue depth, ingest failure
   rate and search p95 on a dashboard, with crawler refusals by reason and throttled
   reads, each counted from a log line holding only the reason.
 

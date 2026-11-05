@@ -54,7 +54,13 @@ export {
   type BanResult,
   type ModeratorRole,
 } from "./ban";
-export { approveVersion, closeWrongVersionReports, type ApproveOutcome } from "./approvals";
+export {
+  approveVersion,
+  closeWrongVersionReports,
+  dismissReport,
+  type ApproveOutcome,
+  type DismissOutcome,
+} from "./approvals";
 export { refreshWorkSearch } from "./search-index";
 export { getImageAccess, getOriginalAccess, type ContentAccess } from "./content-access";
 export { copyVersionToWork } from "./version-copy";

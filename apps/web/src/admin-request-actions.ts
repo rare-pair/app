@@ -107,8 +107,9 @@ async function coveredByOptOut(trx: Kysely<Database>, workId: string, requestId:
  * that nothing else covers. `works` are the request's locked works; `done` holds the works
  * an earlier request of the same action already brought back, and grows. Logs nothing for
  * the request: the caller logs its reject with these works in its note. With `actor` it
- * logs a `restore` per work instead (for a request that was already decided). Returns the
- * works it restored and how many others stayed hidden because something else covers them.
+ * logs a `restore` per work instead (for a request that was already decided). The works'
+ * reports stay open: nobody has read them by deciding a request. Returns the works it
+ * restored and how many others stayed hidden because something else covers them.
  */
 export async function restoreOwnWorks(
   trx: Kysely<Database>,
@@ -130,6 +131,7 @@ export async function restoreOwnWorks(
     const lifted = await restoreWork(trx, work.id, {
       cause: "removal_request",
       noPendingRequests: true,
+      keepReportsOpen: true,
       actor,
     });
     if (lifted) {

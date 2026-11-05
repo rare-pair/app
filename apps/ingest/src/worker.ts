@@ -2,7 +2,8 @@ import { createDb, type Database } from "@archive/db";
 import { processEpub } from "@archive/epub";
 import type { Kysely } from "kysely";
 import { runBackfill, type BackfillDeps } from "./backfill";
-import { BACKFILL_QUEUE, INGEST_QUEUE } from "./config";
+import { BACKFILL_QUEUE, INGEST_DLQ, INGEST_QUEUE } from "./config";
+import { DEAD_LETTER_DB_TIMEOUT_MS, deadLetterBatch } from "./dead-letter";
 import { errorCode, runJob, type JobDeps, type Verdict } from "./job";
 import { parseBackfillMessage, parseMessage } from "./message";
 import { saveWork, type SaveBucket } from "./save";
@@ -42,7 +43,11 @@ export function ingestWorker(steps: Partial<Steps> = {}) {
     async queue(batch, env, ctx) {
       // Logs carry upload ids, verdicts, counts and error class names only: never an error's
       // message or other text from an uploaded file.
-      if (batch.queue !== INGEST_QUEUE && batch.queue !== BACKFILL_QUEUE) {
+      if (
+        batch.queue !== INGEST_QUEUE &&
+        batch.queue !== INGEST_DLQ &&
+        batch.queue !== BACKFILL_QUEUE
+      ) {
         // A queue bound by mistake: its messages wait, then dead-letter, rather than being
         // read as the wrong contract and acked as invalid.
         console.error({ event: "ingest.unknown_queue", count: batch.messages.length });
@@ -52,10 +57,24 @@ export function ingestWorker(steps: Partial<Steps> = {}) {
       let db: Kysely<Database>;
       try {
         // One job at a time needs one connection.
-        db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
+        const timeout = batch.queue === INGEST_DLQ ? DEAD_LETTER_DB_TIMEOUT_MS : undefined;
+        db = createDb({
+          connectionString: env.HYPERDRIVE.connectionString,
+          max: 1,
+          connectionTimeoutMillis: timeout,
+          queryTimeoutMillis: timeout,
+        });
       } catch (error) {
         console.error({ event: "ingest.setup", error: errorCode(error) });
         batch.retryAll();
+        return;
+      }
+      if (batch.queue === INGEST_DLQ) {
+        try {
+          await deadLetterBatch(batch, db);
+        } finally {
+          ctx.waitUntil(db.destroy());
+        }
         return;
       }
       const bucket = steps.bucket ? steps.bucket(env.BUCKET) : env.BUCKET;
@@ -78,7 +97,7 @@ export function ingestWorker(steps: Partial<Steps> = {}) {
       }
       let invalid = 0;
       try {
-        // One job at a time: an invocation holds one epub and its parse in memory, not five.
+        // A batch is one job (wrangler.jsonc): an invocation holds one epub and its parse in memory.
         for (const message of batch.messages) {
           const parsed = parseMessage(message.body);
           if (parsed === null) {
