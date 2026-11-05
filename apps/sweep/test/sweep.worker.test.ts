@@ -312,15 +312,18 @@ describe("02-upload-handshake: unconfirmed uploads", () => {
     const unreferenced = imageKey();
     await putImages(work.ao3WorkId, unreferenced);
     // Only the reaper's delete fails: the image's goes through, which shows the sweep still ran.
-    // SAFETY: the Worker calls only these three of the bucket's methods (SweepBucket).
-    const bucket = {
-      list: (options?: R2ListOptions) => env.BUCKET.list(options),
-      get: (key: string) => env.BUCKET.get(key),
-      delete: async (keys: string[]) => {
-        if (keys.some((k) => k.startsWith("uploads/"))) throw new TypeError("no delete");
-        await env.BUCKET.delete(keys);
+    const bucket = new Proxy(env.BUCKET, {
+      get(target, name) {
+        if (name !== "delete") {
+          const value = Reflect.get(target, name);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+        return async (keys: string[]) => {
+          if (keys.some((k) => k.startsWith("uploads/"))) throw new TypeError("no delete");
+          await target.delete(keys);
+        };
       },
-    } as unknown as R2Bucket;
+    });
 
     await runSweep(25, { bindings: { ...env, BUCKET: bucket } });
 
