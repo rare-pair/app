@@ -11,7 +11,7 @@
 // Storage Write. POSITIONS_NAMESPACE_ID is the id of apps/web's POSITIONS binding.
 //
 // It shows what it will delete, then asks for the address to be typed again. Then it takes the
-// sessions, unspent sign-in links and pending uploads; waits a minute for KV's list to catch up;
+// sessions and unspent sign-in links; waits a minute for KV's list to catch up;
 // takes those again, since the person can sign in during the wait; takes the keys, relisted; takes
 // those again; and takes the row last. A failure before the row goes leaves it, so running the
 // script again finishes the job: with the row gone first, the keys could no longer be found from
@@ -203,21 +203,20 @@ export async function accountDelete({
       `select
          (select count(*)::int from session where user_id = $1) as sessions,
          (select count(*)::int from uploads where user_id = $1) as uploads,
-         (select count(*)::int from uploads where user_id = $1 and status = 'pending') as pending,
          (select count(*)::int from reports where reporter_id = $1) as reports,
          (select count(*)::int from takedowns where resolved_by = $1) as takedowns,
          (select count(*)::int from requester_blocks where created_by = $1) as blocks,
          (select count(*)::int from moderation_actions where moderator_id = $1) as actions`,
       [user.id],
     );
-    const { sessions, uploads, pending, reports, takedowns, blocks, actions } = rows[0];
+    const { sessions, uploads, reports, takedowns, blocks, actions } = rows[0];
     const positions = (await kvStep(() => kv.listKeys(prefix))).length;
     log(`account: ${user.email}${user.role === null ? "" : `, role ${user.role}`}`);
     log(
       `will delete: the account, ${counted(sessions, "session")}, ${counted(positions, "saved reading position")}, any unspent sign-in links`,
     );
     log(
-      `will stay: ${counted(uploads, "upload")} with no account attached (${pending} pending, which end), ${counted(reports, "report")}, ${counted(takedowns, "takedown")} resolved, ${counted(blocks, "requester block")}, ${counted(actions, "moderation log row")}`,
+      `will stay: ${counted(uploads, "upload")} with no account attached, ${counted(reports, "report")}, ${counted(takedowns, "takedown")} resolved, ${counted(blocks, "requester block")}, ${counted(actions, "moderation log row")}`,
     );
 
     const typed = await ask("type the address again to delete this account: ");
@@ -240,11 +239,6 @@ export async function accountDelete({
       await pool.query("delete from verification where position($1 in lower(value)) > 0", [
         `"email":${JSON.stringify(normalized(user.email))}`,
       ]);
-      // As a ban ends them. A `processing` one is ingest's: it finds no account, and refuses it.
-      await pool.query(
-        `update uploads set status = 'account_banned' where user_id = $1 and status = 'pending'`,
-        [user.id],
-      );
     };
     await stopActivity();
     log("waiting a minute, so a position saved just now shows up in KV's list");

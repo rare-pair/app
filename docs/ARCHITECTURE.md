@@ -1068,7 +1068,7 @@ deletes, in this order:
 
 1. The sessions, so a signed-in reader stops saving positions.
 2. Its unspent sign-in links in `verification`, since one would make a new account
-   at the address, and its `pending` uploads, which end `account_banned`.
+   at the address.
 3. After a minute's wait, because KV lists can lag a write by up to a minute: the
    same again, since the person could sign in during the wait, then the
    `pos:<user id>:` keys, listed through the KV API and removed in bulk.
@@ -1086,10 +1086,12 @@ What stays, and why:
 
 - **Upload rows**, with `user_id` null, because `work_versions` points at them;
   works and versions stay public. A moderator's work page says "Deleted account"
-  on that version's row, with no ban form. An upload already `processing` is
+  on that version's row, with no ban form. A confirmed upload not yet saved is
   refused as a banned uploader's is, because `isUploaderBanned` counts an account
-  with no row as banned. A version held for review stays held, and a moderator can
-  still approve it.
+  with no row as banned. An open upload can't be confirmed with no account, so the
+  reaper takes its row and file (Orphaned uploads). A link already handed out can
+  still store its file until the link expires, and the `uploads/` expiry removes it.
+  A version held for review stays held, and a moderator can still approve it.
 - **Reports**, with `reporter_id` as it was. It has no foreign key, so a deleted
   account's report still counts toward the automatic hide (Author requests &
   takedowns). No page shows a reporter's id. A blocked reporter's report is left

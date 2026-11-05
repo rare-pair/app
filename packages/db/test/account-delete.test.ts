@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { accountDelete } from "../../../scripts/account-delete.mjs";
 import {
   banUser,
+  deleteUnconfirmedUploads,
   getLiveWork,
   hideWork,
   insertUpload,
@@ -296,7 +297,7 @@ describe("18-moderation", () => {
     expect(seen).toEqual([
       `account: ${a.email}, role moderator`,
       "will delete: the account, 1 session, 2 saved reading positions, any unspent sign-in links",
-      "will stay: 1 upload with no account attached (0 pending, which end), 1 report, 1 takedown resolved, 1 requester block, 1 moderation log row",
+      "will stay: 1 upload with no account attached, 1 report, 1 takedown resolved, 1 requester block, 1 moderation log row",
     ]);
   });
 
@@ -418,28 +419,15 @@ describe("18-moderation", () => {
       expires_at: new Date(Date.now() + 60_000),
       updated_at: new Date(),
     };
-    let uploadId = "";
 
     const result = await run(a.email, fakeKv(), a.email, undefined, async () => {
       await t.db.insertInto("verification").values(link).execute();
-      const upload = await insertUpload(t.db, {
-        userId: a.id,
-        r2Key: `uploads/${crypto.randomUUID()}`,
-        bytes: 10,
-      });
-      uploadId = upload.id;
     });
 
     expect(result.deleted).toBe(true);
     expect(
       await t.db.selectFrom("verification").select("id").where("id", "=", link.id).execute(),
     ).toEqual([]);
-    const upload = await t.db
-      .selectFrom("uploads")
-      .select("status")
-      .where("id", "=", uploadId)
-      .executeTakeFirstOrThrow();
-    expect(upload.status).toBe("account_banned");
   });
 
   it("An account is deleted on request: a position saved just before the delete goes too", async () => {
@@ -454,13 +442,10 @@ describe("18-moderation", () => {
     expect(kv.held.size).toBe(0);
   });
 
-  it("An account is deleted on request: a pending upload ends as a banned uploader's does", async () => {
+  it("An account is deleted on request: an upload never confirmed is left for the reaper", async () => {
     const a = await addUser();
-    const { id } = await insertUpload(t.db, {
-      userId: a.id,
-      r2Key: `uploads/${crypto.randomUUID()}`,
-      bytes: 10,
-    });
+    const r2Key = `uploads/${crypto.randomUUID()}`;
+    const { id } = await insertUpload(t.db, { userId: a.id, r2Key, bytes: 10 });
 
     await run(a.email, fakeKv());
 
@@ -469,7 +454,10 @@ describe("18-moderation", () => {
       .select(["status", "user_id"])
       .where("id", "=", id)
       .executeTakeFirstOrThrow();
-    expect(upload).toEqual({ status: "account_banned", user_id: null });
+    expect(upload).toEqual({ status: "pending", user_id: null });
+    // Past the reaper's age, it goes with no account to find.
+    const later = new Date(Date.now() + 60_000);
+    expect(await deleteUnconfirmedUploads(t.db, later, 1000)).toContain(r2Key);
   });
 
   it("An account is deleted on request: an unspent sign-in link goes too, and nobody else's", async () => {
