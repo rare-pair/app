@@ -31,12 +31,13 @@
       },
       {
         // Fails an upload whose job never recorded an ending (ARCHITECTURE, EPUB processor,
-        // step 8). One invocation at once, so it holds one Postgres connection. An hour of
-        // retries, to outlast a short outage, each after a job's lease has run out. An outage
-        // longer than that deletes the message, and the upload stays as it was: there is no
-        // redrive, and no dead-letter queue behind this one.
+        // step 8). One message an invocation, so a hung query can't cost another its retries, and
+        // one invocation at once, so it holds one Postgres connection. An hour of retries, to
+        // outlast a short outage, each after a job's lease has run out. An outage longer than
+        // that deletes the message, and the upload stays as it was: there is no redrive, and no
+        // dead-letter queue behind this one.
         "queue": "ingest-dlq",
-        "max_batch_size": 10,
+        "max_batch_size": 1,
         "max_batch_timeout": 5,
         "max_concurrency": 1,
         "max_retries": 30,

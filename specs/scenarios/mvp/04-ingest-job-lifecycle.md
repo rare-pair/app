@@ -94,6 +94,31 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 - THEN the upload's row stays as it is, and the message is retried
 - AND a later delivery that finds the lease expired records the upload as failed
 
+### A repeat dead-letter message for an upload it failed is harmless
+- GIVEN an upload a dead-letter message has already recorded as failed
+- WHEN the message is delivered again
+- THEN the upload's row stays as it is, and the message is acked
+
+### A dead-letter message for no upload, or with a bad body, is acked
+- GIVEN a dead-letter message naming no upload, or whose body doesn't keep the message contract
+- WHEN it is delivered
+- THEN it is acked, since no retry can change it
+
+### A dead-letter message is retried while Postgres is down
+- GIVEN an upload still `pending`, and Postgres unreachable
+- WHEN its dead-letter message is delivered
+- THEN the message is retried
+- AND a message still undelivered after the consumer's retries is deleted, leaving the upload as it was: there is no redrive
+
+### The dead-letter consumer outlasts a short Postgres outage and a dying job's lease
+- GIVEN the dead-letter queue's consumer as configured
+- THEN it takes one message per invocation, one invocation at once, retrying for an hour with a delay longer than the job's lease
+- AND no dead-letter queue sits behind it
+
+### One upload is handled per invocation
+- GIVEN the ingest queue's consumer as configured
+- THEN its batch size is 1, so a crash in one job can't spend another upload's retries
+
 ### Once a job has failed for good, the sweep no longer skips its work
 - GIVEN a work whose sweep skips it as `in_flight`, because of an upload left `processing`
 - WHEN the upload's message reaches the dead-letter queue, and the sweep next runs

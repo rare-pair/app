@@ -21,7 +21,11 @@ export async function deadLetterBatch(batch: MessageBatch, db: Kysely<Database>)
       message.ack();
       continue;
     }
-    const line = { event: "ingest.dead_letter", uploadId: parsed.upload_id };
+    const line = {
+      event: "ingest.dead_letter",
+      uploadId: parsed.upload_id,
+      attempt: message.attempts,
+    };
     // Caught per message: a throw out of queue() would retry the whole batch.
     try {
       const outcome = await failDeadLettered(db, parsed.upload_id);
@@ -38,10 +42,11 @@ export async function deadLetterBatch(batch: MessageBatch, db: Kysely<Database>)
 }
 
 /**
- * Sets the upload `parse_failed`, with its stage unknown, only if no job could still end it (the
- * rows `claimLease` matches). An upload left under a live lease says `leased`: a job may still be
- * running, or may have died a moment ago, and the lease alone can't tell. A later delivery finds
- * its ending, or its lease expired.
+ * Sets the upload `parse_failed`, with its stage unknown, only if no job holds it (the rows
+ * `claimLease` matches). A duplicate of its message waiting on a retry then finds it ended. An
+ * upload left under a live lease says `leased`: a job may still be running, or may have died a
+ * moment ago, and the lease alone can't tell. A later delivery finds its ending, or its lease
+ * expired.
  */
 async function failDeadLettered(
   db: Kysely<Database>,

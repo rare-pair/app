@@ -53,8 +53,13 @@ describe("04-ingest-job-lifecycle", () => {
 
   it("The dead-letter consumer outlasts a short Postgres outage and a dying job's lease", () => {
     const dlq = consumerOf(INGEST_DLQ);
-    // One invocation at a time, and retried for an hour before a message is deleted.
-    expect(dlq).toMatchObject({ max_concurrency: 1, max_retries: 30, retry_delay: 120 });
+    // One message and one invocation at a time, retried for an hour before it is deleted.
+    expect(dlq).toMatchObject({
+      max_batch_size: 1,
+      max_concurrency: 1,
+      max_retries: 30,
+      retry_delay: 120,
+    });
     // So the next delivery finds the lease of a job that has just died expired.
     expect(dlq.retry_delay).toBeGreaterThan(LEASE_SECONDS);
     // Nothing behind it: a message it can't place is deleted, not moved on.

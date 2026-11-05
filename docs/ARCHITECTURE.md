@@ -532,7 +532,9 @@ Chapter text isn't indexed.
    included, so a repeat delivery is harmless. Under a live lease the row is left
    and the message retried: a job may yet end it, or may have died a moment
    before its message moved, and a later delivery finds it ended or expired.
-   The consumer runs at most one invocation at once, in batches of up to 10, and
+   A duplicate of the message that is still retrying then finds the upload ended,
+   and the uploader is told to try again even if that delivery might have saved it.
+   The consumer handles one message per invocation, one invocation at once, and
    retries every 120 seconds, past the 60-second lease, for an hour (30 retries).
    That outlasts a short Postgres outage and a job running to the 15-minute
    wall-time limit. After a longer outage the message is deleted, with no
