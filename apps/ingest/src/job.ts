@@ -105,29 +105,33 @@ async function endJob(deps: JobDeps, lease: Lease, outcome: Outcome): Promise<vo
   const ended = await endLease(deps.db, lease, outcome);
   if (!ended || outcome.status === "pending") return;
   if (outcome.status !== "work_removed") {
-    await deleteRefused("original", lease.id, () => deleteOriginal(deps.bucket, lease.id));
+    await deleteRefused(
+      lease.id,
+      ["ingest.refused_original_deleted", "ingest.refused_original_delete_failed"],
+      () => deleteOriginal(deps.bucket, lease.id),
+    );
   }
   if (outcome.status === "opted_out" || outcome.status === "work_removed") {
-    await deleteRefused("upload", lease.id, () => deleteStagingFile(deps.bucket, lease.r2Key));
+    await deleteRefused(
+      lease.id,
+      ["ingest.refused_upload_deleted", "ingest.refused_upload_delete_failed"],
+      () => deleteStagingFile(deps.bucket, lease.r2Key),
+    );
   }
 }
 
 /** Runs one delete of `endJob`'s, logging the upload id and a count, or the failure. */
 async function deleteRefused(
-  file: "original" | "upload",
   uploadId: string,
+  [deletedEvent, failedEvent]: [string, string],
   remove: () => Promise<number>,
 ): Promise<void> {
   try {
     const deleted = await remove();
     // Silent when there was none: most refusals come before anything was stored.
-    if (deleted > 0) console.log({ event: `ingest.refused_${file}_deleted`, uploadId, deleted });
+    if (deleted > 0) console.log({ event: deletedEvent, uploadId, deleted });
   } catch (error) {
-    console.error({
-      event: `ingest.refused_${file}_delete_failed`,
-      uploadId,
-      error: errorCode(error),
-    });
+    console.error({ event: failedEvent, uploadId, error: errorCode(error) });
   }
 }
 

@@ -70,8 +70,8 @@ export async function deleteOriginal(
 }
 
 /**
- * Deletes the upload's staging file at `r2Key` and returns how many keys it deleted. The job
- * has just read the file, so there is no listing to find it. A stored key is trusted only under
+ * Deletes the upload's staging file at `r2Key` and returns 1, or 0 for a key it won't touch. The
+ * job has just read the file, so there is no listing to find it. A stored key is trusted only under
  * `uploads/`, so a bad row can't reach another work's objects. The caller must have ended the
  * upload: until then a later attempt reads this file.
  */
