@@ -241,6 +241,29 @@ describe("02-upload-handshake", () => {
     });
   });
 
+  it.each([
+    ["larger", 2000, 1000],
+    ["smaller", 1000, 2000],
+  ])(
+    "Confirm refuses and deletes a file of another size than declared: stored %s",
+    async (word, stored, declared) => {
+      const { userId, cookie } = await signIn(`uploadcap-size-${word}@example.test`);
+      const up = await uploaded(userId, randomBytes(stored), declared);
+
+      const res = await complete(up.id, { cookie });
+
+      await expectRefused(res.clone(), 400);
+      // SAFETY: POST /uploads/:id/complete answers JSON.
+      expect(((await res.json()) as { error: string }).error).toMatch(/size/);
+      expect(await env.BUCKET.head(up.key)).toBeNull();
+      // Left pending, for the reaper: not counted against the quota, and never queued.
+      expect(await rowOf(up.id)).toEqual({ status: "pending", sha256: null, work_id: null });
+      expect(await usedOf(userId)).toBe(0);
+      await queueDrained(userId, cookie);
+      expect(await ingestSent(up.id)).toEqual([]);
+    },
+  );
+
   it("An object of exactly 25 MiB is accepted", async () => {
     const { userId, cookie } = await signIn("u2-exact@example.test");
     const bytes = new Uint8Array(MAX);

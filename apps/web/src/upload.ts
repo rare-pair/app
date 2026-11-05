@@ -190,6 +190,7 @@ export async function requestUpload(c: UploadContext) {
           secretAccessKey: c.env.R2_SECRET_ACCESS_KEY,
           key,
           contentType: EPUB_TYPE,
+          contentLength: bytes,
           expiresSeconds: UPLOAD_URL_SECONDS,
           now: new Date(),
         });

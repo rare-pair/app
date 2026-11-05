@@ -4,6 +4,7 @@ import { env } from "cloudflare:workers";
 import { sql } from "kysely";
 import { afterAll, describe, expect, it } from "vitest";
 import app from "../src/index";
+import { presignPut } from "../src/presign";
 import {
   BASE,
   fetchW,
@@ -56,6 +57,25 @@ const uploadsOf = (userId: string) =>
 
 type Reply = { id?: string; url?: string; error?: string };
 
+/** The URL `presignPut` gives upload `id` for `bytes`, at the moment `put` was signed. */
+const signedFor = (id: string, bytes: number, put: URL) =>
+  presignPut({
+    accountId: env.R2_ACCOUNT_ID,
+    bucket: env.R2_BUCKET,
+    accessKeyId: env.R2_ACCESS_KEY_ID,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+    key: `uploads/${id}`,
+    contentType: "application/epub+zip",
+    contentLength: bytes,
+    expiresSeconds: 600,
+    now: new Date(
+      (put.searchParams.get("X-Amz-Date") ?? "").replace(
+        /^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)Z$/,
+        "$1-$2-$3T$4:$5:$6Z",
+      ),
+    ),
+  });
+
 /** The JSON reply of a refused request: an error to show, and nothing else. */
 async function expectRefused(res: Response, status: number) {
   expect(res.status).toBe(status);
@@ -103,8 +123,41 @@ describe("02-upload-handshake", () => {
     expect(put.origin).toBe(`https://${S3_HOST}`);
     expect(put.pathname).toBe(`/rarepair/uploads/${id}`);
     expect(put.searchParams.get("X-Amz-Expires")).toBe("600");
-    expect(put.searchParams.get("X-Amz-SignedHeaders")).toBe("content-type;host");
+    expect(put.searchParams.get("X-Amz-SignedHeaders")).toBe("content-length;content-type;host");
     expect(put.searchParams.get("X-Amz-Signature")).toMatch(/^[0-9a-f]{64}$/);
+    // Signed for the size declared, in workerd too: the Request keeps its Content-Length.
+    expect(put.searchParams.get("X-Amz-Signature")).toBe(
+      new URL(await signedFor(id!, 123456, put)).searchParams.get("X-Amz-Signature"),
+    );
+    expect(put.searchParams.get("X-Amz-Signature")).not.toBe(
+      new URL(await signedFor(id!, 123457, put)).searchParams.get("X-Amz-Signature"),
+    );
+  });
+
+  it("Each link is signed for the size declared when it was asked for", async () => {
+    const { userId, cookie } = await signIn("uploadcap-three-sizes@example.test");
+    const sizes = [1000, 2000, 3000];
+    const res = await postLogin(
+      {},
+      {
+        url: "/uploads",
+        headers: { cookie },
+        body: new URLSearchParams([
+          ...sizes.map((size): [string, string] => ["size", String(size)]),
+          ["cf-turnstile-response", UPLOAD_TOKEN],
+        ]).toString(),
+      },
+    );
+    expect(res.status).toBe(200);
+    // SAFETY: POST /uploads answers JSON, with one entry per file for several.
+    const { uploads } = (await res.json()) as { uploads: { id: string; url: string }[] };
+    const rows = await uploadsOf(userId);
+    expect(rows.map((row) => row.bytes).sort((a, b) => a - b)).toEqual(sizes);
+    for (const { id, url } of uploads) {
+      const put = new URL(url);
+      const bytes = rows.find((row) => row.id === id)?.bytes ?? 0;
+      expect(url).toBe(await signedFor(id, bytes, put));
+    }
   });
 
   it("Declared size of exactly 25 MB is accepted", async () => {

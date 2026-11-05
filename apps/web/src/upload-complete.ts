@@ -115,9 +115,26 @@ export async function completeUpload(c: CompleteContext) {
       );
     };
 
+    // Another size than was declared, and signed into the link: refused whatever R2 did at the
+    // PUT, whose check of a signed size Cloudflare's docs don't promise. The row stays pending
+    // and uncounted, so the reaper removes it. A delete that fails leaves the object for the
+    // bucket's 7-day lifecycle rule.
+    const discardWrongSize = async () => {
+      try {
+        await c.env.BUCKET.delete(upload.r2_key);
+      } catch (error) {
+        console.error("deleting an object of the wrong size failed", error);
+      }
+      return refuse(
+        400,
+        "That file isn't the size it was when you picked it, so it wasn't kept. Please upload it again.",
+      );
+    };
+
     const head = await c.env.BUCKET.head(upload.r2_key);
     if (head === null) return missing();
     if (head.size > MAX_UPLOAD_BYTES) return discardOversized();
+    if (head.size !== upload.bytes) return discardWrongSize();
 
     // The presigned URL still works for ten minutes, so the object can have been replaced since
     // the HEAD: the size is checked again on the object that is hashed.
@@ -126,6 +143,10 @@ export async function completeUpload(c: CompleteContext) {
     if (object.size > MAX_UPLOAD_BYTES) {
       await object.body.cancel();
       return discardOversized();
+    }
+    if (object.size !== upload.bytes) {
+      await object.body.cancel();
+      return discardWrongSize();
     }
     // Streamed through the digest, never buffered: the body can be 25 MiB.
     const digest = new crypto.DigestStream("SHA-256");

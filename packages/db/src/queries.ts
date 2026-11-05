@@ -405,10 +405,11 @@ export async function insertUpload(
   return { id: row.id, status: "pending" };
 }
 
-/** The upload `/complete` needs to act on: its R2 key and where it stands. */
+/** The upload `/complete` needs to act on: its R2 key, its declared size and where it stands. */
 export interface OwnUpload {
   id: string;
   r2_key: string;
+  bytes: number;
   status: UploadStatus;
 }
 
@@ -420,7 +421,7 @@ export async function getUploadOf(
 ): Promise<OwnUpload | null> {
   const row = await db
     .selectFrom("uploads")
-    .select(["id", "r2_key", "status"])
+    .select(["id", "r2_key", "bytes", "status"])
     .where("id", "=", id)
     .where("user_id", "=", userId)
     .executeTakeFirst();
