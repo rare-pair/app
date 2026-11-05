@@ -927,6 +927,22 @@ describe("04-ingest-job-lifecycle", () => {
     expect(await uploadHash(id)).toBe(await sha256Hex(fileB));
   });
 
+  it("A later attempt that reads nothing leaves the last read's hash", async () => {
+    const fileA = ao3Epub({ workId: 60414 });
+    const fileB = ao3Epub({ workId: 60415 });
+    const id = await pendingUpload(fileB);
+    await confirmAs(id, fileA);
+    const { handler } = watchedWorker({ bucket: failingPut(`originals/${id}.epub`) });
+    await deliver([{ upload_id: id }], { handler });
+    expect((await uploadRow(id)).status).toBe("pending");
+    await env.BUCKET.delete(`uploads/${id}.epub`);
+
+    await deliver([{ upload_id: id }], { attempts: 2 });
+
+    expect(await uploadRow(id)).toMatchObject({ status: "parse_failed", error: "object_missing" });
+    expect(await uploadHash(id)).toBe(await sha256Hex(fileB));
+  });
+
   it("A job that has lost its lease records no hash", async () => {
     const confirmed = ao3Epub({ workId: 60413 });
     const id = await pendingUpload(new TextEncoder().encode("a takeover comes while this is read"));

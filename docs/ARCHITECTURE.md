@@ -341,10 +341,10 @@ Chapter text isn't indexed.
    included. So a job that lost its lease records none, and the last read's hash
    stands. A hash that differs from confirm's isn't refused or shown to the
    uploader, and no locked copy of the file is made: the job handles what it
-   read. An upload no job read keeps confirm's hash: one whose object is gone or
-   over the limit, whose account is banned before the read, or that the
-   dead-letter consumer fails. Check the zip's file index before decompressing
-   anything:
+   read. An attempt that ends without reading (the object is gone or over the
+   limit, or the account is banned first), and the dead-letter consumer, leave the
+   hash as it is: confirm's, until a job has read the file. Check the zip's file
+   index before decompressing anything:
    - at most 2,000 entries
    - at most 40 MB uncompressed in total
    - at most 20 MB per entry

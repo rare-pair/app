@@ -184,6 +184,11 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 - WHEN the job runs again and saves the upload
 - THEN its row ends with the hash of B
 
+### A later attempt that reads nothing leaves the last read's hash
+- GIVEN an upload confirmed as file A, whose job read file B and failed with attempts left
+- WHEN its object is then gone, and the job runs again
+- THEN the upload ends `parse_failed`, and its row with the hash of B
+
 ### A job that has lost its lease records no hash
 - GIVEN a job that has read a file, whose upload another job has taken over
 - WHEN it reaches its ending write
