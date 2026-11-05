@@ -709,7 +709,14 @@ async function endUpload(
 ): Promise<void> {
   const upload = await trx
     .updateTable("uploads")
-    .set({ status, work_id: workId, lease_until: null, error_stage: null, error: null })
+    .set({
+      status,
+      work_id: workId,
+      lease_until: null,
+      error_stage: null,
+      error: null,
+      sha256: lease.sha256,
+    })
     .where("id", "=", lease.id)
     .where("status", "=", "processing")
     .where("lease_until", "=", lease.until)

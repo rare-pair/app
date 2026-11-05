@@ -225,7 +225,8 @@ processor section. Files without an AO3 preface carrying that URL are
 rejected in v1, even if the OPF names an AO3 work. Byte-identical
 re-uploads are caught at `/complete` by the file's SHA-256: the upload is marked
 `duplicate` straight away, with no ingest run and no second copy kept
-(Ingestion pipeline, step 3).
+(Ingestion pipeline, step 3). The hash that later uploads are matched against is
+the one of the bytes ingest read, where ingest read any (EPUB processor, step 2).
 
 **Tags.** AO3's tag wrangling (canonical tags and synonyms) can't be rebuilt in
 a week. Store tags exactly as written, plus a normalized form (`name_norm`:
@@ -289,7 +290,9 @@ rule's whitespace and invisible-character removal is blank, and names nobody).
    was removed) gets no shortcut: the new upload is enqueued like any other,
    and the versioning rules, the same rejection, or (for a removed work) the
    opt-out and takedown checks, then `work_removed`, decide it. Otherwise it
-   enqueues `{upload_id}`.
+   enqueues `{upload_id}`. The hash stored here stands only until a job reads the file: the
+   presigned PUT stays valid after confirm, so the object can change, and the job
+   records the hash of what it read (EPUB processor, step 2).
 4. **Process.** The ingest consumer handles one upload per invocation (a batch
    size of 1), so a crash in one job has no batch-mate to spend the retries of, with
    retries and a dead-letter queue. See the EPUB processor section below. An
@@ -332,8 +335,16 @@ Chapter text isn't indexed.
    every 15 seconds (the lease is 60) and checks it still holds the upload before each
    stage and each R2 write. A job that finds it lost stops, logs it and writes or
    deletes nothing more; the fenced write in the Postgres transaction has the last word.
-2. **Unzip with limits.** Read the object from R2 (25 MB or less) and check
-   the zip's file index before decompressing anything:
+2. **Unzip with limits.** Read the object from R2 (25 MB or less) and hash the
+   bytes read (SHA-256). That hash replaces the one confirm stored, in the job's
+   fenced ending write, whatever the job ends as, a rejection or a retry
+   included. So a job that lost its lease records none, and the last read's hash
+   stands. A hash that differs from confirm's isn't refused or shown to the
+   uploader, and no locked copy of the file is made: the job handles what it
+   read. An upload no job read keeps confirm's hash: one whose object is gone or
+   over the limit, whose account is banned before the read, or that the
+   dead-letter consumer fails. Check the zip's file index before decompressing
+   anything:
    - at most 2,000 entries
    - at most 40 MB uncompressed in total
    - at most 20 MB per entry

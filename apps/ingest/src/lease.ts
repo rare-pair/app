@@ -26,6 +26,11 @@ export interface Lease {
    * and the keeper updates this to match. The ending writes compare against it.
    */
   until: Date;
+  /**
+   * SHA-256 (lowercase hex) of the file this job read. The ending writes record it, over the hash
+   * confirm stored; absent until the job has read one, and then they leave that hash alone.
+   */
+  sha256?: string;
   /** Renews the lease while the job runs; absent for a lease nobody keeps (a test's). */
   keeper?: LeaseKeeper;
 }
@@ -92,6 +97,7 @@ export async function endLease(
       lease_until: null,
       error_stage: outcome.failure?.stage ?? null,
       error: outcome.failure?.error ?? null,
+      sha256: lease.sha256,
     })
     .where("id", "=", lease.id)
     .where("status", "=", "processing")

@@ -150,3 +150,41 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 - AND a failed delete changes neither the upload's status nor the message's verdict
 - AND a job that lost its lease deletes nothing a takeover job shares
 - AND a crash between the ending write and the delete leaves the file, which nothing deletes yet (https://github.com/rare-pair/app/issues/592)
+
+### A file swapped after confirm is recorded by what was read
+- GIVEN an upload confirmed as file A, whose object has since been replaced by file B through the same presigned URL
+- WHEN the job runs
+- THEN the job handles file B, as it would any upload, with no new rejection code and nothing new for the uploader to see
+- AND the upload's row ends with the hash of B, the bytes the job read, in place of A's
+
+### A swap doesn't block the original file
+- GIVEN an upload confirmed as file A and ingested as file B
+- WHEN a later genuine upload of A is confirmed
+- THEN it isn't told it's a duplicate of the swapped upload, and its job runs like any other
+- AND a later upload of B is told it's a duplicate of the swapped upload's work
+
+### An upload that wasn't swapped ends as it always has
+- GIVEN an upload confirmed as the file its object still holds
+- WHEN the job runs
+- THEN the row ends as it would without the hash being taken, with the hash confirm stored
+
+### An upload the job read and refused keeps the hash of what was read
+- GIVEN an upload confirmed as file A, whose object has since been replaced by a file the processor refuses
+- WHEN the job runs
+- THEN the upload ends with the refusal's code, and its row with the hash of the refused file
+
+### An upload no job read keeps the hash confirm stored
+- GIVEN a confirmed upload whose job ends before reading the file: its object is gone or over the size limit, or its account is banned
+- OR a confirmed upload the dead-letter consumer fails
+- WHEN it ends
+- THEN its row keeps the hash confirm stored
+
+### A retry records what its own read saw
+- GIVEN an upload whose job read file A and failed with attempts left, and whose object has since been replaced by file B
+- WHEN the job runs again and saves the upload
+- THEN its row ends with the hash of B
+
+### A job that has lost its lease records no hash
+- GIVEN a job that has read a file, whose upload another job has taken over
+- WHEN it reaches its ending write
+- THEN the row keeps the hash it had
