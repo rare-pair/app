@@ -1,4 +1,6 @@
+import { createHmac, randomUUID } from "node:crypto";
 import type { BrowserContext, Page } from "playwright";
+import { SECRETS } from "../../test/stand-ins";
 import { SITE, type ContextOptions, type Site } from "./site";
 import { viaHeader } from "./walk";
 
@@ -48,12 +50,65 @@ export const signedIn = (site: Site, account: Account, options: ContextOptions =
 export const signedInDirect = (site: Site, account: Account, options: ContextOptions = {}) =>
   signIn(site, account, options, (page) => page.goto(`${SITE}/login`).then(() => undefined));
 
-async function signIn(
+// src/auth.ts's SESSION_COOKIE. That module needs Workers' types, which this Node code hasn't. If
+// the two differ, the accounts below aren't signed in and the before-launch suites fail.
+const SESSION_COOKIE = "__Secure-better-auth.session_token";
+
+/**
+ * A session from before sign-in closed, for a site before launch, where no form can make one:
+ * the account and session rows, and the cookie as Better Auth signs it.
+ */
+async function seededSession(
   site: Site,
   { email, role = "reader", acceptTerms = true }: Account,
   options: ContextOptions,
+): Promise<SignedIn> {
+  const userId = randomUUID();
+  const token = randomUUID();
+  await site.db
+    .insertInto("user")
+    .values({
+      id: userId,
+      name: "",
+      email,
+      email_verified: true,
+      role: role === "moderator" ? "moderator" : null,
+      terms_accepted_at: acceptTerms ? new Date() : null,
+    })
+    .execute();
+  await site.db
+    .insertInto("session")
+    .values({
+      id: randomUUID(),
+      token,
+      user_id: userId,
+      expires_at: new Date(Date.now() + 60 * 60 * 1000),
+      updated_at: new Date(),
+    })
+    .execute();
+  const signature = createHmac("sha256", SECRETS.BETTER_AUTH_SECRET).update(token).digest("base64");
+  const context = await site.newContext(options);
+  await context.addCookies([
+    {
+      name: SESSION_COOKIE,
+      value: encodeURIComponent(`${token}.${signature}`),
+      url: SITE,
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax",
+    },
+  ]);
+  return { context, userId };
+}
+
+async function signIn(
+  site: Site,
+  account: Account,
+  options: ContextOptions,
   openSignIn: (page: Page) => Promise<void>,
 ): Promise<SignedIn> {
+  if (site.prelaunch) return seededSession(site, account, options);
+  const { email, role = "reader", acceptTerms = true } = account;
   const context = await site.newContext(options);
   const page = await context.newPage();
   try {

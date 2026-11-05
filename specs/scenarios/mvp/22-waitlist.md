@@ -40,9 +40,16 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Wait list), § Wait list, 
 
 ### Other app pages are closed before launch
 - GIVEN `PRELAUNCH` is on
-- WHEN a visitor opens any app page other than `/`, the `/waitlist` pages, `/terms`, `/privacy`, sign-in (`/login`, `/login/confirm`), `/welcome/terms`, sign-out (`/logout`) or `/admin`
+- WHEN a visitor opens any app page other than `/`, the `/waitlist` pages, `/terms`, `/privacy`, `/welcome/terms`, sign-out (`/logout`) or `/admin`
 - THEN they are redirected to `/` with a 302
 - AND `content.rarepair.fans` is unaffected
+
+### Sign-in is closed before launch
+- GIVEN `PRELAUNCH` is on
+- WHEN a visitor opens or posts to `/login`, or opens or posts a link to `/login/confirm`
+- THEN they are redirected to `/` with a 302, no sign-in email is queued, and no session is made
+- AND a session from before sign-in closed can still accept the terms, sign out and reach `/admin` if its role allows
+- AND the sign-out page, signed out, says so without offering to sign in
 
 ### Joining queues one confirmation email
 - GIVEN an address that is not on the wait list and a passing Turnstile token

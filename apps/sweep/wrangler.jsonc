@@ -20,7 +20,7 @@
   // Five minutes, under the 15-minute wall time a cron invocation has.
   "limits": { "cpu_ms": 300000 },
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "rarepair" }],
-  // Neon Postgres. The id is a placeholder until the Hyperdrive config is created. It is the
+  // Neon Postgres. It is the
   // config with caching off, the one apps/web's HYPERDRIVE uses (ARCHITECTURE, Connections): the
   // sweep decides what to delete from what it reads, so every read must be fresh (src/sweep.ts
   // also keeps its reads uncacheable). Tests replace the local connection string with their
@@ -28,7 +28,7 @@
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "00000000000000000000000000000000",
+      "id": "4513add0a933451b8b1657e6caec3537",
       "localConnectionString": "postgresql://postgres:postgres@127.0.0.1:5432/postgres",
     },
   ],

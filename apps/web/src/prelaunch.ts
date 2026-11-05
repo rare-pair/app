@@ -8,15 +8,14 @@ import type { Bindings } from "./env";
 export const isPrelaunch = (env: Pick<Bindings, "PRELAUNCH">) => env.PRELAUNCH !== "off";
 
 // The pages open before launch (ARCHITECTURE, Wait list): the coming-soon page, the
-// static pages, sign-in, so an admin can sign in for the first time, and what those
-// pages load, and sign-out, so anyone signed in can leave.
+// static pages and what they load. Sign-in is closed, so nobody gets a session until the
+// archive opens. Sign-out and the terms page stay, for a session from before that: without
+// the terms page, the terms gate and this redirect would send it round in a loop.
 const OPEN_PATHS = new Set([
   "/",
   "/terms",
   "/privacy",
   "/about",
-  "/login",
-  "/login/confirm",
   "/logout",
   "/welcome/terms",
   "/robots.txt",
@@ -43,20 +42,23 @@ export const closedBeforeLaunch: MiddlewareHandler<{
   return c.redirect("/", 302);
 };
 
-/** Links to pages that are closed before launch: the footer's two forms, the header's three. */
+/** Links to pages that are closed before launch: the footer's two forms, the header's four. */
 const CLOSED_LINKS = [
   'footer a[href="/remove"]',
   'footer a[href="/dmca"]',
   'body > header a[href="/search"]',
   'body > header a[href="/upload"]',
   'body > header a[href="/me/uploads"]',
+  'body > header a[href="/login"]',
 ].join(", ");
 
 /**
  * Before launch, shows what points at a closed page as disabled: the footer's two form
- * links and the site header's "Search", "Add work" and "My uploads" lose their hrefs (so each goes
+ * links and the site header's "Search", "Add work", "My uploads" and "Sign in" lose their hrefs (so each goes
  * nowhere and is skipped by Tab) and say they are disabled, and the not-found page's
- * search form keeps its label with its input and button disabled. Applied to every HTML
+ * search form keeps its label with its input and button disabled. An offer to sign in within
+ * a page's text (`data-sign-in-offer`) goes altogether: a dead link in a sentence reads as
+ * a broken one. Applied to every HTML
  * response, so an /admin refusal still equals a real 404. After launch it does nothing.
  */
 export const disableClosedLinks: MiddlewareHandler<{
@@ -71,6 +73,11 @@ export const disableClosedLinks: MiddlewareHandler<{
         a.removeAttribute("href");
         a.setAttribute("role", "link");
         a.setAttribute("aria-disabled", "true");
+      },
+    })
+    .on("[data-sign-in-offer]", {
+      element(offer) {
+        offer.remove();
       },
     })
     .on('form[role="search"] input[type="search"], form[role="search"] button', {

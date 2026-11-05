@@ -108,7 +108,7 @@ describe("01-auth-magic-link", () => {
     expect(html).toMatch(/<input\b[^>]*type="hidden"[^>]*name="next"[^>]*value="\/works\/1"/);
     // Turnstile alongside: the widget, with the site key from wrangler.jsonc, and its script.
     expect(html).toContain(
-      '<div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-action="login">',
+      `<div class="cf-turnstile" data-sitekey="${env.TURNSTILE_SITE_KEY}" data-action="login">`,
     );
     expect(html).toContain(
       `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" nonce="${nonce}"`,

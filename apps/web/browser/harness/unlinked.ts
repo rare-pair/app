@@ -26,7 +26,6 @@ export const UNLINKED: Unlinked[] = [
   { name: "not found", reason: NATURE },
   { name: "wait list confirm", reason: EMAILED },
   { name: "wait list unsubscribe", reason: EMAILED },
-  { name: "confirm sign-in, before launch", reason: EMAILED },
   { name: "accept terms, before launch", reason: GATE },
   { name: "sign out, before launch", reason: BUTTON },
   { name: "sign out, signed out, before launch", reason: BUTTON },

@@ -1,7 +1,9 @@
+import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { inspect } from "node:util";
 import { expect, vi } from "vitest";
 import { parseMessage, type EmailMessage } from "../../mailer/src/message";
+import app from "../src/index";
 
 // Shared by the workerd tests. (11-reader-and-csp and 20-site-chrome keep their own
 // copies for now.)
@@ -171,20 +173,46 @@ export function postLogin(
 }
 
 /**
+ * `postLogin` to the Worker with the archive open, on the same bindings. Sign-in is closed
+ * before launch, so a test in the prelaunch project uses this for an account it needs to
+ * have, or for an email that marks a place in the queue.
+ */
+export async function postLoginOpen(
+  fields: Record<string, string>,
+  { url = "/login" }: { url?: string } = {},
+) {
+  const ctx = createExecutionContext();
+  const res = await app.fetch(
+    new Request(new URL(url, BASE), {
+      method: "POST",
+      redirect: "manual",
+      headers: { ...LOGIN_HEADERS, "cf-connecting-ip": freshIp() },
+      body: new URLSearchParams(fields).toString(),
+    }),
+    { ...env, PRELAUNCH: "off" },
+    ctx,
+  );
+  await waitOnExecutionContext(ctx);
+  return res;
+}
+
+/**
  * Signs `email` in through the Worker, as a browser follows the newest emailed link to
  * the confirm page and presses its button, and returns the `name=value` of its session
  * cookie. A new account hasn't accepted the terms, so every page but a few redirects it
- * to /welcome/terms: pass `acceptTerms: true` to accept them too.
+ * to /welcome/terms: pass `acceptTerms: true` to accept them too. In the prelaunch project
+ * this is how an account signed in before the site closed sign-in: the session is real,
+ * and only the sign-in itself runs with the archive open.
  */
 export async function signIn(
   email: string,
   { next = "/", acceptTerms: accept = false }: { next?: string; acceptTerms?: boolean } = {},
 ): Promise<string> {
   const before = (await emailsTo(email, { atLeast: 0 })).length;
-  expect((await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN })).status).toBe(200);
+  expect((await postLoginOpen({ email, "cf-turnstile-response": LOGIN_TOKEN })).status).toBe(200);
   const sent = await emailsTo(email, { atLeast: before + 1 });
   const token = new URL(sent.at(-1)!.url).searchParams.get("token")!;
-  const res = await postLogin({ token, next }, { url: "/login/confirm" });
+  const res = await postLoginOpen({ token, next }, { url: "/login/confirm" });
   expect(res.status).toBe(303);
   const cookie = res.headers.getSetCookie()[0]!.split(";")[0]!;
   if (accept) await acceptTerms(cookie);

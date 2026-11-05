@@ -3,9 +3,9 @@ import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
 import { fetchW, headerOf, signIn } from "./helpers";
 
-// Before launch (the "prelaunch" project, wrangler.jsonc as it deploys): /upload and
-// /me/uploads are closed, so the header's Add work and My uploads show disabled as the
-// footer's Remove link does. Sign in, Sign out and Admin stay live. Addresses are synthetic.
+// Before launch (the "prelaunch" project, wrangler.jsonc as it deploys): /upload,
+// /me/uploads and /login are closed, so the header's Add work, My uploads and Sign in show
+// disabled as the footer's Remove link does. Sign out and Admin stay live. Addresses are synthetic.
 
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 afterAll(() => db.destroy());
@@ -27,13 +27,13 @@ const expectDisabled = (attrs: string | undefined, label: string) => {
 };
 
 describe("20-site-chrome-and-legal: the site header before launch", () => {
-  it("Signed out, Search and Add work are disabled and Sign in is live", async () => {
-    for (const path of ["/", "/login", "/about", "/terms", "/privacy", "/waitlist"]) {
+  it("Signed out, Search, Add work and Sign in are disabled", async () => {
+    for (const path of ["/", "/about", "/terms", "/privacy", "/waitlist"]) {
       const res = await fetchW(path);
       const html = await res.text();
       expectDisabled(anchor(html, "Search"), path);
       expectDisabled(anchor(html, "Add work"), path);
-      expect(anchor(html, "Sign in"), path).toContain('href="/login"');
+      expectDisabled(anchor(html, "Sign in"), path);
       expect(
         anchorsOf(html).map(([t]) => t),
         path,

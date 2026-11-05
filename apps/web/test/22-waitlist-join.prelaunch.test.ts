@@ -15,7 +15,7 @@ import {
   nonceOf,
   LOGIN_TOKEN,
   WAITLIST_TOKEN,
-  postLogin,
+  postLoginOpen,
   TURNSTILE,
   withoutHeader,
   withoutNonce,
@@ -74,7 +74,7 @@ let sentinels = 0;
  */
 async function queuedForEach(addresses: string[]): Promise<number[]> {
   const sentinel = `waitlist-sentinel-${++sentinels}-${crypto.randomUUID().slice(0, 8)}@example.test`;
-  const res = await postLogin({ email: sentinel, "cf-turnstile-response": LOGIN_TOKEN });
+  const res = await postLoginOpen({ email: sentinel, "cf-turnstile-response": LOGIN_TOKEN });
   expect(res.status).toBe(200);
   await emailsTo(sentinel);
   const bodies = (await deliveredEmails()).map((body) => JSON.stringify(body));

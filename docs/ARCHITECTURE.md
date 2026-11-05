@@ -1241,9 +1241,13 @@ epub, under the normal versioning rules.
 The site goes up before the archive opens. While the web Worker's `PRELAUNCH`
 setting is on, `/` is a coming-soon page with a wait list form, and every
 other app page redirects there, except `/terms`, `/privacy`, the `/waitlist`
-pages, sign-in, `/welcome/terms`, sign-out and `/admin`, so an admin can sign
-in for the first time. Turning `PRELAUNCH` off opens the archive: `/`
-becomes the home page and `POST /waitlist` answers 404.
+pages, `/welcome/terms`, sign-out and `/admin`. Sign-in is closed too, and its
+links show disabled, so nobody gets a session until the archive opens. The last
+three stay open for a session from before sign-in closed. That leaves no way to
+become an admin before launch, and nothing needs one: the forms that fill the
+queues are closed, and the launch send and purge are local scripts. Right after
+launch, the operator signs in and sets their role. Turning `PRELAUNCH` off opens
+the archive: `/` becomes the home page and `POST /waitlist` answers 404.
 
 The wait list's pages are the only ones with web fonts: Fraunces and IBM Plex
 Mono, the publishers' own woff2 files, unmodified (FRONTEND-DISCOVERY,
@@ -1511,11 +1515,10 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
      their store.
 
   Also before launch, not tied to the order above:
-  - **The real Turnstile key.** Put the real site key on `TURNSTILE_SITE_KEY` in
-    `apps/web/wrangler.jsonc` and the real secret as the `TURNSTILE_SECRET_KEY` secret.
-    The repo holds Cloudflare's always-passes test site key, and Cloudflare refuses its
-    tokens under a real secret, so without both every Turnstile form (sign-in, upload,
-    the wait list, `/remove`, `/dmca`) fails closed.
+  - **The real Turnstile key.** `TURNSTILE_SITE_KEY` in `apps/web/wrangler.jsonc` is the
+    rarepair.fans widget's, and its secret is the `TURNSTILE_SECRET_KEY` secret. Without a
+    matching pair every Turnstile form (sign-in, upload, the wait list, `/remove`, `/dmca`)
+    fails closed.
   - **The notices mailbox.** `admin@rarepair.fans` (the `NOTICES_EMAIL` var) must exist
     and be read. The copyright notice page names it for a visitor without JavaScript and
     on a refusal that stops the form working (rate limit, failed or unreachable Turnstile check). Mail sent there doesn't reach the takedowns queue: a person reads it

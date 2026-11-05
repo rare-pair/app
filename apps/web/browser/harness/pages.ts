@@ -141,12 +141,6 @@ export const PRELAUNCH_PAGES: InventoryPage[] = [
     path: () => `/waitlist/unsubscribe?token=${TOKEN}`,
     as: "anonymous",
   },
-  { name: "sign in, before launch", path: () => "/login", as: "anonymous" },
-  {
-    name: "confirm sign-in, before launch",
-    path: () => `/login/confirm?token=${TOKEN}`,
-    as: "anonymous",
-  },
   { name: "accept terms, before launch", path: () => "/welcome/terms", as: "new account" },
   { name: "sign out, before launch", path: () => "/logout", as: "moderator" },
   { name: "sign out, signed out, before launch", path: () => "/logout", as: "anonymous" },
