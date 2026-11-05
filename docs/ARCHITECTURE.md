@@ -540,7 +540,8 @@ Chapter text isn't indexed.
    and the message retried: a job may yet end it, or may have died a moment
    before its message moved, and a later delivery finds it ended or expired.
    A duplicate of the message that is still retrying then finds the upload ended,
-   and the uploader is told to try again even if that delivery might have saved it.
+   and a job still running on a lapsed lease loses it and saves nothing, so the
+   uploader is told to try again even if that job might have saved it.
    The consumer handles one message per invocation, one invocation at once, and
    retries every 120 seconds, past the 60-second lease, for an hour (30 retries),
    with a 10-second limit on connecting and on each query, so a stalled connection

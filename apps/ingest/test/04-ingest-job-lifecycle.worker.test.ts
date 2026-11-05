@@ -621,6 +621,40 @@ describe("04-ingest-job-lifecycle", () => {
     expect(later.explicitAcks).toEqual(["msg-0"]);
   });
 
+  it("A job that outlives its lease saves nothing once its upload has failed", async () => {
+    const workId = 60103;
+    const id = await pendingUpload(ao3Epub({ workId }));
+    let enter = () => {};
+    let release = () => {};
+    const entered = new Promise<void>((resolve) => (enter = resolve));
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const { handler } = watchedWorker({
+      // Never renewed while it waits, so its lease lapses with the job still alive.
+      timing: { seconds: 1, renewSeconds: 60 },
+      bucket: beforePut(async (key) => {
+        if (!key.startsWith("originals/")) return;
+        enter();
+        await released;
+      }),
+    });
+
+    const job = deliver([{ upload_id: id }], { handler });
+    await entered;
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const dead = await deliver([{ upload_id: id }], { queue: "ingest-dlq" });
+    release();
+    const result = await job;
+
+    expect(dead.explicitAcks).toEqual(["msg-0"]);
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    const row = await uploadRow(id);
+    expect(row.status).toBe("parse_failed");
+    expect(row.error).toBe("dead_lettered");
+    const saved = await savedRows(workId, id);
+    expect(saved.works).toEqual([]);
+    expect(saved.versions).toEqual([]);
+  });
+
   it("A dead-letter message for no upload, or with a bad body, is acked", async () => {
     const result = await deliver(
       [{ upload_id: crypto.randomUUID() }, { upload_id: 7 }, "not a message"],

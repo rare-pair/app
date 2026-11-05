@@ -95,6 +95,12 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 - THEN the upload's row stays as it is, and the message is retried
 - AND a later delivery that finds the lease expired records the upload as failed
 
+### A job that outlives its lease saves nothing once its upload has failed
+- GIVEN a job still running whose lease has lapsed
+- WHEN a dead-letter message for its upload fails the upload, and the job then reaches its transaction
+- THEN the job's transaction rolls back, leaving no work or version, and its message is acked
+- AND the upload stays `parse_failed`
+
 ### A repeat dead-letter message for an upload it failed is harmless
 - GIVEN an upload a dead-letter message has already recorded as failed
 - WHEN the message is delivered again
