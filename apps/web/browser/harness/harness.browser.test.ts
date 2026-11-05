@@ -16,6 +16,7 @@ import { launchChromium, SITE, startSite, type Site } from "./site";
 // shows nothing.
 
 const EPUB = EPUB_TYPE;
+const SIZE = 1;
 const presigned = (key: string, now = new Date(), expiresSeconds = 600) =>
   presignPut({
     accountId: SECRETS.R2_ACCOUNT_ID,
@@ -24,6 +25,7 @@ const presigned = (key: string, now = new Date(), expiresSeconds = 600) =>
     secretAccessKey: SECRETS.R2_SECRET_ACCESS_KEY,
     key,
     contentType: EPUB,
+    contentLength: SIZE,
     expiresSeconds,
     now,
   });
@@ -137,16 +139,21 @@ describe("on a running site", () => {
       const page = await context.newPage();
       // The upload page's CSP is the one that lets a script reach the endpoint.
       await page.goto(`${SITE}/upload`);
-      const put = (url: string) =>
+      const put = (url: string, body = "x") =>
         page.evaluate(
-          async ([target, type]) =>
-            (await fetch(target, { method: "PUT", headers: { "content-type": type }, body: "x" }))
+          async ([target, type, sent]) =>
+            (await fetch(target, { method: "PUT", headers: { "content-type": type }, body: sent }))
               .status,
-          [url, EPUB],
+          [url, EPUB, body],
         );
       const good = await presigned("uploads/pw0-good");
       expect(await put(good)).toBe(200);
       expect(await site.bucket.head("uploads/pw0-good")).not.toBeNull();
+
+      // Signed for one byte. This models R2 only if R2 enforces a signed size, which isn't known.
+      const longer = await presigned("uploads/pw0-longer");
+      expect(await put(longer, "xx")).toBe(403);
+      expect(await site.bucket.head("uploads/pw0-longer")).toBeNull();
 
       const forged = good.replace("uploads/pw0-good", "uploads/pw0-forged");
       expect(await put(forged)).toBe(403);
@@ -179,21 +186,25 @@ describe("the presigned PUT stand-in's signature check", () => {
   const key = "uploads/pw0-key";
 
   it("names the key of a URL as presigned", async () => {
-    expect(await signedKey(await presigned(key, NOW), EPUB, NOW)).toBe(key);
+    expect(await signedKey(await presigned(key, NOW), EPUB, SIZE, NOW)).toBe(key);
   });
 
   it("refuses a URL altered after signing", async () => {
     const url = (await presigned(key, NOW)).replace(key, "uploads/pw0-other");
-    expect(await signedKey(url, EPUB, NOW)).toBeNull();
+    expect(await signedKey(url, EPUB, SIZE, NOW)).toBeNull();
   });
 
   it("refuses another content type", async () => {
-    expect(await signedKey(await presigned(key, NOW), "text/html", NOW)).toBeNull();
+    expect(await signedKey(await presigned(key, NOW), "text/html", SIZE, NOW)).toBeNull();
+  });
+
+  it("refuses another size", async () => {
+    expect(await signedKey(await presigned(key, NOW), EPUB, SIZE + 1, NOW)).toBeNull();
   });
 
   it("refuses a URL past its expiry", async () => {
     const late = new Date(NOW.getTime() + 601_000);
-    expect(await signedKey(await presigned(key, NOW), EPUB, late)).toBeNull();
+    expect(await signedKey(await presigned(key, NOW), EPUB, SIZE, late)).toBeNull();
   });
 
   it("is on the host the Worker signs for", async () => {

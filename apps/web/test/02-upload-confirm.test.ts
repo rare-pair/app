@@ -1,9 +1,11 @@
 import { createDb, insertUpload } from "@archive/db";
 import { seedWork } from "@archive/db/seed";
+import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { sql } from "kysely";
 import { afterAll, describe, expect, it } from "vitest";
-import { deliveredIngest, fetchW, postLogin, signIn as signInAs } from "./helpers";
+import app from "../src/index";
+import { BASE, deliveredIngest, fetchW, postLogin, signIn as signInAs } from "./helpers";
 
 // U2's cases: `POST /uploads/:id/complete`, which checks the object a presigned PUT stored,
 // hashes it, and either marks it a duplicate or enqueues it. The test puts the object in
@@ -239,6 +241,96 @@ describe("02-upload-handshake", () => {
       await queueDrained(userId, cookie);
       expect(await ingestSent(up.id)).toEqual([]);
     });
+  });
+
+  it.each([
+    ["larger", 2000, 1000],
+    ["smaller", 1000, 2000],
+  ])(
+    "Confirm refuses and deletes a file of another size than declared: stored %s",
+    async (word, stored, declared) => {
+      const { userId, cookie } = await signIn(`uploadcap-size-${word}@example.test`);
+      const up = await uploaded(userId, randomBytes(stored), declared);
+
+      const res = await complete(up.id, { cookie });
+
+      await expectRefused(res.clone(), 400);
+      // SAFETY: POST /uploads/:id/complete answers JSON.
+      expect(((await res.json()) as { error: string }).error).toMatch(/size/);
+      expect(await env.BUCKET.head(up.key)).toBeNull();
+      // Left pending, for the reaper: not counted against the quota, and never queued.
+      expect(await rowOf(up.id)).toEqual({ status: "pending", sha256: null, work_id: null });
+      expect(await usedOf(userId)).toBe(0);
+      await queueDrained(userId, cookie);
+      expect(await ingestSent(up.id)).toEqual([]);
+    },
+  );
+
+  it("A confirmed upload's object is left alone by a repeat confirm of another size", async () => {
+    const { userId, cookie } = await signIn("uploadcap-size-counted@example.test");
+    const up = await uploaded(userId, randomBytes(1000));
+    expect((await complete(up.id, { cookie })).status).toBe(200);
+    await env.BUCKET.put(up.key, randomBytes(2000));
+
+    await expectRefused(await complete(up.id, { cookie }), 409);
+
+    expect(await env.BUCKET.head(up.key)).not.toBeNull();
+  });
+
+  it("A confirmed upload's object is left alone by a repeat confirm of an oversized file", async () => {
+    const { userId, cookie } = await signIn("uploadcap-oversized-counted@example.test");
+    const up = await uploaded(userId, randomBytes(1000));
+    expect((await complete(up.id, { cookie })).status).toBe(200);
+    await env.BUCKET.put(up.key, new Uint8Array(MAX + 1));
+
+    await expectRefused(await complete(up.id, { cookie }), 409);
+
+    expect(await env.BUCKET.head(up.key)).not.toBeNull();
+    expect((await rowOf(up.id)).status).toBe("pending");
+  });
+
+  it("Confirming an upload the reaper has removed answers as an unknown one", async () => {
+    const { userId, cookie } = await signIn("uploadcap-confirm-reaped@example.test");
+    const up = await uploaded(userId, randomBytes(1000));
+    await db.deleteFrom("uploads").where("id", "=", up.id).execute();
+
+    await expectRefused(await complete(up.id, { cookie }), 404);
+  });
+
+  it("A repeat confirm that can't reach the queue leaves the upload confirmed", async () => {
+    const { userId, cookie } = await signIn("uploadcap-repeat-refund@example.test");
+    const up = await uploaded(userId, randomBytes(1000));
+    expect((await complete(up.id, { cookie })).status).toBe(200);
+    expect(await usedOf(userId)).toBe(1);
+
+    const ctx = createExecutionContext();
+    const res = await app.fetch(
+      new Request(`${BASE}/uploads/${up.id}/complete`, {
+        method: "POST",
+        headers: { cookie, origin: BASE, "sec-fetch-site": "same-origin" },
+      }),
+      {
+        ...env,
+        INGEST: {
+          send: async () => {
+            throw new TypeError("queue down");
+          },
+        },
+      },
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+
+    await expectRefused(res, 503);
+    // Its first message is still in the queue: giving the use back would make it look unconfirmed,
+    // and the reaper would take it.
+    expect(await usedOf(userId)).toBe(1);
+    const row = await db
+      .selectFrom("uploads")
+      .select("quota_counted_at")
+      .where("id", "=", up.id)
+      .executeTakeFirstOrThrow();
+    expect(row.quota_counted_at).not.toBeNull();
   });
 
   it("An object of exactly 25 MiB is accepted", async () => {

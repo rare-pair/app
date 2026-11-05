@@ -119,6 +119,18 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - WHEN a visitor opens it
 - THEN the page shows a search box and a home link
 
+### A short page fills the screen
+- GIVEN a short page, such as a refusal or the confirm sign-in page
+- WHEN it renders at 1280×800 and at 360 px wide
+- THEN the footer's bottom edge is at the bottom of the screen
+- AND the page doesn't scroll
+- AND the header, main and footer keep their centred column width, and the banner stays full width
+
+### A long page scrolls with the footer after its content
+- GIVEN a page taller than the screen, such as the entire work
+- WHEN it renders
+- THEN the footer follows the content, and scrolling to the end brings the whole of the content and then the footer into view
+
 ### Flash message after a POST
 - GIVEN a form that POSTs and redirects, such as reader settings
 - WHEN the redirected page renders
