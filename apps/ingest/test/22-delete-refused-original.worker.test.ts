@@ -321,22 +321,24 @@ describe("ORIG: what the delete leaves alone", () => {
 /** The key `pendingUpload` puts the upload's raw file at. */
 const staging = (id: string) => `uploads/${id}.epub`;
 
-/** An upload of `workId` whose byline `pseud`, opted out here, ends it `opted_out`. */
+/** The epub processor, with `pseud` as the byline. */
+const bylined = (pseud: string) => async (bytes: Uint8Array) => ({
+  ...(await processEpub(bytes)),
+  authors: [{ pseud, user: null }],
+});
+
+/** An upload of `workId` whose byline, opted out here, ends it `opted_out`. */
 async function optedOutUpload(workId: number) {
   const pseud = `optout${token()}`;
   await addOptOut(pseud);
   const id = await pendingUpload(ao3Epub({ workId }));
-  const process = async (bytes: Uint8Array) => ({
-    ...(await processEpub(bytes)),
-    authors: [{ pseud, user: null }],
-  });
-  return { id, process };
+  return { id, process: bylined(pseud) };
 }
 
 /** An upload of `workId`, a removed work, which the save refuses as `work_removed`. */
 async function removedWorkUpload(workId: number) {
   await seededWork({ ao3WorkId: workId, status: "removed" });
-  return pendingUpload(ao3Epub({ workId }));
+  return { id: await pendingUpload(ao3Epub({ workId })), process: undefined };
 }
 
 describe("04-ingest-job-lifecycle: A refused upload's staging file is deleted", () => {
@@ -363,10 +365,7 @@ describe("04-ingest-job-lifecycle: A refused upload's staging file is deleted", 
   it("deletes it when a retry ends opted_out", async () => {
     const pseud = `optout${token()}`;
     const id = await pendingUpload(ao3Epub({ workId: 60302 }));
-    const process = async (bytes: Uint8Array) => ({
-      ...(await processEpub(bytes)),
-      authors: [{ pseud, user: null }],
-    });
+    const process = bylined(pseud);
     await deliver([{ upload_id: id }], {
       handler: watchedWorker({ process, save: storesThenFails }).handler,
     });
@@ -386,7 +385,7 @@ describe("04-ingest-job-lifecycle: A refused upload's staging file is deleted", 
   });
 
   it("deletes it when the job ends the upload work_removed", async () => {
-    const id = await removedWorkUpload(60303);
+    const { id } = await removedWorkUpload(60303);
     const log = vi.spyOn(console, "log");
 
     const result = await deliver([{ upload_id: id }], { handler: watchedWorker().handler });
@@ -403,17 +402,13 @@ describe("04-ingest-job-lifecycle: A refused upload's staging file is deleted", 
   });
 
   it.each([
-    ["opted_out", 60304],
-    ["work_removed", 60305],
-  ])("keeps the outcome when the delete itself fails: %s", async (status, workId) => {
-    const refused =
-      status === "opted_out"
-        ? await optedOutUpload(workId)
-        : { id: await removedWorkUpload(workId), process: undefined };
-    const { id } = refused;
+    ["opted_out", () => optedOutUpload(60304)],
+    ["work_removed", () => removedWorkUpload(60305)],
+  ])("keeps the outcome when the delete itself fails: %s", async (status, upload) => {
+    const { id, process } = await upload();
     const error = vi.spyOn(console, "error");
     const { handler } = watchedWorker({
-      process: refused.process,
+      process,
       bucket: beforeDelete(async (keys) => {
         if (keys.includes(staging(id))) throw new Error("injected R2 failure");
       }),
@@ -443,9 +438,8 @@ describe("04-ingest-job-lifecycle: A refused upload's staging file is deleted", 
       },
       transformResult: ({ result }) => Promise.resolve(result),
     };
-    const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
-    try {
-      await expect(
+    await withDb((db) =>
+      expect(
         runJob(
           {
             db: db.withPlugin(refuseEnding),
@@ -456,10 +450,8 @@ describe("04-ingest-job-lifecycle: A refused upload's staging file is deleted", 
           id,
           1,
         ),
-      ).rejects.toThrow("connection lost");
-    } finally {
-      await db.destroy();
-    }
+      ).rejects.toThrow("connection lost"),
+    );
     expect((await uploadRow(id)).status).toBe("processing");
     expect(await bucketKeys(staging(id))).toEqual([staging(id)]);
 
@@ -500,10 +492,11 @@ describe("04-ingest-job-lifecycle: A refused upload's staging file is deleted", 
       },
     });
 
-    await deliver([{ upload_id: id }], { handler });
+    const result = await deliver([{ upload_id: id }], { handler });
 
     expect(await bucketKeys(staging(id))).toEqual([staging(id)]);
     expect((await uploadRow(id)).status).toBe("processing");
+    expect(result.explicitAcks).toEqual(["msg-0"]);
   });
 
   it("leaves alone a stored key that is not under uploads/", async () => {

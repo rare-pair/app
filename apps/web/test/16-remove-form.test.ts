@@ -99,6 +99,13 @@ const post = (
   return fetchW("/remove", { method: "POST", headers: sent, body });
 };
 
+/** The attributes of the form control named `name`. */
+const control = (html: string, name: string) =>
+  html.match(new RegExp(`<(?:input|textarea)[^>]*name="${name}"[^>]*>`))?.[0] ?? "";
+
+/** An address no other test uses, in lowercase. */
+const fresh = (name: string) => `${name}-${crypto.randomUUID().slice(0, 8)}@example.test`;
+
 describe("16-removal-and-opt-out", () => {
   it("Form needs no sign-in", async () => {
     const res = await fetchW("/remove");
@@ -219,10 +226,6 @@ describe("16-removal-and-opt-out", () => {
   });
 
   describe("Missing fields are refused", () => {
-    /** The attributes of the form control named `name`. */
-    const control = (html: string, name: string) =>
-      html.match(new RegExp(`<(?:input|textarea)[^>]*name="${name}"[^>]*>`))?.[0] ?? "";
-
     it("refuses a missing, blank or unsendable contact email, marking the field", async () => {
       for (const email of ["", "   ", "not an address", `${"a".repeat(250)}@example.test`]) {
         const res = await post({ email, work: WORK_URL, statement: "x1 missing email" });
@@ -338,13 +341,13 @@ describe("16-removal-and-opt-out", () => {
       // Fullwidth forms: NFKC makes them the same pseud.
       "ＡＮＯＮＹＭＯＵＳ",
     ])("refuses %s, marks the pseud field and stores nothing", async (pseud) => {
-      const email = `optout-placeholder-${crypto.randomUUID().slice(0, 8)}@example.test`;
+      const email = fresh("optout-placeholder");
       const res = await post({ email, pseud, statement: "optout statement" });
       expect(res.status).toBe(400);
       expect(res.headers.get("cache-control")).toBe("no-store");
       expect(withoutNonce(res.headers.get("content-security-policy"))).toBe(TURNSTILE);
       const html = await res.text();
-      const field = html.match(/<input[^>]*name="pseud"[^>]*>/)?.[0] ?? "";
+      const field = control(html, "pseud");
       expect(field).toContain('aria-invalid="true"');
       expect(field).toContain('aria-describedby="pseud-error"');
       // What was typed comes back, trimmed as every field is.
@@ -357,7 +360,7 @@ describe("16-removal-and-opt-out", () => {
   });
 
   it("A placeholder pseud given with a work is a request for the work", async () => {
-    const email = `optout-with-work-${crypto.randomUUID().slice(0, 8)}@example.test`;
+    const email = fresh("optout-with-work");
     const res = await post({ email, work: `${BASE}/works/${OPTOUT_W}`, pseud: "Anonymous" });
     expect(res.status).toBe(200);
     const [row, ...rest] = await requestsFrom(email);
@@ -371,7 +374,7 @@ describe("16-removal-and-opt-out", () => {
     ["Orphan Account", "orphan account"],
     ["anonymous author", "anonymous author"],
   ])("A pseud that only resembles a placeholder is accepted: %s", async (pseud, pseudNorm) => {
-    const email = `optout-near-miss-${crypto.randomUUID().slice(0, 8)}@example.test`;
+    const email = fresh("optout-near-miss");
     const res = await post({ email, pseud });
     expect(res.status).toBe(200);
     const [row, ...rest] = await requestsFrom(email);
@@ -514,9 +517,6 @@ describe("16-removal-and-opt-out", () => {
       expect(html).toContain("<h1>Too many requests</h1>");
       expect(html).toContain(`Please try again in ${REMOVE_WINDOW_SECONDS} seconds.`);
     }
-
-    /** An address no other test uses, in lowercase. */
-    const fresh = (name: string) => `${name}-${crypto.randomUUID().slice(0, 8)}@example.test`;
 
     it("Requests are rate-limited per email", async () => {
       await windowHeadroom(REMOVE_WINDOW_SECONDS);
