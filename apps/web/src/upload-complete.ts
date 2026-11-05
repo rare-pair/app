@@ -73,17 +73,22 @@ export async function completeUpload(c: CompleteContext) {
       return refuse(403, BANNED_UPLOADER);
     }
 
-    // An upload over the quota is marked first, and only the request that marks it deletes the
-    // object, as for an oversized one. The mark is refused for an upload another confirm has
-    // counted, so a loser never rejects or deletes what a parallel confirm of the same upload
-    // won. A delete that fails leaves the object for the 7-day lifecycle rule.
-    const discardOverQuota = async () => {
-      if (!(await rejectOverQuotaUpload(db, upload.id, user.id))) return null;
+    // A delete that fails leaves the object for the bucket's 7-day lifecycle rule.
+    const deleteObject = async (what: string) => {
       try {
         await c.env.BUCKET.delete(upload.r2_key);
       } catch (error) {
-        console.error("deleting an over-quota object failed", error);
+        console.error(`deleting ${what} failed`, error);
       }
+    };
+
+    // An upload over the quota is marked first, and only the request that marks it deletes the
+    // object, as for an oversized one. The mark is refused for an upload another confirm has
+    // counted, so a loser never rejects or deletes what a parallel confirm of the same upload
+    // won.
+    const discardOverQuota = async () => {
+      if (!(await rejectOverQuotaUpload(db, upload.id, user.id))) return null;
+      await deleteObject("an over-quota object");
       return quotaSpent(c);
     };
 
@@ -100,32 +105,48 @@ export async function completeUpload(c: CompleteContext) {
 
     const missing = () => refuse(400, "That file didn't finish uploading. Please upload it again.");
     // The declared size was checked at POST /uploads, but the PUT can store more. The row is
-    // marked first, and only the request that marks it deletes the object. A delete that fails
-    // leaves the object for the bucket's 7-day lifecycle rule.
+    // marked first, and only the request that marks it deletes the object.
     const discardOversized = async () => {
       if (!(await rejectOversizedUpload(db, upload.id))) return taken();
-      try {
-        await c.env.BUCKET.delete(upload.r2_key);
-      } catch (error) {
-        console.error("deleting an oversized object failed", error);
-      }
+      await deleteObject("an oversized object");
       return refuse(
         413,
         `That file is over the ${MAX_UPLOAD_MB} MB limit, so it can't be uploaded.`,
       );
     };
 
+    // Another size than was declared, and signed into the link: refused whatever R2 did at the
+    // PUT, whose check of a signed size Cloudflare's docs don't promise. The row stays open, so
+    // the reaper removes it. One already counted is in the queue: its confirm is a repeat, and
+    // its object is ingest's to read, as for an over-quota discard.
+    const discardWrongSize = async () => {
+      if (upload.quota_counted_at !== null) return taken();
+      await deleteObject("an object of the wrong size");
+      return refuse(
+        400,
+        "That file isn't the size it was when you picked it, so it wasn't kept. Please upload it again.",
+      );
+    };
+
+    /** What to do about an object of this size, or null when it's the size declared. */
+    const refusalFor = (size: number) => {
+      if (size > MAX_UPLOAD_BYTES) return discardOversized;
+      return size === upload.bytes ? null : discardWrongSize;
+    };
+
     const head = await c.env.BUCKET.head(upload.r2_key);
     if (head === null) return missing();
-    if (head.size > MAX_UPLOAD_BYTES) return discardOversized();
+    const refuseHead = refusalFor(head.size);
+    if (refuseHead !== null) return refuseHead();
 
     // The presigned URL still works for ten minutes, so the object can have been replaced since
     // the HEAD: the size is checked again on the object that is hashed.
     const object = await c.env.BUCKET.get(upload.r2_key);
     if (object === null) return missing();
-    if (object.size > MAX_UPLOAD_BYTES) {
+    const refuseObject = refusalFor(object.size);
+    if (refuseObject !== null) {
       await object.body.cancel();
-      return discardOversized();
+      return refuseObject();
     }
     // Streamed through the digest, never buffered: the body can be 25 MiB.
     const digest = new crypto.DigestStream("SHA-256");
@@ -136,12 +157,8 @@ export async function completeUpload(c: CompleteContext) {
     // Taken by another request between the lookup and now.
     if (recorded === null) return taken();
     if (recorded.duplicateOf !== null) {
-      // No second copy is kept. A failed delete leaves it for the 7-day lifecycle rule.
-      try {
-        await c.env.BUCKET.delete(upload.r2_key);
-      } catch (error) {
-        console.error("deleting a duplicate's object failed", error);
-      }
+      // No second copy is kept.
+      await deleteObject("a duplicate's object");
       // No work id in the reply: the uploader's link is GET /uploads/:id's, which shows a work
       // only while it is live, and by its public id.
       return c.json({ status: "duplicate" }, 200, NO_STORE);
@@ -162,13 +179,14 @@ export async function completeUpload(c: CompleteContext) {
 
     // The hash is stored by now, so a failed send leaves a `pending` row that a retried
     // confirm takes through again. Its use of the quota is given back, or the retry would
-    // count it twice.
+    // count it twice. Only by the request that counted it: a repeat's failed send says nothing
+    // of the first's message, and an upload made to look unconfirmed is one the reaper removes.
     try {
       await c.env.INGEST.send({ upload_id: upload.id });
     } catch (error) {
       console.error("ingest queue send failed", error);
       try {
-        await refundUploadQuota(db, user.id, upload.id);
+        if (counted === "counted") await refundUploadQuota(db, user.id, upload.id);
       } catch (refundError) {
         console.error(
           "refunding the quota failed",

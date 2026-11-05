@@ -14,6 +14,11 @@ export type PresignPut = {
   key: string;
   /** Signed, so R2 refuses a PUT that sends any other. */
   contentType: string;
+  /**
+   * The declared size in bytes, signed as `Content-Length`. Cloudflare's docs don't say whether
+   * R2 refuses a PUT of another size, so `/complete` checks the stored size whatever R2 did.
+   */
+  contentLength: number;
   expiresSeconds: number;
   now: Date;
 };
@@ -34,11 +39,14 @@ export async function presignPut(put: PresignPut): Promise<string> {
   // aws4fetch keeps an X-Amz-Expires it finds, and signs a day without one.
   url.searchParams.set("X-Amz-Expires", String(put.expiresSeconds));
   const signed = await client.sign(
-    new Request(url, { method: "PUT", headers: { "Content-Type": put.contentType } }),
+    new Request(url, {
+      method: "PUT",
+      headers: { "Content-Type": put.contentType, "Content-Length": String(put.contentLength) },
+    }),
     {
       aws: {
         signQuery: true,
-        // Without it aws4fetch leaves content-type out of the signature.
+        // Without it aws4fetch leaves content-type and content-length out of the signature.
         allHeaders: true,
         datetime: put.now.toISOString().replace(/[:-]|\.\d{3}/g, ""),
       },
