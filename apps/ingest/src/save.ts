@@ -63,7 +63,26 @@ export async function deleteOriginal(
   bucket: Pick<SaveBucket, "list" | "delete">,
   uploadId: string,
 ): Promise<number> {
-  const key = originalKey(uploadId);
+  return deleteKey(bucket, originalKey(uploadId));
+}
+
+/**
+ * Deletes the upload's staging file at `r2Key` and returns how many keys it found. A stored key
+ * is trusted only under `uploads/`, so a bad row can't reach another work's objects. The caller
+ * must have ended the upload: until then a later attempt reads this file.
+ */
+export async function deleteStagingFile(
+  bucket: Pick<SaveBucket, "list" | "delete">,
+  r2Key: string,
+): Promise<number> {
+  return r2Key.startsWith("uploads/") ? deleteKey(bucket, r2Key) : 0;
+}
+
+/** Deletes one key and returns how many it found. */
+async function deleteKey(
+  bucket: Pick<SaveBucket, "list" | "delete">,
+  key: string,
+): Promise<number> {
   const found = await bucket.list({ prefix: key, limit: 1 });
   await bucket.delete([key]);
   return found.objects.length;

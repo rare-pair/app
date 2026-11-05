@@ -596,10 +596,17 @@ Chapter text isn't indexed.
    this delete, or that delete failing, which can leave an opted-out or banned
    upload's file; (4) an upload with no `work_id` whose prefix is gone, which can't be
    tied to its work. The content host refuses all of these (#579), so they can't be
-   downloaded; they are only stored. Only the original goes: fragments and images of a
+   downloaded; they are only stored. Fragments and images of a
    refused upload are the sweep's. A refused upload has no version, so this
    leaves the keep-for-re-sanitize decision intact. A `duplicate`'s original
    is kept (below).
+
+   **A refused upload's staging file.** When the job ends an upload `opted_out` or
+   `work_removed`, it also deletes the raw file at the upload's own key under
+   `uploads/`, by the same rule: after the ending write, only when that write
+   matched, best effort, and logged by upload id and count. An attempt that will be
+   retried keeps it, and so does an ending write that fails, since the next attempt
+   reads it. Every other final refusal leaves the file to the 7-day expiry.
 
    A later upload of a known work is decided in the same transaction, from
    facts read before it (the current version's chapter text comes from R2,
@@ -1050,7 +1057,11 @@ epub, under the normal versioning rules.
   requester confirms it from the emailed link, it hides every existing work by
   that pseud and becomes an active opt-out, which is checked again at ingest
   for new uploads; until then no opt-out row is active and ingest sees
-  nothing. A moderator approves it. A mistaken opt-out can be reversed.
+  nothing. A moderator approves it. A mistaken opt-out can be reversed. It
+  matches the one pseud given and never an AO3 user name, so the form tells
+  authors to send one request per pseud. The form refuses `orphan_account` and
+  `Anonymous` (compared as `pseud_norm`) when no work is given, since many
+  authors share them, and points the requester to asking for a specific work.
 - **The confirmation link.** It is a token of 32 random bytes, stored only as a
   hash and cleared when used. Opening it shows a button and changes nothing, so
   a mail scanner can't confirm; pressing it (a same-origin POST) is one

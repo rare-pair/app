@@ -36,6 +36,8 @@ const HIDDEN = 40022;
 const S = 40021;
 /** Live until its own test asks for it to be removed. */
 const HASHED = 40020;
+/** OPTOUT's own (60300-60399): asked for alongside a placeholder pseud, and stays live. */
+const OPTOUT_W = 60300;
 const WORK_URL = `${BASE}/works/${W}`;
 const S_URL = `${BASE}/works/${S}`;
 const RECEIVED =
@@ -57,6 +59,7 @@ beforeAll(async () => {
   await seedWork(db, { ao3WorkId: HIDDEN, status: "hidden", hiddenCause: "moderator" });
   await seedWork(db, { ao3WorkId: S });
   await seedWork(db, { ao3WorkId: HASHED });
+  await seedWork(db, { ao3WorkId: OPTOUT_W });
 });
 afterAll(() => db.destroy());
 
@@ -158,6 +161,13 @@ describe("16-removal-and-opt-out", () => {
     const html = await (await fetchW("/remove")).text();
     expect(html).toContain("No proof of identity is asked for");
     expect(html).toContain("nothing to check it against while the original archive is offline");
+  });
+
+  it("Form tells authors to opt out each pseud", async () => {
+    const html = await (await fetchW("/remove")).text();
+    const outsideForm = html.replace(/<form[\s\S]*?<\/form>/, "");
+    expect(outsideForm).toContain("An opt-out covers only the pseud you type");
+    expect(outsideForm).toContain("send one request for each");
   });
 
   describe("Missing Turnstile is refused", () => {
@@ -317,6 +327,58 @@ describe("16-removal-and-opt-out", () => {
       expect(await res.text()).toContain("2000 characters");
       expect(await requestsFrom(email)).toEqual([]);
     });
+  });
+
+  describe("A placeholder pseud is refused", () => {
+    it.each([
+      "orphan_account",
+      "Anonymous",
+      "Orphan_Account",
+      "  ANONYMOUS  ",
+      // Fullwidth forms: NFKC makes them the same pseud.
+      "ＡＮＯＮＹＭＯＵＳ",
+    ])("refuses %s, marks the pseud field and stores nothing", async (pseud) => {
+      const email = `optout-placeholder-${crypto.randomUUID().slice(0, 8)}@example.test`;
+      const res = await post({ email, pseud, statement: "optout statement" });
+      expect(res.status).toBe(400);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(withoutNonce(res.headers.get("content-security-policy"))).toBe(TURNSTILE);
+      const html = await res.text();
+      const field = html.match(/<input[^>]*name="pseud"[^>]*>/)?.[0] ?? "";
+      expect(field).toContain('aria-invalid="true"');
+      expect(field).toContain('aria-describedby="pseud-error"');
+      // What was typed comes back, trimmed as every field is.
+      expect(field).toContain(`value="${pseud.trim()}"`);
+      expect(html).toContain(`value="${email}"`);
+      expect(html).toContain("optout statement");
+      expect(html).toMatch(/id="pseud-error"[^>]*>[^<]*web address of a specific work/);
+      expect(await requestsFrom(email)).toEqual([]);
+    });
+  });
+
+  it("A placeholder pseud given with a work is a request for the work", async () => {
+    const email = `optout-with-work-${crypto.randomUUID().slice(0, 8)}@example.test`;
+    const res = await post({ email, work: `${BASE}/works/${OPTOUT_W}`, pseud: "Anonymous" });
+    expect(res.status).toBe(200);
+    const [row, ...rest] = await requestsFrom(email);
+    expect(rest).toEqual([]);
+    expect(row?.kind).toBe("remove_work");
+    expect(row?.pseud_norm).toBeNull();
+  });
+
+  it.each([
+    ["orphan_account2", "orphan_account2"],
+    ["Orphan Account", "orphan account"],
+    ["anonymous author", "anonymous author"],
+  ])("A pseud that only resembles a placeholder is accepted: %s", async (pseud, pseudNorm) => {
+    const email = `optout-near-miss-${crypto.randomUUID().slice(0, 8)}@example.test`;
+    const res = await post({ email, pseud });
+    expect(res.status).toBe(200);
+    const [row, ...rest] = await requestsFrom(email);
+    expect(rest).toEqual([]);
+    expect(row?.kind).toBe("opt_out");
+    expect(row?.pseud_norm).toBe(pseudNorm);
+    expect(row?.confirmed_at).toBeNull();
   });
 
   describe("Requests record a hashed IP", () => {

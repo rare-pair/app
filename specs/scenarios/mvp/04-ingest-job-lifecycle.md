@@ -150,3 +150,17 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 - AND a failed delete changes neither the upload's status nor the message's verdict
 - AND a job that lost its lease deletes nothing a takeover job shares
 - AND a crash between the ending write and the delete leaves the file, which nothing deletes yet (https://github.com/rare-pair/app/issues/592)
+
+### A refused upload's staging file is deleted
+- GIVEN an upload whose raw file is at its own key under `uploads/`
+- WHEN the job ends the upload `opted_out` or `work_removed`
+- THEN that file is deleted after the ending write, and only when that write matched
+- AND the log says what was deleted with the upload id and a count, never the file or the reader
+- AND a failed delete changes neither the upload's status nor the message's verdict
+- AND an attempt that will be retried, an ending write that fails and a job that lost its lease all keep the file, since a later attempt reads it
+- AND a stored key not under `uploads/` is left alone
+
+### Other final refusals keep their staging file until it expires
+- GIVEN an upload whose raw file is at its own key under `uploads/`
+- WHEN the job ends the upload refused any other way, such as `account_banned` or `parse_failed`
+- THEN the file stays, for the 7-day expiry to delete
