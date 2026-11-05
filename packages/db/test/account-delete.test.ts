@@ -263,9 +263,7 @@ describe("18-moderation", () => {
     expect(result).toMatchObject({ deleted: true, refused: null, error: null });
     expect(await userExists(a.id)).toBe(false);
     expect(await sessionCount(a.id)).toBe(0);
-    expect([...kv.held].toSorted()).toEqual(
-      [`pos:${other.id}:60902`, `pos:${a.id}9:60902`].toSorted(),
-    );
+    expect(kv.held).toEqual(new Set([`pos:${other.id}:60902`, `pos:${a.id}9:60902`]));
     expect(await userExists(other.id)).toBe(true);
     expect(await uploadUsers(a.work.workId)).toEqual([{ user_id: null }]);
   });
