@@ -108,7 +108,7 @@ an unofficial stopgap.
     traces are off too, so no reading data reaches them (the URL carries the work
     id). An operator may turn them on to chase a live fault, which records request
     URLs until they are turned off again, so only for as long as the fault needs.
-    The config test is changed in the same PR.
+    `apps/content/test/wrangler.test.ts` holds traces off, so that change edits it too.
   - The content Worker sits in front of the CDN cache, so it keeps its own: a plain
     `GET` for an image or an original is answered from the data centre's cache
     (`caches.default`, keyed by the bare URL) without an R2 read once the first
