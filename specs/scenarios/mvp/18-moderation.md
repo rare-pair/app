@@ -126,6 +126,41 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 - AND Z's live works and finished uploads stay as they are until a moderator acts on them
 - AND Z's pending uploads end `account_banned`, and so do processing ones ingest has not yet saved or refused for another reason
 
+### An account is deleted on request
+- GIVEN account A that has uploaded, reported and moderated, with a session and saved reading positions
+- WHEN the operator runs `scripts/account-delete.mjs` with A's address and types the address again at its prompt
+- THEN it first shows what it will delete and what will stay
+- AND A's account, sessions and `pos:<A's id>:` keys are gone, and nobody else's
+- AND A's upload rows stay with no user attached, and A's works and versions stay public
+- AND A's reports still count toward hiding a work, and the takedowns A resolved, the blocks A made and A's `moderation_actions` rows keep A's id
+- AND an upload of A's still waiting is refused as a banned uploader's is
+
+### Deleting an account needs confirmation
+- GIVEN account A
+- WHEN the operator runs the script and types anything but the address, or closes its input
+- THEN nothing is deleted
+
+### Deleting an account needs an account
+- GIVEN an address no account has, or two accounts differing only in case
+- WHEN the operator runs the script with it
+- THEN it says so and touches nothing
+
+### Deleting a banned account is refused
+- GIVEN a banned account
+- WHEN the operator runs the script with its address, or a moderator bans it while the prompt waits
+- THEN the script says the ban would go with the row, and the row stays
+
+### A failed delete can be retried
+- GIVEN the KV API fails partway through a delete
+- WHEN the operator runs the script again
+- THEN the account was still there to find, and the second run finishes
+
+### A version whose uploader was deleted shows Deleted account
+- GIVEN a work with a version whose uploader's account was deleted
+- WHEN M opens the work's admin page
+- THEN that version's row says "Deleted account", with no ban form
+- AND the work's other versions show their uploaders as before
+
 ### Moderation works without JS
 - GIVEN moderator M with JavaScript off
 - WHEN M works through a queue and takes actions

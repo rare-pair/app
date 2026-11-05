@@ -44,6 +44,14 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - AND it says the archive keeps notices until the site closes, and then deletes them
 - AND it says the archive does not erase them when a sender asks
 
+### The privacy page says how to ask for an account to be deleted
+- GIVEN any visitor
+- WHEN they open `/privacy`
+- THEN it says to ask at admin@rarepair.fans
+- AND it says the archive deletes the account, its sessions and its saved reading positions
+- AND it says accepted works stay public
+- AND it says reports the account made stay
+
 ### Footer links to removal
 - GIVEN any app page
 - WHEN it renders

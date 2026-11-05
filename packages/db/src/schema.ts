@@ -228,7 +228,8 @@ export interface WorkTagTable {
 
 export interface UploadTable {
   id: Generated<string>;
-  user_id: string;
+  /** NULL once the account that uploaded it is deleted. */
+  user_id: string | null;
   r2_key: string;
   /** NULL until `/complete` hashes the file. */
   sha256: string | null;

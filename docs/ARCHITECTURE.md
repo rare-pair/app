@@ -26,7 +26,8 @@ an unofficial stopgap.
 | Search scope | Metadata only: title, author, tags, summary |
 | Chapter rendering | Inline in app pages behind a strict CSP, with no iframe |
 | Wait list | Before launch, `/` is a coming-soon page with a double opt-in wait list. Each confirmed address is sent one launch email, from the same mail subdomain as sign-in, spread over hours on its own queue. The list is deleted after the launch send |
-| Requester data | What a requester sends with a removal or opt-out request (email address, hashed network address, statement), and a requester block's email and hash, is kept until the site closes, then deleted by hand. It is not erased on request. There is no retention sweep job and no migration for it. The only delete of a request's row is the rollback when its confirmation email cannot be queued. A copyright notice, with its sender's contact details and signature, follows the same rule (operator ruling, 2026-11-05). Account data is not covered. Privacy page copy is draft, pending legal review (operator ruling, 2026-11-04) |
+| Requester data | What a requester sends with a removal or opt-out request (email address, hashed network address, statement), and a requester block's email and hash, is kept until the site closes, then deleted by hand. It is not erased on request. There is no retention sweep job and no migration for it. The only delete of a request's row is the rollback when its confirmation email cannot be queued. A copyright notice, with its sender's contact details and signature, follows the same rule (operator ruling, 2026-11-05). Account data is not covered: see Account deletion. Privacy page copy is draft, pending legal review (operator ruling, 2026-11-04) |
+| Account deletion | Someone asks at admin@rarepair.fans and the operator runs a script: no self-service button and no form (operator ruling, 2026-11-05). It removes the account, its sessions and its saved reading positions. Upload rows stay with no user attached, and works and versions stay public. The script refuses a banned account, because the ban would go with the row (pending the operator's ruling, wave 11). See Auth, Deleting an account |
 
 ## System overview
 
@@ -167,12 +168,17 @@ chapters     (work_id, version_id, n, title, words, r2_key)
 tags         (id, type, name, name_norm) -- type: fandom|relationship|character|freeform|warning|category|rating
 work_tags    (work_id, tag_id,
               position)  -- the tag's place in the work's tags, in the author's order
-uploads      (id, user_id, r2_key, sha256, bytes, status, lease_until,
+uploads      (id,
+              user_id NULL,  -- set null when the account is deleted; the row and its work stay
+              r2_key, sha256, bytes, status, lease_until,
               error_stage, error, work_id NULL, created_at,
               quota_counted_at NULL)  -- set when confirm counted it against the daily quota, once
 reports      (id, work_id, reporter_id, kind, body, status, created_at)  -- reporting needs an account;
-                                                  -- kind includes wrong_version ("This version is wrong")
-takedowns    (id, work_id, requester, basis, status, resolved_by, created_at,
+                                                  -- kind includes wrong_version ("This version is wrong");
+                                                  -- no FK on reporter_id: a deleted account's report still counts
+takedowns    (id, work_id, requester, basis, status,
+              resolved_by,  -- no FK: who resolved it stays after the account is deleted
+              created_at,
               signature, infringing_material, good_faith, accuracy_authority,
               incomplete)  -- a DMCA notice: basis is the copyrighted work, requester the contact
                            -- information; incomplete when a 512(c)(3)(A) element is missing;
@@ -192,7 +198,9 @@ listed_pseuds (pseud_norm PRIMARY KEY,  -- one row per pseud on the removal list
               request_id,        -- the approved opt-out whose pseud_typed is shown
               listed_at,         -- when the pseud was first approved; indexed
               withheld)          -- the removal list leaves the pseud out
-requester_blocks (id, contact_email NULL, ip_hash NULL, created_by, created_at)
+requester_blocks (id, contact_email NULL, ip_hash NULL,
+              created_by,  -- no FK: who made it stays after the account is deleted
+              created_at)
 moderation_actions (id, moderator_id, action, target_kind, target_id, note NULL,
               created_at)  -- no FK on moderator_id (rows outlive the account) or target_id (it
                            -- points at different tables); action and
@@ -788,7 +796,8 @@ can be snapshotted.
   binding), keyed `pos:<user id>:<AO3 work id>`, with a value of the chapter
   number (none on the entire-work page) and a scroll percentage. A script on
   the reading pages saves it five seconds after the reader stops scrolling, and
-  when the page is hidden. It expires after a year. The work page's "Continue
+  when the page is hidden. It expires after a year, or goes with the account
+  (Auth, Deleting an account). The work page's "Continue
   where you left off" link names the chapter in its path and the percentage in a
   `#pos=` fragment, which the script reads once to scroll back; the work page
   itself never moves the reader.
@@ -967,6 +976,55 @@ origin. Work pages, listings and search stay open, so people can still find work
     busy periods.
 - Accounts are needed only to upload, report, save reading position or turn
   the warnings screen off. Reading never needs an account.
+
+### Deleting an account
+
+A request reaches the operator at admin@rarepair.fans, and the privacy page says
+so. There is no self-service button and no form. The operator checks the request
+came from the address, then runs `scripts/account-delete.mjs <address>` locally:
+
+```
+DATABASE_URL=... CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... \
+POSITIONS_NAMESPACE_ID=... node scripts/account-delete.mjs <address>
+```
+
+Secrets come from the environment only. The token needs Workers KV Storage Write,
+and `POSITIONS_NAMESPACE_ID` is the id of `apps/web`'s `POSITIONS` binding.
+
+The script finds the account by address in any case, and shows what it will delete
+and what will stay. It goes on only when the address is typed again. Then it
+deletes, in this order:
+
+1. The sessions, so a signed-in reader stops saving positions.
+2. The `pos:<user id>:` keys, listed through the KV API and removed in bulk.
+3. The `user` row, which also takes its `account` rows.
+
+A failure leaves the row, so running the script again finishes the job. With the
+row gone first, the keys could no longer be found from the address. KV lists can
+lag a write by up to a minute, so a position saved just before the delete can be
+missed: nothing can read it once the account is gone, and it expires within a year.
+
+What stays, and why:
+
+- **Upload rows**, with `user_id` null, because `work_versions` points at them;
+  works and versions stay public. A moderator's work page says "Deleted account"
+  on that version's row, with no ban form. An upload not yet finished is refused
+  as a banned uploader's is, because `isUploaderBanned` counts an account with no
+  row as banned.
+- **Reports**, with `reporter_id` as it was. It has no foreign key, so a deleted
+  account's report still counts toward the automatic hide (Author requests &
+  takedowns). No page shows a reporter's id.
+- **`takedowns.resolved_by` and `requester_blocks.created_by`**, with the id as it
+  was and no foreign key: the record of who acted stays, as it does for
+  `moderation_actions.moderator_id` (Moderation).
+- **What a requester or a notice's sender sent.** It follows Decisions so far,
+  Requester data, even when the address is the same.
+
+The script refuses a banned account and says so. A ban is `banned_at` on the row,
+so deleting the row would let the person sign up again with the same address. A
+ban that lands while the prompt waits keeps the row too; the sessions and positions
+are gone by then. The script prints the address it was given, counts, an HTTP status
+or a code, and no key, token or raw error.
 
 ## Author requests & takedowns
 
