@@ -11,6 +11,8 @@ export interface AccountDeleteOptions {
   kv: PositionsKv;
   /** Puts the prompt to the operator and resolves with what they typed. */
   ask: (prompt: string) => Promise<string>;
+  /** Waits for KV lists to catch up. Default: a minute and a second. */
+  settle?: () => Promise<void>;
   log?: (line: string) => void;
 }
 
@@ -21,6 +23,9 @@ export interface AccountDeleteResult {
 }
 
 export function accountDelete(options: AccountDeleteOptions): Promise<AccountDeleteResult>;
+
+/** The start of every key `apps/web`'s `positionKey` makes for this user. */
+export function positionPrefix(userId: string): string;
 
 export function positionsKv(options: {
   accountId: string;

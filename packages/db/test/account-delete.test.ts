@@ -128,6 +128,7 @@ async function run(
   kv: ReturnType<typeof fakeKv>,
   typed = address,
   atPrompt: () => Promise<void> = async () => {},
+  settle: () => Promise<void> = async () => {},
 ) {
   const lines: string[] = [];
   const result = await accountDelete({
@@ -138,14 +139,18 @@ async function run(
       await atPrompt();
       return typed;
     },
+    settle,
     log: (line: string) => lines.push(line),
   });
   return { ...result, lines };
 }
 
 // The command line against a real database. spawn, not spawnSync: PGlite runs in this process.
-// --import swaps fetch before the script loads, so nothing reaches Cloudflare.
+// --import swaps fetch before the script loads, so nothing reaches Cloudflare, and skips the
+// script's wait for KV, which is the only timer of that length.
 const NO_CLOUDFLARE = `data:text/javascript,${encodeURIComponent(`
+  const realTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (run, ms, ...rest) => realTimeout(run, ms === 61000 ? 0 : ms, ...rest);
   globalThis.fetch = async (url, init) => {
     const body = init?.method === "POST"
       ? { success: true, result: { successful_key_count: 0 } }
@@ -368,16 +373,97 @@ describe("18-moderation", () => {
     expect(kv.held.size).toBe(1);
   });
 
-  it("Deleting a banned account is refused: a ban that lands at the prompt keeps the row", async () => {
+  it("Deleting a banned account is refused: a ban that lands at the prompt touches nothing", async () => {
     const a = await addUser();
+    await signedIn(a.id);
+    const kv = fakeKv([`pos:${a.id}:60911`]);
 
-    const result = await run(a.email, fakeKv(), a.email, async () => {
+    const result = await run(a.email, kv, a.email, async () => {
       await banUser(t.db, a.id, { actor: "acctdel-moderator" });
     });
 
     expect(result.deleted).toBe(false);
     expect(result.refused).toMatch(/banned/);
     expect(await userExists(a.id)).toBe(true);
+    expect(await sessionCount(a.id)).toBe(1);
+    expect(kv.held.size).toBe(1);
+  });
+
+  it("Deleting a banned account is refused: a ban that lands later keeps the row and says what went", async () => {
+    const a = await addUser();
+    await signedIn(a.id);
+
+    const result = await run(
+      a.email,
+      fakeKv([`pos:${a.id}:60912`]),
+      a.email,
+      undefined,
+      async () => {
+        await banUser(t.db, a.id, { actor: "acctdel-moderator" });
+      },
+    );
+
+    expect(result.deleted).toBe(false);
+    expect(result.refused).toMatch(/banned or deleted .* sessions and positions are already gone/);
+    expect(await userExists(a.id)).toBe(true);
+  });
+
+  it("An account is deleted on request: a position saved just before the delete goes too", async () => {
+    const a = await addUser();
+    const kv = fakeKv();
+
+    const result = await run(a.email, kv, a.email, undefined, async () => {
+      kv.held.add(`pos:${a.id}:60913`);
+    });
+
+    expect(result.deleted).toBe(true);
+    expect(kv.held.size).toBe(0);
+  });
+
+  it("An account is deleted on request: an upload never confirmed ends as a banned uploader's does", async () => {
+    const a = await addUser();
+    const { id } = await insertUpload(t.db, {
+      userId: a.id,
+      r2Key: `uploads/${crypto.randomUUID()}`,
+      bytes: 10,
+    });
+
+    await run(a.email, fakeKv());
+
+    const upload = await t.db
+      .selectFrom("uploads")
+      .select(["status", "user_id"])
+      .where("id", "=", id)
+      .executeTakeFirstOrThrow();
+    expect(upload).toEqual({ status: "account_banned", user_id: null });
+  });
+
+  it("An account is deleted on request: an unspent sign-in link goes too, and nobody else's", async () => {
+    const a = await addUser();
+    const other = await addUser();
+    // The shape Better Auth's magic link stores.
+    const link = (id: string, email: string) => ({
+      id,
+      identifier: `magic-link-${id}`,
+      value: JSON.stringify({ type: "magic-link", email }),
+      expires_at: new Date(Date.now() + 60_000),
+      updated_at: new Date(),
+    });
+    const mine = `link-${a.id}`;
+    const theirs = `link-${other.id}`;
+    await t.db
+      .insertInto("verification")
+      .values([link(mine, a.email), link(theirs, other.email)])
+      .execute();
+
+    await run(a.email, fakeKv());
+
+    const left = await t.db
+      .selectFrom("verification")
+      .select("id")
+      .where("id", "in", [mine, theirs])
+      .execute();
+    expect(left).toEqual([{ id: theirs }]);
   });
 
   it("A failed delete can be retried: the account stays until the keys are gone", async () => {

@@ -133,7 +133,8 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 - AND A's account, sessions and `pos:<A's id>:` keys are gone, and nobody else's
 - AND A's upload rows stay with no user attached, and A's works and versions stay public
 - AND A's reports still count toward hiding a work, and the takedowns A resolved, the blocks A made and A's `moderation_actions` rows keep A's id
-- AND an upload of A's still waiting is refused as a banned uploader's is
+- AND an upload of A's still waiting is refused as a banned uploader's is, and one never confirmed ends `account_banned`
+- AND A's unspent sign-in links are gone, and a position A saved just before the delete
 
 ### Deleting an account needs confirmation
 - GIVEN account A
@@ -148,7 +149,8 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 ### Deleting a banned account is refused
 - GIVEN a banned account
 - WHEN the operator runs the script with its address, or a moderator bans it while the prompt waits
-- THEN the script says the ban would go with the row, and the row stays
+- THEN the script says the ban would go with the row, and nothing is touched
+- AND a ban that lands after the confirmation keeps the row, and the script says the sessions and positions are already gone
 
 ### A failed delete can be retried
 - GIVEN the KV API fails partway through a delete

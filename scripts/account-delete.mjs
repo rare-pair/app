@@ -11,10 +11,11 @@
 // Storage Write. POSITIONS_NAMESPACE_ID is the id of apps/web's POSITIONS binding.
 //
 // It shows what it will delete, then asks for the address to be typed again. Then it takes the
-// sessions first, so a signed-in reader stops saving positions; then the keys, relisted; then the
-// row. A failure leaves the row, so running it again finishes the job: with the row gone first,
-// the keys could no longer be found from the address. It refuses a banned account, because a ban
-// lives on the row, and deleting it would let the person sign up again.
+// sessions, unspent sign-in links and unconfirmed uploads, so a reader stops saving positions and
+// can't come back; waits a minute for KV's list to catch up; takes the keys, relisted; and takes
+// the row last. A failure leaves the row, so running it again finishes the job: with the row gone
+// first, the keys could no longer be found from the address. It refuses a banned account, because
+// a ban lives on the row, and deleting it would let the person sign up again.
 //
 // The script prints the address it was given, counts, an HTTP status or a code, and nothing else:
 // no key, since a key names a work, and no token or raw error, since those can carry a secret.
@@ -28,6 +29,8 @@ import pg from "pg";
 const LIST_LIMIT = 1000;
 const DELETE_LIMIT = 10_000;
 const REQUEST_TIMEOUT_MS = 30_000;
+// KV lists can lag a write by up to 60 seconds (Cloudflare KV, How KV works).
+const KV_LAG_MS = 61_000;
 
 const NAMES = [
   "DATABASE_URL",
@@ -126,6 +129,13 @@ const normalized = (address) => address.trim().toLowerCase();
 const BANNED = "this account is banned, and the ban would go with the row";
 
 /**
+ * The start of every key apps/web's positionKey makes for this user. A script can't load that
+ * TypeScript, so apps/web's position.node.test.ts holds the two together.
+ * @param {string} userId
+ */
+export const positionPrefix = (userId) => `pos:${userId}:`;
+
+/**
  * @typedef {object} AccountDeleteOptions
  * @property {string} connectionString
  * @property {string} address
@@ -141,14 +151,26 @@ const BANNED = "this account is banned, and the ban would go with the row";
  * @param {AccountDeleteOptions} options
  * @returns {Promise<{ deleted: boolean, refused: string | null, error: string | null }>}
  */
-export async function accountDelete({ connectionString, address, kv, ask, log = console.log }) {
+export async function accountDelete({
+  connectionString,
+  address,
+  kv,
+  ask,
+  settle = () => new Promise((resolve) => setTimeout(resolve, KV_LAG_MS)),
+  log = console.log,
+}) {
   const refuse = (refused) => {
     log(`refused: ${refused}`);
     return { deleted: false, refused, error: null };
   };
   // A pool, not one client: the prompt can sit long enough for the server to drop an idle
   // connection, and the pool opens another.
-  const pool = new pg.Pool({ connectionString, max: 1, connectionTimeoutMillis: 15_000 });
+  const pool = new pg.Pool({
+    connectionString,
+    max: 1,
+    connectionTimeoutMillis: 15_000,
+    query_timeout: REQUEST_TIMEOUT_MS,
+  });
   // A dropped connection is reported by the statement that was using it.
   pool.on("error", () => {});
   try {
@@ -163,8 +185,7 @@ export async function accountDelete({ connectionString, address, kv, ask, log = 
     const [user] = found;
     if (user.banned_at !== null) return refuse(BANNED);
 
-    // apps/web's positionKey, whose TypeScript and imports a script can't load.
-    const prefix = `pos:${user.id}:`;
+    const prefix = positionPrefix(user.id);
     const { rows } = await pool.query(
       `select
          (select count(*)::int from session where user_id = $1) as sessions,
@@ -187,16 +208,36 @@ export async function accountDelete({ connectionString, address, kv, ask, log = 
 
     const typed = await ask("type the address again to delete this account: ");
     if (normalized(typed) !== normalized(address)) return refuse("not confirmed");
+    // The prompt can sit for minutes, and a moderator can ban the account meanwhile.
+    const { rows: current } = await pool.query(`select banned_at from "user" where id = $1`, [
+      user.id,
+    ]);
+    if (current.length === 0) return refuse("the account went while the prompt waited");
+    if (current[0].banned_at !== null) return refuse(BANNED);
 
     const ended = await pool.query("delete from session where user_id = $1", [user.id]);
+    // An unspent link would make a new account at this address. Better Auth keeps its email in
+    // a JSON value, and the other rows in the table are not all JSON, so it is matched as text.
+    await pool.query("delete from verification where position($1 in lower(value)) > 0", [
+      `"email":${JSON.stringify(normalized(user.email))}`,
+    ]);
+    // As a ban ends them. A confirmed one is ingest's: it finds no account, and refuses it.
+    await pool.query(
+      `update uploads set status = 'account_banned' where user_id = $1 and status = 'pending'`,
+      [user.id],
+    );
+    log("waiting a minute, so a position saved just now shows up in KV's list");
+    await settle();
     const keys = await kv.listKeys(prefix);
     await kv.deleteKeys(keys);
-    // A ban that landed while the prompt waited keeps the row. The sessions and positions are
-    // gone by then, which costs a banned account little.
     const gone = await pool.query(`delete from "user" where id = $1 and banned_at is null`, [
       user.id,
     ]);
-    if (gone.rowCount === 0) return refuse(BANNED);
+    if (gone.rowCount === 0) {
+      return refuse(
+        "the account was banned or deleted during the wait, so the row is left as it is: its sessions and positions are already gone",
+      );
+    }
     log(
       `deleted the account, ${counted(ended.rowCount ?? 0, "session")}, ${counted(keys.length, "saved reading position")}`,
     );
@@ -246,7 +287,9 @@ async function main() {
     ask: askOnStdin,
   });
   if (error !== null) {
-    console.error(`account-delete: stopped: ${error}. Run it again to finish.`);
+    console.error(
+      `account-delete: stopped: ${error}. Run it again to finish: if that says no account has the address, this run had finished.`,
+    );
   }
   return deleted ? 0 : 1;
 }

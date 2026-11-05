@@ -996,26 +996,31 @@ and what will stay. It goes on only when the address is typed again. Then it
 deletes, in this order:
 
 1. The sessions, so a signed-in reader stops saving positions.
-2. The `pos:<user id>:` keys, listed through the KV API and removed in bulk.
-3. The `user` row, which also takes its `account` rows.
+2. Its unspent sign-in links in `verification`, since one would make a new account
+   at the address, and its `pending` uploads, which end `account_banned`.
+3. After a minute's wait, because KV lists can lag a write by up to a minute: the
+   `pos:<user id>:` keys, listed through the KV API and removed in bulk.
+4. The `user` row, which also takes its `account` rows.
 
 A failure leaves the row, so running the script again finishes the job. With the
-row gone first, the keys could no longer be found from the address. KV lists can
-lag a write by up to a minute, so a position saved just before the delete can be
-missed: nothing can read it once the account is gone, and it expires within a year.
+row gone first, the keys could no longer be found from the address. A save already
+past its session check when the sessions go, and landing after the list, can leave
+one key behind: nothing can read it once the account is gone, and it expires within
+a year.
 
 What stays, and why:
 
 - **Upload rows**, with `user_id` null, because `work_versions` points at them;
   works and versions stay public. A moderator's work page says "Deleted account"
-  on that version's row, with no ban form. An upload not yet finished is refused
-  as a banned uploader's is, because `isUploaderBanned` counts an account with no
-  row as banned.
+  on that version's row, with no ban form. A confirmed upload not yet finished is
+  refused as a banned uploader's is, because `isUploaderBanned` counts an account
+  with no row as banned.
 - **Reports**, with `reporter_id` as it was. It has no foreign key, so a deleted
   account's report still counts toward the automatic hide (Author requests &
   takedowns). No page shows a reporter's id. A blocked reporter's report is left
   out of that count by way of the account's email and sessions, so once the account
-  is gone that report counts again.
+  is gone that report counts again. Someone who signs up again at the same address
+  has a new id, so they count as a second reporter.
 - **`takedowns.resolved_by` and `requester_blocks.created_by`**, with the id as it
   was and no foreign key: the record of who acted stays, as it does for
   `moderation_actions.moderator_id` (Moderation).
@@ -1024,9 +1029,10 @@ What stays, and why:
 
 The script refuses a banned account and says so. A ban is `banned_at` on the row,
 so deleting the row would let the person sign up again with the same address. A
-ban that lands while the prompt waits keeps the row too; the sessions and positions
-are gone by then. The script prints the address it was given, counts, an HTTP status
-or a code, and no key, token or raw error.
+ban that lands while the prompt waits is seen before anything is touched. One that
+lands during the minute's wait keeps the row, and the script says the sessions and
+positions are already gone. The script prints the address it was given, counts, an
+HTTP status or a code, and no key, token or raw error.
 
 ## Author requests & takedowns
 
