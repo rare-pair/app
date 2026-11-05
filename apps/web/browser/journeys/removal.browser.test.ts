@@ -1,6 +1,7 @@
 import type { Locator, Page } from "playwright";
 import { describe, expect, it } from "vitest";
 import { uploadThroughPage, useJourneySite } from "../harness/journey";
+import { hasSidewaysScroll } from "../harness/layout";
 import { removalLink } from "../harness/requests";
 import { seedReadableWork } from "../harness/seed";
 import { signedIn } from "../harness/sessions";
@@ -228,6 +229,7 @@ describe("removal and opt-out journeys", () => {
     const pseud = page.getByLabel("Or a pseud, to remove every work by it");
     expect(await pseud.inputValue()).toBe("Anonymous");
     expect(await pseud.getAttribute("aria-invalid")).toBe("true");
+    expect(await hasSidewaysScroll(page)).toBe(false);
     const stored = await site.db
       .selectFrom("requests")
       .select("id")
