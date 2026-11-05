@@ -14,7 +14,7 @@ When you meet a problem you can't solve with confidence, don't guess. This holds
 - A choice is hard to undo: a schema shape, a key layout in R2, a queue message format, a public URL.
 - Behaviour the runtime decides isn't settled by the notes or the docs: workerd, Hyperdrive, Queues, `HTMLRewriter`.
 
-A question the docs leave open is not a confidence problem: it's a design decision, and it goes straight to the operator (step 3). Models don't decide open design questions (`/to-tickets`, *Rules for every ticket*).
+A question the docs leave open is not a confidence problem: it's a design decision, and it goes to the operator (step 3). Models don't decide open design questions (`/to-tickets`, *Rules for every ticket*). If your definition of done can be met without the answer, don't stop for it: file the gap, leave it unbuilt, and name it in your report, and it reaches the operator at the end of the wave (`/orchestrate`, *Questions*).
 
 ## The ladder
 
