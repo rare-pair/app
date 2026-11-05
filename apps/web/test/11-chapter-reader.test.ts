@@ -2,7 +2,7 @@ import { createDb } from "@archive/db";
 import { putFragments, seedVersion, seedWork, type SeedChapter } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { STRICT, fetchW, nonceOf, withoutNonce } from "./helpers";
+import { STRICT, fetchW, nonceOf, withoutLogo, withoutNonce } from "./helpers";
 
 // Every work here has an AO3 work ID in 20000-20999 and tags named r2-..., so no other
 // test file sharing the database sees them. ID 1 is never seeded: 22-waitlist expects
@@ -288,7 +288,7 @@ describe("11-reader-and-csp", () => {
     // the text is ordinary markup in the document, and nothing hides it or blocks selection.
     const html = await htmlOf(chapterUrl(W, 3));
     expect(html).toMatch(/<article class="chapter"><p>W-THREE-TEXT<\/p><\/article>/);
-    expect(html).not.toMatch(/aria-hidden|inert\b|hidden\b[^>]*class="chapter"/);
+    expect(withoutLogo(html)).not.toMatch(/aria-hidden|inert\b|hidden\b[^>]*class="chapter"/);
     const css = await stylesheetOf(html);
     expect(css).not.toMatch(/user-select:\s*none/);
     expect(css).not.toMatch(/@media print/);

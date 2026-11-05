@@ -18,12 +18,21 @@ describe("site header journeys", () => {
     await page.goto(`${SITE}/`);
     const header = page.getByRole("banner");
     expect(await header.getByRole("link").allInnerTexts()).toEqual([
-      "rarepair",
+      "✯ rarepair",
       "Search",
       "Add work",
       "Sign in",
     ]);
     expect(await header.getByRole("button").count()).toBe(0);
+    // The star is hidden from assistive technology: the name is just the site's.
+    await header.getByRole("link", { name: "rarepair", exact: true }).waitFor();
+    // The tab icon is declared and loads.
+    const icon = await page.locator('link[rel="icon"]').getAttribute("href");
+    const iconRes = await page.evaluate(async (href) => {
+      const res = await fetch(href!);
+      return { status: res.status, type: res.headers.get("content-type") };
+    }, icon);
+    expect(iconRes).toEqual({ status: 200, type: "image/svg+xml" });
 
     await header.getByRole("link", { name: "Search" }).click();
     await page.waitForURL(`${SITE}/search`);
@@ -46,7 +55,7 @@ describe("site header journeys", () => {
     await page.goto(`${SITE}/`);
     const header = page.getByRole("banner");
     expect(await header.getByRole("link").allInnerTexts()).toEqual([
-      "rarepair",
+      "✯ rarepair",
       "Search",
       "Add work",
       "My uploads",
@@ -96,7 +105,7 @@ describe("site header journeys", () => {
     await page.goto(`${SITE}/`);
     const header = page.getByRole("banner");
     expect(await header.getByRole("link").allInnerTexts()).toEqual([
-      "rarepair",
+      "✯ rarepair",
       "Search",
       "Add work",
       "My uploads",

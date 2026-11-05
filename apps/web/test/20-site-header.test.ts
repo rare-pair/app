@@ -22,7 +22,9 @@ async function signInAs(email: string, role: string | null = null): Promise<stri
 /** The header's links as [text, href] pairs, in document order; href is null on a disabled one. */
 const linksOf = (html: string) =>
   [...headerOf(html).matchAll(/<a\b([^>]*)>([^<]*)<\/a>/g)].flatMap((m) =>
-    m[2] === "rarepair" ? [] : [[m[2]!, m[1]!.match(/\bhref="([^"]*)"/)?.[1] ?? null] as const],
+    m[1]!.includes('class="site-name"')
+      ? []
+      : [[m[2]!, m[1]!.match(/\bhref="([^"]*)"/)?.[1] ?? null] as const],
   );
 
 const WORK = 42800;
