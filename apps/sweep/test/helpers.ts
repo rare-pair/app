@@ -31,13 +31,13 @@ type Handler = { scheduled: NonNullable<ExportedHandler<Env>["scheduled"]> };
  * object with the time it was put, so 25 hours later makes everything put so far older than
  * the sweep's 24 hours, and 0 keeps it all young.
  */
-export async function runSweep(
-  hoursLater: number,
-  {
-    handler = worker,
-    at = Date.now() + hoursLater * HOUR,
-    bindings = env,
-  }: { handler?: Handler; at?: number; bindings?: Env } = {},
+export const runSweep = (hoursLater: number, options?: { handler?: Handler }) =>
+  runSweepAt(Date.now() + hoursLater * HOUR, options);
+
+/** Fires the cron as Cloudflare would, at the exact time `at`. */
+export async function runSweepAt(
+  at: number,
+  { handler = worker, bindings = env }: { handler?: Handler; bindings?: Env } = {},
 ): Promise<void> {
   const controller = createScheduledController({ scheduledTime: at, cron: "17 3 * * *" });
   const ctx = createExecutionContext();

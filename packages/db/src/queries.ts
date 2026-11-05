@@ -406,6 +406,13 @@ export async function insertUpload(
 }
 
 /**
+ * An open upload: asked for, and not yet counted by a confirm. The cap counts these, the reaper
+ * removes them, and a confirm's claim takes a row out of them.
+ */
+const isOpenUpload = (eb: ExpressionBuilder<Database, "uploads">) =>
+  eb.and([eb("status", "=", "pending"), eb("quota_counted_at", "is", null)]);
+
+/**
  * Inserts a batch of `pending` uploads, all or none, unless they would take the account's open
  * uploads (`pending` and not counted by a confirm) past `cap`; then says how many still fit. The
  * user's row is locked first, so parallel asks count one after another and can't pass the cap
@@ -423,14 +430,16 @@ export async function insertUploadsWithinCap(
       .selectFrom("uploads")
       .select((eb) => eb.fn.countAll<string>().as("open"))
       .where("user_id", "=", userId)
-      .where("status", "=", "pending")
-      .where("quota_counted_at", "is", null)
+      .where(isOpenUpload)
       .executeTakeFirstOrThrow();
     const left = Math.max(0, cap - Number(open));
     if (uploads.length > left) return { inserted: false, left };
-    for (const { id, r2Key, bytes } of uploads) {
-      await insertUpload(trx, { id, userId, r2Key, bytes });
-    }
+    await trx
+      .insertInto("uploads")
+      .values(
+        uploads.map(({ id, r2Key, bytes }) => ({ id, user_id: userId, r2_key: r2Key, bytes })),
+      )
+      .execute();
     return { inserted: true };
   });
 }
@@ -447,8 +456,7 @@ export async function deleteUnconfirmedUploads(
 ): Promise<string[]> {
   const rows = await db
     .deleteFrom("uploads")
-    .where("status", "=", "pending")
-    .where("quota_counted_at", "is", null)
+    .where(isOpenUpload)
     .where("created_at", "<", cutoff)
     .returning("r2_key")
     .execute();
@@ -549,8 +557,7 @@ export async function rejectOverQuotaUpload(
     .set({ status: "over_quota" })
     .where("id", "=", id)
     .where("user_id", "=", userId)
-    .where("status", "=", "pending")
-    .where("quota_counted_at", "is", null)
+    .where(isOpenUpload)
     .returning("id")
     .executeTakeFirst();
   return row !== undefined;
@@ -628,8 +635,7 @@ export async function countUploadQuota(
       .where("id", "=", uploadId)
       .where("user_id", "=", userId)
       // An upload another request has rejected is never counted, nor queued after it.
-      .where("status", "=", "pending")
-      .where("quota_counted_at", "is", null)
+      .where(isOpenUpload)
       .returning("id")
       .executeTakeFirst();
     if (claimed === undefined) {

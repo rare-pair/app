@@ -11,6 +11,8 @@ export interface Env {
 /** How old an object must be before the sweep deletes it (operator ruling on #73). */
 const MIN_AGE_MS = 24 * 60 * 60 * 1000;
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /**
  * How old an unconfirmed upload must be before it is removed: the var's whole days, or one when
  * it is missing or misspelt. A bad var never takes a link still in use, nor turns this off.
@@ -19,7 +21,7 @@ function unconfirmedMaxAgeMs(env: Env): number {
   const days = /^[1-9]\d{0,2}$/.test(env.UNCONFIRMED_UPLOAD_DAYS ?? "")
     ? Number(env.UNCONFIRMED_UPLOAD_DAYS)
     : 1;
-  return days * MIN_AGE_MS;
+  return days * DAY_MS;
 }
 
 /** The scheduled handler, with `limits` on what one run may spend. */

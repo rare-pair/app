@@ -9,6 +9,7 @@ import {
   putPrefix,
   resetSweepState,
   runSweep,
+  runSweepAt,
   seededVersion,
   seededWork,
   upload,
@@ -253,7 +254,7 @@ describe("02-upload-handshake: unconfirmed uploads", () => {
     await env.BUCKET.put("works/60000/1.html", "<p>Synthetic fragment.</p>");
     await env.BUCKET.put("originals/60000.epub", "synthetic");
 
-    await runSweep(0, { at: NOW });
+    await runSweepAt(NOW);
 
     expect(await hasRow(withFile)).toBe(false);
     expect(await hasRow(neverPut)).toBe(false);
@@ -265,7 +266,7 @@ describe("02-upload-handshake: unconfirmed uploads", () => {
     await env.BUCKET.put(keyOf(atTheLine), "synthetic");
     const justOver = await upload(null, "pending", { createdAt: new Date(NOW - DAY - 1) });
 
-    await runSweep(0, { at: NOW });
+    await runSweepAt(NOW);
 
     expect(await hasRow(atTheLine)).toBe(true);
     expect(await bucketKeys("uploads/")).toEqual([keyOf(atTheLine)]);
@@ -286,7 +287,7 @@ describe("02-upload-handshake: unconfirmed uploads", () => {
     ];
     for (const id of ids) await env.BUCKET.put(keyOf(id), "synthetic");
 
-    await runSweep(0, { at: NOW });
+    await runSweepAt(NOW);
 
     for (const id of ids) expect(await hasRow(id), id).toBe(true);
     expect(await bucketKeys("uploads/")).toEqual(ids.map(keyOf).sort());
@@ -294,13 +295,13 @@ describe("02-upload-handshake: unconfirmed uploads", () => {
 
   it("The age is the deployed configuration's, and a bad value is a day", async () => {
     const twoDaysOld = await upload(null, "pending", { createdAt: daysAgo(2) });
-    await runSweep(0, { at: NOW, bindings: { ...env, UNCONFIRMED_UPLOAD_DAYS: "3" } });
+    await runSweepAt(NOW, { bindings: { ...env, UNCONFIRMED_UPLOAD_DAYS: "3" } });
     expect(await hasRow(twoDaysOld)).toBe(true);
 
     // Zero would take a link still in use: never less than the day it falls back to.
     const hourOld = await upload(null, "pending", { createdAt: new Date(NOW - DAY / 24) });
     for (const bad of ["0", "-1", "1e3", "", "soon"]) {
-      await runSweep(0, { at: NOW, bindings: { ...env, UNCONFIRMED_UPLOAD_DAYS: bad } });
+      await runSweepAt(NOW, { bindings: { ...env, UNCONFIRMED_UPLOAD_DAYS: bad } });
       expect(await hasRow(hourOld), bad).toBe(true);
     }
     expect(await hasRow(twoDaysOld)).toBe(false);
