@@ -192,8 +192,13 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1, 2 and 8), § Ingest
 
 ### A later attempt that reads nothing leaves the last read's hash
 - GIVEN an upload confirmed as file A, whose job read file B and failed with attempts left
-- WHEN its object is then gone, and the job runs again
+- WHEN its object is then gone and the job runs again, or the dead-letter consumer fails it
 - THEN the upload ends `parse_failed`, and its row with the hash of B
+
+### An upload a ban refuses at the save keeps the hash of what was read
+- GIVEN an upload confirmed as file A, whose job read file B, and whose account is banned while the job runs
+- WHEN the save refuses it
+- THEN the upload ends `account_banned`, and its row with the hash of B
 
 ### A job that has lost its lease records no hash
 - GIVEN a job that has read a file, whose upload another job has taken over

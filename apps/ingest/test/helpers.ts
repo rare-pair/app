@@ -454,7 +454,7 @@ export async function bucketText(key: string): Promise<string | null> {
   return object === null ? null : object.text();
 }
 
-/** SHA-256 of `bytes` as lowercase hex, the key an image is stored under. */
+/** SHA-256 of `bytes` as lowercase hex: an upload's hash, and the key an image is stored under. */
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");

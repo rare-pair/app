@@ -959,16 +959,60 @@ describe("04-ingest-job-lifecycle", () => {
     expect(await uploadHash(id)).toBe(await sha256Hex(fileB));
   });
 
-  it("A job that has lost its lease records no hash", async () => {
+  it("A later attempt that reads nothing leaves the last read's hash: the dead-letter consumer fails it", async () => {
+    const fileA = ao3Epub({ workId: 60418 });
+    const fileB = ao3Epub({ workId: 60419 });
+    const id = await pendingUpload(fileB);
+    await confirmAs(id, fileA);
+    const { handler } = watchedWorker({ bucket: failingPut(`originals/${id}.epub`) });
+    await deliver([{ upload_id: id }], { handler });
+    // A later job claimed it and died holding it.
+    await setLease(id, "-1 minute");
+
+    await deliver([{ upload_id: id }], { queue: "ingest-dlq" });
+
+    expect(await uploadRow(id)).toMatchObject({ status: "parse_failed", error: "dead_lettered" });
+    expect(await uploadHash(id)).toBe(await sha256Hex(fileB));
+  });
+
+  it("An upload a ban refuses at the save keeps the hash of what was read", async () => {
+    const fileA = ao3Epub({ workId: 60420 });
+    const fileB = ao3Epub({ workId: 60421 });
+    const id = await pendingUpload(fileB);
+    await confirmAs(id, fileA);
+    // Banned while the job runs: the save's own check refuses it.
+    const { handler } = watchedWorker({
+      process: async () => {
+        await banUploader(id);
+        return parsedWork();
+      },
+    });
+
+    await deliver([{ upload_id: id }], { handler });
+
+    expect(await uploadRow(id)).toMatchObject({ status: "account_banned", error_stage: "save" });
+    expect(await uploadHash(id)).toBe(await sha256Hex(fileB));
+  });
+
+  // Taken over while it is processed. A refusal goes straight to the fenced ending write; a
+  // parsed work finds the lease lost at the next renewal, and ends with no write at all.
+  it.each([
+    {
+      name: "at its ending write",
+      after: () => {
+        throw new EpubError("not_epub", "a refusal after the takeover");
+      },
+    },
+    { name: "at its next renewal", after: () => parsedWork() },
+  ])("A job that has lost its lease records no hash: $name", async ({ after }) => {
     const confirmed = ao3Epub({ workId: 60413 });
-    const id = await pendingUpload(new TextEncoder().encode("a takeover comes while this is read"));
+    const id = await pendingUpload(ao3Epub({ workId: 60422 }));
     await confirmAs(id, confirmed);
     let takeover = new Date(0);
-    // Taken over while it is processed, so the refusal goes straight to the fenced ending write.
     const { handler } = watchedWorker({
       process: async () => {
         takeover = await setLease(id, "1 hour");
-        throw new EpubError("not_epub", "a refusal after the takeover");
+        return after();
       },
     });
 
