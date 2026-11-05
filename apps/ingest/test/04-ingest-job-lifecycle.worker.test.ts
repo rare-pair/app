@@ -848,6 +848,22 @@ describe("04-ingest-job-lifecycle", () => {
     expect(row.work_id).not.toBe(swappedWork);
   });
 
+  it("A swap to a file already in the archive goes through the versioning rules", async () => {
+    const fileA = ao3Epub({ workId: 60416 });
+    const fileB = ao3Epub({ workId: 60417 });
+    const earlier = await ingestReal(fileB);
+    const id = await pendingUpload(fileB);
+    await confirmAs(id, fileA);
+
+    await deliver([{ upload_id: id }]);
+
+    const row = await uploadRow(id);
+    expect(row.status).toBe("duplicate");
+    expect(row.work_id).toBe(earlier.row.work_id);
+    expect(await bucketKeys(`originals/${id}`)).toHaveLength(1);
+    expect(await uploadHash(id)).toBe(await sha256Hex(fileB));
+  });
+
   it("An upload that wasn't swapped ends as it always has", async () => {
     const file = ao3Epub({ workId: 60404 });
     const id = await pendingUpload(file);

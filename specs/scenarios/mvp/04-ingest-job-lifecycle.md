@@ -1,6 +1,6 @@
 # Scenario: Ingest job lifecycle (lease, save order, retries, dead-letter)
 
-Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion pipeline (step 4), § Surge controls (Queue backpressure)
+Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1, 2 and 8), § Ingestion pipeline (steps 3 and 4), § Dedupe, § Surge controls (Queue backpressure)
 
 ## Setup
 - The ingest Worker consumes the ingest queue with a batch size of 1, retries and a dead-letter queue, and consumes the dead-letter queue too
@@ -161,7 +161,13 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 - GIVEN an upload confirmed as file A and ingested as file B
 - WHEN a later genuine upload of A is confirmed
 - THEN it isn't told it's a duplicate of the swapped upload, and its job runs like any other
-- AND a later upload of B is told it's a duplicate of the swapped upload's work
+- AND a later upload of B is told it's a duplicate of the swapped upload's work, while that work is `live` or `hidden`
+
+### A swap to a file already in the archive goes through the versioning rules
+- GIVEN an upload confirmed as file A, whose object has since been replaced by file B, already ingested
+- WHEN the job runs
+- THEN the versioning rules end the upload `duplicate` of B's work, with its original kept
+- AND its row ends with the hash of B
 
 ### An upload that wasn't swapped ends as it always has
 - GIVEN an upload confirmed as the file its object still holds
@@ -174,8 +180,8 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1 and 8), § Ingestion
 - THEN the upload ends with the refusal's code, and its row with the hash of the refused file
 
 ### An upload no job read keeps the hash confirm stored
-- GIVEN a confirmed upload whose job ends before reading the file: its object is gone or over the size limit, or its account is banned
-- OR a confirmed upload the dead-letter consumer fails
+- GIVEN a confirmed upload no job has read, whose job ends before reading the file: its object is gone or over the size limit, or its account is banned
+- OR a confirmed upload no job has read, which the dead-letter consumer fails
 - WHEN it ends
 - THEN its row keeps the hash confirm stored
 
