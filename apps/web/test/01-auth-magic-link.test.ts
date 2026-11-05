@@ -405,7 +405,9 @@ describe("01-auth-magic-link", () => {
     await refused(403, passing, { headers: { origin: "https://evil.example" } });
     await refused(400, { email, "cf-turnstile-response": "a-failing-token" });
     await refused(503, { email, "cf-turnstile-response": "siteverify-down" });
-    await refused(400, { email: "not-an-address", "cf-turnstile-response": LOGIN_TOKEN });
+    for (const bad of ["not-an-address", " ", `a${LONGEST_EMAIL}`]) {
+      await refused(400, { email: bad, "cf-turnstile-response": LOGIN_TOKEN });
+    }
     await refused(413, {}, { body: `email=x&padding=${"x".repeat(17 * 1024)}` });
 
     // The limit per IP.
@@ -501,18 +503,22 @@ describe("Sign-in failures", () => {
     };
     const refusing = { ...env, EMAIL: queue };
     let status = 0;
+    let markers: string[] = [];
     const logged = await consoleDuring(async () => {
       const ctx = createExecutionContext();
       const request = loginRequest({
         email: "logged-nowhere@example.test",
         "cf-turnstile-response": LOGIN_TOKEN,
       });
-      status = (await app.fetch(request, refusing, ctx)).status;
+      const res = await app.fetch(request, refusing, ctx);
+      status = res.status;
+      markers = res.headers.getSetCookie();
       await waitOnExecutionContext(ctx);
     });
-    // It failed where the error names the address.
+    // It failed where the error names the address, and no link went out, so no marker either.
     expect(sends).toBe(1);
     expect(status).toBe(500);
+    expect(markers).toEqual([]);
     expect(logged.length).toBeGreaterThan(0);
     expect(logged.join("\n")).not.toContain("logged-nowhere");
   });

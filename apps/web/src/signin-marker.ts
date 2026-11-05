@@ -12,7 +12,7 @@ const ATTRIBUTES = "; Path=/; SameSite=Lax; Secure; HttpOnly";
 /** The whole `Set-Cookie` value an accepted `POST /login` sends. It lasts as long as the link. */
 export const SET_SIGN_IN_MARKER = `${MARKER}=1; Max-Age=${LINK_LIFETIME_MINUTES * 60}${ATTRIBUTES}`;
 
-// A `__Host-` cookie is cleared only with the same attributes.
+// With the attributes it was set with: `__Host-` needs Secure, Path=/ and no Domain here too.
 const CLEAR_SIGN_IN_MARKER = `${MARKER}=; Max-Age=0${ATTRIBUTES}`;
 
 /** Whether this browser holds the marker. */

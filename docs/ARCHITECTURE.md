@@ -942,7 +942,7 @@ origin. Work pages, listings and search stay open, so people can still find work
   also sets the sign-in marker: the cookie `__Host-signin-pending`, with a fixed
   value that holds nothing about the address, the token or the account,
   `HttpOnly; Secure; SameSite=Lax; Path=/` and no `Domain`, lasting as long as
-  the link. It is the same whether or not the address has an account. It isn't
+  the newest link. It is the same whether or not the address has an account. It isn't
   a session, and it doesn't stop a signed-out reader's pages coming from the
   edge cache.
 - **Using the link.** The email links to our `GET /login/confirm?token=…`,
@@ -950,11 +950,14 @@ origin. Work pages, listings and search stay open, so people can still find work
   scanners that open links in advance therefore can't burn it.
   `POST /login/confirm` calls `auth.api.magicLinkVerify`, which redirects to
   `next` with the session cookie. A used, expired or unknown link is
-  redirected to `/login` with a plain message. Every answer of the POST, a
-  refusal included, clears the marker.
+  redirected to `/login` with a plain message. Every answer of the POST's route,
+  a refusal or a fault included, clears the marker. Before launch sign-in is
+  closed: both routes redirect, so none of this can be reached.
 - **The browser that asked.** When `GET /login/confirm` sees the marker, the
   page also carries one nonced script that submits its form once as it loads,
-  so the browser that asked for the link signs in with nothing to press. With
+  so the browser that asked for the link, while it holds the marker, signs in
+  with nothing to press. It does this for whichever link is opened: an older,
+  used link lands on the plain message, and the newest then takes a press. With
   JavaScript off, or a press in that instant, the form works as it always does
   (a second post gets the used-link answer). Without the marker the page has no
   script, so a mail scanner that runs scripts can't spend the token, someone

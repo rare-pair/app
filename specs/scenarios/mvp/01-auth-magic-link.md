@@ -68,9 +68,15 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - AND the token is still unused and no session is created
 
 ### The browser that asked for the link signs in without a press
-- GIVEN a browser whose `POST /login` was accepted and an unused token
+- GIVEN a browser whose `POST /login` was accepted, which still holds the marker, and an unused token
 - WHEN it opens the emailed link with JavaScript on
 - THEN it is signed in and redirected to its `next`, and nothing was pressed
+
+### The marker posts whichever link is opened
+- GIVEN a browser holding the marker
+- WHEN it opens an older sign-in link, used or expired
+- THEN the page posts by itself and lands on the used-or-expired message
+- AND the marker is gone, so its newest link then takes a press
 
 ### Opening the link still uses nothing up
 - GIVEN an unused token
@@ -90,8 +96,8 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - THEN it is signed in
 
 ### Going back after signing in shows no error
-- GIVEN a browser with the marker
-- WHEN `POST /login/confirm` answers it in any way, a refusal included
+- GIVEN a browser with the marker, and sign-in open (before launch both routes redirect)
+- WHEN the Worker's `POST /login/confirm` route answers it in any way, a refusal or a fault included
 - THEN the answer clears the marker, so going back to or reloading the link page posts nothing by itself
 
 ### A refused request sets no marker
@@ -104,7 +110,7 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - GIVEN an accepted `POST /login`
 - WHEN its marker cookie is set
 - THEN it holds nothing about the address, the token or the account
-- AND it has `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` and no `Domain`, and lasts no longer than the link
+- AND it has `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` and no `Domain`, and lasts no longer than the newest link it was set for
 - AND it isn't treated as a session, and a signed-out reader holding it still gets edge-cached chapter pages
 
 ### Confirming signs the user in

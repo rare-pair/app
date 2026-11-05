@@ -17,7 +17,7 @@ fandoms and pseuds in it are invented placeholders.
 | --- | --- |
 | Visual direction | Modern and minimal. The identity is plain HTML with a strong typographic hierarchy: type, spacing and rules do the work, not boxes, shadows or imagery |
 | Warnings | **Hard constraint:** rating and archive warnings show on every work card and work page. They are never collapsed, never behind a hover, and never hidden to save space. Minimalism applies to everything else |
-| JavaScript | Reading, browsing, search and reader settings work fully with JavaScript off; small scripts only enhance them (settings without a reload, saving reading position). Forms with a Turnstile check (sign-in, upload, `/remove`, the copyright notice at `/dmca`, and the wait list before launch) need JavaScript, because Turnstile can't produce a token without it; with JS off they say so in a `<noscript>` message |
+| JavaScript | Reading, browsing, search and reader settings work fully with JavaScript off; small scripts only enhance them (settings without a reload, saving reading position). On the sign-in link's page, a script presses the button for the browser that asked for the link. Forms with a Turnstile check (sign-in, upload, `/remove`, the copyright notice at `/dmca`, and the wait list before launch) need JavaScript, because Turnstile can't produce a token without it; with JS off they say so in a `<noscript>` message |
 | Pagination | Server-side pages with real URLs. No infinite scroll |
 | Branding | No AO3 or OTW name, symbols or styling in the UI. Ratings and warnings are text badges, not symbol icons (ARCHITECTURE, opening) |
 | Author identity | No claims, no author accounts, no "my works". Removal and opt-out are a public request form that needs no sign-in (ARCHITECTURE, *Author requests & takedowns*) |
@@ -84,7 +84,9 @@ Reading never requires an account (ARCHITECTURE, *Auth*).
 3. The link opens a short page with a "Sign in" button (a POST form, so a mail
    scanner opening the link in advance can't use it up). Pressing it signs them
    in, with or without JavaScript, and sends them back to the page they started
-   from. It uses a stored same-site `next` value, never an open redirect.
+   from. It uses a stored same-site `next` value, never an open redirect. In the
+   browser that asked for the link, with JavaScript on, the page presses it
+   itself: nothing to do.
 4. An email with no account gets one at this point. A new account first lands
    on a one-time terms page (`/welcome/terms`) and must accept before going
    anywhere else (bar the pages open to anyone: see the Accept terms row); then it continues to `next`. Returning users never see it.

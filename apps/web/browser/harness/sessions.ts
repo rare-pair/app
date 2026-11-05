@@ -118,8 +118,19 @@ async function signIn(
       page.waitForEvent("load"),
       page.getByRole("button", { name: "Email me a sign-in link" }).click(),
     ]);
-    await page.goto(await signInLink(site, email));
     // This browser asked for the link, so its page submits itself: nothing to press.
+    const link = await signInLink(site, email);
+    const [answer] = await Promise.all([
+      page.waitForResponse(
+        (res) =>
+          res.request().method() === "POST" && new URL(res.url()).pathname === "/login/confirm",
+      ),
+      page.goto(link),
+    ]);
+    // A 403 or a 500 stays on the link's address, so no wait for the next page would end.
+    if (answer.status() !== 303) {
+      throw new Error(`signing ${email} in answered ${answer.status()}`);
+    }
     await page.waitForURL((url) => url.pathname !== "/login/confirm");
     // A refused link goes back to /login; a session goes on, to the terms for a new account.
     if (new URL(page.url()).pathname === "/login") {

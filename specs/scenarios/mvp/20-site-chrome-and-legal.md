@@ -28,6 +28,11 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - WHEN they open `/about`, `/terms` and `/privacy`
 - THEN each is a static page that renders without sign-in or JavaScript
 
+### The privacy page says asking for a sign-in link sets a cookie that holds nothing about you
+- GIVEN any visitor
+- WHEN they open `/privacy`
+- THEN it says asking for a sign-in link sets a short-lived cookie that holds nothing about them
+
 ### The privacy page says requester data is kept until the site closes
 - GIVEN any visitor
 - WHEN they open `/privacy`
