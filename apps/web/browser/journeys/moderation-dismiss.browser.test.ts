@@ -35,6 +35,7 @@ describe("dismiss journeys", () => {
     await expect.poll(() => page.locator("main").innerText()).toContain("Report dismissed.");
 
     await page.getByRole("link", { name: "Back to the item" }).click();
+    await page.waitForURL(/\/admin\/reports\/[^/]+$/);
     expect(await page.locator("main").innerText()).toContain("closed");
     expect(await page.getByRole("button", { name: "Dismiss report" }).count()).toBe(0);
     await expectLogged(site, {
