@@ -6,7 +6,7 @@ Mock at **system boundaries** only, and only where the runtime can't give you th
 |----------|----------|
 | R2, KV, Queues, D1 | **Don't mock.** Code that uses a binding is one of the cases that needs workerd (SKILL.md, *Rules of the loop*): Miniflare gives real local bindings, declared in the workspace's `vitest.config.ts` (`spikes/better-auth` declares `d1Databases`). Assert on what the binding holds. Keep the code that touches bindings thin, so the logic around it tests in Node. |
 | Postgres through Hyperdrive | Use the test database the `packages/db` helpers provide. Never mock SQL or the query layer. If no helper exists yet, that's a gap for the notes or a consult, not a reason to stub. |
-| Email providers (Resend, the failover) | Stub senders, injected. No test calls a real provider (`/gate`, mailer protocol). |
+| The email provider (Resend) | A stub sender, injected. No test calls a real provider (`/gate`, mailer protocol). |
 | Turnstile | Cloudflare's published test site key and secret, which always pass or always fail. |
 | Time | Inject a clock. Rate limits, quotas, expiries and "is this upload newer" all need a fixed now. |
 | Randomness | Don't pin it. Assert the property instead: two responses carry different CSP nonces. |
