@@ -292,14 +292,16 @@ rule's whitespace and invisible-character removal is blank, and names nobody).
    enqueues `{upload_id}`.
 4. **Process.** The ingest consumer handles one upload per invocation (a batch
    size of 1), so a crash in one job can't spend another upload's retries, with
-   retries and a dead-letter queue. See the EPUB processor section below. Jobs
-   in a batch always ran one after another, so at the concurrency of 2 at most
-   two run at once at any batch size; size 1 lowers no ceiling. It costs one
-   invocation and Postgres connection set-up per upload, and no batch wait. The
-   throughput is 2 ÷ seconds per job. That is an estimate, not measured on real
-   Queues: at 2 to 20 seconds a job, from a small epub to a 25 MB one with many
-   R2 writes, 6 to 60 uploads a minute. A burst past that waits in the backlog,
-   which is what the concurrency cap is for. It needs no change.
+   retries and a dead-letter queue. See the EPUB processor section below. An
+   invocation runs its jobs one after another, so with a concurrency of 2 at most
+   two jobs run at once at any batch size. A size of 1 lowers no ceiling: it costs
+   one invocation and Postgres connection set-up per upload, and no batch wait.
+   Throughput is 2 ÷ seconds per job. No job has been timed on real Queues, so
+   this is an estimate: 2 seconds for a small epub (the processor takes well under
+   a second on the synthetic epubs in tests; R2 and Postgres add the rest) and 20
+   for a 25 MB one with many R2 writes, reasoned from those limits, give 6 to 60
+   uploads a minute. A burst past that waits in the backlog, which is what the
+   concurrency cap is for, so the concurrency needs no change.
 5. **Track.** The uploader's page polls `GET /uploads/:id` for its status:
    `processing`, `live`, `held_for_review`, `duplicate`, or one of the
    rejection codes below. `held_for_review` and `duplicate` are not
@@ -572,8 +574,8 @@ Chapter text isn't indexed.
    stored the file and then dies on every delivery, or whose ending write fails on
    the last attempt, so only the dead-letter consumer ends it and nobody deletes the
    original (the sweep still finds it if the work is later removed, while the
-   upload's prefix is there), or, past that consumer's hour of retries, it stays
-   `processing` and the sweep skips the work as in flight;
+   upload's prefix is there), or a Postgres outage that outlasts that consumer's
+   retries, so it stays `processing` and the sweep skips the work as in flight;
    (2) a duplicate's epub after the ordinary sweep removed its prefix and a removal's
    delete then failed, because the sweep finds originals only from folder prefixes and
    never visits an emptied folder again; (3) a crash between the ending write and
