@@ -198,6 +198,8 @@ describe("crawl: before launch", () => {
     // Before launch these are disabled, with no href, so they lead nowhere. This reads the
     // crawl's record of the pages it reached, not how the disabled items look or read.
     const { seen } = results.moderator;
+    // The premise: the crawl read the signed-in header, so an empty record can't pass this.
+    expect(seen.has("/admin")).toBe(true);
     for (const closed of ["/upload", "/me/uploads", "/remove", "/dmca"]) {
       expect(seen.has(closed)).toBe(false);
     }
