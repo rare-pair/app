@@ -299,4 +299,4 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - WHEN they open `/upload`, or their browser's script calls `POST /uploads`
 - THEN opening `/upload` redirects them to sign in, carrying `next=/upload`
 - AND `POST /uploads` answers 401, since a script can't follow a sign-in redirect
-- AND no `uploads` row is inserted and no presigned URL is returned
+- AND no `uploads` row is inserted

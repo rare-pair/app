@@ -278,7 +278,7 @@ describe("02-upload-handshake", () => {
     ["longer", [6, 6]],
     ["shorter", [6]],
   ])(
-    "A body %s than its Content-Length stores nothing and frees its slot",
+    "A body longer or shorter than its Content-Length stores nothing and frees its slot: %s",
     async (word, chunks) => {
       const { userId, cookie } = await signIn(`upslot-lying-${word}`);
       await fillCap(userId);
@@ -342,7 +342,7 @@ describe("02-upload-handshake", () => {
   });
 
   it.each(["duplicate", "too_large", "over_quota", "processing", "live"] as const)(
-    "A file sent to an upload that has ended (%s) stores nothing",
+    "A file sent to an upload that has ended stores nothing: %s",
     async (status) => {
       const { userId, cookie } = await signIn(`upslot-ended-${status}`);
       const up = await opened(userId, 10);
@@ -353,7 +353,7 @@ describe("02-upload-handshake", () => {
     },
   );
 
-  it("A file sent to an upload a confirm has counted stores nothing", async () => {
+  it("A file sent to an upload that has ended stores nothing: counted by a confirm", async () => {
     const { userId, cookie } = await signIn("upslot-counted");
     const up = await opened(userId, 10);
     await db
@@ -415,6 +415,24 @@ describe("02-upload-handshake", () => {
     );
     expect(res.status).toBe(200);
     expect((await env.BUCKET.head(up.key))?.size).toBe(10);
+  });
+});
+
+describe("19-surge-controls-and-quotas", () => {
+  it("Oversized files are refused as they arrive", async () => {
+    const { userId, cookie } = await signIn("upslot-oversized");
+    const declared = await opened(userId, 10);
+    await expectRefused(
+      await putRaw(declared.id, bodyOf(10), { cookie, "content-length": String(MAX + 1) }),
+      413,
+    );
+    await expectFreed(declared);
+    const arriving = await opened(userId, 10);
+    await expectRefused(
+      await putRaw(arriving.id, bodyOf(6, 6), { cookie, "content-length": "10" }),
+      400,
+    );
+    await expectFreed(arriving);
   });
 });
 
