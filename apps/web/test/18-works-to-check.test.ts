@@ -179,4 +179,104 @@ describe("18 moderation: Works to check", () => {
     expect(stored).toEqual([{ kind: "wrong_version" }]);
     expect(await queue()).toContain("mod3a-18450 (18450)");
   });
+
+  it("A work the reports hid is listed once its reports are closed", async () => {
+    const w = await seed(18470, { status: "hidden", hiddenCause: "reports" });
+    await reportOn(w, "mod3a-other-kind", "2001-09-01T00:00:00Z", "closed");
+    await reportOn(w, "mod3a-other-kind", "2001-10-01T00:00:00Z", "dismissed");
+    const cells = rowWith(await queue(), "mod3a-18470 (");
+    expect(cells[0]).toBe("2001-09-01T00:00:00.000Z");
+    expect(cells[2]).toBe("Hidden by reports, none open: restore or remove");
+  });
+
+  it("A work the reports hid is not listed while a report is open", async () => {
+    const w = await seed(18471, { status: "hidden", hiddenCause: "reports" });
+    await reportOn(w, "mod3a-other-kind", "2001-09-01T00:00:00Z");
+    expect(await queue()).not.toContain("mod3a-18471");
+  });
+
+  it("Only a hide by reports is listed for having none open", async () => {
+    await seed(18472, { status: "hidden", hiddenCause: "moderator" });
+    await seed(18473, { status: "hidden", hiddenCause: "removal_request" });
+    await seed(18474, { status: "live" });
+    await seed(18475, { status: "removed" });
+    const html = await queue();
+    for (const id of [18472, 18473, 18474, 18475]) {
+      expect(html, String(id)).not.toContain(`mod3a-${id}`);
+    }
+  });
+
+  it("A work the reports hid with a wrong-version report is listed once, with both reasons", async () => {
+    const w = await seed(18476, { status: "hidden", hiddenCause: "reports" });
+    await reportOn(w, "wrong_version", "2001-09-01T00:00:00Z");
+    const cells = rowWith(await queue(), "mod3a-18476 (");
+    expect(cells[2]).toBe(
+      "Reported: this version is wrong; Hidden by reports, none open: restore or remove",
+    );
+  });
+
+  describe("its exits", () => {
+    const post = (path: string, fields: Record<string, string> = {}) =>
+      fetchW(path, {
+        method: "POST",
+        headers: {
+          cookie: moderator,
+          "content-type": "application/x-www-form-urlencoded",
+          origin: BASE,
+          "sec-fetch-site": "same-origin",
+        },
+        body: new URLSearchParams(fields).toString(),
+      });
+    const state = (id: number) =>
+      db
+        .selectFrom("works")
+        .select(["status", "hidden_cause"])
+        .where("ao3_work_id", "=", id)
+        .executeTakeFirstOrThrow();
+
+    it("Dismissing the last report lists the work, still hidden", async () => {
+      const w = await seed(18480, { status: "hidden", hiddenCause: "reports" });
+      await db
+        .insertInto("reports")
+        .values({
+          id: "mod3a-18480",
+          work_id: w.workId,
+          reporter_id: w.userId,
+          kind: "mod3a-other-kind",
+          status: "open",
+          created_at: "2001-09-01T00:00:00Z",
+        })
+        .execute();
+      expect(await queue()).not.toContain("mod3a-18480 (");
+      expect((await post("/admin/reports/mod3a-18480/dismiss")).status).toBe(200);
+      expect(await queue()).toContain("mod3a-18480 (18480)");
+      expect(await state(18480)).toEqual({ status: "hidden", hidden_cause: "reports" });
+      expect((await fetchW("/works/18480")).status).toBe(451);
+    });
+
+    it("Its admin page offers Restore and Remove", async () => {
+      await seed(18481, { status: "hidden", hiddenCause: "reports" });
+      const res = await fetchW("/admin/works/18481", { headers: { cookie: moderator } });
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain('action="/admin/works/18481/restore"');
+      expect(html).toContain('action="/admin/works/18481/remove"');
+    });
+
+    it("Restoring it takes it off Works to check", async () => {
+      await seed(18482, { status: "hidden", hiddenCause: "reports" });
+      expect(await queue()).toContain("mod3a-18482 (");
+      expect((await post("/admin/works/18482/restore")).status).toBe(200);
+      expect(await state(18482)).toEqual({ status: "live", hidden_cause: null });
+      expect(await queue()).not.toContain("mod3a-18482");
+    });
+
+    it("Removing it takes it off Works to check", async () => {
+      await seed(18483, { status: "hidden", hiddenCause: "reports" });
+      expect(await queue()).toContain("mod3a-18483 (");
+      expect((await post("/admin/works/18483/remove", { confirm: "yes" })).status).toBe(200);
+      expect((await state(18483)).status).toBe("removed");
+      expect(await queue()).not.toContain("mod3a-18483");
+    });
+  });
 });

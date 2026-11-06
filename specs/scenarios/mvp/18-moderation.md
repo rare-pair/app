@@ -12,6 +12,7 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
   - work HV, live at v1, with a held version v2
   - work F, live with review reasons no moderator has cleared
   - work BV, with a "This version is wrong" report
+  - work HR, hidden by reports, all its reports closed
 
 ## Cases
 
@@ -31,9 +32,9 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 - THEN both kinds are listed
 
 ### Works to check lists held, flagged and wrong-version works
-- GIVEN works HV, F and BV
+- GIVEN works HV, F, BV and HR
 - WHEN M opens `/admin/works`
-- THEN HV, F and BV are each listed, oldest first
+- THEN HV, F, BV and HR are each listed, oldest first
 
 ### An empty byline goes live with byline_missing
 - GIVEN an upload whose preface byline and OPF creators name nobody
@@ -55,7 +56,49 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 ### Works to check detail page has its own actions
 - GIVEN an item in *Works to check*
 - WHEN M opens its detail page
-- THEN the page offers approve, make version current, hide and remove
+- THEN the page offers approve, make version current, hide and remove, and restore when the work is hidden
+
+### A work the reports hid is listed once its reports are closed
+- GIVEN work HR, hidden by reports, whose reports are all closed or dismissed
+- WHEN M opens `/admin/works`
+- THEN HR is listed with a reason saying the reports hid it and none is open
+- AND HR is dated by its earliest report
+
+### A work the reports hid is not listed while a report is open
+- GIVEN a work hidden by reports, with an open report
+- WHEN M opens `/admin/works`
+- THEN the work is not listed
+
+### Only a hide by reports is listed for having none open
+- GIVEN hidden works whose cause is a moderator or a removal request, a live work and a removed work, none with an open report
+- WHEN M opens `/admin/works`
+- THEN none of them is listed
+
+### A work the reports hid with a wrong-version report is listed once
+- GIVEN a work hidden by reports, with an open "This version is wrong" report
+- WHEN M opens `/admin/works`
+- THEN the work is listed once, with both reasons
+
+### Dismissing the last report of a hidden work lists it
+- GIVEN a work hidden by reports whose only open report is not in *Works to check*
+- WHEN M dismisses that report
+- THEN the work is listed in *Works to check*
+- AND the work is still hidden and answers 451
+
+### Its admin page offers Restore and Remove
+- GIVEN work HR in *Works to check*
+- WHEN M opens its detail page
+- THEN the page offers restore and remove
+
+### Restoring a work the reports hid takes it off Works to check
+- GIVEN work HR in *Works to check*
+- WHEN M restores it
+- THEN HR is live and leaves *Works to check*
+
+### Removing a work the reports hid takes it off Works to check
+- GIVEN work HR in *Works to check*
+- WHEN M removes it
+- THEN HR is removed and leaves *Works to check*
 
 ### Approving a flagged work clears the notice
 - GIVEN work F in *Works to check*
