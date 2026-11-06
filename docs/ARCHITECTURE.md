@@ -15,7 +15,7 @@ an unofficial stopgap.
 | --- | --- |
 | Name and domain | rarepair, always written lowercase as one word. The site is served at `rarepair.fans`, and `www.rarepair.fans` redirects there. Epub images and original downloads are served from `content.rarepair.fans` |
 | Who can read uploads | Shared public archive. Every upload is readable by everyone, with takedowns and author removal requests from day one. The one exception is below, in Crawlers and agents |
-| Crawlers and agents | Clients that declare themselves automated are refused the whole site, search engines and link previews included, except `robots.txt` and one-click unsubscribe. Bot Fight Mode is on and the AI Crawler and Agent access policies are on block. Reading needs no sign-in, and the app adds no challenge, but Cloudflare's bot protection can challenge a reader it flags (operator ruling, 2026-11-06, replacing 2026-11-04) |
+| Crawlers and agents | Clients that declare themselves automated are refused the whole site, search engines and link previews included. The Workers and the custom rule except `robots.txt` and one-click unsubscribe. Bot Fight Mode is on and the AI Crawler and Agent access policies are on block. Reading needs no sign-in, and the app adds no challenge, but Cloudflare's bot protection can challenge a reader it flags (operator ruling, 2026-11-06, replacing 2026-11-04) |
 | Hosting | Cloudflare on the Workers Paid plan: Workers, R2 (one bucket for every prefix), Queues, KV, plus Neon Postgres through Hyperdrive: a config with caching off for every read that decides something, and one with caching on for public pages only (see Connections). Workers Paid is an operator ruling, 2026-11-05 |
 | Load target | Surge-ready: assume tens of thousands of signups in the first days |
 | Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend alone. There is no failover provider at launch, and while Resend is down sign-in stops until it returns (operator ruling, 2026-11-05) |
@@ -89,7 +89,7 @@ an unofficial stopgap.
   HTML. The sanitized chapter HTML is rendered straight into app pages. The
   second layer is a strict, nonce-based CSP on every app page, so a script that
   gets past the sanitizer still can't run (see Reading). The separate
-  `content.rarepair.fans` origin, which sets no cookies, is kept only for the bytes
+  `content.rarepair.fans` origin, whose Worker sets no cookies, is kept only for the bytes
   we serve as they are: images from inside epubs and original-file downloads.
 - **Hosts.** The web Worker answers only on `rarepair.fans` and the content
   Worker only on `content.rarepair.fans`. Every Worker sets `workers_dev = false`
@@ -107,9 +107,9 @@ an unofficial stopgap.
     domain isn't submitted to the HSTS preload list: the archive is temporary,
     and leaving the list takes months.
   - Bot Fight Mode is on for the whole zone, and can't be skipped by a rule, so it
-    also applies to `content.rarepair.fans` and may set a cookie and inject a script
-    there and on the app (operator ruling, 2026-11-06). The Workers themselves still set
-    no cookie on that host. Browser Integrity Check stays off (Crawlers and agents).
+    also applies to `content.rarepair.fans` and may set a cookie there, and inject a
+    script into the app's HTML (operator ruling, 2026-11-06). The content Worker itself still
+    sets no cookie. Browser Integrity Check stays off (Crawlers and agents).
   - The content Worker keeps no per-request log (invocation logs are off), so its
     logs hold no reader address next to a work id. Errors and metrics are kept;
     traces are off too, so no reading data reaches them (the URL carries the work
@@ -940,7 +940,7 @@ can be snapshotted.
   `Content-Disposition: attachment` from `content.rarepair.fans`. It's never
   displayed inline. The link names the current version's upload, or for a
   backfill version the upload it was re-made from (`source_upload_id`). The
-  download never meets the warnings screen: the content origin has no cookies and
+  download never meets the warnings screen: the content origin has no session and
   the link isn't gated, so a Mature, Explicit or warned work can be downloaded
   without seeing it. We accept that.
 
@@ -973,9 +973,9 @@ content origin, also have the throttles and the cross-site check below.
 - **Zone config.** One custom rule blocks `cf.client.bot` on every path of both hosts but
   the exempt ones, which covers search engines as well. Those requests get Cloudflare's own
   block page, never reach a Worker, and show only in Security Events. The AI Crawler and
-  Agent access policies are on block. Bot Fight Mode is on, or Super Bot Fight Mode on a plan
+  Agent access policies are on block, and act on every path, the exempt ones included. Bot Fight Mode is on, or Super Bot Fight Mode on a plan
   that has it. Bot Fight Mode has no exceptions: it can challenge a real reader, an
-  image request or a mail provider's one-click unsubscribe, and its JavaScript detections
+  image request, a page script's request or a mail provider's one-click unsubscribe, and its JavaScript detections
   can't be turned off. They inject a script, which Cloudflare gives the nonce from our CSP
   header. Super Bot Fight Mode can be skipped by a rule, so it could spare the content origin and
   unsubscribe. A reader with JavaScript off can't pass a challenge. These are accepted costs,
@@ -1009,7 +1009,7 @@ content origin, also have the throttles and the cross-site check below.
 
 - **Library.** [Better Auth](https://www.better-auth.com/) 1.7 with its
   magic-link plugin, running inside the web Worker. It's open source and
-  self-hosted: users and sessions live in Neon, and no third-party script
+  self-hosted: users and sessions live in Neon, and no third-party auth script
   reaches the browser, which only ever sees our own HTML forms. A spike against
   1.7.14 confirmed the behaviour below. Notes:
   - Workers needs `nodejs_compat`, because Better Auth uses `AsyncLocalStorage`.

@@ -8,8 +8,9 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 
 ## Setup
 - Refusals cover the whole site: every path on `rarepair.fans` and `content.rarepair.fans`, except the exempt paths
-- The exempt paths are `/robots.txt` on each host, and `POST /waitlist/unsubscribe`, which mail providers send for one-click unsubscribe (specs/scenarios/mvp/22-waitlist.md). Without that one, the launch email's one-click unsubscribe stops working
-- Fic text is `/works/:id/chapters`, `/works/:id/chapters/:n` and `/works/:id/full` on `rarepair.fans`, and `/works/:id/img/*` and `/originals/*` on `content.rarepair.fans`. These are the fic text paths, and the only ones the cross-site check and the read throttles cover
+- The exempt paths are `/robots.txt` on each host, and `POST /waitlist/unsubscribe`, which mail providers send for one-click unsubscribe (specs/scenarios/mvp/22-waitlist.md). Without that one, the launch email's one-click unsubscribe stops working. They are exempt in the Workers and the custom rule only: the AI Crawler and Agent access policies and Bot Fight Mode act on every path, and neither can be limited to spare them
+- Every "no `Set-Cookie`" in this spec means none from the Worker. Bot Fight Mode, at the zone, may add its own
+- Fic text is `/works/:id/chapters`, `/works/:id/chapters/:n` and `/works/:id/full` on `rarepair.fans`, and `/works/:id/img/*` and `/originals/*` on `content.rarepair.fans`. These are the fic text paths. Of the whole site, only they have the cross-site check and the read throttles, and images have neither
 - A live work W with chapters, images and an original, a hidden work H and a removed work R
 - `PRELAUNCH` is off, unless a case says otherwise. With it on, closed paths on `rarepair.fans` redirect as in specs/scenarios/mvp/22-waitlist.md, and a request to `www.rarepair.fans` always gets its 308 first, as in specs/scenarios/mvp/11-reader-and-csp.md
 - The crawler list is one list that both Workers are built from: product names of search engines, link preview services, AI crawlers, AI agents, scraping tools and HTTP libraries that identify themselves. It matches as plain case-insensitive text, with no regular expressions. It holds no word as broad as `bot`, no pattern for headless browsers or browser automation in general, and none for assistive technology
@@ -107,6 +108,7 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - WHEN it requests `/robots.txt` on either host, or sends `POST /waitlist/unsubscribe` with a valid token
 - THEN each is served as it is for a browser, and the unsubscribe takes effect
 - AND `GET /waitlist/unsubscribe` and every other path are refused
+- AND this case holds at the Workers and the custom rule. What the zone's other features do to these paths is in "Bot Fight Mode is checked on the live zone"
 
 ### Link previews get nothing
 - GIVEN a link preview service that identifies itself
@@ -118,7 +120,7 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - GIVEN a reader with an ordinary browser, JavaScript on or off, whom Bot Fight Mode doesn't flag
 - WHEN they open a chapter of W, `/works/:id/full`, one of its images and its original
 - THEN each is served with no challenge page and no Turnstile
-- AND the app adds no script of its own and its CSP is unchanged, with no third-party frame
+- AND the page has no script beyond the app's own, such as the reader settings and saved position, and no Turnstile script. Its CSP is unchanged, with no third-party frame
 - AND a challenge is only ever Cloudflare's, from the zone, never from either Worker
 
 ### Assistive and in-browser tools keep working
@@ -233,5 +235,6 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 - WHEN an operator opens a chapter with its images and an original in an ordinary browser, with JavaScript on and off, and reads Security Events
 - THEN the pages and files load, and the console shows no CSP violation from Cloudflare's injected script
 - AND an image or original loaded by a page is not answered with a challenge
-- AND a test one-click unsubscribe from a mail provider takes effect
+- AND a test one-click unsubscribe from a mail provider takes effect, and `/robots.txt` is served to a client the AI policies would block
+- AND a person can load the coming-soon page and join the wait list, ask for and follow a sign-in link, upload a file and watch its status, and have their reading position saved, since a page script can't pass a challenge
 - AND any of these failing goes to the operator to decide, since Bot Fight Mode can't be skipped by a rule and turning it off is the only fix on a plan without Super Bot Fight Mode
