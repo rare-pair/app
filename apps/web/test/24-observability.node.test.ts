@@ -6,6 +6,7 @@ interface WebConfig {
   observability?: {
     enabled?: boolean;
     logs?: { enabled?: boolean; invocation_logs?: boolean };
+    traces?: { enabled?: boolean };
   };
 }
 
@@ -25,6 +26,10 @@ function readConfig(): WebConfig {
 describe("24-crawler-and-agent-blocking", () => {
   it("Counting refusals does not log what people read: invocation logs are off", () => {
     expect(readConfig().observability?.logs?.invocation_logs).toBe(false);
+  });
+
+  it("Web refusals log no URL: traces are off", () => {
+    expect(readConfig().observability?.traces?.enabled).toBe(false);
   });
 
   it("Web errors and metrics are kept", () => {
