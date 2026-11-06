@@ -428,6 +428,17 @@ describe("02-upload-handshake", () => {
     return sent;
   }
 
+  it("Of two sends at once, the one that finishes second stores nothing", async () => {
+    const { userId, cookie } = await signIn("upslot-two-at-once");
+    const up = await opened(userId, 10);
+    const first = randomBytes(10);
+    const res = await endingMidway(cookie, up.id, () => env.BUCKET.put(up.key, first));
+    await expectRefused(res, 409);
+    const object = await env.BUCKET.get(up.key);
+    expect(new Uint8Array(await object!.arrayBuffer())).toEqual(first);
+    expect(await rowOf(up.id)).toEqual({ status: "pending", quota_counted_at: null });
+  });
+
   it("An upload removed while its file arrives keeps no object", async () => {
     const { userId, cookie } = await signIn("upslot-reaped-midway");
     const up = await opened(userId, 10);

@@ -78,6 +78,11 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 - WHEN a file is sent to it
 - THEN the response is 403, nothing is stored, and the upload ends `account_banned`
 
+### Of two sends at once, the one that finishes second stores nothing
+- GIVEN two files on their way to one open upload
+- WHEN one is stored while the other is still arriving
+- THEN the other gets 409, and the first file and the row are untouched
+
 ### A sent file for an upload a ban has ended stores nothing
 - GIVEN an upload a ban has ended as `account_banned`
 - WHEN a file is sent to it
