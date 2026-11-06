@@ -77,6 +77,13 @@ describe("20-site-chrome-and-legal", () => {
     expect(privacy).toMatch(/remoteip/i);
   });
 
+  it("The privacy page says asking for a sign-in link sets a cookie that holds nothing about you", async () => {
+    const privacy = await htmlOf("/privacy");
+    expect(privacy).toContain(
+      "Asking for a sign-in link sets a short-lived cookie that holds nothing about you.",
+    );
+  });
+
   it("The privacy page says requester data is kept until the site closes", async () => {
     const privacy = await htmlOf("/privacy");
     expect(privacy).toMatch(/requests keep .*email address/i);
