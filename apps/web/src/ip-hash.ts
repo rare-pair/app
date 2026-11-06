@@ -4,7 +4,7 @@
 // stores or matches an address goes through this, so the values stay comparable. Changing
 // the key or the grouping orphans every stored value.
 
-import { clientOf } from "./rate-limit";
+import { clientOf } from "@archive/traffic";
 
 // What a request with no `cf-connecting-ip` stands for. `clientOf` never returns it: a text
 // that isn't an address comes back prefixed, so no sent address collides with it.
