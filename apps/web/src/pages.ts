@@ -106,11 +106,12 @@ export const termsPage = () =>
   layout(
     "Terms",
     `${DRAFT}
-<p>By creating an account you agree to these terms.</p>
+<p>By creating an account you agree to these terms. The rule on automated access applies to everyone who uses the site, not only people with an account.</p>
 <ul>
 <li>You may upload only epub files exported from the original archive, and only works you are happy to have shared.</li>
 <li>Uploads that pass our checks are public: anyone can read them.</li>
 <li>Anyone can ask for a work to be removed, without proving who they are.</li>
+<li>Automated access to the site, automated collection of fic text, and using it to train AI models are not allowed. This applies to everyone who uses the site, not only people with an account.</li>
 <li>We may hide or remove any work, and close any account, to keep the site safe.</li>
 <li>This site is an unofficial, temporary stopgap with no guarantees: it may change or close at any time.</li>
 </ul>`,
@@ -150,6 +151,7 @@ export const privacyPage = () =>
 <li>We store the settings and reading position you save, to bring them back next time.</li>
 <li>To have your account deleted, ask at <a href="mailto:admin@rarepair.fans">admin@rarepair.fans</a>, from the address on your account. We delete your account, your sessions and your saved reading positions. A position saved in the last moments before the delete can stay until it expires, within a year. Accepted works stay public, with no account attached to them. Reports you made stay, without your email address, and so does a moderator's record of what they did. Your email asking for this stays in that mailbox, and what a request, a copyright notice or the wait list keeps stays as described above. We do not delete a banned account, because the ban is kept on it.</li>
 <li>Our anti-spam check, provided by Cloudflare, runs on the sign-in, upload, removal and copyright notice pages and, before launch, on the wait list form on the coming-soon home page. Each check sends the visitor's network address (Turnstile's <code>remoteip</code>) to Cloudflare.</li>
+<li>Cloudflare's bot protection may set its own cookie, <code>__cf_bm</code>, on any page. It helps tell real visitors from automated traffic, and it expires after 30 minutes without activity. After a visitor passes a challenge, Cloudflare may also set <code>cf_clearance</code>, which remembers that they passed.</li>
 </ul>`,
     siteCard(),
   );

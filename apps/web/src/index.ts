@@ -32,6 +32,7 @@ import {
   wwwToBareDomain,
   type SecurityVariables,
 } from "./security";
+import { robotsTag, robotsTxt } from "./robots";
 import { requireSignIn, sessionMiddleware, type SessionVariables } from "./session";
 import { saveSettings, SETTINGS_PATH, showSettings } from "./settings";
 import { LOGO_PATH, LOGO_SVG } from "./logo";
@@ -55,10 +56,13 @@ const app = new Hono<{
 // Order matters: HSTS covers everything, the www redirect included, and www
 // never reaches the CSP, the routes or anything that could set a cookie. Before
 // launch, closed pages are redirected next, so they carry HSTS but never a page.
+app.use(robotsTag);
 app.use(strictTransportSecurity);
 app.use(wwwToBareDomain);
 app.use(closedBeforeLaunch);
 app.use(contentSecurityPolicy);
+// Before the session and the terms gate: any client gets it, signed in or not.
+app.get("/robots.txt", robotsTxt);
 // Before the session, so a cross-site upload or report is refused without a lookup.
 app.post("/uploads", sameOriginUpload);
 app.post("/uploads/:id/complete", sameOriginUpload);
