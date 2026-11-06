@@ -1966,7 +1966,7 @@ apps/mailer/       Queue consumer: sends email (Resend)
 apps/sweep/        Daily cron: deletes unreferenced images, orphaned upload prefixes and removed works' leftovers from R2, and uploads left unconfirmed
 packages/epub/     unzip + OPF + AO3 preface parser + sanitizer (tested in workerd)
 packages/db/       SQL migrations + typed queries
-packages/traffic/  crawler list and its matching, cross-site check, per-client key (both Workers)
+packages/traffic/  crawler list and its matching, cross-site check, per-client key, limiter check (both Workers)
 fixtures/epubs/    real AO3 epub samples for parser and sanitizer tests
 docs/
 ```
