@@ -82,6 +82,7 @@ describe("20-site-chrome-and-legal", () => {
     const about = await htmlOf("/about");
     const section =
       about.match(/<h2[^>]*>Crawlers and AI agents<\/h2>([\s\S]*?)(?=<h2|<\/main>)/)?.[1] ?? "";
+    expect(section).not.toContain("Fraunces");
     expect(section).toContain("swarm of AI coding agents");
     expect(section).toContain("we are here to serve, not to steal");
     expect(section).toMatch(/refused the whole site/);
