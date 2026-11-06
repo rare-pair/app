@@ -35,10 +35,16 @@ interface Row {
 
 function item(row: Row): string {
   const link = uploadStatusBody(row, joinedWork(row)).work;
+  const title = row.title !== null && row.title.trim() !== "" ? row.title : null;
+  // A held row names its work, unlinked, to its own uploader (the query keeps to the session's
+  // user), but only while the work is live: a hidden or removed work isn't told of here.
+  const heldTitle = row.status === "held_for_review" && row.work_status === "live";
   const name =
-    link !== null && row.title !== null && row.title.trim() !== ""
-      ? `<a href="${escapeHtml(link.url)}"><bdi>${escapeHtml(row.title)}</bdi></a>`
-      : escapeHtml(`Upload of ${utcMinute(row.created_at)}`);
+    title === null || (link === null && !heldTitle)
+      ? escapeHtml(`Upload of ${utcMinute(row.created_at)}`)
+      : link === null
+        ? `<bdi>${escapeHtml(title)}</bdi>`
+        : `<a href="${escapeHtml(link.url)}"><bdi>${escapeHtml(title)}</bdi></a>`;
   const label = badgeLabel(row.status, row.quota_counted_at !== null);
   const message = escapeHtml(messageFor(row.status, row.quota_counted_at !== null, link !== null));
   // `data-polling` marks the rows the page's script polls: an unconfirmed `pending` row

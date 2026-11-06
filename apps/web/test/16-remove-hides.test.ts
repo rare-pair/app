@@ -9,6 +9,7 @@ import {
   freshIp,
   REMOVE_TOKEN,
   TURNSTILE,
+  withoutLogo,
   withoutNonce,
 } from "./helpers";
 
@@ -205,7 +206,7 @@ describe("16-removal-and-opt-out", () => {
       for (const res of [live, hidden, removed]) expect(res.status).toBe(200);
       const liveHtml = await bytesOf(live);
       expect(liveHtml).toContain(RECEIVED);
-      expect(liveHtml).not.toMatch(/hidden|hide/i);
+      expect(withoutLogo(liveHtml)).not.toMatch(/hidden|hide/i);
       expect(await bytesOf(hidden)).toBe(liveHtml);
       expect(await bytesOf(removed)).toBe(liveHtml);
     });

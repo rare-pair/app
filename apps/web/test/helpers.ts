@@ -31,6 +31,13 @@ export const UPLOAD_CSP = `${TURNSTILE}; connect-src 'self' https://test00000000
  */
 export const withoutHeader = (html: string) => html.replace(/<header>[\s\S]*?<\/header>/, "");
 
+/**
+ * A page without the header's star, which is `aria-hidden` and so would trip an assertion that
+ * the page carries no `hidden`. Removes only that span: the rest of the page stays checked.
+ */
+export const withoutLogo = (html: string) =>
+  html.replace('<span class="logo" aria-hidden="true">✯</span>', "");
+
 /** What the page's one `<header>` holds, or "" when it has none. */
 export const headerOf = (html: string) => html.match(/<header>([\s\S]*?)<\/header>/)?.[1] ?? "";
 

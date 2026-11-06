@@ -1,6 +1,7 @@
 import type { Locator, Page } from "playwright";
 import { describe, expect, it } from "vitest";
 import { uploadThroughPage, useJourneySite } from "../harness/journey";
+import { hasSidewaysScroll } from "../harness/layout";
 import { removalLink } from "../harness/requests";
 import { seedReadableWork } from "../harness/seed";
 import { signedIn } from "../harness/sessions";
@@ -210,5 +211,31 @@ describe("removal and opt-out journeys", () => {
       .execute();
     expect(stored).toEqual([]);
     await site.assertClean({ allow: [/status of 451/] });
+  });
+
+  it("A placeholder pseud is refused, and the form tells authors to opt out each pseud", async () => {
+    const { site } = running;
+    const page = await startAtHome(await site.newContext());
+
+    await viaFooter(page, "Remove my work");
+    expect(await mainText(page)).toContain("send one request for each");
+    await sendRemoval(page, {
+      email: "optout-placeholder@example.test",
+      pseud: "Anonymous",
+      statement: "A synthetic opt-out.",
+    });
+
+    expect(await mainText(page)).toContain("the web address of a specific work");
+    const pseud = page.getByLabel("Or a pseud, to remove every work by it");
+    expect(await pseud.inputValue()).toBe("Anonymous");
+    expect(await pseud.getAttribute("aria-invalid")).toBe("true");
+    expect(await hasSidewaysScroll(page)).toBe(false);
+    const stored = await site.db
+      .selectFrom("requests")
+      .select("id")
+      .where("contact_email", "=", "optout-placeholder@example.test")
+      .execute();
+    expect(stored).toEqual([]);
+    await site.assertClean({ allow: [/status of 400/] });
   });
 });

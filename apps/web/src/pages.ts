@@ -3,6 +3,7 @@
 
 import { TURNSTILE_ORIGIN } from "./security";
 import { LINK_LIFETIME_MINUTES } from "./signin";
+import { LOGO_PATH } from "./logo";
 import { STYLESHEET_PATH } from "./styles";
 import { TURNSTILE_ACTIONS } from "./turnstile";
 import { EPUB_TYPE, MAX_UPLOAD_MB } from "./upload-limit";
@@ -52,11 +53,11 @@ export const layoutAround = (
 ) => ({
   before: `<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)} · rarepair</title><link rel="stylesheet" href="${STYLESHEET_PATH}">${head}</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)} · rarepair</title><link rel="stylesheet" href="${STYLESHEET_PATH}"><link rel="icon" type="image/svg+xml" href="${LOGO_PATH}">${head}</head>
 <body>
 <a class="skip" href="#main">Skip to the main content</a>
 <aside class="banner" aria-label="Notice">rarepair is an unofficial, temporary stopgap. <a href="/about">About this site</a></aside>
-<header><a class="site-name" href="/">rarepair</a></header>
+<header><a class="site-name" href="/"><span class="logo" aria-hidden="true">✯</span> rarepair</a></header>
 <main id="main">
 ${heading}
 `,
@@ -81,6 +82,10 @@ export const notFoundPage = () =>
 ${SEARCH_FORM}`,
   );
 
+// The wait list fonts' OFL files (public/assets/waitlist/fonts/), linked from /about.
+const FRAUNCES_LICENCE = "/assets/waitlist/fonts/fraunces/OFL.txt";
+const PLEX_LICENCE = "/assets/waitlist/fonts/ibm-plex-mono/license.txt";
+
 export const DRAFT = `<p class="draft">Draft: this text has not been proofread yet.</p>`;
 
 // Drafts for the operator to proof before launch. They describe provenance
@@ -91,7 +96,8 @@ export const aboutPage = () =>
     `${DRAFT}
 <p>rarepair is a temporary, community-run reading archive for fanworks. It is an unofficial stopgap, not the original archive, and it is not affiliated with or approved by that archive or the organisation behind it.</p>
 <p>People upload the epub files they downloaded from the original archive while it is offline. Anyone can browse and read the works that have been uploaded and accepted. Work pages link back to the original page, and the credit belongs to its author.</p>
-<p>Accepted uploads are public. Anyone can ask for a work to be removed, with no need to prove who they are, using the "Remove my work" link in the footer.</p>`,
+<p>Accepted uploads are public. Anyone can ask for a work to be removed, with no need to prove who they are, using the "Remove my work" link in the footer.</p>
+<p>The wait list pages are set in Fraunces (<a href="${FRAUNCES_LICENCE}">licence</a>) and IBM Plex Mono (<a href="${PLEX_LICENCE}">licence</a>).</p>`,
   );
 
 export const termsPage = () =>
@@ -138,6 +144,7 @@ export const privacyPage = () =>
 <li>Copyright notices keep what you send with them: your name, address, telephone number and email address, the work you name, your statements and your signature. Moderators read them to act on the notice. A notice you email instead is read by a person and stays in that mailbox. We keep notices until the site closes, and then delete them. We do not erase them when you ask.</li>
 <li>The wait list: before launch, if you join it, we keep only your email address, hashed confirmation and unsubscribe tokens and the times we emailed you. We send you a confirmation email, and one launch email. We delete the list once the launch emails have been sent, or sooner if you unsubscribe.</li>
 <li>We store the settings and reading position you save, to bring them back next time.</li>
+<li>To have your account deleted, ask at <a href="mailto:admin@rarepair.fans">admin@rarepair.fans</a>, from the address on your account. We delete your account, your sessions and your saved reading positions. A position saved in the last moments before the delete can stay until it expires, within a year. Accepted works stay public, with no account attached to them. Reports you made stay, without your email address, and so does a moderator's record of what they did. Your email asking for this stays in that mailbox, and what a request, a copyright notice or the wait list keeps stays as described above. We do not delete a banned account, because the ban is kept on it.</li>
 <li>Our anti-spam check, provided by Cloudflare, runs on the sign-in, upload, removal and copyright notice pages and, before launch, on the wait list form on the coming-soon home page. Each check sends the visitor's network address (Turnstile's <code>remoteip</code>) to Cloudflare.</li>
 </ul>`,
   );

@@ -9,22 +9,15 @@ import { TURNSTILE_ACTIONS } from "./turnstile";
 
 // Served from public/ by assetRoute. The names carry each file's content hash.
 const WAITLIST_STYLESHEET_PATH = "/assets/waitlist/waitlist.81645bab20ed0f3f.css";
-const FRAUNCES_LICENCE = "/assets/waitlist/fonts/fraunces/OFL.txt";
-const PLEX_LICENCE = "/assets/waitlist/fonts/ibm-plex-mono/license.txt";
 
 /**
- * A whole wait list page: the shared layout, set in the wait list's web fonts, with
- * their licences linked. Put a wait list form in a .waitlist form for its styles. The
- * layout escapes the title; the body and head are trusted markup, never escaped:
- * escape any value first.
+ * A whole wait list page: the shared layout, set in the wait list's web fonts (their
+ * licences are linked from /about, not here). Put a wait list form in a .waitlist form
+ * for its styles. The layout escapes the title; the body and head are trusted markup,
+ * never escaped: escape any value first.
  */
 export const waitlistPage = (title: string, body: string, head = "") =>
-  layout(
-    title,
-    `${body}
-<p class="note">Set in Fraunces (<a href="${FRAUNCES_LICENCE}">licence</a>) and IBM Plex Mono (<a href="${PLEX_LICENCE}">licence</a>).</p>`,
-    `<link rel="stylesheet" href="${WAITLIST_STYLESHEET_PATH}">${head}`,
-  );
+  layout(title, body, `<link rel="stylesheet" href="${WAITLIST_STYLESHEET_PATH}">${head}`);
 
 /**
  * The coming-soon page at / while PRELAUNCH is on, with the wait list form. Its button

@@ -4,6 +4,19 @@ import { fetchW, STRICT, withoutNonce } from "./helpers";
 // Runs in the "open" project: wrangler.jsonc with PRELAUNCH "off", the archive open.
 
 describe("22-waitlist", () => {
+  it("The fonts' licences are linked from the about page", async () => {
+    const html = await (await fetchW("/about")).text();
+    expect(html).toContain(
+      'The wait list pages are set in Fraunces (<a href="/assets/waitlist/fonts/fraunces/OFL.txt">licence</a>) and IBM Plex Mono (<a href="/assets/waitlist/fonts/ibm-plex-mono/license.txt">licence</a>).',
+    );
+    for (const path of [
+      "/assets/waitlist/fonts/fraunces/OFL.txt",
+      "/assets/waitlist/fonts/ibm-plex-mono/license.txt",
+    ]) {
+      expect((await fetchW(path)).status, path).toBe(200);
+    }
+  });
+
   it("After launch the archive takes over", async () => {
     // The home page has no wait list form, no Turnstile widget, and no redirect to a wait list.
     const home = await fetchW("/");

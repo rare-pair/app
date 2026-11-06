@@ -57,7 +57,7 @@ export const removePage = (
     "Ask for a work to be removed",
     `${DRAFT}
 ${alert}<noscript><p>This form needs JavaScript, for its anti-spam check. To ask for something to be removed without it, email the moderators at ${escapeHtml(moderators)}.</p></noscript>
-<p>Tell the moderators which work you want removed, or the pseud whose works you want removed. No proof of identity is asked for, because there is nothing to check it against while the original archive is offline. A moderator reviews every request.</p>
+<p>Tell the moderators which work you want removed, or the pseud whose works you want removed. No proof of identity is asked for, because there is nothing to check it against while the original archive is offline. A moderator reviews every request. An opt-out covers only the pseud you type, so if you write under several pseuds, send one request for each.</p>
 <form id="remove" class="remove-form" method="post" action="/remove" hidden>
 <label for="email">Your email address</label>
 ${message("email")}<input id="email" type="email" name="email" autocomplete="email" maxlength="254" required${value("email")}${marked("email")}>

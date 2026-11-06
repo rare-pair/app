@@ -49,6 +49,15 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - AND it says the archive keeps notices until the site closes, and then deletes them
 - AND it says the archive does not erase them when a sender asks
 
+### The privacy page says how to ask for an account to be deleted
+- GIVEN any visitor
+- WHEN they open `/privacy`
+- THEN it says to ask at admin@rarepair.fans
+- AND it says the archive deletes the account, its sessions and its saved reading positions
+- AND it says accepted works stay public
+- AND it says reports the account made stay, and that the email asking stays in that mailbox
+- AND it says a banned account is not deleted
+
 ### Footer links to removal
 - GIVEN any app page
 - WHEN it renders
@@ -89,7 +98,7 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 ### Pages without the full header
 - GIVEN a cross-site post refused before the session is read, or a missing static file
 - WHEN the refusal page renders
-- THEN a refusal before the session shows the bare site name, with no links
+- THEN a refusal before the session shows the bare site name with its star (see "The logo is in the site header"), with no links
 - AND a missing static file's 404 shows the signed-out links, whoever asks
 
 ### Site header before launch
@@ -110,10 +119,40 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - WHEN the page renders at 360 px wide
 - THEN the links wrap onto more lines and nothing scrolls sideways (see 21, "No sideways scrolling at 360 px")
 
+### The logo is in the site header
+- GIVEN any app page, including a refusal answered before the session lookup, which shows the bare header
+- WHEN it renders
+- THEN the header's home link reads ✯ before "rarepair"
+- AND the star follows the site name's colour in both themes
+
+### The logo isn't read out
+- GIVEN the header's home link
+- WHEN assistive technology reads it
+- THEN the star is hidden from it, so the link's accessible name stays exactly "rarepair"
+
+### The tab shows the star
+- GIVEN any app page, before launch and after, with no sign-in
+- WHEN it renders
+- THEN it declares one icon, an SVG we drew ourselves, with no text, script or outside reference
+- AND the icon answers 200 from `rarepair.fans` with an image content type, with no session lookup and no cookie
+- AND the page's content security policy lets it load, with no violation
+
 ### Not-found page
 - GIVEN a URL that matches no page
 - WHEN a visitor opens it
 - THEN the page shows a search box and a home link
+
+### A short page fills the screen
+- GIVEN a short page, such as a refusal or the confirm sign-in page
+- WHEN it renders at 1280×800 and at 360 px wide
+- THEN the footer's bottom edge is at the bottom of the screen
+- AND the page doesn't scroll
+- AND the header, main and footer keep their centred column width, and the banner stays full width
+
+### A long page scrolls with the footer after its content
+- GIVEN a page taller than the screen, such as the entire work
+- WHEN it renders
+- THEN the footer follows the content, and scrolling to the end brings the whole of the content and then the footer into view
 
 ### Flash message after a POST
 - GIVEN a form that POSTs and redirects, such as reader settings

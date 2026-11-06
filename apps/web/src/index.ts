@@ -34,6 +34,7 @@ import {
 } from "./security";
 import { requireSignIn, sessionMiddleware, type SessionVariables } from "./session";
 import { saveSettings, SETTINGS_PATH, showSettings } from "./settings";
+import { LOGO_PATH, LOGO_SVG } from "./logo";
 import { STYLESHEET, STYLESHEET_PATH } from "./styles";
 import { acceptTerms, showTerms, termsGate, WELCOME_TERMS } from "./terms";
 import { showMyUploads } from "./my-uploads";
@@ -149,6 +150,15 @@ app.get("/search", showSearch);
 app.get(STYLESHEET_PATH, (c) =>
   c.body(STYLESHEET, 200, {
     "Content-Type": "text/css; charset=utf-8",
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Content-Type-Options": "nosniff",
+  }),
+);
+
+// The tab icon, likewise hashed. Under /assets/, so it skips the session lookup.
+app.get(LOGO_PATH, (c) =>
+  c.body(LOGO_SVG, 200, {
+    "Content-Type": "image/svg+xml",
     "Cache-Control": "public, max-age=31536000, immutable",
     "X-Content-Type-Options": "nosniff",
   }),

@@ -70,6 +70,21 @@ export async function deleteOriginal(
 }
 
 /**
+ * Deletes the upload's staging file at `r2Key` and returns 1, or 0 for a key it won't touch. The
+ * job has just read the file, so there is no listing to find it. A stored key is trusted only under
+ * `uploads/`, so a bad row can't reach another work's objects. The caller must have ended the
+ * upload: until then a later attempt reads this file.
+ */
+export async function deleteStagingFile(
+  bucket: Pick<SaveBucket, "delete">,
+  r2Key: string,
+): Promise<number> {
+  if (!r2Key.startsWith("uploads/")) return 0;
+  await bucket.delete([r2Key]);
+  return 1;
+}
+
+/**
  * Whether the work is removed now. `now()` keeps Hyperdrive from answering from its cache: a
  * stale `live` would leave behind what a job put back after a removal, and a stale `removed`
  * would delete a restored work's files.
@@ -124,7 +139,8 @@ export class SaveRejected extends Error {
 
 /**
  * The work the upload is of has been removed: nothing is saved, and the job ends the upload as
- * `work_removed`, at once, since a removed work stays removed (restoring one is #565, still open).
+ * `work_removed`, at once, since removal is permanent: a removed work can't be restored, and a
+ * successful counter-notice means uploading it again.
  */
 export class WorkRemoved extends Error {}
 
@@ -709,7 +725,14 @@ async function endUpload(
 ): Promise<void> {
   const upload = await trx
     .updateTable("uploads")
-    .set({ status, work_id: workId, lease_until: null, error_stage: null, error: null })
+    .set({
+      status,
+      work_id: workId,
+      lease_until: null,
+      error_stage: null,
+      error: null,
+      sha256: lease.sha256,
+    })
     .where("id", "=", lease.id)
     .where("status", "=", "processing")
     .where("lease_until", "=", lease.until)

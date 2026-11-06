@@ -389,6 +389,21 @@ describe("08-versioning-and-dedupe", () => {
     expect(versions.find((v) => v.upload_id === v2.id)?.title).toBeNull();
   });
 
+  it("A card reads 12/? when the version states no total", async () => {
+    const { workId } = await workAtV1();
+    const bare = fixture(workId, { count: 4 });
+
+    const v2 = await ingestParsed({
+      ...bare,
+      stats: { ...bare.stats, chapters: { posted: 4, total: null } },
+    });
+
+    expect(v2.row.status).toBe("live");
+    const live = await liveWork(workId);
+    expect(live?.work.chapters_count).toBe(4);
+    expect(live?.work.chapters_total).toBeNull();
+  });
+
   it("A replace with a missing field keeps the work's stored value", async () => {
     const { workId, v1 } = await workAtV1();
     const before = await liveWork(workId);
@@ -409,7 +424,7 @@ describe("08-versioning-and-dedupe", () => {
       language: "English",
       summary_html: "<p>A synthetic summary.</p>",
       chapters_count: 4,
-      chapters_total: 3,
+      chapters_total: null,
     });
     expect(live?.work.published_at).toEqual(before?.work.published_at);
     // The new version's row records what its file lacked as NULL; the kept one is untouched.

@@ -40,6 +40,8 @@ type RemoveContext = Context<{ Bindings: Bindings; Variables: SecurityVariables 
 // and a browser that counts characters differently can send several times that, so the cap
 // leaves room: such a statement gets the 400 with what was typed, not a 413 that loses it.
 const MAX_REMOVE_BODY = 64 * 1024;
+// Bylines many authors share, as `pseud_norm`: an opt-out of one would hide every work under it.
+const PLACEHOLDER_PSEUDS = new Set(["orphan_account", "anonymous"]);
 /**
  * `GET /remove`: the form. It reads no session and no database, so it never shows whether
  * a work exists or is hidden. `?work=:id`, the AO3 work ID the work page links with,
@@ -136,6 +138,9 @@ export async function submitRemove(c: RemoveContext) {
   } else if (typedWork === "" && pseudNorm === "") {
     fieldErrors.work = "Enter the web address of a work, or a pseud below.";
     fieldErrors.pseud = "Enter a pseud, or the web address of a work above.";
+  } else if (typedWork === "" && PLACEHOLDER_PSEUDS.has(pseudNorm)) {
+    fieldErrors.pseud =
+      "That name stands in for many different authors, so it can't be opted out. To have a work removed, enter the web address of a specific work above.";
   }
   if (typedWork !== "" && id === null) {
     fieldErrors.work = "That is not the web address of a work, here or at the original archive.";

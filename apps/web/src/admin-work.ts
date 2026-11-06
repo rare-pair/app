@@ -103,7 +103,8 @@ adminWork.get("/works/:id", async (c) => {
       versions.map((v) => ({
         id: v.id,
         added: v.created_at.toISOString(),
-        uploader: v.email ?? "",
+        // An upload outlives its account (ARCHITECTURE, Deleting an account).
+        uploader: v.email ?? "Deleted account",
         // A moderator or an admin can't be banned, so their rows offer no form.
         uploaderId: isModerator(v.role) ? null : v.user_id,
         banned: v.banned_at !== null,

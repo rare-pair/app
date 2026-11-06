@@ -17,6 +17,7 @@ import { ListCheckRejected, onRejectList } from "./lists";
 import {
   AccountBanned,
   deleteOriginal,
+  deleteStagingFile,
   SaveRejected,
   WorkRemoved,
   type SaveBucket,
@@ -96,23 +97,41 @@ export async function runJob(deps: JobDeps, uploadId: string, attempt: number): 
  * takeover stores the file and this job removes it from under a version that goes live. A crash
  * between the two leaves the file. A retry (`pending`) keeps it, and so does `work_removed`,
  * which the save already cleaned up. A failed delete is logged and changes nothing: the upload
- * is final and its message is not retried for it.
+ * is final and its message is not retried for it. `opted_out` and `work_removed` also delete
+ * the `uploads/` file, here and not in the save: if the ending write fails, the retry reads it
+ * to find the refusal again (#259, #525). Other refusals leave it to the 7-day expiry.
  */
 async function endJob(deps: JobDeps, lease: Lease, outcome: Outcome): Promise<void> {
   const ended = await endLease(deps.db, lease, outcome);
-  if (!ended || outcome.status === "pending" || outcome.status === "work_removed") return;
+  if (!ended || outcome.status === "pending") return;
+  if (outcome.status !== "work_removed") {
+    await deleteRefused(
+      lease.id,
+      ["ingest.refused_original_deleted", "ingest.refused_original_delete_failed"],
+      () => deleteOriginal(deps.bucket, lease.id),
+    );
+  }
+  if (outcome.status === "opted_out" || outcome.status === "work_removed") {
+    await deleteRefused(
+      lease.id,
+      ["ingest.refused_upload_deleted", "ingest.refused_upload_delete_failed"],
+      () => deleteStagingFile(deps.bucket, lease.r2Key),
+    );
+  }
+}
+
+/** Runs one delete of `endJob`'s, logging the upload id and a count, or the failure. */
+async function deleteRefused(
+  uploadId: string,
+  [deletedEvent, failedEvent]: [string, string],
+  remove: () => Promise<number>,
+): Promise<void> {
   try {
-    const deleted = await deleteOriginal(deps.bucket, lease.id);
+    const deleted = await remove();
     // Silent when there was none: most refusals come before anything was stored.
-    if (deleted > 0) {
-      console.log({ event: "ingest.refused_original_deleted", uploadId: lease.id, deleted });
-    }
+    if (deleted > 0) console.log({ event: deletedEvent, uploadId, deleted });
   } catch (error) {
-    console.error({
-      event: "ingest.refused_original_delete_failed",
-      uploadId: lease.id,
-      error: errorCode(error),
-    });
+    console.error({ event: failedEvent, uploadId, error: errorCode(error) });
   }
 }
 
@@ -146,6 +165,8 @@ async function run(
     return { status: "too_large", failure: { stage: "read", error: "too_large" } };
   }
   const bytes = new Uint8Array(await object.arrayBuffer());
+  // What the job read, not what confirm hashed: the same URL can have replaced the file since.
+  lease.sha256 = await sha256Hex(bytes);
   // Still the job's before the slow step? Throws `LeaseLost` if another job took it over.
   await lease.keeper?.renew();
   enter("process");
@@ -177,7 +198,7 @@ async function run(
     // the save sets it in the work's transaction.
     await deps.save(lease, work, bytes, images);
   } catch (error) {
-    // Removal is permanent today (restoring one is #565, still open): no retry changes the verdict.
+    // Removal is permanent (a removed work can't be restored): no retry changes the verdict.
     if (error instanceof WorkRemoved) {
       return { status: "work_removed", failure: { stage: "save", error: "work_removed" } };
     }
@@ -186,6 +207,12 @@ async function run(
     return { status: "parse_failed", failure: { stage: "save", error: error.code } };
   }
   return null;
+}
+
+/** SHA-256 of `bytes` as lowercase hex, as confirm stores it. */
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**

@@ -9,12 +9,14 @@ import {
   putPrefix,
   resetSweepState,
   runSweep,
+  runSweepAt,
   seededVersion,
   seededWork,
   upload,
   withDb,
   withImages,
 } from "./helpers";
+import { reapUnconfirmedUploads } from "../src/sweep";
 import { sweepWorker } from "../src/worker";
 
 // Every sweep test is in this file, so they run one after another: the sweep's state row is
@@ -215,13 +217,139 @@ describe("sweep of orphaned version prefixes", () => {
     const ao3WorkId = freshAo3WorkId();
     const work = await seededWork({ ao3WorkId });
     const processing = await putPrefix(ao3WorkId, await upload(work.userId, "processing"), 2);
-    const pending = await putPrefix(ao3WorkId, await upload(work.userId, "pending"), 1);
+    // Pending and confirmed: one in the queue. An unconfirmed one this old would be reaped.
+    const queued = await upload(work.userId, "pending", { confirmed: new Date() });
+    const pending = await putPrefix(ao3WorkId, queued, 1);
 
     await runSweep(25);
 
     expect(await bucketKeys(`works/${ao3WorkId}/`)).toEqual(
       [...work.chapterKeys, ...processing, ...pending].sort(),
     );
+  });
+});
+
+describe("02-upload-handshake: unconfirmed uploads", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const NOW = Date.now();
+  const daysAgo = (days: number) => new Date(NOW - days * DAY);
+  const keyOf = (id: string) => `uploads/${id}.epub`;
+
+  /** Whether the upload's row is still there. */
+  const hasRow = (id: string) =>
+    withDb(async (db) => {
+      const row = await db
+        .selectFrom("uploads")
+        .select("id")
+        .where("id", "=", id)
+        .executeTakeFirst();
+      return row !== undefined;
+    });
+
+  it("An unconfirmed upload older than a day is removed, with any file", async () => {
+    const withFile = await upload(null, "pending", { createdAt: daysAgo(2) });
+    await env.BUCKET.put(keyOf(withFile), "synthetic");
+    const neverPut = await upload(null, "pending", { createdAt: daysAgo(2) });
+    // Young, so the sweep's own rules keep them: what goes here is the reaper's doing.
+    await env.BUCKET.put("works/60000/1.html", "<p>Synthetic fragment.</p>");
+    await env.BUCKET.put("originals/60000.epub", "synthetic");
+
+    await runSweepAt(NOW);
+
+    expect(await hasRow(withFile)).toBe(false);
+    expect(await hasRow(neverPut)).toBe(false);
+    expect(await bucketKeys("")).toEqual(["originals/60000.epub", "works/60000/1.html"]);
+  });
+
+  it("An unconfirmed upload not yet a day old stays", async () => {
+    const atTheLine = await upload(null, "pending", { createdAt: daysAgo(1) });
+    await env.BUCKET.put(keyOf(atTheLine), "synthetic");
+    const justOver = await upload(null, "pending", { createdAt: new Date(NOW - DAY - 1) });
+
+    await runSweepAt(NOW);
+
+    expect(await hasRow(atTheLine)).toBe(true);
+    expect(await bucketKeys("uploads/")).toEqual([keyOf(atTheLine)]);
+    expect(await hasRow(justOver)).toBe(false);
+  });
+
+  it("A confirmed upload is never removed, whatever its age", async () => {
+    const old = { createdAt: daysAgo(400) };
+    const ids = [
+      await upload(null, "pending", { ...old, confirmed: daysAgo(400) }),
+      await upload(null, "processing", old),
+      await upload(null, "live", old),
+      await upload(null, "held_for_review", old),
+      await upload(null, "duplicate", old),
+      await upload(null, "parse_failed", old),
+      await upload(null, "too_large", old),
+      await upload(null, "over_quota", old),
+    ];
+    for (const id of ids) await env.BUCKET.put(keyOf(id), "synthetic");
+
+    await runSweepAt(NOW);
+
+    for (const id of ids) expect(await hasRow(id), id).toBe(true);
+    expect(await bucketKeys("uploads/")).toEqual(ids.map(keyOf).sort());
+  });
+
+  it("The age is the deployed configuration's, and a bad value is a day", async () => {
+    const twoDaysOld = await upload(null, "pending", { createdAt: daysAgo(2) });
+    await runSweepAt(NOW, { bindings: { ...env, UNCONFIRMED_UPLOAD_DAYS: "3" } });
+    expect(await hasRow(twoDaysOld)).toBe(true);
+
+    // Zero would take a link still in use: never less than the day it falls back to.
+    const hourOld = await upload(null, "pending", { createdAt: new Date(NOW - DAY / 24) });
+    for (const bad of ["0", "-1", "1e3", "", "soon"]) {
+      await runSweepAt(NOW, { bindings: { ...env, UNCONFIRMED_UPLOAD_DAYS: bad } });
+      expect(await hasRow(hourOld), bad).toBe(true);
+    }
+    expect(await hasRow(twoDaysOld)).toBe(false);
+
+    // Past the bucket's 7-day lifecycle rule, rows would outlive their files and hold cap slots.
+    const overTheRule = await upload(null, "pending", { createdAt: daysAgo(2) });
+    await runSweepAt(NOW, { bindings: { ...env, UNCONFIRMED_UPLOAD_DAYS: "8" } });
+    expect(await hasRow(overTheRule)).toBe(false);
+  });
+
+  it("A run removes a bounded number of uploads, and the next run takes the rest", async () => {
+    const stale = [
+      await upload(null, "pending", { createdAt: daysAgo(2) }),
+      await upload(null, "pending", { createdAt: daysAgo(2) }),
+      await upload(null, "pending", { createdAt: daysAgo(2) }),
+    ];
+    for (const id of stale) await env.BUCKET.put(keyOf(id), "synthetic");
+    const reap = (limits: { rows: number; batches: number }) =>
+      withDb((db) =>
+        reapUnconfirmedUploads({ db, bucket: env.BUCKET, cutoff: daysAgo(1), limits }),
+      );
+
+    expect(await reap({ rows: 1, batches: 2 })).toEqual({ uploadsReaped: 2 });
+    expect(await bucketKeys("uploads/")).toHaveLength(1);
+
+    expect(await reap({ rows: 2, batches: 5 })).toEqual({ uploadsReaped: 1 });
+    expect(await bucketKeys("uploads/")).toEqual([]);
+  });
+
+  it("A file that can't be deleted is left for the lifecycle rule, and the row removed", async () => {
+    const stale = await upload(null, "pending", { createdAt: daysAgo(2) });
+    await env.BUCKET.put(keyOf(stale), "synthetic");
+
+    const reaped = await withDb((db) =>
+      reapUnconfirmedUploads({
+        db,
+        bucket: {
+          delete: async () => {
+            throw new TypeError("no delete");
+          },
+        },
+        cutoff: daysAgo(1),
+      }),
+    );
+
+    expect(reaped).toEqual({ uploadsReaped: 1, reapDeleteError: "TypeError" });
+    expect(await hasRow(stale)).toBe(false);
+    expect(await bucketKeys("uploads/")).toEqual([keyOf(stale)]);
   });
 });
 
