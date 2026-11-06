@@ -4,8 +4,13 @@ Relates to: docs/FRONTEND-DISCOVERY.md § Decisions so far (Visual direction, Wa
 
 Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not boxes, shadows or imagery". The picker includes synthwave and black. The app gains a Tailwind build step for its CSS, and the browser floor in Setup follows from that. DaisyUI's 14 px field text and its navbar height stand, on reader pages too.
 
+Operator rulings, 2026-11-06: Adopt DaisyUI and Tailwind completely, Preflight included. Chapters use Tailwind's `prose`, with custom CSS where it's needed, so they no longer have to look as they did. DaisyUI's classes carry the `d-` prefix. Work page and card summaries may take DaisyUI's resets and styling.
+
 ## Setup
-- DaisyUI 5 and Tailwind, each pinned to one exact version, built into one site stylesheet that holds only what Tailwind's source scan finds
+- DaisyUI 5, Tailwind and Tailwind's typography plugin, each pinned to one exact version, built into one site stylesheet that holds only what Tailwind's source scan finds
+- DaisyUI's classes carry the `d-` prefix
+- Tailwind's Preflight is in the stylesheet and applies to the whole site, except the wait list's pages
+- `article.chapter` has the `prose` class, set by our own template, on the chapter and entire-work pages. Custom CSS covers what `prose` and Preflight leave wrong
 - DaisyUI is the baseline for the site's own interface:
   - site header and footer: navbar and footer
   - banner, flash messages and the review notice: alert
@@ -15,7 +20,7 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
   - forms: button, select, input, textarea, checkbox, radio, fieldset, label and validator
   - upload bars: progress
   - lists and admin queues: list and table
-- DaisyUI does not style: the chapter text, the reading column, uploaded summaries or the wait list's pages
+- The wait list's pages take nothing from DaisyUI or Tailwind. Chapters take their colours from the theme, their type from `prose` and their size, spacing and face from the reader settings. Uploaded summaries may take DaisyUI's styling
 - The theme picker is the existing Theme control on `/settings/reader` and in the reader bar. Its setting is still `theme` in the `__Host-reader` cookie, written as `data-theme` on `<html>`
 - The themes offered, in this order: Match my device, Light, Dark, Sepia, Dim, Night, Silk, Lofi, Synthwave, Black
 - Light, Dark and Sepia are the site's own palettes. The other six are DaisyUI's, changed only where a case below needs it
@@ -95,16 +100,41 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 - AND the visible boundary of an input, select, textarea, checkbox or radio passes 3:1 on what is behind it
 - AND disabled controls are exempt from these ratios, as in WCAG
 
-### Uploaded text keeps its look
-- GIVEN the built site stylesheet, in the Light theme, whose colours don't change
-- WHEN a chapter of W, a work card with an uploaded summary and that work's page render
-- THEN the chapter has the same computed styles as before for headings, lists, links, the image, the blockquote and the table
-- AND the summary's lists and headings on the work page have the same computed styles as before, and it still clamps to three lines on the card
+### Chapters are styled by prose
+- GIVEN the built site stylesheet and a chapter of W
+- WHEN it renders, on its chapter page and on the entire-work page, in any theme
+- THEN `article.chapter` has the `prose` class
+- AND headings, lists and their markers, links, the blockquote and the table each look like what they are
+- AND text, links and table borders pass AA on the theme's paper
+
+### Prose adds nothing to what the author wrote
+- GIVEN a chapter with a blockquote and inline code
+- WHEN it renders
+- THEN no quotation marks, backticks or other characters are added around them by the stylesheet
+
+### Reader settings still work on chapters
+- GIVEN spec 13's reader settings
+- WHEN a reader changes text size, line spacing or face, with JavaScript on and off
+- THEN the chapter's text changes as that spec says, because those settings win over `prose`'s own sizes, leading and font
+- AND the reading column keeps its measure, with no `prose` limit narrowing or widening it
+
+### What Preflight strips stays right in chapters
+- GIVEN a chapter with an image inside a sentence, a wide table and each element spec 07's sanitizer keeps
+- WHEN it renders
+- THEN the image stays in the line of text, and no kept element has lost the meaning its author gave it
+- AND at 360 px nothing makes the page scroll sideways
+
+### Summaries stay readable
+- GIVEN a work whose uploaded summary has a list and a heading
+- WHEN its work page and a work card render, in any theme
+- THEN the list still shows its markers and the heading is still set apart from the text, with `prose` or custom CSS since Preflight removes them
+- AND the text passes AA on what is behind it
+- AND on the card, the summary still clamps to three lines, with its "more" link
 
 ### Uploaded text cannot use DaisyUI
 - GIVEN spec 07's sanitizer and an epub whose chapter or summary has elements with `data-theme`, `class="btn"`, `class="modal"` or `<input class="theme-controller" checked>`
 - WHEN it is sanitized and rendered
-- THEN none of those attributes or inputs reach the page
+- THEN none of those attributes or inputs reach the page, and neither does a `not-prose` class
 - AND the theme is unchanged
 
 ### CSP is unchanged
@@ -165,7 +195,7 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
   | Tailwind build, `d-` class prefix, plus today's stylesheet | about 78 KB | about 12.1 KB |
   | DaisyUI's pre-built files, plus today's stylesheet, no build | 325 KB | 18 KB |
 
-- **The class prefix.** Tailwind's scan turns plain words in the source into rules, such as `stats`, `rating`, `fixed` and `hidden`. Without a prefix, the budget has almost no room left before any markup moves. DaisyUI's prefix, which is what was measured, leaves room and ends collisions with DaisyUI's classes. Collisions with Tailwind's utilities need Tailwind's own prefix.
+- **The class prefix.** Tailwind's scan turns plain words in the source into rules, such as `stats`, `rating`, `fixed` and `hidden`. Without a prefix, the budget has almost no room left before any markup moves. DaisyUI's `d-` prefix, which is what was measured, leaves room and ends collisions with DaisyUI's classes. Collisions with Tailwind's utilities need Tailwind's own prefix, which is still open: see *Open before tickets*.
 
 - **Measured contrast.** Measured on 5.7.50 from the theme files, not in a browser:
 
@@ -180,20 +210,33 @@ Operator rulings, 2026-11-04: DaisyUI is the new UI baseline, replacing "not box
 
   Black's links, Silk's muted text and the field errors in Silk and Lofi fail AA as shipped, so the AA case needs adjustments there.
 - **Why Light, Dark and Sepia stay the site's own.** DaisyUI's `dark` fails AA as shipped: link 3.4:1, text on a primary button 4.14:1. It has no sepia, and Match my device has to resolve to the site's own Dark.
-- **The reset.** DaisyUI's components set no `box-sizing`, so they likely need a reset, and that reset removes heading sizes, list bullets, link styling and inline images from any markup that has no classes. Uploaded chapters have no classes, because the sanitizer drops them.
+- **Preflight and prose.** Preflight removes heading sizes, list bullets, link styling and inline images from any markup with no classes, which is all uploaded text, because the sanitizer drops classes. `prose` restores most of that on chapters, set by our template on the wrapper, so the sanitizer doesn't need to allow any class. This drops the earlier requirement that chapters keep their computed styles. Reading is still the site's main job, so the cases above hold it to being readable and working with the reader settings instead.
+- **What `prose` is likely to get wrong here.** None of this has been run. It is thought to add quotation marks to blockquotes and backticks to inline code, set its own measure, font size and leading, and Preflight to make images block-level. Each has a case above, and custom CSS answers them. Fics use these elements for letters, texts and asides, so the added characters would change what the author wrote.
+- **Where uploaded HTML shows.** `article.chapter` on the chapter and entire-work pages, `.summary` on the work page and `.card-summary` on cards. Summaries come from `summary_html` in Postgres, sanitized at ingest. A summary sits inside a `d-card`, so it inherits that card's text styles.
+- **Layers.** Tailwind's rules sit in CSS layers, and unlayered rules beat layered ones, so the site's unlayered `button` and `input` rules would override DaisyUI, against "Pages use the baseline". They need a lower layer or scoping. Custom CSS for chapters has to be placed knowing this too.
 - **`data:` URLs.** Every measured Tailwind build has one, in the `--fx-noise` variable DaisyUI always emits, and the whole of `daisyui.css` has 42. `img-src` would block them if used, so they must be left out.
 - **Why not `theme-controller` or `theme-change`.** A checked `theme-controller` input overrides `data-theme`, so the page and the cookie can disagree. `theme-change` keeps the choice in `localStorage`, which the server can't read, so the wrong theme shows first and JS-off readers get nothing. DaisyUI's `[data-theme]` selectors already work with the cookie.
-- **Wait list stylesheets.** These pages load the site stylesheet and then their own, which is why they need a way to stay out of the baseline. `22-waitlist.prelaunch.test.ts` pins those two stylesheets today, so it changes with this.
+- **Wait list stylesheets.** These pages load the site stylesheet and then their own, which is why they need a way to stay out of the baseline, Preflight above all. `22-waitlist.prelaunch.test.ts` pins those two stylesheets today, so it changes with this.
 - **Browser floor.** Firefox 128 (July 2024) is Tailwind 4's documented minimum, and the operator raised the floor to it. The other browsers are December 2023 releases, from caniuse data, with Samsung Internet 23 as that browser's last 2023 release. All of them are at or above Tailwind's minimums of Chrome 111 and Safari 16.4.
 - **14 px field text.** It is off the 13/16/20 scale, and iOS Safari zooms in when a reader focuses a field under 16 px. The operator accepted this.
-- **Not yet proven.** No page has been rendered with DaisyUI, and the budget rests on a sample of classes rather than the app's real markup.
+- **Not yet proven.** No page has been rendered with DaisyUI, and the budget rests on a sample of classes rather than the app's real markup. Those measurements leave out the typography plugin and Preflight, so "CSS stays small" may no longer fit.
+
+## Open before tickets
+
+- **Build order.** `/gate`'s order runs the tests before the build, but pages need the built stylesheet to test against. Either commit the stylesheet, or build before testing, which changes the gate's order.
+- **New dependencies.** Tailwind, its typography plugin and DaisyUI are third-party installs. Agents install nothing on their own, so the operator approves adding them, pinned to exact versions.
+- **Tailwind's own prefix.** Whether to use one for its utilities, given the collisions in the notes.
+
+- **The budget.** If the typography plugin and Preflight push the stylesheet past 15 KB, whether to raise the limit or trim.
+
+The first ticket should add the build, put `prose` on chapters and style one button and one form, then run the chapter cases and measure the stylesheet. That proves reading and the budget on real markup before the rest is committed.
 
 ## Docs to change with this
 
 - FRONTEND-DISCOVERY § Decisions so far: replace the Visual direction row with DaisyUI as the baseline, and add the browser floor and the Tailwind build. The Warnings and Branding rows stand
 - FRONTEND-DISCOVERY § Principles: 2 (text is the interface, one accent colour) and 3 (tiny CSS, with the budget above)
 - FRONTEND-DISCOVERY § Typographic system: Measure and rhythm ("not boxes"), Colour (the theme list) and Scale (add DaisyUI's 14 px field text)
-- FRONTEND-DISCOVERY § Reading experience: the navbar's height on reader pages replaces "the only chrome is a slim top bar"
+- FRONTEND-DISCOVERY § Reading experience: the navbar's height on reader pages replaces "the only chrome is a slim top bar", and chapters are styled by `prose`
 - FRONTEND-DISCOVERY § Components: Work card, Status badge, Flash message and Pagination
 - ARCHITECTURE § Reading: the reader's theme list
 - ARCHITECTURE § MVP vs later: add this to the Later list
