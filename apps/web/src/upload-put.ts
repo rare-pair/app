@@ -188,6 +188,9 @@ export async function putUpload(c: UploadIdContext) {
     if (await endIfBanned(db, c.env.BUCKET, upload, user.id)) {
       return refuse(403, BANNED_UPLOADER);
     }
+    // Its one file is here: a repeat costs a lookup, not a body, and this file stays. The write
+    // below still decides, for two sends at once.
+    if ((await c.env.BUCKET.head(upload.r2_key)) !== null) return refuse(409, ALREADY_HANDLED);
     const refusal = headerRefusal(c.req.raw, upload.bytes);
     if (refusal !== null) {
       await freeUpload(db, c.env.BUCKET, upload.id, user.id);

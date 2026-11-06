@@ -299,7 +299,7 @@ describe("02-upload-handshake: the cap on open uploads", () => {
       },
     );
 
-  it("Asking for links beyond the cap on open uploads is refused", async () => {
+  it("Asking for uploads beyond the cap on open uploads is refused", async () => {
     const { userId, cookie } = await signIn("uploadcap-at-cap@example.test");
     await opened(userId, NEW_LIMIT);
 

@@ -336,6 +336,40 @@ describe("02-upload-handshake", () => {
     expect(await rowOf(up.id)).toEqual({ status: "pending", quota_counted_at: null });
   });
 
+  it("A second file is refused before its body is read, whatever its headers", async () => {
+    const { userId, cookie } = await signIn("upslot-second-unread");
+    const first = randomBytes(10);
+    const up = await opened(userId, 10);
+    expect((await put(up.id, first, { cookie })).status).toBe(200);
+
+    // Never fed, so a route that read it would hang here.
+    const unread = heldBody();
+    await expectRefused(
+      await putRaw(up.id, unread.stream, { cookie, "content-length": "10" }),
+      409,
+    );
+    await expectRefused(
+      await put(up.id, randomBytes(10), { cookie, "content-type": "application/zip" }),
+      409,
+    );
+
+    const object = await env.BUCKET.get(up.key);
+    expect(new Uint8Array(await object!.arrayBuffer())).toEqual(first);
+  });
+
+  it.each(["abc", "-1", "1e1", ""])(
+    "A Content-Length that isn't a whole number is refused and frees its slot: %j",
+    async (length) => {
+      const { userId, cookie } = await signIn("upslot-bad-length");
+      const up = await opened(userId, 10);
+      await expectRefused(
+        await putRaw(up.id, bodyOf(10), { cookie, "content-length": length }),
+        411,
+      );
+      await expectFreed(up);
+    },
+  );
+
   it.each(["duplicate", "too_large", "over_quota", "processing", "live"] as const)(
     "A file sent to an upload that has ended stores nothing: %s",
     async (status) => {

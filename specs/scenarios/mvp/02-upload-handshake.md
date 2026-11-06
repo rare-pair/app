@@ -85,13 +85,23 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 
 ### A sent file with another content type is refused and frees its slot
 - GIVEN an open upload
-- WHEN a file is sent to it with a `Content-Type` other than `application/epub+zip`
+- WHEN a file is sent to it with a `Content-Type` other than exactly `application/epub+zip`
 - THEN the response is 415, nothing is stored, and the upload's row is deleted
 
 ### A sent file with no Content-Length is refused and frees its slot
 - GIVEN an open upload
 - WHEN a file is sent to it with no `Content-Length`
 - THEN the response is 411, nothing is stored, and the upload's row is deleted
+
+### A Content-Length that isn't a whole number is refused and frees its slot
+- GIVEN an open upload
+- WHEN a file is sent with a `Content-Length` of `abc`, `-1`, `1e1` or nothing
+- THEN the response is 411, nothing is stored, and the upload's row is deleted
+
+### An account that hasn't accepted the terms gets a 401 it can act on
+- GIVEN an account that hasn't accepted the terms
+- WHEN its script calls `PUT` or `DELETE /uploads/:id`
+- THEN the response is a JSON 401, not a redirect, and any row it holds is the reaper's
 
 ### A sent file whose Content-Length differs from the size declared is refused and frees its slot
 - GIVEN an open upload
@@ -125,7 +135,12 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 - GIVEN an open upload whose file has arrived, not yet confirmed
 - WHEN another file is sent to it
 - THEN the response is 409, and the first file and the row are untouched
-- AND a second send that is refused for its headers, or fails, ends the upload like any failed send, its first file included: it can only come from the uploader, who is told to upload again
+
+### A second file is refused before its body is read, whatever its headers
+- GIVEN an open upload whose file has arrived
+- WHEN another send arrives, well formed or not
+- THEN the response is 409 with no byte read, so repeats cost a lookup and no more
+- AND a send that was already under way when the first finished can't store (the write is create-only), and if it fails it ends the upload like any failed send, first file included: it can only come from the uploader, who is told to upload again
 
 ### A file sent to an upload that has ended stores nothing
 - GIVEN an upload that is `duplicate`, `too_large`, `over_quota`, `processing` or `live`, or that a confirm has counted
@@ -148,9 +163,10 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 - THEN the object stays, for ingest to read
 
 ### A slow file that arrives after ingest has finished its upload keeps no object
-- GIVEN two PUTs to one upload, one still arriving when the other has been stored, confirmed and ingested
-- WHEN the slow one finishes
+- GIVEN a file still arriving for an upload that has since gone `live`, with no object left at its key
+- WHEN it finishes, and the create-only write finds nothing there
 - THEN the response is 409 and no object is left, since nothing will read it
+- AND where the first file is still at its key, the write stores nothing and that file stays for the 7-day rule
 
 ### Whether real R2 does all this is checked after deploy
 - GIVEN the web Worker deployed on real R2, none of which a local test can show
@@ -160,6 +176,8 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 - AND a connection dropped part way leaves no object, and the row deleted or, if the Worker never heard, taken by the reaper within two days. Cloudflare's docs warn that a write whose outcome is unknown may still commit after a read finds nothing, so look for the object again a minute later
 - AND a second PUT to an open upload whose file has arrived gets 409, with the first file intact (`If-None-Match: *` through the binding)
 - AND several 25 MB PUTs at once stay within the Worker's memory and CPU limits
+- AND Cloudflare's WAF and Bot Fight Mode let a 25 MB same-site PUT, and the page's DELETE, through
+- AND the clean-up of a dropped connection runs: `waitUntil` carries it past the client's going, for a bounded time
 - AND this case is on the operator's review list, not shown by any local test
 
 ### Browser with JS sends a file through the Worker with progress
@@ -273,7 +291,7 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 - WHEN `POST /uploads/:id/complete` is called again and the queue refuses the message
 - THEN the response is 503, and the upload stays counted, so the reaper never takes it
 
-### Asking for links beyond the cap on open uploads is refused
+### Asking for uploads beyond the cap on open uploads is refused
 - GIVEN user U whose open uploads (`pending` and not yet counted by a confirm) would pass the cap, which is U's daily quota for U's tier, with the files asked for
 - WHEN U calls `POST /uploads`
 - THEN the response is 429 with `Retry-After: 3600`, with no `uploads` row inserted
@@ -329,4 +347,4 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 - GIVEN user U, or U's IP address, has reached the upload-request rate limit in the current window
 - WHEN U calls `POST /uploads` again
 - THEN the response is 429 with a `Retry-After` header and no `uploads` row is inserted
-- AND the PUT and DELETE routes spend no rate limit: each file was counted here, and its upload takes one file
+- AND the PUT and DELETE routes spend no rate limit: each file was counted here, its upload stores one file, and a repeat is refused before its body is read
