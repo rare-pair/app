@@ -1,5 +1,6 @@
 import { Script } from "node:vm";
 import { describe, expect, it } from "vitest";
+import { positionPrefix } from "../../../scripts/account-delete.mjs";
 import {
   continueHref,
   parsePosition,
@@ -13,6 +14,11 @@ import {
 describe("positionKey", () => {
   it("joins the user and the AO3 work ID under pos:", () => {
     expect(positionKey("u-1", 12345)).toBe("pos:u-1:12345");
+  });
+
+  it("starts with the prefix the account delete script looks for", () => {
+    expect(positionKey("u-1", 12345).startsWith(positionPrefix("u-1"))).toBe(true);
+    expect(positionPrefix("u-1")).toBe("pos:u-1:");
   });
 });
 

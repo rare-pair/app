@@ -65,6 +65,10 @@ export const banUploader = (id: string) =>
       .execute(),
   );
 
+/** Deletes the account that made `pendingUpload`'s upload `id`, as the operator's script does. */
+export const deleteUploader = (id: string) =>
+  withDb((db) => db.deleteFrom("user").where("id", "=", `ingest-${id}`).execute());
+
 /** The upload's row, as the job leaves it. */
 export const uploadRow = (id: string) =>
   withDb((db) =>
@@ -219,6 +223,9 @@ export const addWrongVersionReport = (workId: string, uploadId: string) =>
       .selectFrom("uploads")
       .select("user_id")
       .where("id", "=", uploadId)
+      // Null only once the account is deleted, and a report needs an account to make it.
+      .where("user_id", "is not", null)
+      .$narrowType<{ user_id: string }>()
       .executeTakeFirstOrThrow();
     const { id } = await db
       .insertInto("reports")
