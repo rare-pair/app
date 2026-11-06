@@ -213,7 +213,9 @@ app.onError((error, c) => {
   // The route's pattern, such as /works/:id/full, not the request's path: a reading URL
   // carries the work id and chapter, and none belongs in a log line (spec 24). The pattern
   // is written in this code, so nothing a requester sends can start a forged line.
-  console.error(`${c.req.method} ${routePath(c)}: ${error.name}`);
+  // The last matched route is the handler's: a middleware that throws sits earlier in the list
+  // and would name only "*". A request that matched no route (a failing notFound) has none.
+  console.error(`${c.req.method} ${routePath(c, -1) || "(no route)"}: ${error.name}`);
   return c.text("Internal Server Error", 500);
 });
 
