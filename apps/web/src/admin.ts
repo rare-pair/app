@@ -270,6 +270,8 @@ export async function showWorksToCheck(c: AdminContext) {
             .select((e) => e.fn.min("reports.created_at").as("first"))
             .whereRef("reports.work_id", "=", "works.id"),
           "work_versions.created_at",
+          // Never null, so a work with neither can't break the sort.
+          sql<Date>`now()`,
         ])
         .as("created_at"),
     )

@@ -1484,8 +1484,8 @@ epub, under the normal versioning rules.
   - removal or opt-out requests
   - *Works to check*: works with a held version, works live with the "may be
     imperfect" notice, works reported as "This version is wrong", and works the reports hid
-  with no open report left (so a dismissed report can't strand one); the work leaves the
-  list when a moderator restores or removes it, and is dated by its earliest report
+    with no open report left (so a dismissed report can't strand one); the work leaves the
+    list when a moderator restores or removes it, and is dated by its earliest report
 
   Actions are hide, remove, restore, approve, reject, dismiss a report, block a requester, ban
   an uploader and withhold a removal list entry. Block a requester is on removal

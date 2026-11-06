@@ -189,6 +189,16 @@ describe("18 moderation: Works to check", () => {
     expect(cells[2]).toBe("Hidden by reports, none open: restore or remove");
   });
 
+  it("A work the reports hid, with no report left, is dated by its version", async () => {
+    await seed(18477, {
+      status: "hidden",
+      hiddenCause: "reports",
+      addedAt: "2001-11-01T00:00:00Z",
+    });
+    const cells = rowWith(await queue(), "mod3a-18477 (");
+    expect(cells[0]).toBe("2001-11-01T00:00:00.000Z");
+  });
+
   it("A work the reports hid is not listed while a report is open", async () => {
     const w = await seed(18471, { status: "hidden", hiddenCause: "reports" });
     await reportOn(w, "mod3a-other-kind", "2001-09-01T00:00:00Z");
