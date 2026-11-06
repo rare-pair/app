@@ -33,10 +33,10 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - WHEN they open `/privacy`
 - THEN it says asking for a sign-in link sets a short-lived cookie that holds nothing about them
 
-### The privacy page lists every cookie and what it is for
+### The privacy page lists the cookies and what they are for
 - GIVEN any visitor
 - WHEN they open `/privacy`
-- THEN a Cookies section names each cookie the Worker sets and each of Cloudflare's it may meet (`__cf_bm`, `cf_clearance`), with what it is for and how long it lasts
+- THEN a Cookies section names each cookie the Worker sets, and Cloudflare's `__cf_bm` and `cf_clearance`, with what each is for
 - AND it says none is for advertising or analytics
 
 ### The terms apply to everyone who uses the site

@@ -103,7 +103,7 @@ describe("20-site-chrome-and-legal", () => {
     );
   });
 
-  it("The privacy page lists every cookie and what it is for", async () => {
+  it("The privacy page lists the cookies and what they are for", async () => {
     const privacy = await htmlOf("/privacy");
     const section = privacy.slice(privacy.indexOf("<h2>Cookies</h2>"));
     expect(privacy).toContain("<h2>Cookies</h2>");

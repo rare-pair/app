@@ -167,9 +167,9 @@ export const privacyPage = () =>
 <li><code>__Secure-better-auth.session_token</code> keeps you signed in. It lasts 7 days, renews as you use the site, and ends when you sign out.</li>
 <li><code>__Host-signin-pending</code> lets the browser that asked for a sign-in link sign in without pressing a button, as described above. It lasts at most ${LINK_LIFETIME_MINUTES} minutes.</li>
 <li><code>__Host-reader</code> holds your reader settings: theme, text size, line spacing and font. It lasts a year and stays after you sign out.</li>
-<li><code>__Host-warned</code> remembers which works' warnings you have passed, so you don't see them again. It ends when you close your browser.</li>
+<li><code>__Host-warned</code> remembers which works' warnings you have passed, so you don't see them again. It usually ends when you close your browser.</li>
 <li><code>__Host-flash</code> shows a one-line message such as "Reader settings saved." It lasts at most a minute.</li>
-<li><code>__cf_bm</code>: Cloudflare's bot protection may set its own cookie, on any page. It helps tell real visitors from automated traffic, and it expires after 30 minutes without activity.</li>
+<li><code>__cf_bm</code>: Cloudflare's bot protection may set its own cookie, on any page or file. It helps tell real visitors from automated traffic, and it expires after 30 minutes without activity.</li>
 <li><code>cf_clearance</code> is also Cloudflare's. It may be set to remember that a visitor passed its checks.</li>
 </ul>`,
     siteCard(),
