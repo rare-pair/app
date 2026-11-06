@@ -53,7 +53,7 @@ A running wave doesn't stop to ask the operator anything. In wave 10 it stopped 
 
 **A piece that can't go on without a ruling parks.** It waits, its question goes on the list, and everything else keeps running. A ruling that changes a ticket's design also parks the pieces that depend on it.
 
-**Interrupt only for:** an irreversible or outward-facing step nobody has approved, a permission refusal, a missing install, or a wave where nothing at all can run. Launch all that can start before you ask, because an open question holds up the reports that come back while it waits.
+**Interrupt only for:** an irreversible or outward-facing step nobody has approved, a permission refusal, a missing install, a leaked secret, or a wave where nothing at all can run. Launch all that can start before you ask, because an open question holds up the reports that come back while it waits.
 
 **Ask once, at the end.** The list goes to the operator through the ask tool in §7, with the evidence and your recommendation for each, ordered by what it blocks. An idea the operator raises mid-wave is filed for the next wave's planning, with no follow-up questions until then.
 
@@ -151,8 +151,8 @@ An engineer writes under `<scratch>` from outside its worktree, so it may raise 
 
 Each engineer ends with one status:
 
-- **`ready`**: the engineer ran `/gate merge`, fixed the findings in the PR's scope, and filed the rest as bug issues. You decide whether it's done, and you merge it, as `docs/process.md` says (*Work items*, "The orchestrator merges"):
-  1. Check the PR: its body's *What was run* block is the merge gate's and names the tier's ladder, no finding in its scope is open, and every other finding has a bug issue. Read its reviews and review comments yourself (`gh api --paginate repos/rare-pair/app/pulls/<n>/reviews` and `.../pulls/<n>/comments`). A gap goes back to the engineer.
+- **`ready`**: the engineer ran `/gate merge`, fixed the findings in the PR's scope, and filed the rest as bug issues or, for a live exploit, a private advisory. You decide whether it's done, and you merge it, as `docs/process.md` says (*Work items*, "The orchestrator merges"):
+  1. Check the PR: its body's *What was run* block is the merge gate's and names the tier's ladder, no finding in its scope is open, and every other finding has a bug issue or, for a live exploit, a private advisory (`docs/process.md`, *Working rules*). Read its reviews and review comments yourself (`gh api --paginate repos/rare-pair/app/pulls/<n>/reviews` and `.../pulls/<n>/comments`). A gap goes back to the engineer.
   2. Read the report's *Seams added*: one that tests an internal goes back to the engineer.
   3. **Bring `main` in, once, when this PR is next to merge.** Don't do it each time another PR merges, and don't send engineers still in their gates to do it. `git fetch`, and check whether the PR contains `main` (`git merge-base --is-ancestor origin/main origin/<branch>`). If it doesn't, run `bash scripts/merge-main.sh <branch>` in the background, one at a time. Use no agent for this: the step is mechanical, and an agent costs about 85k tokens for it.
 
@@ -202,7 +202,8 @@ End with:
 
 - **Waiting on you:** <each stop event, open question, or PR you couldn't merge, with why>
 - **Not done:** <each item not merged, with the reason>
-- **Bugs filed:** <each issue the merge gates filed>
+- **Bugs filed:** <each issue the merge gates filed, no advisory among them>
+- **Private advisories:** <each advisory's link, with a neutral description, or "none">
 ```
 
 Then ask everything in `## For the operator` through the ask tool, in one sitting (*Questions*).
