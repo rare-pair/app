@@ -1010,9 +1010,11 @@ content origin, also have the throttles and the cross-site check below.
 - **Signals.** `/robots.txt` on the app and on the content origin disallows everything. The
   app's also states `Content-Signal: search=no, ai-input=no, ai-train=no`. On the content
   origin it is the one path served there besides images and originals. Every page and file
-  also sends `X-Robots-Tag: noindex, noarchive, noai, noimageai`. All of these are requests a
-  crawler can ignore, and a crawler obeying `robots.txt` never fetches the header, so a blocked
-  search engine may still list a bare URL that other sites link to.
+  also sends `X-Robots-Tag: noindex, noarchive, noai, noimageai`. Every app page also holds a
+  notice asking agents not to crawl, hidden from people and screen readers, for an agent whose
+  fetch tool poses as a browser and so isn't refused. All of these are requests a crawler can
+  ignore, and a crawler obeying `robots.txt` never fetches the header, so a blocked search
+  engine may still list a bare URL that other sites link to.
 - **Throttles.** Per client IP: chapter reads, `/full` (lower, since one request is a
   whole work) and original downloads, each counted before any cache. Images aren't
   throttled, since one chapter can hold many. First values per 60 seconds are 120

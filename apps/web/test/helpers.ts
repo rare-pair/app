@@ -1,6 +1,7 @@
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { inspect } from "node:util";
+import { NOTICE } from "./agent-notice";
 import { expect, vi } from "vitest";
 import { parseMessage, type EmailMessage } from "../../mailer/src/message";
 import app from "../src/index";
@@ -32,11 +33,14 @@ export const UPLOAD_CSP = `${TURNSTILE}; connect-src 'self' https://test00000000
 export const withoutHeader = (html: string) => html.replace(/<header>[\s\S]*?<\/header>/, "");
 
 /**
- * A page without the header's star, which is `aria-hidden` and so would trip an assertion that
- * the page carries no `hidden`. Removes only that span: the rest of the page stays checked.
+ * A page without the header's star and the agent notice, which are `aria-hidden` and so would trip
+ * an assertion that the page carries no `hidden`. Removes only those two: the rest of the page
+ * stays checked.
  */
-export const withoutLogo = (html: string) =>
-  html.replace('<span class="logo" aria-hidden="true">✯</span>', "");
+export const withoutHiddenChrome = (html: string) =>
+  html
+    .replace('<span class="logo" aria-hidden="true">✯</span>', "")
+    .replace(`<p class="visually-hidden" aria-hidden="true">${NOTICE}</p>`, "");
 
 /** What the page's one `<header>` holds, or "" when it has none. */
 export const headerOf = (html: string) => html.match(/<header>([\s\S]*?)<\/header>/)?.[1] ?? "";
