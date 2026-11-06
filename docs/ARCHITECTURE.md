@@ -27,6 +27,7 @@ an unofficial stopgap.
 | Search scope | Metadata only: title, author, tags, summary |
 | Chapter rendering | Inline in app pages behind a strict CSP, with no iframe |
 | Wait list | Before launch, `/` is a coming-soon page with a double opt-in wait list. Each confirmed address is sent one launch email, from the same mail subdomain as sign-in, spread over hours on its own queue. The list is deleted after the launch send |
+| Sign-in emails per day | One address gets at most 5 sign-in emails a UTC day, counted in Postgres under a keyed hash, with no merging of `+tag` or dot spellings. The count fails open, and a failed send isn't given back. See Surge controls (operator ruling, 2026-11-05) |
 | Requester data | What a requester sends with a removal or opt-out request (email address, hashed network address, statement), and a requester block's email and hash, is kept until the site closes, then deleted by hand. It is not erased on request. There is no retention sweep job and no migration for it. The only delete of a request's row is the rollback when its confirmation email cannot be queued. A copyright notice, with its sender's contact details and signature, follows the same rule (operator ruling, 2026-11-05). Account data is not covered: see Account deletion. Privacy page copy is draft, pending legal review (operator ruling, 2026-11-04) |
 | Account deletion | Someone asks at admin@rarepair.fans and the operator runs a script: no self-service button and no form (operator ruling, 2026-11-05). It removes the account, its sessions and its saved reading positions, bar one saved in the last moments, which expires within a year. Upload rows stay with no user attached, and works and versions stay public. The script refuses a banned account, because the ban would go with the row (pending the operator's ruling, wave 11). See Auth, Deleting an account |
 
@@ -1609,7 +1610,7 @@ markup: its inline `style` attributes become stylesheet rules, because
     `+tag` and dot spellings are not merged (operator ruling, 2026-11-05). Changing
     the key only starts the day's counts again.
   - The statement that counts also deletes every address's rows from earlier days,
-    so a day's rows last until the next day's first request. This one table's rows
+    so a day's rows last until a later day's first counted request. This one table's rows
     are all it deletes: it's no retention job for other data.
   - **Known limit.** A stranger who solves Turnstile 5 times can use up someone's
     sign-ins for the rest of the day, and a real person who loses their links can hit

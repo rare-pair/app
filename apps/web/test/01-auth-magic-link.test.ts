@@ -519,7 +519,7 @@ describe("01-auth-magic-link", () => {
     expect(await countToday(email)).toBe(LOGIN_EMAIL_LIMIT);
   });
 
-  it("Sign-in still goes through when the daily count can't be made, and logs no address", async () => {
+  it("Sign-in still goes through when the daily count can't be made", async () => {
     const email = `daily-down-${crypto.randomUUID()}@example.test`;
     // A key the hash can't be made with: the count fails, as it would with the table away.
     const broken = { ...env, IP_HASH_KEY: "" };
