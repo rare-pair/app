@@ -158,15 +158,14 @@ export default {
     const path = new URL(request.url).pathname;
     const isRead = request.method === "GET" || request.method === "HEAD";
     // The one path open to a declared client, so it comes first, and only in this one spelling.
-    const hasQuery = request.url.includes("?");
-    if (isRead && path === "/robots.txt" && !hasQuery) {
+    if (isRead && path === "/robots.txt") {
       return respond(ROBOTS_TXT, 200, {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "public, max-age=3600",
       });
     }
-    // Ahead of everything that depends on the path or a file, so the 403 shows nothing of which
-    // files exist. Only originals have the cross-site check: images aren't throttled (spec 24).
+    // Ahead of the method and path checks, the cache, Postgres and R2, so the 403 shows nothing of
+    // which files exist. Only originals have the cross-site check: images aren't throttled (spec 24).
     const isOriginal = ORIGINAL.test(path);
     const reason =
       declaredClient(request.headers) ??
@@ -182,7 +181,7 @@ export default {
     // A query string, even an empty one (`search` is "" for a bare "?"), would make a
     // second cacheable URL for the same bytes, one that a purge of the bare URL on
     // removal would miss, so only bare paths are served.
-    if (hasQuery) return notFound();
+    if (request.url.includes("?")) return notFound();
     if (!isOriginal && !IMAGE.test(path)) return notFound();
 
     // Only a plain GET reads or fills the cache. The key is the bare URL string, not the

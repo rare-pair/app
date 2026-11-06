@@ -164,11 +164,19 @@ describe("24-crawler-and-agent-blocking", () => {
   it("Exempt paths are still served", async () => {
     for (const headers of DECLARED) {
       for (const method of ["GET", "HEAD"]) {
+        const what = `${method} /robots.txt`;
         const { res } = await request("robots.txt", { method, headers }, noBindings);
-        expect(res.status, `${method} /robots.txt`).toBe(200);
+        expect(res.status, what).toBe(200);
+        expect(res.headers.get("content-type"), what).toBe("text/plain; charset=utf-8");
+        expect(res.headers.get("x-content-type-options"), what).toBe("nosniff");
+        expect(res.headers.get("cache-control"), what).toBe("public, max-age=3600");
       }
-      // Nothing else is exempt: another method, a query string, a slash after, another spelling.
-      for (const key of ["robots.txt?x", "robots.txt/", "%72obots.txt", "robots.txt/x"]) {
+      // A query string doesn't change the path, as on the app. It is never stored, so it makes
+      // no second cacheable URL.
+      const query = await request("robots.txt?v=1", { headers }, noBindings);
+      expect(query.res.status).toBe(200);
+      // Nothing else is exempt: another method, a slash after, another spelling.
+      for (const key of ["robots.txt/", "%72obots.txt", "robots.txt/x"]) {
         const { res } = await request(key, { headers }, noBindings);
         expect(res.status, key).toBe(403);
       }
@@ -176,9 +184,10 @@ describe("24-crawler-and-agent-blocking", () => {
       expect(post.res.status).toBe(403);
     }
     // For anyone else those are what they always were: not a file here.
-    for (const key of ["robots.txt?x", "robots.txt/", "%72obots.txt"]) {
+    for (const key of ["robots.txt/", "%72obots.txt"]) {
       expect((await request(key)).res.status, key).toBe(404);
     }
+    expect((await request("robots.txt?v=1")).res.status).toBe(200);
     expect((await request("robots.txt", { method: "POST" })).res.status).toBe(405);
   });
 
