@@ -1441,7 +1441,7 @@ epub, under the normal versioning rules.
   Each withhold and un-withhold logs `withhold` or `unwithhold`,
   on the work, or on target kind `pseud` with the `pseud_norm` as `target_id`. `/remove`
   and `/dmca` say what will be published before anyone submits. The pages carry
-  `X-Robots-Tag: noindex` and give the moderators' contact address. Requests
+  `X-Robots-Tag: noindex, noarchive, noai, noimageai` and give the moderators' contact address. Requests
   `pageCacheable` allows share one edge cache entry per page number for up to 60 s,
   holding the page's data and not its nonce, on top of up to about 75 s in the cached
   Hyperdrive connection if these pages read through it (see *Connections*), so in each
