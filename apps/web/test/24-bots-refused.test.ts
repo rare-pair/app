@@ -25,7 +25,7 @@ const BROWSER =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36";
 
 /** One of each kind of declared automated client. */
-const DECLARED: Record<string, Record<string, string>> = {
+const DECLARED = {
   "search engine": { "user-agent": "Mozilla/5.0 (compatible; Googlebot/2.1)" },
   "link preview": { "user-agent": "facebookexternalhit/1.1" },
   "AI crawler": { "user-agent": CRAWLER },
@@ -241,6 +241,7 @@ describe("24-crawler-and-agent-blocking", () => {
     const broken = {
       // SAFETY: only connectionString is read from a Hyperdrive binding.
       HYPERDRIVE: refused as Hyperdrive,
+      // SAFETY: only connectionString is read from a Hyperdrive binding.
       HYPERDRIVE_CACHED: refused as Hyperdrive,
       // SAFETY: the Proxy throws on every property, which is the point.
       BUCKET: noBucket as R2Bucket,
@@ -397,21 +398,16 @@ describe("24-crawler-and-agent-blocking", () => {
     const CLIENT_IP = "198.51.100.77";
     const secret = '"https://agent-marker.example"';
     const path = `/works/${W}/chapters/1?marker=bw-query`;
-    const cases = [
-      { line: "refused: signature", headers: { "signature-agent": secret } },
-      { line: "refused: crawler list", headers: { "user-agent": CRAWLER } },
-      {
-        line: "refused: cross-site subresource",
-        headers: { "sec-fetch-site": "cross-site", "sec-fetch-dest": "image" },
-      },
-    ];
-    for (const { line, headers } of cases) {
-      const lines = await consoleDuring(async () => {
+    const logged = (headers: Record<string, string>) =>
+      consoleDuring(async () => {
         await direct(path, { headers: { "cf-connecting-ip": CLIENT_IP, ...headers } });
       });
-      // inspect, in consoleDuring, quotes a string.
-      expect(lines).toEqual([`'${line}'`]);
-    }
+    // Exactly this one line each: inspect, in consoleDuring, quotes a string.
+    expect(await logged({ "signature-agent": secret })).toEqual(["'refused: signature'"]);
+    expect(await logged({ "user-agent": CRAWLER })).toEqual(["'refused: crawler list'"]);
+    expect(await logged({ "sec-fetch-site": "cross-site", "sec-fetch-dest": "image" })).toEqual([
+      "'refused: cross-site subresource'",
+    ]);
   });
 
   it("Refusals are counted by reason: nothing is logged for what isn't refused", async () => {
