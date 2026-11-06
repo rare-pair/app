@@ -1,6 +1,7 @@
 import { normalizeTagName } from "@archive/db";
 import { describe, expect, it } from "vitest";
 import { tagHref } from "../../src/tag-links";
+import { expectAgentNoticeHidden } from "../harness/agent-notice";
 import { seedReadableWork } from "../harness/seed";
 import { useJourneySite } from "../harness/journey";
 import { SITE } from "../harness/site";
@@ -22,6 +23,10 @@ const WORKS = [
 
 describe("home journey", () => {
   const running = useJourneySite();
+
+  it("The agent notice is hidden from people and screen readers", async () => {
+    await expectAgentNoticeHidden(await startAtHome(await running.site.newContext()));
+  });
 
   it("The home page lists fandoms and recent works, and each link lands", async () => {
     const { site } = running;
