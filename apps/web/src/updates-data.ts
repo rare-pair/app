@@ -35,13 +35,8 @@ export const UPDATES: readonly Update[] = [
 export const newestFirst = (list: readonly Update[]): Update[] =>
   list
     .map((update, added) => ({ update, added }))
-    .sort((a, b) =>
-      a.update.created < b.update.created
-        ? 1
-        : a.update.created > b.update.created
-          ? -1
-          : b.added - a.added,
-    )
+    // Dates are `YYYY-MM-DD`, so comparing them as text compares them as dates.
+    .sort((a, b) => b.update.created.localeCompare(a.update.created) || b.added - a.added)
     .map(({ update }) => update);
 
 export const latestUpdates = (list: readonly Update[], count = 3): Update[] =>
