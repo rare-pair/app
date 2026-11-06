@@ -7,7 +7,7 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - Better Auth's `user`, `session`, `account` and `verification` tables exist in Postgres; magic-link tokens are stored hashed in `verification`; `user` has a `terms_accepted_at` field
 - Turnstile is configured on the sign-in form; a test Turnstile token that passes and one that fails are available
 - The Workers rate-limiting binding is configured per IP and per email for `POST /login`
-- The web Worker puts sign-in emails on the `email` queue; the mailer Worker (`apps/mailer`) consumes it, with a stub Resend sender capturing sent messages and a failover provider stub (Postmark or SES) wired in
+- The web Worker puts sign-in emails on the `email` queue; the mailer Worker (`apps/mailer`) consumes it, with a stub Resend sender capturing sent messages
 - No passwords are stored anywhere
 - `disableSignUp` is not set, so Better Auth creates an account for an unknown email when its link is confirmed
 
@@ -199,11 +199,6 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - GIVEN several sign-in emails waiting on the email queue
 - WHEN the mailer Worker takes them off the queue
 - THEN it sends them through Resend's batch API rather than one API call per email
-
-### Email sending fails over to the second provider
-- GIVEN Resend is refusing messages (rate limit, quota or outage)
-- WHEN a sign-in email is taken off the email queue
-- THEN it is sent through the failover provider instead
 
 ### New email creates an account on confirm
 - GIVEN an email address with no account, and an unused token issued to it less than 15 minutes ago

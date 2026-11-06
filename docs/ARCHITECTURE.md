@@ -16,11 +16,11 @@ an unofficial stopgap.
 | Name and domain | rarepair, always written lowercase as one word. The site is served at `rarepair.fans`, and `www.rarepair.fans` redirects there. Epub images and original downloads are served from `content.rarepair.fans` |
 | Who can read uploads | Shared public archive. Every upload is readable by everyone, with takedowns and author removal requests from day one. The one exception is below, in Crawlers and agents |
 | Crawlers and agents | Clients that declare themselves automated are refused fic text: chapters, `/full`, images and originals. Work pages, tag listings and search are not refused. Reading stays public, with no challenge and no sign-in, so anything posing as a browser is only throttled (operator ruling, 2026-11-04) |
-| Hosting | Cloudflare: Workers, R2, Queues, KV, plus Neon Postgres through Hyperdrive: a config with caching off for every read that decides something, and one with caching on for public pages only (see Connections) |
+| Hosting | Cloudflare on the Workers Paid plan: Workers, R2 (one bucket for every prefix), Queues, KV, plus Neon Postgres through Hyperdrive: a config with caching off for every read that decides something, and one with caching on for public pages only (see Connections). Workers Paid is an operator ruling, 2026-11-05 |
 | Load target | Surge-ready: assume tens of thousands of signups in the first days |
-| Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend |
+| Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend alone. There is no failover provider at launch, and while Resend is down sign-in stops until it returns (operator ruling, 2026-11-05) |
 | Accepted files | AO3-native epub exports only. FanFicFare support comes later |
-| New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) |
+| New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. A consistent edit goes live with no hold: readers' reports and rollback are the check (operator ruling, 2026-11-05). The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) |
 | A file swapped after confirm | Ingest handles the file it read and records that file's hash. A mismatch with confirm's hash isn't refused, and no locked copy is made (operator ruling, 2026-11-05) |
 | Author identity | No work claims and no author verification while AO3 is down. Removal and opt-out are requests anyone can make, without proving who they are, and they take effect once the requester confirms control of the contact email |
 | Removal list | Removed works (title, byline, a link to the original with its ID, date, reason) are public at `/removed`, and pseuds with an approved opt-out at `/removed/pseuds`. Reasons come from a fixed list, never free text. Open requests and hidden works are never listed, and a moderator can withhold an entry |
@@ -28,7 +28,7 @@ an unofficial stopgap.
 | Chapter rendering | Inline in app pages behind a strict CSP, with no iframe |
 | Wait list | Before launch, `/` is a coming-soon page with a double opt-in wait list. Each confirmed address is sent one launch email, from the same mail subdomain as sign-in, spread over hours on its own queue. The list is deleted after the launch send |
 | Sign-in emails per day | One address gets at most 5 sign-in emails a UTC day, counted in Postgres under a keyed hash, with no merging of `+tag` or dot spellings. The count fails open, and a failed send isn't given back. See Surge controls (operator ruling, 2026-11-05) |
-| Requester data | What a requester sends with a removal or opt-out request (email address, hashed network address, statement), and a requester block's email and hash, is kept until the site closes, then deleted by hand. It is not erased on request. There is no retention sweep job and no migration for it. The only delete of a request's row is the rollback when its confirmation email cannot be queued. A copyright notice, with its sender's contact details and signature, follows the same rule (operator ruling, 2026-11-05). Account data is not covered: see Account deletion. Privacy page copy is draft, pending legal review (operator ruling, 2026-11-04) |
+| Requester data | What a requester sends with a removal or opt-out request (email address, hashed network address, statement), and a requester block's email and hash, is kept until the site closes, then deleted by hand. It is not erased on request. There is no retention sweep job and no migration for it. The only delete of a request's row is the rollback when its confirmation email cannot be queued. A copyright notice, with its sender's contact details and signature, follows the same rule (operator ruling, 2026-11-05). Account data is not covered: see Account deletion. |
 | Account deletion | Someone asks at admin@rarepair.fans and the operator runs a script: no self-service button and no form (operator ruling, 2026-11-05). It removes the account, its sessions and its saved reading positions, bar one saved in the last moments, which expires within a year. Upload rows stay with no user attached, and works and versions stay public. The script refuses a banned account, because the ban would go with the row (pending the operator's ruling, wave 11). See Auth, Deleting an account |
 
 ## System overview
@@ -46,7 +46,7 @@ an unofficial stopgap.
    │               users, auth)    rate counters      • sanitize chapter XHTML
    │                    ▲                             • write chapters to R2, rows to PG
    │                    └─────────────────────────────┘
-   │  web Worker ── Queues: email, email-bulk ──▶ mailer Worker ──▶ Resend (Postmark or SES failover)
+   │  web Worker ── Queues: email, email-bulk ──▶ mailer Worker ──▶ Resend
    │  upload: presigned PUT from the browser (needs JS, like every Turnstile form)
    ├────────────────────────────────────────────────▶ R2: uploads/  (raw epubs)
    │
@@ -60,7 +60,10 @@ an unofficial stopgap.
 ### Why these pieces
 
 - **R2 for all bytes.** It has no egress fees, which matters most when the
-  workload is mostly serving books. Fresh uploads land in `uploads/`, which
+  workload is mostly serving books. All prefixes live in one bucket, and the
+  token the web Worker uses to presign uploads can read and write the whole
+  bucket, not just `uploads/`. We accept the risk that a leak of that token
+  exposes every object. Fresh uploads land in `uploads/`, which
   expires on its own. Original files we keep go in `originals/`, and processed
   chapters go under `works/<ao3_work_id>/<upload_id>/`: one prefix per version,
   keyed by the upload that produced it, so a retried job overwrites only its own
@@ -76,9 +79,12 @@ an unofficial stopgap.
   don't need. Postgres also gives us `tsvector` full-text search and `pg_trgm`
   fuzzy matching. Chapter text lives in R2, not in the database.
 - **Queues for ingestion.** Parsing happens off the request path, so a flood of
-  uploads becomes a backlog, not an outage. Queue consumers get up to 15 minutes
-  of CPU per invocation and 128 MB of memory, which is plenty for an epub capped
-  at 25 MB.
+  uploads becomes a backlog, not an outage. Production runs on the Workers Paid plan (operator ruling,
+  2026-11-05). Queue consumers get 128 MB of memory, which is plenty for an epub
+  capped at 25 MB. Their CPU time per invocation is not measured: an earlier
+  claim of 15 minutes was never checked. The paid plan's subrequest limit is
+  about 10,000 calls, so `/full` over 49 chapters no longer breaks, and there is
+  no chapter cap unless measurements show a run reaching the limit.
 - **Two layers of XSS defense, with no iframe.** Epubs are zip files of arbitrary
   HTML. The sanitized chapter HTML is rendered straight into app pages. The
   second layer is a strict, nonce-based CSP on every app page, so a script that
@@ -256,12 +262,24 @@ computed, so "Kirk/Spock" and "Kirk & Spock" are different tags (whitespace
 and punctuation beside them still fold away, so "Kirk / Spock" matches
 "Kirk/Spock"); other tag types fold them like any punctuation.
 
-**Pseuds.** Opt-outs match on `pseud_norm`: the pseud in Unicode NFKC,
-case-folded, with leading and trailing whitespace trimmed and inner runs of
-whitespace collapsed to one space. Unlike `name_norm`, punctuation is kept, so
-`a_b` and `a b` are different pseuds. The same rule is applied to the opt-out
-request and to every byline at ingest (a pseud with nothing left after the
-rule's whitespace and invisible-character removal is blank, and names nobody).
+**Pseuds.** Opt-outs match on `pseud_norm`, made by `normalizePseud` in
+`packages/db/src/pseud.ts`, in this order: Unicode NFKC; drop every
+`Default_Ignorable_Code_Point` character; lower-case with `toLowerCase()`; NFKC
+again; collapse each run of `White_Space` to one space; trim. The second NFKC is
+there because lower-casing can produce a character that NFKC changes again.
+This is not full case folding, so `ß` stays. Unlike `name_norm`, punctuation is
+kept, so `a_b` and `a b` are different pseuds. The same rule is applied to the
+opt-out request and to every byline at ingest (a pseud with nothing left after
+the rule is blank, and names nobody). The web Worker and ingest must use the
+same Unicode tables.
+
+We accept these misses. Greek final sigma depends on context, so `ΑΣ` and `ασ`
+differ. Turkish `İ` doesn't match `i`. Blank-looking characters that aren't
+default-ignorable survive (braille blank U+2800, U+FFF9 to U+FFFB). Dropping the
+zero-width joiner and non-joiner, and the Hangul fillers, means some different
+pseuds share a `pseud_norm`, so an opt-out can hide another author's works. The
+database doesn't check that a `pseud_norm` isn't made only of invisibles:
+`normalizePseud` is its one writer.
 
 ## Ingestion pipeline
 
@@ -477,16 +495,24 @@ Chapter text isn't indexed.
 7. **Versioning.** Each work is keyed by `ao3_work_id`. The first upload
    creates the work. A later upload:
    - **replaces the current version** only if it is newer (more chapters or a
-     later Updated/Completed date) **and** the chapters both versions share
-     come out as near-identical text after sanitizing. Small edits are allowed;
-     compare a hash of the normalized text per chapter plus a similarity
-     threshold.
+     later Updated, Completed or Published date) **and** the chapters both
+     versions share come out as near-identical text after sanitizing. Small
+     edits are allowed; each shared chapter's normalized text is compared and a
+     similarity threshold applies (below).
    - **is held for review** (`held_for_review`) if it is newer but its shared
-     chapters differ, or if its tags or authors changed. This blocks someone
-     editing an epub to tamper with a work. A held version is never public:
-     the work keeps serving its current version, the held one is listed only
-     for its uploader (My uploads) and for moderators (*Works to check*), and
-     only a moderator's approval makes it current.
+     chapters differ, or if its tags or authors changed. A held version is
+     never public: the work keeps serving its current version, the held one is
+     listed only for its uploader (My uploads) and for moderators (*Works to
+     check*), and only a moderator's approval makes it current. This is not a
+     guard against someone editing an epub to tamper with a work: a replace
+     whose shared chapters are near-identical and whose tags and authors match
+     goes live with no hold, whatever else changed (a link, an image, the
+     title, summary or notes, a date). The check is readers' "This version is
+     wrong" reports and a moderator's "Make current" (operator ruling,
+     2026-11-05). Nothing bounds the held versions per work: the same changed
+     content in differently zipped files stores another held version (rows,
+     chapters, files) and another review entry each time, and only the
+     uploader's daily quota limits it. We accept that.
    - **is marked `duplicate`** if it isn't newer. Its original is stored but
      not used, and its fragments are swept (step 8).
      This is a status, not a rejection: the uploader sees "Already in the
@@ -523,6 +549,14 @@ Chapter text isn't indexed.
    - **Tags and authors changed** compares sets, not order: tags by type and
      normalized name (`name_norm`), every type including rating and warning;
      authors by normalized pseud and AO3 user (where there is one).
+   - **Known gaps, kept as built (operator ruling, 2026-11-05).** An edit that
+     changes only an attribute (a link's target, an image) is invisible to the
+     text comparison. An upload with fewer chapters but a later date replaces
+     the current version, and the chapters it drops are not compared. A replace
+     with title, summary or notes changed alone replaces. The 90% slack is per
+     chapter, with no bound across the work. An undated current version can't
+     be superseded by a same-count upload with a date. A replace with an earlier
+     date writes it, so `works.updated_at` can move backwards.
    - **Not newer is a `duplicate`** even when its tags or authors changed.
      When several checks fail, the held reason is the first of: chapters, tags,
      authors.
@@ -907,7 +941,10 @@ can be snapshotted.
 - "Download original epub" serves the file from `originals/` with
   `Content-Disposition: attachment` from `content.rarepair.fans`. It's never
   displayed inline. The link names the current version's upload, or for a
-  backfill version the upload it was re-made from (`source_upload_id`).
+  backfill version the upload it was re-made from (`source_upload_id`). The
+  download never meets the warnings screen: the content origin has no cookies and
+  the link isn't gated, so a Mature, Explicit or warned work can be downloaded
+  without seeing it. We accept that.
 
 ### Crawlers and agents
 
@@ -987,7 +1024,9 @@ origin. Work pages, listings and search stay open, so people can still find work
     same-site with the bare domain
   - it rate limits per IP and per email with the Workers rate-limiting binding
     (429 with `Retry-After`; a failed or missing Turnstile token gets 400 and
-    the form again with an error, as in Surge controls), then counts the address
+    the form again with an error, as in Surge controls; the per-email limit lets a
+    stranger delay the form, and a failed request still uses up its limit, both
+    also in Surge controls), then counts the address
     against its daily cap in Postgres (Surge controls, Sign-in emails per day)
   - it reduces `next` to a same-site path (root-relative only: no `//`, no
     `\`, no control characters) before passing it on. The `//` check runs
@@ -1058,6 +1097,11 @@ origin. Work pages, listings and search stay open, so people can still find work
   set with `useSecureCookies: true`. There is no `Domain`
   (`crossSubDomainCookies` stays off), so the cookie never reaches
   `content.rarepair.fans`.
+- **A session lookup fault answers 500.** A signed-in request whose session
+  lookup faults (Postgres or Hyperdrive down) gets a 500, even on a page that
+  works signed out. A fault isn't read as signed-out: that would hide the
+  outage and could sign people out without telling them. This holds for every
+  route. A request with no cookie never looks anything up.
 - **Sign-out is `/logout`.** `POST /logout` from a button in a form, behind the same
   same-origin check as the sign-in forms (before the session lookup), calls
   `auth.api.signOut`: it deletes the session row and clears Better Auth's cookies with
@@ -1077,7 +1121,7 @@ origin. Work pages, listings and search stay open, so people can still find work
   `auth.handler`. Its default memory store is per isolate on Workers, so set
   `rateLimit.storage: "database"` (or a Durable Object through
   `customStorage`), with `ipAddressHeaders: ["cf-connecting-ip"]`.
-- **Email: Resend primary.** The web Worker puts each email on an `email`
+- **Email: Resend only.** The web Worker puts each email on an `email`
   queue. A dedicated **mailer Worker** (`apps/mailer`) consumes it and sends
   through a small sender interface. Volume isn't the risk; sending limits are.
   - **Why it's its own Worker:** sign-in mail must keep flowing during an
@@ -1086,7 +1130,7 @@ origin. Work pages, listings and search stay open, so people can still find work
     Worker. The mailer only sends: it has no database or R2 access.
   - **Reader privacy:** the mailer never logs email addresses or links; it
     logs provider message IDs and outcomes only.
-  - **Failures:** a message that fails on both providers is retried by the
+  - **Failures:** a message Resend refuses is retried by the
     queue, then moved to a dead-letter queue, never dropped silently. Queued
     messages hold an address and a link (a sign-in link expires after 15
     minutes, a wait list or removal confirmation link after 7 days), so the dead-letter
@@ -1103,7 +1147,8 @@ origin. Work pages, listings and search stay open, so people can still find work
     `email-bulk` carries only the launch email, and its consumer sends at a
     configured rate that leaves room under Resend's per-second limit, so a
     launch send never delays a sign-in link.
-  - Postmark or SES is wired in as failover from day one.
+  - Resend is the only provider: there is no failover at launch (operator
+    ruling, 2026-11-05). While Resend is down, sign-in stops until it returns.
   - Cloudflare Email Sending isn't used for launch: it's in beta, and new
     accounts start on a "conservative daily quota" that a signup surge would
     hit.
@@ -1316,6 +1361,14 @@ epub, under the normal versioning rules.
   A folder with no `works` row is not a removed work and gets the ordinary rules. Not
   covered: an original whose `<upload_id>/` prefix is gone while the upload has no
   `work_id` (nothing ties it to the work).
+
+  To find who uses an image, the sweep reads every fragment of every version of
+  any work with an image older than 24 hours, on every lap. Ten versions of 80
+  chapters is 800 reads, and a run's budget is 8,000 subrequests, so big works
+  can spend it. A work that runs out is skipped with the reason `budget`, so the
+  sweep fails closed and deletes nothing it couldn't check. Recording each
+  version's image keys in Postgres when it is saved waits until a sweep report
+  shows `budget` skips.
 - **The removal list.** `/removed` lists removed works, newest first: title,
   byline, "The original work" link with its ID and its note, as on the work page,
   date and reason. `/removed/pseuds` lists pseuds with an approved, active opt-out,
@@ -1363,8 +1416,7 @@ epub, under the normal versioning rules.
   purges nothing.
 - **DMCA.** To get safe-harbor protection under US law (17 U.S.C. §512), we need
   a designated agent registered with the US Copyright Office, a public takedown
-  form, a counter-notice process and a repeat-infringer policy. Get a lawyer to
-  review this before launch. A notice from `/dmca` lands in the takedowns
+  form, a counter-notice process and a repeat-infringer policy. A notice from `/dmca` lands in the takedowns
   queue and does **not** hide the work by itself: a
   moderator decides whether to hide or remove it. While no moderator has acted
   on it, the notice doesn't block re-uploads of the work either. Once a
@@ -1376,8 +1428,7 @@ epub, under the normal versioning rules.
   email address (the `NOTICES_EMAIL` var) for a notice, which a person reads and which
   doesn't reach the takedowns queue. A rate limit per IP, counted before the
   check, is its other abuse control; a refused post gives the form back with what
-  was typed. The counter-notice process and
-  repeat-infringer policy are part of the lawyer review.
+  was typed.
 - **Reports.** Every work has a report button. Reporting needs a signed-in
   account, so each report has a reporter who can be rate limited or blocked;
   signed-out readers, opening the form or POSTing a report, are redirected to
@@ -1399,7 +1450,9 @@ epub, under the normal versioning rules.
     imperfect" notice, and works reported as "This version is wrong"
 
   Actions are hide, remove, restore, approve, reject, dismiss a report, block a requester, ban
-  an uploader and withhold a removal list entry. "Dismiss report", on an open report's page,
+  an uploader and withhold a removal list entry. Block a requester is on removal
+  and opt-out request pages only: a takedown's requester is free text, so
+  takedown pages don't offer it. "Dismiss report", on an open report's page,
   sets it `closed` and logs `dismiss` on the report. It hides and restores nothing, so a work the
   reports hid stays hidden until Restore lifts the hide. A `wrong_version` report keeps its own form. A *Works to check* item's page has approve (clears the notice,
   or publishes the held version), make a version current, hide and remove;
@@ -1484,7 +1537,15 @@ markup: its inline `style` attributes become stylesheet rules, because
   can't be used to find out who is on the list. An unconfirmed address gets
   at most one new confirmation email an hour and 3 in all, so the form can't
   be used to keep mailing someone else. An address is accepted only if the
-  mailer's message contract would accept it.
+  mailer's message contract would accept it. The per-email limit is the one in
+  *Surge controls* (anyone can keep an address at 429 for up to a minute).
+  Every answer after the `PRELAUNCH` check waits at least `WAITLIST_FLOOR_MS`
+  (2000 ms), 400, 403, 413, 429 and 503 included, so the time taken can't show
+  whether an address is on the list. The floor must exceed the slowest path
+  (insert or update, queue send, over Hyperdrive to Neon), and 2000 is a first
+  value to check against measured timing before launch. The early refusals (403,
+  413, 429) are padded too, so each holds a request open for the floor during a
+  flood. We accept that.
 - **Double opt-in.** `GET /waitlist/confirm` only shows a "Confirm" button,
   because mail scanners open links; `POST /waitlist/confirm` sets
   `confirmed_at`. Tokens are stored hashed and last 7 days. Double opt-in
@@ -1518,7 +1579,7 @@ markup: its inline `style` attributes become stylesheet rules, because
   the dead connection; a rerun in that time skips those rows, reports them
   as still waiting and exits non-zero, and is run again once they free.
   The mailer sends at the configured rate, so the emails, and the visits
-  they bring, arrive over hours. A launch email that both providers refuse
+  they bring, arrive over hours. A launch email that Resend refuses
   is dead-lettered to `email-bulk-dlq`, which the web Worker consumes: it
   clears that address's `notified_at`, so a rerun of the script queues it
   again (rerun it after the queue has drained, and again after a day). The
@@ -1542,7 +1603,9 @@ markup: its inline `style` attributes become stylesheet rules, because
   consumer reads only `to`. Each
   launch email has `List-Unsubscribe` with one-click
   `List-Unsubscribe-Post`. A POST to its link deletes the row, with no
-  `Origin` check because mail providers send it; opening the link in a
+  `Origin` check because mail providers send it, and with no rate limit: any
+  well-formed 43-character token opens a Hyperdrive connection and runs a
+  DELETE. We accept that. Opening the link in a
   browser shows an "Unsubscribe" button.
 - **Deleting the list.** Once every confirmed address has been queued, and a
   day has passed since the last batch so any dead-lettered email has come
@@ -1582,6 +1645,16 @@ markup: its inline `style` attributes become stylesheet rules, because
   requests), and on chapter, `/full` and original reads, keyed per IP (Crawlers
   and agents). It's approximate and counts per Cloudflare location, over 10- or
   60-second windows. That's fine for slowing abuse, but not for hard limits.
+  - **A stranger can delay a form.** The per-email limit counts everyone's
+    requests for an address, so anyone with a solved Turnstile can keep an
+    address at 429 for up to a minute, and the 429 tells the person that
+    someone asked for it recently. This holds for the per-email forms: login,
+    the wait list and `/remove` (`/dmca` is per IP only). We accept that.
+  - **A failed request still spends its limit.** The binding counts when it
+    checks and can't give a count back, so a request that fails after the check
+    (a database 500, a queue error, an unknown work, a Better Auth 400) still
+    uses up the address's limit, and after an outage a person can see a 429 for
+    up to a minute. We accept that.
 - **Status codes.** A rate limit or quota that is hit returns **429** with
   `Retry-After` and a plain page saying when to try again (`POST /uploads`, which a
   script calls, answers JSON `{ error, retryAfter }` instead). A failed or missing
@@ -1821,7 +1894,7 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
 apps/web/          Hono Worker: pages, auth, upload handshake, search, admin
 apps/content/      Worker serving epub images and original downloads from R2
 apps/ingest/       Queue consumer: epub processing
-apps/mailer/       Queue consumer: sends email (Resend, with failover)
+apps/mailer/       Queue consumer: sends email (Resend)
 apps/sweep/        Daily cron: deletes unreferenced images, orphaned upload prefixes and removed works' leftovers from R2, and uploads left unconfirmed
 packages/epub/     unzip + OPF + AO3 preface parser + sanitizer (tested in workerd)
 packages/db/       SQL migrations + typed queries
@@ -1843,7 +1916,3 @@ little client JS for upload progress and the reader settings.
 - **Deleted or orphaned works.** Someone may upload a work the author deleted
   from AO3. While AO3 is down we can't check, so we rely on the opt-out list and
   remove-my-work requests.
-- **Legal review.** Get a review of the DMCA setup, the terms and the public
-  removal list before public launch. It should cover naming people beside a reason
-  they can't dispute, and a successful counter-notice: removal deletes the files and
-  can't be undone, so restoring the work isn't possible today, and its entry stays.

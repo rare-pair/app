@@ -153,7 +153,7 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Wait list), § Wait list, 
 - AND it reports how many confirmed addresses are still waiting, 0 when the run has finished
 
 ### A launch email that can't be sent is tried again
-- GIVEN a launch email that both providers refuse until the queue dead-letters it
+- GIVEN a launch email that Resend refuses until the queue dead-letters it
 - WHEN the web Worker takes it off the `email-bulk` dead-letter queue
 - THEN that address's `notified_at` is cleared, so the next run of the launch send script queues it again
 - AND the message is not kept on the dead-letter queue, and nothing prints its address to logs

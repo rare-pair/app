@@ -81,7 +81,7 @@ The parser and sanitizer are the security boundary (ARCHITECTURE, *Sanitizing*).
 
 ### web — `apps/web` changed
 
-- Every HTML response carries the CSP from ARCHITECTURE, *Reading*, with a nonce that differs between two requests. No `<script>` lacks it. Only the Turnstile pages (`/login`, `/upload`, `/remove`, `/dmca`, and `/` and `/waitlist` while `PRELAUNCH` is on) add `frame-src https://challenges.cloudflare.com`; reader and work pages never do.
+- Every HTML response carries the CSP from ARCHITECTURE, *Reading*, with a nonce that differs between two requests. No `<script>` lacks it. Only the Turnstile pages (`/login`, `/upload`, `/remove` and `/dmca` once `PRELAUNCH` is off, and `/` and `/waitlist` while it is on) add `frame-src https://challenges.cloudflare.com`; reader and work pages never do. Sign-in is closed while `PRELAUNCH` is on, and `/login` isn't a before-launch Turnstile page.
 - Those pages show a `<noscript>` message with JS off. Reading, browsing, search and reader settings still work fully without JS.
 - Chapter HTML reaches a page only from a sanitized fragment under `works/`, never from `uploads/` or `originals/`.
 - Session cookies are `HttpOnly; Secure; SameSite=Lax` with no `Domain`, so they cover the app host only.

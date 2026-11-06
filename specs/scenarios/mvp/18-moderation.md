@@ -50,7 +50,7 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 ### Each item has a detail page with actions
 - GIVEN an item in the reports, takedowns or requests queue
 - WHEN M opens its detail page
-- THEN the page offers hide, remove, restore, approve, reject, block requester and ban uploader actions, and an open report's page offers "Dismiss report"
+- THEN the page offers hide, remove, restore, approve, reject and ban uploader actions, plus block requester on a removal or opt-out request's page (a takedown's requester is free text, so its page doesn't offer it), and an open report's page offers "Dismiss report"
 
 ### Works to check detail page has its own actions
 - GIVEN an item in *Works to check*
