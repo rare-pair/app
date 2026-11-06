@@ -15,7 +15,7 @@ an unofficial stopgap.
 | --- | --- |
 | Name and domain | rarepair, always written lowercase as one word. The site is served at `rarepair.fans`, and `www.rarepair.fans` redirects there. Epub images and original downloads are served from `content.rarepair.fans` |
 | Who can read uploads | Shared public archive. Every upload is readable by everyone, with takedowns and author removal requests from day one. The one exception is below, in Crawlers and agents. After launch, NSFW works will need a sign-in too (next row) |
-| NSFW works | No gate at launch: every work can be read without an account. One follows soon after, using the existing email magic-link sign-in plus an age statement kept in a cookie. It covers works rated Mature or Explicit or carrying the warning Rape/Non-Con or Underage, and their text, images and originals (operator rulings, 2026-11-06). **Post-launch, not built:** specs/scenarios/later/08-nsfw-sign-in-gate.md, which lists what the operator still has to rule on. See Reading, NSFW gate |
+| NSFW works | No gate at launch: every work can be read without an account. One follows soon after, using the existing email magic-link sign-in plus an age statement kept in a cookie. It covers works rated Mature or Explicit or carrying the warning Rape/Non-Con or Underage, and their text, images and originals (operator rulings, 2026-11-06). **Post-launch, not built:** specs/scenarios/later/08-nsfw-sign-in-gate.md. See Reading, NSFW gate |
 | Crawlers and agents | Clients that declare themselves automated are refused the whole site, search engines and link previews included. The Workers and the custom rule except `robots.txt` and one-click unsubscribe. Bot Fight Mode is on and the AI Crawler and Agent access policies are on block. Reading needs no sign-in at launch (NSFW works will, post-launch), and the app adds no challenge, but Cloudflare's bot protection can challenge a reader it flags (operator ruling, 2026-11-06, replacing 2026-11-04) |
 | Hosting | Cloudflare on the Workers Paid plan: Workers, R2 (one bucket for every prefix), Queues, KV, plus Neon Postgres through Hyperdrive: a config with caching off for every read that decides something, and one with caching on for public pages only (see Connections). Workers Paid is an operator ruling, 2026-11-05 |
 | Load target | Surge-ready: assume tens of thousands of signups in the first days |
@@ -927,8 +927,10 @@ can be snapshotted.
   hit redirects with no read, and a signed-out miss stores the entry without reading a
   fragment. Signed-in readers still never use the entry, so every read of a gated work costs a
   session read and a work read, which is to be measured first. Images and originals are gated
-  too, by a reader pass (Why these pieces, Hosts). Sign-in is what needs JavaScript, for
-  Turnstile; the screen and the box don't. Nothing here checks anyone's age. See
+  too, by a reader pass (Why these pieces, Hosts). Reading position isn't saved on a gated
+  work, and a sign-in link asked for from one goes to the home page, so the email holds no work
+  ID. Sign-in is what needs JavaScript, for Turnstile; the screen and the box don't. The
+  operator turns the gate on by hand. Nothing here checks anyone's age. See
   specs/scenarios/later/08-nsfw-sign-in-gate.md.
 - **"May be imperfect" notice.** When the current version has review reasons
   that no moderator has cleared (EPUB processor, step 5), the work page and
