@@ -1738,7 +1738,7 @@ markup: its inline `style` attributes become stylesheet rules, because
   unfinished uploads: 500 MB on the new-account quota of 20, 2.5 GB on the trusted 100, for the day
   or two until the reaper runs. A ban ends an account's pending uploads, which takes them out of
   the reaper's reach, so a file stored and never confirmed before a ban waits for the 7-day rule
-  (a bug of its own, filed with this design). Since the cap is the daily quota, raising
+  (#685). Since the cap is the daily quota, raising
   `UPLOAD_QUOTA_NEW` raises these bounds with it, and a quota under 10 can't take a full batch of 10.
   Raw files the archive keeps are copied to `originals/` during ingest.
 - Queue backpressure: set a maximum consumer concurrency so Neon connections
