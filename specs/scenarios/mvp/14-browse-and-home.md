@@ -15,7 +15,7 @@ Relates to: docs/ARCHITECTURE.md § Dedupe (Tags), § MVP vs later (5. Browse), 
 - GIVEN any visitor
 - WHEN they open `/`
 - THEN a search box comes first
-- AND popular fandoms and recently added works are below it
+- AND updates (specs/scenarios/mvp/25-updates.md), popular fandoms and recently added works are below it, in that order
 
 ### Tag listing shows paged works
 - GIVEN fandom F with more works than fit on one page
