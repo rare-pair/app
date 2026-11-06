@@ -541,8 +541,8 @@ The reason sits on the existing report form, with its account, ban, block and cl
 - GIVEN work G rated General Audiences, with a `reported` mark
 - WHEN its card, work page or warnings screen renders
 - THEN its rating still reads "General Audiences"
-- AND the card has a plain line "Marked NSFW", and the work page and screen say "Readers reported this work as NSFW; a moderator will check"
-- AND with a `confirmed` mark the card keeps its line, and the other two say "A moderator marked this work NSFW"
+- AND the card, work page and warnings screen each have the plain line "Marked NSFW"
+- AND a `confirmed` mark reads the same, so no reader-facing page says who marked it
 
 #### A marked work passes through the same gate
 - GIVEN work G with a `reported` mark, which otherwise gets no warnings screen
