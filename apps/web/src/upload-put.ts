@@ -107,10 +107,14 @@ async function store(c: UploadIdContext, upload: OwnUpload, userId: string, body
   const bucket = c.env.BUCKET;
   const openDb = () => createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
   try {
-    const stored = await bucket.put(upload.r2_key, body.pipeThrough(new FixedLengthStream(upload.bytes)), {
-      onlyIf: CREATE_ONLY,
-      httpMetadata: { contentType: EPUB_TYPE },
-    });
+    const stored = await bucket.put(
+      upload.r2_key,
+      body.pipeThrough(new FixedLengthStream(upload.bytes)),
+      {
+        onlyIf: CREATE_ONLY,
+        httpMetadata: { contentType: EPUB_TYPE },
+      },
+    );
     if (stored === null) return "second" as const;
     // The row was checked before the bytes arrived, and a ban, the reaper or a confirm finding
     // no file can have ended it since. Then the object has no row to answer for it. A counted

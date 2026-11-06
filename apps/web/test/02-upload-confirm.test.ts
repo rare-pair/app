@@ -312,7 +312,6 @@ describe("02-upload-handshake", () => {
     expect(await usedOf(userId)).toBe(0);
   });
 
-
   it("A confirmed upload's object is left alone by a repeat confirm of another size", async () => {
     const { userId, cookie } = await signIn("uploadcap-size-counted@example.test");
     const up = await uploaded(userId, randomBytes(1000));

@@ -118,7 +118,6 @@ describe("02-upload-handshake: confirming an upload", () => {
     expect(await recordUploadHash(t.db, up.id, HASH)).toBeNull();
     expect((await rowOf(up.id)).sha256).toBeNull();
   });
-
 });
 
 describe("02-upload-handshake: freeing an open upload's slot", () => {
