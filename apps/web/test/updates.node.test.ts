@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { latestUpdates, newestFirst, UPDATES, type Update } from "../src/updates-data";
 
@@ -40,7 +41,7 @@ const notesWords = (markdown: string) =>
 describe("25-updates: the first update", () => {
   it("The first update's text is the operator's own", () => {
     const notes = readFileSync(
-      new URL("../../../docs/release-notes/v0.1.0.md", import.meta.url),
+      join(import.meta.dirname, "..", "..", "..", "docs", "release-notes", "v0.1.0.md"),
       "utf8",
     );
     const post = UPDATES.find((u) => u.slug === "release-0-1-0-chuhura");

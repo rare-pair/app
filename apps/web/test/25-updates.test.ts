@@ -55,10 +55,11 @@ describe("25-updates", () => {
     const html = await home([A, B, C, D]);
     const at = (slug: string) => html.indexOf(`href="/updates/${slug}"`);
     expect(html).toContain("<h2>Updates</h2>");
-    expect(at("d")).toBeGreaterThan(-1);
-    expect(at("d")).toBeLessThan(at("c"));
-    expect(at("c")).toBeLessThan(at("b"));
-    expect(at("a")).toBe(-1);
+    const [d, c, b, a] = ["d", "c", "b", "a"].map(at);
+    expect(d).toBeGreaterThan(-1);
+    expect(d).toBeLessThan(c!);
+    expect(c).toBeLessThan(b!);
+    expect(a).toBe(-1);
     expect(html).not.toContain("Title a");
   });
 
@@ -164,9 +165,16 @@ describe("25-updates", () => {
       },
     );
     const ctx = createExecutionContext();
+    // SAFETY: the stand-in is only ever handed to the Worker, which must not touch it.
+    const stood: Partial<typeof env> = {
+      HYPERDRIVE: dead as never,
+      HYPERDRIVE_CACHED: dead as never,
+      BUCKET: dead as never,
+      POSITIONS: dead as never,
+    };
     const res = await app.fetch(
       new Request(new URL(`/updates/${FIRST}`, BASE)),
-      { ...env, HYPERDRIVE: dead, HYPERDRIVE_CACHED: dead, BUCKET: dead, POSITIONS: dead } as never,
+      { ...env, ...stood },
       ctx,
     );
     await waitOnExecutionContext(ctx);
