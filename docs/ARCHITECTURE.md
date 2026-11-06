@@ -1010,7 +1010,8 @@ origin. Work pages, listings and search stay open, so people can still find work
   isn't theirs. The address comes from the token's own row, read directly with one
   select: no write, no path through Better Auth's clean-up delete, and no read of
   `user`, so the page doesn't say whether an account exists. An unknown, used or
-  expired token gets the same page with no address. Anyone holding the link sees
+  expired token gets the same page with no address (a link with no token, or one
+  far longer than any issued, is redirected to `/login` instead). Anyone holding the link sees
   the masked form, and each open, a scanner's included, costs one database read;
   the operator accepted both (#615, question 1 of #242). `POST /login/confirm` calls `auth.api.magicLinkVerify`, which redirects to
   `next` with the session cookie. A used, expired or unknown link is

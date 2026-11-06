@@ -100,6 +100,7 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - WHEN its link is opened
 - THEN the page is the same in every case, apart from the token in its form, and names no address
 - AND pressing the button is refused as today: a redirect to `/login` with the plain message
+- AND a link with no token, or one far longer than any token issued, shows no page: it redirects to `/login` with the plain message, as before
 
 ### The browser that asked for the link signs in without a press
 - GIVEN a browser whose `POST /login` was accepted, which still holds the marker, and an unused token
