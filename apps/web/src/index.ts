@@ -13,6 +13,7 @@ import { MY_UPLOADS_SCRIPT, MY_UPLOADS_SCRIPT_PATH } from "./my-uploads-script";
 import { POSITION_SCRIPT, POSITION_SCRIPT_PATH, savePosition } from "./position";
 import { continueWarnings, showWarnings } from "./warnings";
 import { homePage } from "./home";
+import { updatePage } from "./updates";
 import { deadLetteredLaunchEmails } from "./launch-dead-letter";
 import { showTagListing } from "./listing";
 import { showSearch } from "./search";
@@ -154,6 +155,10 @@ app.get(SETTINGS_PATH, showSettings);
 app.post(SETTINGS_PATH, saveSettings);
 
 app.get("/about", (c) => c.html(aboutPage()));
+app.get("/updates/:slug", (c) => {
+  const post = updatePage(c.req.param("slug"));
+  return post === null ? c.html(notFoundPage(), 404) : c.html(post);
+});
 app.get("/terms", (c) => c.html(termsPage()));
 app.get("/privacy", (c) => c.html(privacyPage()));
 

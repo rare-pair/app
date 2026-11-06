@@ -639,6 +639,29 @@ html[data-face="sans"] {
   margin-top: calc(var(--space) * 4);
 }
 
+/* Updates: summary cards on the home page, and a post's byline and body. */
+.update-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.update {
+  padding: calc(var(--space) * 3) 0;
+  border-bottom: 1px solid var(--rule);
+  overflow-wrap: anywhere;
+}
+
+.update h3,
+.update p,
+.update-meta {
+  margin: 0;
+}
+
+.update-body {
+  overflow-wrap: anywhere;
+}
+
 .fandom-list {
   display: flex;
   flex-wrap: wrap;

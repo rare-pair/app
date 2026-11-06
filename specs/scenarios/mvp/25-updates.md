@@ -15,7 +15,7 @@ Updates are short posts from the operator: release notes first, and news later. 
   - Title: `rarepair v0.1.0 "Chuhura"`
   - Summary: `rarepair is open. It is a temporary, community-run reading archive for fanworks while the original archive is offline.`
   - Author: `admin and 🤖`
-  - Created date: the day the archive opens, which the operator confirms on the PR
+  - Created date: `2026-11-06`
   - Body: docs/release-notes/v0.1.0.md, everything below its title line
 
 ## Cases
@@ -146,4 +146,4 @@ Updates are short posts from the operator: release notes first, and news later. 
 ## Before launch
 The first update's "Bots and crawlers" section describes specs/scenarios/mvp/24-crawler-and-agent-blocking.md, and it says what those protections do as fact. As spec 24 says of the About section, this text must not go live before them. A post is closed until launch, so this holds if launch waits for them. If any of them won't make launch, the operator changes docs/release-notes/v0.1.0.md and the post with it.
 
-The first update's created date is set when this is built, and launch can move after that. If it does, the date changes and deploys before `PRELAUNCH` goes off.
+The first update's created date is 2026-11-06, the operator's ruling. If launch moves, the date changes and deploys before `PRELAUNCH` goes off.
