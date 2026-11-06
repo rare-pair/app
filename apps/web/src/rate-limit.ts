@@ -1,6 +1,6 @@
 // The Workers rate-limiting binding's side of the surge controls (ARCHITECTURE, Surge
-// controls), shared by every limited route: sign-in now, then uploads, search, removal
-// requests and the wait list. Each route passes its own binding and key.
+// controls), shared by every limited route: sign-in, uploads, search, removal requests, the wait
+// list and reads. Each route passes its own binding and key.
 
 import { hashKey } from "@archive/traffic";
 import type { Context } from "hono";

@@ -121,11 +121,12 @@ an unofficial stopgap.
     `GET` for an image or an original is answered from the data centre's cache
     (`caches.default`, keyed by the bare URL) without an R2 read once the first
     response is stored, and a miss reads R2 and stores the 200 (a failed cache read
-    counts as a miss, and requests that arrive before the store completes also miss). `HEAD`, errors (403, 404, 405, 451, 503), `Range` and conditional
+    counts as a miss, and requests that arrive before the store completes also miss). `HEAD`, errors (403, 404, 405, 429, 451, 503), `Range` and conditional
     requests never read or fill it. See *Surge controls*, Edge cache.
   - The content Worker reads Postgres, on the uncached Hyperdrive config (see
     *Connections*), for every request that does not hit its cache: a miss, `HEAD`,
-    `Range` and conditional requests. It reads the work's status (an image by its AO3
+    `Range` and conditional requests. An original past its read limit gets its 429 before
+    this (Crawlers and agents, Throttles). It reads the work's status (an image by its AO3
     work id, an original through its upload) before any byte goes out, and serves
     only a `live` work's files: a hidden work's get 451, and a removed or unknown
     work's, an upload with no work (a refused file) and a held version's get 404, all
@@ -997,8 +998,8 @@ The whole site is refused to clients that say they are automated. The exempt pat
 one-click unsubscribe. Works can't be found through search engines, and shared links show
 no preview from a service that identifies itself. The fic text paths are `/works/:id/chapters`,
 its chapter pages and `/full` on the app, and `/works/:id/img/*` and `/originals/*` on the
-content origin. Chapter pages, `/full` and originals also have the throttles below, and all of
-them but images the cross-site check.
+content origin. All of them but images also have the cross-site check below, and chapter pages,
+`/full` and originals the throttles.
 
 - **Who is refused.** A request with a `Signature-Agent` header (Web Bot Auth,
   which isn't verified, since announcing itself is enough) or with a `User-Agent`
@@ -1044,7 +1045,9 @@ them but images the cross-site check.
   chapter pages, 10 `/full` and 10 originals, revisited with the others in Surge controls.
   Those let one address take 14,400 whole works a day, so they slow a scraper and don't
   stop one; a limit low enough to stop one would throttle readers sharing a mobile
-  carrier's address. A limiter that throws doesn't fail the read. So that another site
+  carrier's address. A read past its limit gets the 429 whatever the work's status, since it is
+  counted before anything is looked up, so a hidden or removed work's 451 or 410 comes only under
+  the limit. A limiter that throws doesn't fail the read. So that another site
   can't spend a reader's limits with `<img>` tags or frames, a request with
   `Sec-Fetch-Site: cross-site` and a `Sec-Fetch-Dest` other than `document` gets the 403
   on the fic text paths, uncounted. It can't help a scraper, which gets no text that way. Images
@@ -1721,7 +1724,8 @@ markup: its inline `style` attributes become stylesheet rules, because
     up to a minute. We accept that.
 - **Status codes.** A rate limit or quota that is hit returns **429** with
   `Retry-After` and a plain page saying when to try again (`POST /uploads`, which a
-  script calls, answers JSON `{ error, retryAfter }` instead). A failed or missing
+  script calls, answers JSON `{ error, retryAfter }` instead, and an original on the content
+  origin has no body at all). A failed or missing
   Turnstile token returns **400** and shows the form again with an error (as does
   a 503 when Turnstile can't be reached and a 413 for a body too large; the form
   may hold what was typed, so each is sent `Cache-Control: no-store`), and

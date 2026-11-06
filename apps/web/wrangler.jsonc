@@ -147,7 +147,7 @@
     { "name": "READ_FULL_LIMIT", "namespace_id": "1051", "simple": { "limit": 10, "period": 60 } },
   ],
   // Invocation logs are off: a reading URL carries the AO3 work id and chapter number. Errors and
-  // metrics stay on, and the console.error lines the code logs on purpose are expected to be kept
+  // metrics stay on, and the console lines the code logs on purpose, each refusal's reason line included, are expected to be kept
   // (not yet verified on the platform; ARCHITECTURE, Observability). Traces are not set here: whether they go on is the operator's call (#620).
   "observability": {
     "enabled": true,

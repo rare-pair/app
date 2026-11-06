@@ -7,7 +7,7 @@ import { chapterPageKey } from "../src/edge-cache";
 import app from "../src/index";
 import { READ_WINDOW_SECONDS } from "../src/rate-limit";
 import { BASE, consoleDuring, fetchW, freshIp, signIn, windowHeadroom } from "./helpers";
-import { READ_FULL_LIMIT } from "./limits";
+import { READ_CHAPTER_LIMIT, READ_FULL_LIMIT } from "./limits";
 
 // Runs in the "open" project. This file keeps to AO3 work ids 8812750 to 8812799; the content
 // Worker's tests have 8812700 to 8812749. Text is synthetic.
@@ -115,6 +115,20 @@ describe("24-crawler-and-agent-blocking", () => {
     const { res, body } = await read(path, { READ_CHAPTER_LIMIT: limiter }, { headers });
     expectThrottled(res, body);
     expect(cacheRead).not.toHaveBeenCalled();
+  });
+
+  it("Chapter reads are throttled per IP: past the limit wrangler.jsonc sets", async () => {
+    // The real binding, on a window with time left in it.
+    await windowHeadroom(READ_WINDOW_SECONDS);
+    const headers = browser();
+    const path = `/works/${CACHED}/chapters/2`;
+    for (let i = 0; i < READ_CHAPTER_LIMIT; i++) {
+      const { res } = await read(path, {}, { headers });
+      expect(res.status, `read ${i + 1}`).toBe(200);
+    }
+    const { res, body } = await read(path, {}, { headers });
+    expectThrottled(res, body);
+    expect((await read(path, {}, { headers: browser() })).res.status).toBe(200);
   });
 
   it("Chapter reads are throttled per IP: one client's key, an address or an IPv6 /64", async () => {
