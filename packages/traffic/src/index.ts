@@ -1,9 +1,11 @@
-// Who a request comes from, for every Worker: pure, over `Headers` and Web Crypto, so it runs in
-// workerd and in Node, and with no dependency, because a Worker can't reach another's src.
+// Who a request comes from, for every Worker: over `Headers` and Web Crypto, and pure but for the
+// limiter check (limited.ts), so it runs in workerd and in Node, and with no dependency, because a
+// Worker can't reach another's src.
 
 import { CRAWLER_LIST } from "./crawler-list";
 
 export { clientOf, hashKey, ipKey } from "./client-key";
+export { isLimited } from "./limited";
 
 /** Why a request declares itself automated. Each is also how a refusal's log line names it. */
 export type DeclaredReason = "signature" | "crawler list";

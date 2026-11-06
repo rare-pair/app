@@ -20,9 +20,9 @@ import type { Unlinked } from "./unlinked";
 // the DMCA notice, terms, settings, the admin actions) and follows no link whose path ends in
 // an admin action verb. The GETs it follows change nothing: /logout and the confirm pages
 // only show a button, chapters and works write nothing (the reading position is a script's
-// POST), and `/uploads/:id`, which polls JSON, is not linked. Spec 24's read throttles (not
-// built) are 120 chapters and 10 entire works a minute for one address; a crawl reads about
-// a dozen chapters and five entire works as one visitor, with an address of its own.
+// POST), and `/uploads/:id`, which polls JSON, is not linked. Spec 24's read throttles are 120
+// chapters and 10 entire works a minute for one address; a crawl reads about a dozen chapters
+// and five entire works as one visitor, with an address of its own.
 
 /** A browser's User-Agent: the crawler list of spec 24 refuses HTTP libraries. */
 export const CRAWLER_USER_AGENT =

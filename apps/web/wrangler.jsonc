@@ -73,7 +73,8 @@
   // IP and per email address, each over a 60-second window. src/rate-limit.ts keeps the period
   // too, for Retry-After. A namespace_id is account-wide, and bindings sharing one share
   // counters, so each limit takes its own from a reserved block: 1001-1009 sign-in,
-  // 1010-1019 uploads, 1020-1029 search, 1030-1039 removal requests, 1040-1049 the wait list.
+  // 1010-1019 uploads, 1020-1029 search, 1030-1039 removal requests, 1040-1049 the wait list,
+  // 1050-1059 reads (1052 is the content Worker's, in apps/content/wrangler.jsonc).
   "ratelimits": [
     { "name": "LOGIN_IP_LIMIT", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
     { "name": "LOGIN_EMAIL_LIMIT", "namespace_id": "1002", "simple": { "limit": 3, "period": 60 } },
@@ -134,9 +135,19 @@
       "namespace_id": "1021",
       "simple": { "limit": 60, "period": 60 },
     },
+    // GET and HEAD of a chapter page and of /works/:id/full, per client (an IPv4 address or an
+    // IPv6 /64). Counted after the refusals and before the session and the edge cache, so a
+    // cached chapter still gets the 429 (spec 24). /full is lower since one read is a whole work.
+    // First values, to be revisited in load testing. Approximate and per location, like the others.
+    {
+      "name": "READ_CHAPTER_LIMIT",
+      "namespace_id": "1050",
+      "simple": { "limit": 120, "period": 60 },
+    },
+    { "name": "READ_FULL_LIMIT", "namespace_id": "1051", "simple": { "limit": 10, "period": 60 } },
   ],
   // Invocation logs are off: a reading URL carries the AO3 work id and chapter number. Errors and
-  // metrics stay on, and the console.error lines the code logs on purpose are expected to be kept
+  // metrics stay on, and the console lines the code logs on purpose, each refusal's reason line included, are expected to be kept
   // (not yet verified on the platform; ARCHITECTURE, Observability). Traces are not set here: whether they go on is the operator's call (#620).
   "observability": {
     "enabled": true,

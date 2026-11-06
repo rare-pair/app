@@ -50,6 +50,10 @@ export type Bindings = {
   REMOVE_IP_LIMIT: RateLimit;
   /** `POST /remove` requests per contact email address (src/rate-limit.ts). */
   REMOVE_EMAIL_LIMIT: RateLimit;
+  /** Chapter page reads per client (src/read-throttle.ts). */
+  READ_CHAPTER_LIMIT: RateLimit;
+  /** `/works/:id/full` reads per client (src/read-throttle.ts). */
+  READ_FULL_LIMIT: RateLimit;
   /** The least milliseconds `POST /waitlist` takes to answer (src/floor.ts), as a number. */
   WAITLIST_FLOOR_MS: string;
   /** Uploads a new account (and any non-moderator) may confirm per UTC day (src/quota.ts). */

@@ -1,12 +1,12 @@
 // The Workers rate-limiting binding's side of the surge controls (ARCHITECTURE, Surge
-// controls), shared by every limited route: sign-in now, then uploads, search, removal
-// requests and the wait list. Each route passes its own binding and key.
+// controls), shared by every limited route: sign-in, uploads, search, removal requests, the wait
+// list and reads. Each route passes its own binding and key.
 
 import { hashKey } from "@archive/traffic";
 import type { Context } from "hono";
 import { tooManyRequestsPage, tooManyRequestsTodayPage } from "./pages";
 
-export { ipKey } from "@archive/traffic";
+export { ipKey, isLimited } from "@archive/traffic";
 
 /** The sign-in limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
 export const LOGIN_WINDOW_SECONDS = 60;
@@ -26,6 +26,9 @@ export const UPLOAD_WINDOW_SECONDS = 60;
 /** The search limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
 export const SEARCH_WINDOW_SECONDS = 60;
 
+/** The read throttles' window, as wrangler.jsonc sets it: the binding doesn't say. */
+export const READ_WINDOW_SECONDS = 60;
+
 /** A limit's key for an email address, however it was spelt: trimmed and lowercased. */
 export const emailKey = (scope: string, address: string) =>
   hashKey(`${scope}-email:`, address.trim().toLowerCase());
@@ -35,23 +38,6 @@ export const emailKey = (scope: string, address: string) =>
  * so it isn't trimmed or lowercased.
  */
 export const userKey = (scope: string, userId: string) => hashKey(`${scope}-user:`, userId);
-
-/**
- * Whether `key` is over its limit in the current window. When the binding fails the request
- * goes through: the binding's counts are approximate and only meant to slow abuse
- * (ARCHITECTURE, Surge controls), so its outage mustn't take a route down with it. Only the error's name is logged, since the
- * message could carry the key. A binding missing from the config is a mistake, not an
- * outage, so it throws rather than quietly turning the limit off.
- */
-export async function isLimited(limiter: RateLimit | undefined, key: string): Promise<boolean> {
-  if (limiter === undefined) throw new Error("Rate limit binding missing");
-  try {
-    return !(await limiter.limit({ key })).success;
-  } catch (error) {
-    console.error(`Rate limit unavailable: ${error instanceof Error ? error.name : "Error"}`);
-    return false;
-  }
-}
 
 /**
  * The 429 for a limited request: the plain page and `Retry-After`, both saying the same

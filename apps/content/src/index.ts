@@ -1,16 +1,21 @@
 import { createDb, getImageAccess, getOriginalAccess, type ContentAccess } from "@archive/db";
-import { declaredClient, isCrossSiteSubresource } from "@archive/traffic";
+import { declaredClient, ipKey, isCrossSiteSubresource, isLimited } from "@archive/traffic";
 
 export interface Env {
   BUCKET: R2Bucket;
   /** The uncached config (ARCHITECTURE, Connections): a hide must be seen by the next miss. */
   HYPERDRIVE: Hyperdrive;
+  /** Reads of an original per client (spec 24). Images have no limit. */
+  ORIGINAL_LIMIT: RateLimit;
 }
 
 // How long the status read may take before the request fails closed. An image is small, so a
 // database that takes longer than this is treated as down rather than waited for.
 const CONNECT_TIMEOUT_MS = 2000;
 const QUERY_TIMEOUT_MS = 2000;
+
+/** ORIGINAL_LIMIT's window, as wrangler.jsonc sets it: the binding doesn't say. */
+const READ_WINDOW_SECONDS = 60;
 
 // The two lifetimes of a served file, each named once (#581). The data centre keeps an entry
 // for 12 hours, so a hidden work's cached copy ages out within that (a hide does not purge:
@@ -179,6 +184,19 @@ export default {
     }
     if (!isRead) {
       return respond(null, 405, { Allow: "GET, HEAD", "Cache-Control": "no-store" });
+    }
+    // One read, counted after the refusals and before the cache, Postgres and R2, whatever it
+    // would answer. It only slows a scraper. Images aren't throttled: a chapter can hold many.
+    if (isOriginal) {
+      const key = await ipKey("read-original", request.headers.get("cf-connecting-ip"));
+      if (await isLimited(env.ORIGINAL_LIMIT, key)) {
+        // The whole line: the reason and nothing else, since a URL or address has no place in it.
+        console.log("refused: read throttle");
+        return respond(null, 429, {
+          "Retry-After": String(READ_WINDOW_SECONDS),
+          "Cache-Control": "no-store",
+        });
+      }
     }
     // A query string, even an empty one (`search` is "" for a bare "?"), would make a
     // second cacheable URL for the same bytes, one that a purge of the bare URL on

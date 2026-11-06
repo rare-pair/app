@@ -27,3 +27,8 @@ export const SEARCH_USER_LIMIT = 60;
 // to be revisited before launch.
 export const REMOVE_IP_LIMIT = 5;
 export const REMOVE_EMAIL_LIMIT = 3;
+
+// Reads per client over the same window: chapter pages and whole works. First values, to be
+// revisited in load testing (spec 24).
+export const READ_CHAPTER_LIMIT = 120;
+export const READ_FULL_LIMIT = 10;

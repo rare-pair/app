@@ -23,6 +23,12 @@
       "localConnectionString": "postgresql://postgres:postgres@127.0.0.1:5432/postgres",
     },
   ],
+  // GET and HEAD of an original, per client (an IPv4 address or an IPv6 /64), counted after the
+  // refusals and before the cache (spec 24). Images aren't limited. A first value, to be revisited
+  // in load testing. A namespace_id is account-wide: apps/web/wrangler.jsonc lists the blocks.
+  "ratelimits": [
+    { "name": "ORIGINAL_LIMIT", "namespace_id": "1052", "simple": { "limit": 10, "period": 60 } },
+  ],
   // Invocation logs and traces are off: a content URL carries the AO3 work id (#124, #572).
   // Errors, metrics and each refusal's reason line stay. To trace a live fault, set traces.enabled to true and deploy, then
   // set it back to false (ARCHITECTURE, Why these pieces, Hosts).

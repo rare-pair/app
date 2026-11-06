@@ -6,6 +6,7 @@ import {
   ipKey,
   isLimited,
   LOGIN_WINDOW_SECONDS,
+  READ_WINDOW_SECONDS,
   REMOVE_WINDOW_SECONDS,
   tooManyRequests,
   SEARCH_WINDOW_SECONDS,
@@ -17,6 +18,8 @@ import {
   DMCA_IP_LIMIT,
   LOGIN_EMAIL_LIMIT,
   LOGIN_IP_LIMIT,
+  READ_CHAPTER_LIMIT,
+  READ_FULL_LIMIT,
   REMOVE_EMAIL_LIMIT,
   REMOVE_IP_LIMIT,
   SEARCH_IP_LIMIT,
@@ -111,6 +114,8 @@ describe("the rate limits in wrangler.jsonc", () => {
       UPLOAD_IP_LIMIT: { limit: UPLOAD_IP_LIMIT, period: UPLOAD_WINDOW_SECONDS },
       SEARCH_IP_LIMIT: { limit: SEARCH_IP_LIMIT, period: SEARCH_WINDOW_SECONDS },
       SEARCH_USER_LIMIT: { limit: SEARCH_USER_LIMIT, period: SEARCH_WINDOW_SECONDS },
+      READ_CHAPTER_LIMIT: { limit: READ_CHAPTER_LIMIT, period: READ_WINDOW_SECONDS },
+      READ_FULL_LIMIT: { limit: READ_FULL_LIMIT, period: READ_WINDOW_SECONDS },
     });
   });
 
@@ -125,8 +130,29 @@ describe("the rate limits in wrangler.jsonc", () => {
   });
 
   it("each have their own namespace, so none shares another's counters", () => {
-    const namespaces = limits.map((limit) => limit.namespace_id);
+    // A namespace_id is account-wide, so the content Worker's can't repeat one of these.
+    const content: Limit[] =
+      experimental_readRawConfig({ config: "../content/wrangler.jsonc" }).rawConfig.ratelimits ??
+      [];
+    expect(content.map((limit) => limit.name)).toEqual(["ORIGINAL_LIMIT"]);
+    const namespaces = [...limits, ...content].map((limit) => limit.namespace_id);
     expect(new Set(namespaces).size).toBe(namespaces.length);
+  });
+
+  it("Entire-work reads have a lower limit", () => {
+    const limitOf = (name: string) => limits.find((limit) => limit.name === name)?.simple.limit;
+    const chapter = limitOf("READ_CHAPTER_LIMIT");
+    const full = limitOf("READ_FULL_LIMIT");
+    expect(chapter).toBe(120);
+    expect(full).toBe(10);
+    expect(full).toBeLessThan(chapter ?? 0);
+  });
+
+  it("Original downloads are throttled per IP: 10 a minute on the content Worker", () => {
+    const content: Limit[] =
+      experimental_readRawConfig({ config: "../content/wrangler.jsonc" }).rawConfig.ratelimits ??
+      [];
+    expect(content[0]?.simple).toEqual({ limit: 10, period: 60 });
   });
 });
 

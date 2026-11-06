@@ -4,6 +4,7 @@ import { env } from "cloudflare:workers";
 import type { Kysely } from "kysely";
 import { describe, expect, it } from "vitest";
 import handler, { type Env } from "../src/index";
+import { asNewClient } from "./client";
 
 // SAFETY: the test env is the bindings wrangler.jsonc declares, which Env describes.
 const E = env as Env;
@@ -36,7 +37,7 @@ function ctxOf() {
 /** A request through the Worker's entry, waiting for its cache write. */
 async function request(key: string, init: RequestInit = {}, env: Env = E) {
   const { ctx, settled } = ctxOf();
-  const res = await handler.fetch(new Request(`${ORIGIN}/${key}`, init), env, ctx);
+  const res = await handler.fetch(new Request(`${ORIGIN}/${key}`, asNewClient(init)), env, ctx);
   const body = new Uint8Array(await res.arrayBuffer());
   await settled();
   return { res, body };

@@ -4,6 +4,7 @@ import { env, exports } from "cloudflare:workers";
 import type { Kysely } from "kysely";
 import { beforeAll, describe, expect, it } from "vitest";
 import handler, { type Env } from "../src/index";
+import { asNewClient } from "./client";
 
 // SAFETY: the test env is the bindings wrangler.jsonc declares, which Env describes.
 const E = env as Env;
@@ -57,13 +58,13 @@ function countingBucket() {
     },
   };
   // SAFETY: the Worker calls only BUCKET.get.
-  return { env: { BUCKET: bucket as R2Bucket, HYPERDRIVE: E.HYPERDRIVE }, counter };
+  return { env: { ...E, BUCKET: bucket as R2Bucket }, counter };
 }
 
 // Fetches through the Worker's entry as the runtime would, waiting for its cache write.
 async function viaHandler(env: Env, url: string, init: RequestInit = {}) {
   const { ctx, settled } = collectingCtx();
-  const res = await handler.fetch(new Request(url, init), env, ctx);
+  const res = await handler.fetch(new Request(url, asNewClient(init)), env, ctx);
   const body = new Uint8Array(await res.arrayBuffer());
   await settled();
   return { res, body };
@@ -81,7 +82,7 @@ async function waitForEntry(key: string) {
 // A plain GET through the Worker. Its cache write runs after the response, out of the
 // test's reach, so a 200 waits for the entry to land: no later step races a late put.
 async function get(key: string, init: RequestInit = {}) {
-  const res = await worker.fetch(`${ORIGIN}/${key}`, init);
+  const res = await worker.fetch(`${ORIGIN}/${key}`, asNewClient(init));
   const plain = (init.method ?? "GET") === "GET" && !new Headers(init.headers).has("range");
   if (res.status === 200 && plain) {
     await res.clone().arrayBuffer();
@@ -299,7 +300,7 @@ describe("content Worker", () => {
       get: () => Promise.reject(new Error("R2 unavailable")),
     };
     // SAFETY: the Worker calls only BUCKET.get on this path.
-    const failing = { BUCKET: bucket as R2Bucket, HYPERDRIVE: E.HYPERDRIVE };
+    const failing = { ...E, BUCKET: bucket as R2Bucket };
     for (const method of ["GET", "HEAD"]) {
       const res = await handler.fetch(
         new Request(`${ORIGIN}/${IMAGE_KEY}`, { method }),
@@ -482,7 +483,7 @@ describe("edge cache (#513)", () => {
 
     const bucket: Pick<R2Bucket, "get"> = { get: () => Promise.reject(new Error("down")) };
     // SAFETY: the Worker calls only BUCKET.get on this path.
-    const failing = { BUCKET: bucket as R2Bucket, HYPERDRIVE: E.HYPERDRIVE };
+    const failing = { ...E, BUCKET: bucket as R2Bucket };
     const down = await viaHandler(failing, `${ORIGIN}/${IMAGE_KEY}`);
     expect(down.res.status).toBe(503);
     expect(await caches.default.match(`${ORIGIN}/${IMAGE_KEY}`)).toBeUndefined();
