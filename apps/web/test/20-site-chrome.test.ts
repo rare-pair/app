@@ -12,6 +12,7 @@ const fetchW = (input: string, init: RequestInit = {}) =>
 const LEGAL = ["/about", "/terms", "/privacy"];
 // Signed out, /upload redirects to sign in; its page needs a session (02-upload-handshake).
 const APP_PAGES = ["/login", "/remove", ...LEGAL, "/no-such-page"];
+const footerOf = (html: string) => html.match(/<footer\b[\s\S]*?<\/footer>/)?.[0] ?? "";
 
 const htmlOf = async (path: string) => (await fetchW(path)).text();
 
@@ -118,8 +119,16 @@ describe("20-site-chrome-and-legal", () => {
   it("Footer links to removal", async () => {
     for (const path of APP_PAGES) {
       const html = await htmlOf(path);
-      const footer = html.match(/<footer\b[\s\S]*?<\/footer>/)?.[0] ?? "";
+      const footer = footerOf(html);
       expect(footer, path).toContain('<a href="/remove">Remove my work</a>');
+    }
+  });
+
+  it("Footer links to the GitHub repository", async () => {
+    for (const path of APP_PAGES) {
+      const html = await htmlOf(path);
+      const footer = footerOf(html);
+      expect(footer, path).toContain('<a href="https://github.com/rare-pair/app">GitHub</a>');
     }
   });
 

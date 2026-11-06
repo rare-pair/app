@@ -64,6 +64,12 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - THEN the footer has a "Remove my work" link to `/remove`
 - AND a "Removed works" link to `/removed`
 
+### Footer links to the GitHub repository
+- GIVEN any app page, before launch and after
+- WHEN it renders
+- THEN the footer has a "GitHub" link to `https://github.com/rare-pair/app`
+- AND before launch it stays live, because it leaves the site and no closed page is behind it
+
 ### Site header for a signed-out visitor
 - GIVEN a signed-out visitor
 - WHEN any app page renders
