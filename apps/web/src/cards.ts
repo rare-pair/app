@@ -47,7 +47,9 @@ export const workCard = (work: WorkCardFields) =>
     [
       `by ${work.pseuds.length === 0 ? "Anonymous" : work.pseuds.join(", ")}`,
       work.rating ?? "Not Rated",
-      ...[work.warnings, work.fandoms].flatMap((names) => (names.length > 0 ? names.join(", ") : [])),
+      ...[work.warnings, work.fandoms].flatMap((names) =>
+        names.length > 0 ? names.join(", ") : [],
+      ),
     ].join(" · "),
     `${SITE}/works/${work.ao3WorkId}`,
   );

@@ -243,10 +243,11 @@ describe("20-site-chrome-and-legal: cards", () => {
   it("A link preview service that identifies itself gets the work page's card", async () => {
     const browser = cardOf(await get(`/works/${W}`));
     expect(Object.keys(browser)).toContain("og:title");
-    for (const headers of [
+    const clients: Record<string, string>[] = [
       { "user-agent": PREVIEW_UA },
       { "user-agent": "Mozilla/5.0", "signature-agent": '"https://preview.example"' },
-    ]) {
+    ];
+    for (const headers of clients) {
       expect(cardOf(await get(`/works/${W}`, { headers }))).toEqual(browser);
     }
   });
