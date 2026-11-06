@@ -85,7 +85,11 @@ export const UPLOAD_SCRIPT = `"use strict";
           return undefined;
         }
       };
-      xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? end(true) : end(false, reason()));
+      // A 409 means a file is there, or the upload has ended: the confirm says which and acts on it.
+      xhr.onload = () =>
+        (xhr.status >= 200 && xhr.status < 300) || xhr.status === 409
+          ? end(true)
+          : end(false, reason());
       xhr.onerror = () => end(false);
       xhr.onabort = () => end(false);
       xhr.ontimeout = () => end(false);

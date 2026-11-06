@@ -144,7 +144,7 @@ export async function completeUpload(c: CompleteContext) {
     try {
       await c.env.INGEST.send({ upload_id: upload.id });
     } catch (error) {
-      console.error("ingest queue send failed", error);
+      console.error("ingest queue send failed", error instanceof Error ? error.name : "unknown");
       if (counted === "counted") {
         try {
           await refundUploadQuota(db, user.id, upload.id);

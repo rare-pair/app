@@ -390,6 +390,24 @@ describe("02-upload-handshake", () => {
     expect(p.reported).toEqual(["/uploads/up-1"]);
   });
 
+  it("A transfer answered 409 goes on to the confirm and isn't reported", async () => {
+    // A PUT that was stored and whose answer was lost, sent again by the browser, gets a 409.
+    const p = page(
+      [epub(1)],
+      [
+        () => ({ status: 200, body: { id: "up-1" } }),
+        () => ({ status: 200, body: { status: "queued" } }),
+      ],
+    );
+    const clicked = p.click();
+    await p.flush();
+    done(FakeXhr.all[0]!, 409);
+    await clicked;
+    expect(p.calls.map((c) => c.url)).toEqual(["/uploads", "/uploads/up-1/complete"]);
+    expect(note(p.rows()[0]!)).toMatch(/Uploaded/);
+    expect(p.reported).toEqual([]);
+  });
+
   it("A refused transfer shows the server's reason", async () => {
     const p = page([epub(1)], [() => ({ status: 200, body: { id: "up-1" } })]);
     const clicked = p.click();

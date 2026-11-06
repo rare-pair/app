@@ -193,6 +193,11 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 - AND each file is PUT to its own address, with its own progress
 - AND each finished transfer goes through `POST /uploads/:id/complete`
 
+### A transfer answered 409 goes on to the confirm and isn't reported
+- GIVEN a PUT answered 409, such as a stored file's PUT sent again by the browser after its answer was lost
+- WHEN the page gets that answer
+- THEN it confirms the upload, which says what became of it, and reports nothing
+
 ### A failed upload the page reports frees its slot
 - GIVEN an open upload, on an account at the cap on open uploads
 - WHEN the page's PUT fails, stalls and is ended, or its confirm never reaches the server, and the page calls `DELETE /uploads/:id`
