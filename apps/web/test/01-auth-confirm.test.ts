@@ -1,7 +1,19 @@
 import { createDb } from "@archive/db";
+import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
-import { emailsTo, fetchW, LOGIN_TOKEN, postLogin, STRICT, withoutNonce } from "./helpers";
+import app from "../src/index";
+import {
+  consoleDuring,
+  emailsTo,
+  fetchW,
+  LOGIN_TOKEN,
+  nonceOf,
+  postLogin,
+  signIn,
+  STRICT,
+  withoutNonce,
+} from "./helpers";
 
 // A2's cases from 01-auth-magic-link (and one from 09-content-origin): the emailed
 // link's confirm page, and the POST that signs in. A1's cases are in 01-auth-magic-link.test.ts.
@@ -45,6 +57,19 @@ async function issued(email: string, next?: string) {
 /** The confirm page's POST, as a browser on rarepair.fans submits it. */
 const confirm = (fields: Record<string, string>, headers: Record<string, string> = {}) =>
   postLogin(fields, { url: "/login/confirm", headers });
+
+// The browser that asked for a link sends this; an answer to the POST sends the second.
+const MARKER = "__Host-signin-pending=1";
+const MARKER_CLEARED = "__Host-signin-pending=; Max-Age=0; Path=/; SameSite=Lax; Secure; HttpOnly";
+
+/** The hidden fields of a confirm page, as its form posts them. */
+const formFields = (page: string) =>
+  Object.fromEntries(
+    [...page.matchAll(/<input type="hidden" name="(\w+)" value="([^"]*)">/g)].map((m) => [
+      m[1]!,
+      m[2]!,
+    ]),
+  );
 
 /** The session cookies a response sets. */
 const sessionCookies = (res: Response) =>
@@ -91,6 +116,387 @@ describe("01-auth-magic-link", () => {
     expect(withoutNonce(res.headers.get("content-security-policy"))).toBe(STRICT);
   });
 
+  it("The button page names the account, masked", async () => {
+    const email = "masked-name@example.test";
+    const { link, row } = await issued(email);
+
+    const page = await (await fetchW(link.href)).text();
+    expect(page).toMatch(/<p>Sign in as m\*\*\*@example\.test<\/p>\s*<form\b/);
+    expect(await tokensFor(email)).toEqual([row]);
+    expect(await sessionCount(email)).toBe(0);
+
+    // However it was typed, it shows lowercased.
+    const typed = await signInLink("Masked-Case@Example.TEST");
+    expect(await (await fetchW(typed.href)).text()).toContain(
+      "<p>Sign in as m***@example.test</p>",
+    );
+  });
+
+  it("An unknown, used or expired token shows nothing about any account", async () => {
+    const used = await issued("masked-used@example.test");
+    expect((await confirm({ token: used.token, next: "/" })).status).toBe(303);
+    const expired = await issued("masked-expired@example.test");
+    await db
+      .updateTable("verification")
+      .set({ expires_at: new Date(Date.now() - 60_000) })
+      .where("id", "=", expired.row)
+      .execute();
+    const tokens = ["abcdefghijklmnopqrstuvwxyzABCDEF", "not a token", used.token, expired.token];
+
+    const answers = await Promise.all(
+      tokens.map(async (token) => {
+        const res = await fetchW(`/login/confirm?token=${encodeURIComponent(token)}`);
+        expect(res.status).toBe(200);
+        expect(res.headers.get("cache-control")).toBe("no-store");
+        const page = await res.text();
+        expect(page).toContain(`<input type="hidden" name="token" value="${token}">`);
+        return page.replace(token, "{token}");
+      }),
+    );
+    expect(new Set(answers).size).toBe(1);
+    expect(answers[0]).not.toContain("Sign in as");
+    expect(answers[0]).not.toContain("example.test");
+    expect(answers[0]).toMatch(/<button type="submit">Sign in<\/button>/);
+
+    // Pressing the button is refused, as it was.
+    for (const token of tokens) {
+      const res = await confirm({ token, next: "/" });
+      expect(res.status).toBe(303);
+      expect(res.headers.get("location")).toBe("/login?error=INVALID_TOKEN");
+    }
+  });
+
+  it("Opening the page reads the row directly and writes nothing", async () => {
+    const email = "masked-no-write@example.test";
+    const { link, row } = await issued(email);
+    const readRow = () =>
+      db.selectFrom("verification").selectAll().where("id", "=", row).executeTakeFirstOrThrow();
+    const before = await readRow();
+    const id = `masked-expired-${crypto.randomUUID()}`;
+    const seedExpired = () =>
+      db
+        .insertInto("verification")
+        .values({
+          id,
+          identifier: id,
+          value: "{}",
+          expires_at: new Date(Date.now() - 60_000),
+          created_at: new Date(),
+          updated_at: new Date(),
+        })
+        .onConflict((conflict) => conflict.doNothing())
+        .execute();
+    const stillThere = async () =>
+      (await db.selectFrom("verification").select("id").where("id", "=", id).execute()).length > 0;
+
+    // Better Auth's own read deletes every expired row, so that read would take this one each
+    // time. Another test file's sign-in can take it too, so one survival in three is the proof.
+    let survived = false;
+    for (let attempt = 0; attempt < 3 && !survived; attempt++) {
+      await seedExpired();
+      expect((await fetchW(link.href)).status).toBe(200);
+      survived = await stillThere();
+    }
+    await db.deleteFrom("verification").where("id", "=", id).execute();
+
+    expect(survived).toBe(true);
+    expect(await readRow()).toEqual(before);
+    expect(await sessionCount(email)).toBe(0);
+  });
+
+  it("A new account's address is masked the same way as an existing one's", async () => {
+    const existing = "same-existing@example.test";
+    const first = await issued(existing);
+    expect((await confirm({ token: first.token, next: "/" })).status).toBe(303);
+    expect(await userId(existing)).not.toBeNull();
+    await postLogin({ email: existing, "cf-turnstile-response": LOGIN_TOKEN });
+    const [, second] = await emailsTo(existing, { atLeast: 2 });
+    const fresh = "same-fresh@example.test";
+
+    const pages = await Promise.all(
+      [new URL(second!.url), (await issued(fresh)).link].map(async (link) =>
+        (await (await fetchW(link.href)).text()).replace(
+          link.searchParams.get("token")!,
+          "{token}",
+        ),
+      ),
+    );
+    expect(pages[0]).toContain("<p>Sign in as s***@example.test</p>");
+    expect(pages[1]).toBe(pages[0]);
+    expect(await userId(fresh)).toBeNull();
+  });
+
+  it("The full address isn't in the page, its attributes, the URL or any log", async () => {
+    const email = "masked-distinctive@example.test";
+    const { link } = await issued(email, "/works/60700");
+    expect(link.href).not.toContain("distinctive");
+
+    let page = "";
+    let headers = "";
+    const logged = await consoleDuring(async () => {
+      const res = await fetchW(link.href);
+      page = await res.text();
+      headers = JSON.stringify([...res.headers]);
+    });
+    expect(page).toContain("m***@example.test");
+    expect(page).not.toContain("distinctive");
+    expect(headers).not.toContain("distinctive");
+    expect(logged).toEqual([]);
+  });
+
+  it("The address on the page is escaped", async () => {
+    const { link, row } = await issued("masked-escaped@example.test");
+    await db
+      .updateTable("verification")
+      .set({ value: JSON.stringify({ type: "magic-link", email: "a@<img src=x>.test" }) })
+      .where("id", "=", row)
+      .execute();
+
+    const page = await (await fetchW(link.href)).text();
+    expect(page).toContain("<p>Sign in as a***@&lt;img src=x&gt;.test</p>");
+    expect(page).not.toContain("<img");
+  });
+
+  it("A row whose address can't be read shows the plain page, and logs no value", async () => {
+    const { link, row } = await issued("masked-unreadable@example.test");
+    await db
+      .updateTable("verification")
+      .set({ value: "unreadable-value" })
+      .where("id", "=", row)
+      .execute();
+
+    let page = "";
+    const logged = await consoleDuring(async () => {
+      page = await (await fetchW(link.href)).text();
+    });
+    expect(page).not.toContain("Sign in as");
+    expect(page).toMatch(/<button type="submit">Sign in<\/button>/);
+    expect(logged.join("\n")).not.toContain("unreadable-value");
+  });
+
+  it("The page still shows its button when the database can't be read", async () => {
+    const { link, token } = await issued("masked-down@example.test");
+    const broken = {
+      ...env,
+      HYPERDRIVE: { ...env.HYPERDRIVE, connectionString: "postgres://nobody@127.0.0.1:1/none" },
+    };
+
+    let status = 0;
+    let page = "";
+    const logged = await consoleDuring(async () => {
+      const ctx = createExecutionContext();
+      const res = await app.fetch(new Request(link.href), broken, ctx);
+      status = res.status;
+      page = await res.text();
+      await waitOnExecutionContext(ctx);
+    });
+    expect(status).toBe(200);
+    expect(page).toContain(`<input type="hidden" name="token" value="${token}">`);
+    expect(page).not.toContain("Sign in as");
+    expect(logged.join("\n")).not.toContain("masked-down");
+  });
+
+  it("The browser that asked sees the masked line and its script as before", async () => {
+    const { link } = await issued("masked-marker@example.test");
+
+    const opened = await fetchW(link.href, { headers: { cookie: MARKER } });
+    const page = await opened.text();
+    expect(page).toContain("<p>Sign in as m***@example.test</p>");
+    expect(page).toContain(
+      `<script nonce="${nonceOf(opened.headers.get("content-security-policy"))}">document.querySelector('form[action="/login/confirm"]').submit();</script>`,
+    );
+  });
+
+  it("The browser that asked for the link signs in without a press", async () => {
+    const email = "asked-here@example.test";
+    const asked = await postLogin({
+      email,
+      next: "/works/60500",
+      "cf-turnstile-response": LOGIN_TOKEN,
+    });
+    expect(asked.status).toBe(200);
+    const cookie = asked.headers.getSetCookie()[0]!.split(";")[0]!;
+    const [sent] = await emailsTo(email);
+
+    const opened = await fetchW(sent!.url, { headers: { cookie } });
+    expect(opened.status).toBe(200);
+    const nonce = nonceOf(opened.headers.get("content-security-policy"));
+    const page = await opened.text();
+
+    // One script, under this response's nonce, with no retry in it: it submits the form once.
+    expect(page.match(/<script\b/g)).toHaveLength(1);
+    expect(page).toContain(
+      `<script nonce="${nonce}">document.querySelector('form[action="/login/confirm"]').submit();</script>`,
+    );
+    expect(page).not.toMatch(/\son\w+=/);
+
+    // What it submits: the form, as a page on the site posts it.
+    const res = await confirm(formFields(page), { cookie });
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("https://rarepair.fans/works/60500");
+    expect(sessionCookies(res)).toHaveLength(1);
+    expect(await sessionCount(email)).toBe(1);
+  });
+
+  it("Each opening of the link page has its own nonce", async () => {
+    const { link } = await issued("asked-nonces@example.test");
+    const nonces = await Promise.all(
+      [1, 2].map(async () => {
+        const res = await fetchW(link.href, { headers: { cookie: MARKER } });
+        const nonce = nonceOf(res.headers.get("content-security-policy"));
+        expect(await res.text()).toContain(`<script nonce="${nonce}">`);
+        return nonce;
+      }),
+    );
+    expect(nonces[0]).not.toBe(nonces[1]);
+  });
+
+  it("Opening the link still uses nothing up", async () => {
+    const email = "opening-marker@example.test";
+    const { link, row, token } = await issued(email);
+
+    const browsers: Record<string, string>[] = [{}, { cookie: MARKER }];
+    for (const headers of browsers) {
+      const res = await fetchW(link.href, { headers });
+      expect(res.status).toBe(200);
+      // The token is in the URL, with the marker as without it.
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(res.headers.get("referrer-policy")).toBe("strict-origin");
+      expect(withoutNonce(res.headers.get("content-security-policy"))).toBe(STRICT);
+      expect(await tokensFor(email)).toEqual([row]);
+      expect(await sessionCount(email)).toBe(0);
+    }
+
+    // The POST's origin check is the same for the browser that asked.
+    const refused = await confirm(
+      { token, next: "/" },
+      { cookie: MARKER, origin: "https://evil.example", "sec-fetch-site": "cross-site" },
+    );
+    expect(refused.status).toBe(403);
+    expect(await tokensFor(email)).toEqual([row]);
+    expect(await sessionCount(email)).toBe(0);
+  });
+
+  it("Another browser still gets the button", async () => {
+    const email = "another-browser@example.test";
+    const { link, row } = await issued(email);
+
+    // No marker, or a value the Worker never set.
+    const browsers: Record<string, string>[] = [{}, { cookie: "__Host-signin-pending=0" }];
+    for (const headers of browsers) {
+      const page = await (await fetchW(link.href, { headers })).text();
+      expect(page).not.toMatch(/<script/i);
+      expect(page).toMatch(/<button type="submit">Sign in<\/button>/);
+      expect(await tokensFor(email)).toEqual([row]);
+    }
+  });
+
+  it("A browser with JavaScript off still gets the button", async () => {
+    const email = "marker-no-script@example.test";
+    const { link } = await issued(email);
+
+    const page = await (await fetchW(link.href, { headers: { cookie: MARKER } })).text();
+    expect(page.match(/<form\b[^>]*>/g)).toEqual(['<form method="post" action="/login/confirm">']);
+    expect(page).toMatch(/<button type="submit">Sign in<\/button>\s*<\/form>/);
+
+    // With the script not run, pressing it is the same plain form post.
+    const res = await confirm(formFields(page), { cookie: MARKER });
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("https://rarepair.fans/");
+    expect(sessionCookies(res)).toHaveLength(1);
+    expect(await sessionCount(email)).toBe(1);
+  });
+
+  it("Going back after signing in shows no error", async () => {
+    const email = "going-back@example.test";
+    const { link, row, token } = await issued(email);
+
+    // Signed in: the session cookie first, and the marker cleared beside it.
+    const signedIn = await confirm({ token, next: "/" }, { cookie: MARKER });
+    expect(signedIn.status).toBe(303);
+    const cookies = signedIn.headers.getSetCookie();
+    expect(cookies).toHaveLength(2);
+    expect(cookies[0]).toMatch(/^__Secure-better-auth\.session_token=/);
+    expect(cookies[1]).toBe(MARKER_CLEARED);
+    expect(await tokensFor(email)).not.toContain(row);
+
+    // With the marker gone, going back shows the button, and nothing posts by itself.
+    const page = await (await fetchW(link.href)).text();
+    expect(page).not.toMatch(/<script/i);
+    expect(page).toMatch(/<button type="submit">Sign in<\/button>/);
+  });
+
+  it("Every answer to the confirm POST clears the marker", async () => {
+    const expired = await issued("clears-expired@example.test");
+    await db
+      .updateTable("verification")
+      .set({ expires_at: new Date(Date.now() - 60_000) })
+      .where("id", "=", expired.row)
+      .execute();
+    const used = await issued("clears-used@example.test");
+    await confirm({ token: used.token, next: "/" });
+    const cookie = MARKER;
+
+    const answers: [string, number, Promise<Response>][] = [
+      ["used", 303, confirm({ token: used.token, next: "/" }, { cookie })],
+      ["expired", 303, confirm({ token: expired.token, next: "/" }, { cookie })],
+      ["unknown", 303, confirm({ token: "never-issued-marker-0123456789", next: "/" }, { cookie })],
+      ["no token", 303, confirm({ next: "/" }, { cookie })],
+      ["oversized", 303, confirm({ padding: "x".repeat(20 * 1024) }, { cookie })],
+      [
+        "not a form",
+        303,
+        postLogin({}, { url: "/login/confirm", headers: { cookie, "content-type": "text/plain" } }),
+      ],
+      [
+        "cross-site",
+        403,
+        confirm({ token: "x", next: "/" }, { cookie, origin: "https://evil.example" }),
+      ],
+    ];
+    for (const [name, status, answer] of answers) {
+      const res = await answer;
+      expect(res.status, name).toBe(status);
+      expect(res.headers.getSetCookie(), name).toEqual([MARKER_CLEARED]);
+    }
+  });
+
+  it("A fault on the confirm POST clears the marker too", async () => {
+    const { token } = await issued("clears-fault@example.test");
+    const session = await signIn("clears-fault-session@example.test");
+    const down = {
+      ...env,
+      HYPERDRIVE: { connectionString: "postgresql://nobody:nothing@127.0.0.1:1/none" },
+    };
+    // Signed out, it fails in the route; signed in, at the session lookup before the route.
+    for (const cookie of [MARKER, `${MARKER}; ${session}`]) {
+      const ctx = createExecutionContext();
+      const res = await app.fetch(
+        new Request("https://rarepair.fans/login/confirm", {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            origin: "https://rarepair.fans",
+            "sec-fetch-site": "same-origin",
+            cookie,
+          },
+          body: new URLSearchParams({ token, next: "/" }).toString(),
+        }),
+        down,
+        ctx,
+      );
+      await waitOnExecutionContext(ctx);
+      expect(res.status, cookie).toBe(500);
+      expect(res.headers.getSetCookie(), cookie).toEqual([MARKER_CLEARED]);
+    }
+  });
+
+  it("The sign-in marker isn't a session", async () => {
+    const res = await fetchW("/me/uploads", { headers: { cookie: MARKER } });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/login?next=%2Fme%2Fuploads");
+  });
+
   it("Confirming signs the user in", async () => {
     const email = "confirming@example.test";
     const { row, token } = await issued(email);
@@ -106,9 +512,9 @@ describe("01-auth-magic-link", () => {
     expect(await tokensFor(email)).not.toContain(row);
     expect(await sessionCount(email)).toBe(1);
 
-    // One cookie, with exactly the attributes ARCHITECTURE fixes, and Better Auth's
-    // default lifetime of seven days.
-    expect(res.headers.getSetCookie()).toHaveLength(1);
+    // One session cookie, with exactly the attributes ARCHITECTURE fixes, and Better
+    // Auth's default lifetime of seven days. The only other cookie clears the marker.
+    expect(res.headers.getSetCookie()).toEqual([expect.anything(), MARKER_CLEARED]);
     const [cookie] = sessionCookies(res);
     const attributes = cookie!.split(/;\s*/).slice(1);
     expect(attributes.map((a) => a.toLowerCase())).toEqual(
@@ -126,12 +532,7 @@ describe("01-auth-magic-link", () => {
     const page = await (await fetchW(link.href)).text();
     expect(page).not.toMatch(/<script/i);
     expect(page.match(/<form\b[^>]*>/g)).toEqual(['<form method="post" action="/login/confirm">']);
-    const fields = Object.fromEntries(
-      [...page.matchAll(/<input type="hidden" name="(\w+)" value="([^"]*)">/g)].map((m) => [
-        m[1]!,
-        m[2]!,
-      ]),
-    );
+    const fields = formFields(page);
 
     // Pressing "Sign in" is a plain form post: it signs in and redirects.
     const res = await confirm(fields);
@@ -293,7 +694,7 @@ describe("01-auth-magic-link", () => {
     ]) {
       const res = await confirm({ token, next: "/" }, headers);
       expect(res.status).toBe(403);
-      expect(res.headers.getSetCookie()).toEqual([]);
+      expect(res.headers.getSetCookie()).toEqual([MARKER_CLEARED]);
     }
     // A POST with neither header is refused too.
     const bare = await fetchW("/login/confirm", {
@@ -332,12 +733,12 @@ describe("09-content-origin", () => {
 });
 
 /**
- * Shows a confirm POST was refused: no session cookie, and a redirect to /login,
- * which shows a plain message that the link is used or expired.
+ * Shows a confirm POST was refused: no cookie but the marker's clearing, and a redirect
+ * to /login, which shows a plain message that the link is used or expired.
  */
 async function expectRefused(res: Response) {
   expect(res.status).toBe(303);
-  expect(res.headers.getSetCookie()).toEqual([]);
+  expect(res.headers.getSetCookie()).toEqual([MARKER_CLEARED]);
   expect(res.headers.get("location")).toBe("/login?error=INVALID_TOKEN");
 
   const page = await fetchW(res.headers.get("location")!);

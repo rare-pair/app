@@ -5,6 +5,7 @@
 import { createDb, listPopularFandoms, listRecentLiveWorks } from "@archive/db";
 import type { Bindings } from "./env";
 import { workList } from "./listing";
+import { siteCard } from "./cards";
 import { DRAFT, escapeHtml, layout, SEARCH_FORM } from "./pages";
 import { tagHref } from "./tag-links";
 
@@ -32,7 +33,7 @@ ${fandoms.map((f) => `<li><a href="${tagHref("fandom", f.name_norm)}">${escapeHt
         : `${popular}
 <h2>Recently added</h2>
 ${workList(works)}`;
-    return layout("Home", `${SEARCH_FORM}\n${lists}`);
+    return layout("Home", `${SEARCH_FORM}\n${lists}`, siteCard());
   } finally {
     ctx.waitUntil(db.destroy());
   }

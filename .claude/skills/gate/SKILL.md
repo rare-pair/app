@@ -37,17 +37,19 @@ It reads the commits since the merge base, plus uncommitted changes to tracked f
 Run from the repo root:
 
 ```bash
-npm ci
-npm run lint
-npm run format:check
-npm run typecheck
-npm test
-npm run build
+bash scripts/heavy.sh ci
+bash scripts/heavy.sh lint
+bash scripts/heavy.sh format
+bash scripts/heavy.sh typecheck
+bash scripts/heavy.sh test
+bash scripts/heavy.sh build
 ```
+
+`scripts/heavy.sh` runs one check at a time across every worktree, at below-normal priority, so it may wait its turn: give it a long timeout. Run the checks only through it, because several at once stall the machine. A single test file run directly with vitest needn't go through it.
 
 The root `package.json` defines these scripts. `lint` (oxlint with ai-deslop's rules, `oxlint.config.ts`) and `format:check` (oxfmt, `.oxfmtrc.jsonc`) run once from the root over every workspace and `scripts/`; `npm run format` fixes what `format:check` finds. The other three run in each workspace with `--if-present`, which silently skips a workspace that lacks the script: report that workspace's check **not run: not defined yet**, never pass. A cache hit is not a run: pass the tool's force flag when the runner caches.
 
-When the protocols include `web` or `integration`, also run the browser suite, `npm run test:browser`, once `npm test` has finished: both start workerd, so don't run them together. It needs Playwright's Chromium, which `npm ci` doesn't download. If it's missing, don't install it: report it and stop, because the operator installs browsers.
+When the protocols include `web` or `integration`, also run the browser suite, `bash scripts/heavy.sh browser`. It needs Playwright's Chromium, which `npm ci` doesn't download. If it's missing, don't install it: report it and stop, because the operator installs browsers.
 
 A check that fails in a workspace the item should not have touched is a stop event, not a fix. Report it under *Deviations* with the failing output, and name the choice in the final report for the operator.
 
@@ -81,7 +83,7 @@ The parser and sanitizer are the security boundary (ARCHITECTURE, *Sanitizing*).
 
 ### web — `apps/web` changed
 
-- Every HTML response carries the CSP from ARCHITECTURE, *Reading*, with a nonce that differs between two requests. No `<script>` lacks it. Only the Turnstile pages (`/login`, `/upload`, `/remove`, `/dmca`, and `/` and `/waitlist` while `PRELAUNCH` is on) add `frame-src https://challenges.cloudflare.com`; reader and work pages never do.
+- Every HTML response carries the CSP from ARCHITECTURE, *Reading*, with a nonce that differs between two requests. No `<script>` lacks it. Only the Turnstile pages (`/login`, `/upload`, `/remove` and `/dmca` once `PRELAUNCH` is off, and `/` and `/waitlist` while it is on) add `frame-src https://challenges.cloudflare.com`; reader and work pages never do. Sign-in is closed while `PRELAUNCH` is on, and `/login` isn't a before-launch Turnstile page.
 - Those pages show a `<noscript>` message with JS off. Reading, browsing, search and reader settings still work fully without JS.
 - Chapter HTML reaches a page only from a sanitized fragment under `works/`, never from `uploads/` or `originals/`.
 - Session cookies are `HttpOnly; Secure; SameSite=Lax` with no `Domain`, so they cover the app host only.
@@ -89,8 +91,9 @@ The parser and sanitizer are the security boundary (ARCHITECTURE, *Sanitizing*).
 - Sign-in (ARCHITECTURE, *Auth*): our routes, not Better Auth, do these, because server-side `auth.api` calls skip its own checks:
   - `POST /login` and `POST /login/confirm` refuse with 403 a request with neither `Origin` nor `Sec-Fetch-Site`, a present `Origin` other than `https://rarepair.fans`, or a present `Sec-Fetch-Site` other than `same-origin`, so a sibling host such as `content.rarepair.fans` is refused too.
   - `next` is reduced to a same-site path, checked after URL normalization, so `/a/..//evil.example` can't become `//evil.example`.
-  - Sign-in is rate limited per IP and per email.
-  - `GET /login/confirm` spends no token and creates no session: only `POST /login/confirm` does.
+  - Sign-in is rate limited per IP and per email, and one address gets at most `LOGIN_EMAIL_QUOTA` sign-in emails a UTC day, counted in Postgres.
+  - `GET /login/confirm` spends no token and creates no session: only `POST /login/confirm` does. The link page may carry a script for the browser that asked for the link (it holds the sign-in marker): nonced, submitting the form at most once. Without the marker it has no script.
+  - The sign-in marker holds nothing about the address, the token or the account, is `HttpOnly; Secure; SameSite=Lax; Path=/` with no `Domain`, lasts no longer than the newest link, and is set only by an accepted `POST /login`. With sign-in open, every answer of the `POST /login/confirm` route clears it.
   - Magic-link tokens stay in the Postgres `verification` table, never KV.
 - A work rated Mature or Explicit, or with archive warnings, or with no rating (shown as "Not Rated"), shows the interstitial on first entry to its reading pages from any entry point (any chapter or `/full`), remembered per work for the session. Only signed-in readers can turn it off, and that choice is stored on the account.
 - Login, upload and search are throttled when their rate limit is exceeded, and a spent upload quota is refused the same way: the response is 429 with `Retry-After` and a plain page saying when to try again (ARCHITECTURE, *Surge controls*, Status codes).
@@ -138,7 +141,7 @@ A bullet only a deployed environment can show, such as real R2, Queues, Turnstil
 1. `git fetch`. Don't bring `main` in yet: §6.4 does it once, just before the merge, so the ladder reviews the branch's own work.
 2. CI on the PR's head is green, or report it not run when the repo has no CI yet.
 3. The review ladder below, scaled by the PR's risk tier. The operator may waive it or stop it at any rung. *What was run* names the tier and the rungs that ran. A rung starts once the fixes from the rung before are pushed. There is no Copilot review (operator's ruling).
-4. Merge with `gh pr merge <n> --squash` only when the operator has said to merge. For a PR built under `/orchestrate`, the standing rule in `docs/process.md` (*Work items*, "The orchestrator merges") is that word, and only the orchestrator merges: a builder, or any agent launched to run this gate, never merges the PR. Bring `main` in once, just before the merge, if the branch doesn't contain it (`git merge-base --is-ancestor origin/main origin/<branch>`). It isn't needed after each other merge that lands meanwhile. Then rerun §3 on the merged head. Under `/orchestrate`, the orchestrator has an agent on a cheap model try the merge (`/orchestrate` §5), and the builder resolves a conflict. Otherwise whoever merges the PR brings it in, resolves a conflict, and adds a line to the PR's *What was run* block naming the merged head and the §3 results. A conflict resolved by hand goes through the ladder again. Then a draft is marked ready for review (`gh pr ready <n>`) by whoever merges.
+4. Merge with `gh pr merge <n> --squash` only when the operator has said to merge. For a PR built under `/orchestrate`, the standing rule in `docs/process.md` (*Work items*, "The orchestrator merges") is that word, and only the orchestrator merges: a builder, or any agent launched to run this gate, never merges the PR. Bring `main` in once, just before the merge, if the branch doesn't contain it (`git merge-base --is-ancestor origin/main origin/<branch>`). It isn't needed after each other merge that lands meanwhile. Then rerun §3 on the merged head. Under `/orchestrate`, the orchestrator runs `scripts/merge-main.sh` (`/orchestrate` §5), and the builder resolves a conflict. Otherwise whoever merges the PR brings it in, resolves a conflict, and adds a line to the PR's *What was run* block naming the merged head and the §3 results. A conflict resolved by hand goes through the ladder again. Then a draft is marked ready for review (`gh pr ready <n>`) by whoever merges.
 
 **Risk tiers.** Each changed file gets a tier by the first rule it matches, checked from tier 3 down, and the PR takes the highest tier any file gets. When unsure, use the higher.
 

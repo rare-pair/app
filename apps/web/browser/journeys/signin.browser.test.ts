@@ -3,6 +3,7 @@ import type { Page } from "playwright";
 import { describe, expect, it } from "vitest";
 import { unstable_readConfig } from "wrangler";
 import { useJourneySite } from "../harness/journey";
+import { hasSidewaysScroll } from "../harness/layout";
 import { signedIn, signInLink } from "../harness/sessions";
 import { SITE, type Site } from "../harness/site";
 import { byAddress, startAtHome, viaHeader } from "../harness/walk";
@@ -23,12 +24,23 @@ async function requestLink(page: Page, email: string): Promise<void> {
   ]);
 }
 
-/** Opens the emailed link and presses its Sign in button. */
-async function followLink(page: Page, link: string): Promise<void> {
+/** Opens the emailed link. */
+async function openLink(page: Page, link: string): Promise<void> {
   // The emailed link is a full address on the site; byAddress takes its path.
   const { origin, pathname, search } = new URL(link);
   expect(origin).toBe(SITE);
   await byAddress(page, `${pathname}${search}`, "an emailed sign-in link opens as an address");
+}
+
+/** Opens the emailed link in the browser that asked for it: the page goes on by itself. */
+async function followLink(page: Page, link: string): Promise<void> {
+  await openLink(page, link);
+  await page.waitForURL((url) => url.pathname !== "/login/confirm");
+}
+
+/** Opens the emailed link in a browser without the marker, and presses its Sign in button. */
+async function followLinkWithPress(page: Page, link: string): Promise<void> {
+  await openLink(page, link);
   await Promise.all([
     page.waitForEvent("load"),
     page.getByRole("button", { name: "Sign in" }).click(),
@@ -97,6 +109,74 @@ describe("sign-in journey", () => {
     expect(user.terms_accepted_at).not.toBeNull();
   });
 
+  it("Someone sent a link for another person's account sees whose it is, masked, before pressing", async () => {
+    const { site } = running;
+    const domain = "a-subdomain-too-long-to-fit-on-one-line-of-a-narrow-phone.example.test";
+    const email = `pw1-named@${domain}`;
+    const asker = await startAtHome(await site.newContext());
+    site.dropRecording(asker);
+    await viaHeader(asker, "Sign in");
+    await requestLink(asker, email);
+    await asker.getByText("Check your email").waitFor();
+    const link = await signInLink(site, email);
+
+    // Another browser: the asker's own would go on by itself, past the line.
+    const page = await (await site.newContext()).newPage();
+    await openLink(page, link);
+    await page.getByText(`Sign in as p***@${domain}`).waitFor();
+    await page.getByRole("button", { name: "Sign in" }).waitFor();
+    expect(await page.content()).not.toContain("pw1-named");
+    expect(await hasSidewaysScroll(page)).toBe(false);
+  });
+
+  it("The browser that asked for the link signs in without a press, and another browser sees the button", async () => {
+    const { site } = running;
+    const email = "pw1-no-press@example.test";
+    const context = await site.newContext();
+    const page = await startAtHome(context);
+
+    await viaHeader(page, "Sign in");
+    await requestLink(page, email);
+    await page.getByText("Check your email").waitFor();
+    const link = await signInLink(site, email);
+    const tokens = () =>
+      site.db
+        .selectFrom("verification")
+        .select("id")
+        .where("value", "like", `%${JSON.stringify(email)}%`)
+        .execute();
+    const issued = await tokens();
+    expect(issued).toHaveLength(1);
+
+    // A second browser, which didn't ask: the button, and nothing spent. Only looked at.
+    const other = await (await site.newContext()).newPage();
+    site.dropRecording(other);
+    await openLink(other, link);
+    await other.getByRole("button", { name: "Sign in" }).waitFor();
+    expect(other.url()).toContain("/login/confirm");
+    expect(await tokens()).toEqual(issued);
+    await other.close();
+
+    // The browser that asked: nothing is pressed here. A new account goes on to the terms.
+    const posts: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST") posts.push(new URL(request.url()).pathname);
+    });
+    await followLink(page, link);
+    await expect.poll(() => page.url()).toBe(`${SITE}/welcome/terms?next=%2F`);
+    expect(posts).toEqual(["/login/confirm"]);
+    expect(await tokens()).toEqual([]);
+    await page.getByRole("banner").getByRole("button", { name: "Sign out" }).waitFor();
+
+    // The marker went with the answer, so the link's page, opened again, posts nothing by itself.
+    expect((await context.cookies()).map((cookie) => cookie.name)).not.toContain(
+      "__Host-signin-pending",
+    );
+    await openLink(page, link);
+    await page.getByRole("button", { name: "Sign in" }).waitFor();
+    expect(posts).toEqual(["/login/confirm"]);
+  });
+
   it("A returning account skips the terms and its session survives a reload and a new tab", async () => {
     const { site } = running;
     const email = "pw1-returning@example.test";
@@ -159,8 +239,8 @@ describe("sign-in journey", () => {
     await followLink(page, link);
     await expect.poll(() => page.url()).toBe(`${SITE}/welcome/terms?next=%2F`);
 
-    // The same link again: GET still shows its button, and pressing it is refused.
-    await followLink(page, link);
+    // The same link again, with the marker gone: GET shows its button, and pressing it is refused.
+    await followLinkWithPress(page, link);
     await expect.poll(() => page.url()).toBe(`${SITE}/login?error=INVALID_TOKEN`);
     await expect.poll(() => page.getByRole("alert").innerText()).toBe(REFUSED);
   });

@@ -379,6 +379,15 @@ export interface SweepStateTable {
   updated_at: CreatedTimestamp;
 }
 
+/** Sign-in emails asked for per address on a UTC day. Earlier days' rows are deleted as requests count. */
+export interface SignInEmailCountTable {
+  /** A keyed hash of the address, never the address. */
+  address_hash: string;
+  /** The UTC day, as `YYYY-MM-DD`. */
+  day: ColumnType<string, string, string>;
+  count: number;
+}
+
 export interface Database {
   user: UserTable;
   session: SessionTable;
@@ -401,4 +410,5 @@ export interface Database {
   moderation_actions: ModerationActionTable;
   waitlist: WaitlistTable;
   sweep_state: SweepStateTable;
+  sign_in_email_counts: SignInEmailCountTable;
 }

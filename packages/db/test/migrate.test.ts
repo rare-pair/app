@@ -16,6 +16,11 @@ afterAll(async () => {
 // Postgres with the magic-link plugin, mapped to snake_case), plus our five
 // `user` fields from ARCHITECTURE's Data model.
 const expected = {
+  sign_in_email_counts: {
+    address_hash: { type: "text", nullable: false },
+    day: { type: "date", nullable: false },
+    count: { type: "int4", nullable: false },
+  },
   user: {
     id: { type: "text", nullable: false },
     name: { type: "text", nullable: false },

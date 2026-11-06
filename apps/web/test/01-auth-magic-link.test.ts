@@ -1,9 +1,12 @@
 import { createDb } from "@archive/db";
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
+import { sql } from "kysely";
 import { afterAll, describe, expect, it } from "vitest";
 import type { EmailMessage } from "../../mailer/src/message";
 import app from "../src/index";
+import { signInEmailHash } from "../src/ip-hash";
+import { secondsToReset } from "../src/quota";
 import { LOGIN_WINDOW_SECONDS } from "../src/rate-limit";
 import {
   consoleDuring,
@@ -17,6 +20,7 @@ import {
   nonceOf,
   LOGIN_TOKEN,
   postLogin,
+  signIn,
   windowHeadroom,
 } from "./helpers";
 
@@ -90,6 +94,31 @@ async function expectTooManyRequests(res: Response): Promise<string> {
   const html = await res.text();
   expect(html).toContain(`Please try again in ${LOGIN_WINDOW_SECONDS} seconds.`);
   return html;
+}
+
+const TODAY = sql<string>`(now() at time zone 'utc')::date`;
+
+/** Sets how many sign-in emails `email` has used on a day, as earlier requests would have. */
+async function setCountToday(email: string, count: number, day = TODAY) {
+  await db
+    .insertInto("sign_in_email_counts")
+    .values({
+      address_hash: await signInEmailHash(env.IP_HASH_KEY, email),
+      day,
+      count,
+    })
+    .execute();
+}
+
+/** How many sign-in emails `email` has used today, or null when none was counted. */
+async function countToday(email: string): Promise<number | null> {
+  const row = await db
+    .selectFrom("sign_in_email_counts")
+    .select("count")
+    .where("address_hash", "=", await signInEmailHash(env.IP_HASH_KEY, email))
+    .where("day", "=", TODAY)
+    .executeTakeFirst();
+  return row?.count ?? null;
 }
 
 describe("01-auth-magic-link", () => {
@@ -378,12 +407,200 @@ describe("01-auth-magic-link", () => {
     expect(await emailsTo(email)).toHaveLength(LOGIN_EMAIL_LIMIT);
   });
 
+  it("One address gets at most 5 sign-in emails a day", async () => {
+    expect(env.LOGIN_EMAIL_QUOTA).toBe("5");
+    const email = `daily-${crypto.randomUUID()}@example.test`;
+    await setCountToday(email, 4);
+
+    const fifth = await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN });
+    expect(fifth.status).toBe(200);
+    expect(await emailsTo(email)).toHaveLength(1);
+    expect(await countToday(email)).toBe(5);
+
+    // From another IP, and spelt differently: the same address.
+    const before = await verificationIds();
+    const sixth = await postLogin({
+      email: ` ${email.toUpperCase()} `,
+      "cf-turnstile-response": LOGIN_TOKEN,
+    });
+    expect(sixth.status).toBe(429);
+    // Until the next midnight UTC, whichever way the page and the header say it.
+    const retryAfter = Number(sixth.headers.get("retry-after"));
+    expect(Math.abs(retryAfter - secondsToReset(new Date()))).toBeLessThan(60);
+    expect(sixth.headers.get("cache-control")).toBe("no-store");
+    const html = await sixth.text();
+    expect(html).toContain("Too many requests");
+    expect(html).toContain("Please try again after midnight UTC.");
+
+    expect(await countToday(email)).toBe(5);
+    // No token, however the address would have been stored.
+    const made = await db
+      .selectFrom("verification")
+      .select("id")
+      .where("value", "ilike", `%${email}%`)
+      .execute();
+    expect(made.filter((row) => !before.has(row.id))).toEqual([]);
+    // Nothing more queued: a later request's email has arrived, and still only the one.
+    await queuedFor(email);
+    expect(await emailsTo(email)).toHaveLength(1);
+  });
+
+  it("A plus tag or a dot makes another address for the daily count", async () => {
+    const local = `daily-${crypto.randomUUID()}`;
+    await setCountToday(`${local}@example.test`, 5);
+    for (const other of [`${local}+tag@example.test`, `${local}.x@example.test`]) {
+      const res = await postLogin({ email: other, "cf-turnstile-response": LOGIN_TOKEN });
+      expect(res.status, other).toBe(200);
+    }
+  });
+
+  it("The count starts again the next day", async () => {
+    const email = `daily-${crypto.randomUUID()}@example.test`;
+    await setCountToday(email, 5, sql<string>`(now() at time zone 'utc')::date - 1`);
+
+    const res = await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN });
+
+    expect(res.status).toBe(200);
+    expect(await emailsTo(email)).toHaveLength(1);
+    expect(await countToday(email)).toBe(1);
+  });
+
+  it("The daily limit comes from the configuration", async () => {
+    const email = `daily-${crypto.randomUUID()}@example.test`;
+    const post = async () => {
+      const ctx = createExecutionContext();
+      const res = await app.fetch(
+        loginRequest({ email, "cf-turnstile-response": LOGIN_TOKEN }),
+        { ...env, LOGIN_EMAIL_QUOTA: "1" },
+        ctx,
+      );
+      await waitOnExecutionContext(ctx);
+      return res.status;
+    };
+    expect([await post(), await post()]).toEqual([200, 429]);
+  });
+
+  it("The daily count holds a keyed hash of the address, not the address", async () => {
+    const email = `daily-${crypto.randomUUID()}@example.test`;
+    const res = await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN });
+    expect(res.status).toBe(200);
+
+    // Found under the hash, which ip-hash.node.test.ts pins to a literal.
+    expect(await countToday(email)).toBe(1);
+  });
+
+  it("The privacy page says what the daily count keeps", async () => {
+    const html = await (await fetchW("/privacy")).text();
+    expect(html).toContain("a keyed hash of the address");
+    expect(html).toContain("A day's count is deleted");
+  });
+
+  it("The per-minute limits and Turnstile run first, so they cost the daily count nothing", async () => {
+    await windowHeadroom(LOGIN_WINDOW_SECONDS);
+    const email = `daily-${crypto.randomUUID()}@example.test`;
+    const passing = { email, "cf-turnstile-response": LOGIN_TOKEN };
+
+    // Turnstile refuses it.
+    const failed = await postLogin({ email, "cf-turnstile-response": "a-failing-token" });
+    expect(failed.status).toBe(400);
+    expect(await countToday(email)).toBeNull();
+
+    // The limit per IP catches it.
+    const ip = freshIp();
+    await fillIpLimit(ip);
+    await expectTooManyRequests(await postLogin(passing, { headers: { "cf-connecting-ip": ip } }));
+    expect(await countToday(email)).toBeNull();
+
+    // The limit per address catches the one after these.
+    for (let i = 0; i < LOGIN_EMAIL_LIMIT; i++) {
+      expect((await postLogin(passing)).status).toBe(200);
+    }
+    await expectTooManyRequests(await postLogin(passing));
+    expect(await countToday(email)).toBe(LOGIN_EMAIL_LIMIT);
+  });
+
+  it("Sign-in still goes through when the daily count can't be made", async () => {
+    const email = `daily-down-${crypto.randomUUID()}@example.test`;
+    // A key the hash can't be made with: the count fails, as it would with the table away.
+    const broken = { ...env, IP_HASH_KEY: "" };
+    let status = 0;
+    const logged = await consoleDuring(async () => {
+      const ctx = createExecutionContext();
+      const request = loginRequest({ email, "cf-turnstile-response": LOGIN_TOKEN });
+      status = (await app.fetch(request, broken, ctx)).status;
+      await waitOnExecutionContext(ctx);
+    });
+
+    expect(status).toBe(200);
+    expect(await emailsTo(email)).toHaveLength(1);
+    expect(await countToday(email)).toBeNull();
+    expect(logged.length).toBeGreaterThan(0);
+    expect(logged.join("\n")).not.toContain("daily-down");
+  });
+
   it("Sign-in requests with no address are refused as such, not counted together", async () => {
     await windowHeadroom(LOGIN_WINDOW_SECONDS);
     for (let i = 0; i <= LOGIN_EMAIL_LIMIT; i++) {
       const res = await postLogin({ email: " ", "cf-turnstile-response": LOGIN_TOKEN });
       expect(res.status).toBe(400);
       expect(await res.text()).toContain('<p role="alert">Enter a valid email address.</p>');
+    }
+  });
+
+  it("A refused request sets no marker", async () => {
+    const refused = async (
+      status: number,
+      fields: Record<string, string>,
+      options?: Parameters<typeof postLogin>[1],
+    ) => {
+      const res = await postLogin(fields, options);
+      expect(res.status).toBe(status);
+      expect(res.headers.getSetCookie()).toEqual([]);
+    };
+    const email = "marker-refused@example.test";
+    const passing = { email, "cf-turnstile-response": LOGIN_TOKEN };
+
+    // The origin check, Turnstile, the address and the size.
+    await refused(403, passing, { headers: { origin: "https://evil.example" } });
+    await refused(400, { email, "cf-turnstile-response": "a-failing-token" });
+    await refused(503, { email, "cf-turnstile-response": "siteverify-down" });
+    for (const bad of ["not-an-address", " ", `a${LONGEST_EMAIL}`]) {
+      await refused(400, { email: bad, "cf-turnstile-response": LOGIN_TOKEN });
+    }
+    await refused(413, {}, { body: `email=x&padding=${"x".repeat(17 * 1024)}` });
+
+    // The limit per IP.
+    await windowHeadroom(LOGIN_WINDOW_SECONDS);
+    const ip = freshIp();
+    await fillIpLimit(ip);
+    await refused(429, passing, { headers: { "cf-connecting-ip": ip } });
+
+    // The limit per address.
+    const limited = `marker-limited-${crypto.randomUUID()}@example.test`;
+    for (let i = 0; i < LOGIN_EMAIL_LIMIT; i++) {
+      const res = await postLogin({ email: limited, "cf-turnstile-response": LOGIN_TOKEN });
+      expect(res.status).toBe(200);
+    }
+    await refused(429, { email: limited, "cf-turnstile-response": LOGIN_TOKEN });
+
+    // The daily limit per address.
+    const spent = `marker-spent-${crypto.randomUUID()}@example.test`;
+    await setCountToday(spent, 5);
+    await refused(429, { email: spent, "cf-turnstile-response": LOGIN_TOKEN });
+  });
+
+  it("An accepted request sets the marker the same way whether or not the address has an account", async () => {
+    const existing = "marker-account@example.test";
+    await signIn(existing);
+
+    for (const email of [existing, "marker-no-account@example.test"]) {
+      const res = await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN });
+      expect(res.status, email).toBe(200);
+      // Exactly this: a fixed value that holds nothing about the address, the token or
+      // the account, no Domain, and the link's 15 minutes.
+      expect(res.headers.getSetCookie(), email).toEqual([
+        "__Host-signin-pending=1; Max-Age=900; Path=/; SameSite=Lax; Secure; HttpOnly",
+      ]);
     }
   });
 
@@ -450,18 +667,22 @@ describe("Sign-in failures", () => {
     };
     const refusing = { ...env, EMAIL: queue };
     let status = 0;
+    let markers: string[] = [];
     const logged = await consoleDuring(async () => {
       const ctx = createExecutionContext();
       const request = loginRequest({
         email: "logged-nowhere@example.test",
         "cf-turnstile-response": LOGIN_TOKEN,
       });
-      status = (await app.fetch(request, refusing, ctx)).status;
+      const res = await app.fetch(request, refusing, ctx);
+      status = res.status;
+      markers = res.headers.getSetCookie();
       await waitOnExecutionContext(ctx);
     });
-    // It failed where the error names the address.
+    // It failed where the error names the address, and no link went out, so no marker either.
     expect(sends).toBe(1);
     expect(status).toBe(500);
+    expect(markers).toEqual([]);
     expect(logged.length).toBeGreaterThan(0);
     expect(logged.join("\n")).not.toContain("logged-nowhere");
   });

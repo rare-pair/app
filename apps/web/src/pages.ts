@@ -1,6 +1,7 @@
 // The shared layout every app page goes through, and the pages built on it:
 // the sign-in pages, the not-found page and the static about, terms and privacy pages.
 
+import { siteCard } from "./cards";
 import { TURNSTILE_ORIGIN } from "./security";
 import { LINK_LIFETIME_MINUTES } from "./signin";
 import { LOGO_PATH } from "./logo";
@@ -98,6 +99,7 @@ export const aboutPage = () =>
 <p>People upload the epub files they downloaded from the original archive while it is offline. Anyone can browse and read the works that have been uploaded and accepted. Work pages link back to the original page, and the credit belongs to its author.</p>
 <p>Accepted uploads are public. Anyone can ask for a work to be removed, with no need to prove who they are, using the "Remove my work" link in the footer.</p>
 <p>The wait list pages are set in Fraunces (<a href="${FRAUNCES_LICENCE}">licence</a>) and IBM Plex Mono (<a href="${PLEX_LICENCE}">licence</a>).</p>`,
+    siteCard(),
   );
 
 export const termsPage = () =>
@@ -112,6 +114,7 @@ export const termsPage = () =>
 <li>We may hide or remove any work, and close any account, to keep the site safe.</li>
 <li>This site is an unofficial, temporary stopgap with no guarantees: it may change or close at any time.</li>
 </ul>`,
+    siteCard(),
   );
 
 /**
@@ -138,6 +141,8 @@ export const privacyPage = () =>
 <p>This is what we keep about you.</p>
 <ul>
 <li>Signing in uses an email link. We keep your email address and no password. Each session also keeps the network address and browser (user agent) it was started from, for as long as the session lasts.</li>
+<li>To send one address at most a few sign-in emails a day, we count them under a keyed hash of the address, not the address itself. A day's count is deleted the next time anyone is sent a sign-in email on a later day.</li>
+<li>Asking for a sign-in link sets a short-lived cookie that holds nothing about you. It lets the browser that asked sign in without pressing a button, and it goes the next time that browser uses a sign-in link, or after ${LINK_LIFETIME_MINUTES} minutes.</li>
 <li>Accepted uploads are public. We do not publish your email address.</li>
 <li>Removal and opt-out requests keep what you send with them: your email address, a hashed form of your network address, the work or pseud you name, and any statement you write. A block on a requester keeps the same email address and hashed network address. We keep this until the site closes, and then delete it. We do not erase it when you ask.</li>
 <li>Copyright notices keep what you send with them: your name, address, telephone number and email address, the work you name, your statements and your signature. Moderators read them to act on the notice. A notice you email instead is read by a person and stays in that mailbox. We keep notices until the site closes, and then delete them. We do not erase them when you ask.</li>
@@ -146,6 +151,7 @@ export const privacyPage = () =>
 <li>To have your account deleted, ask at <a href="mailto:admin@rarepair.fans">admin@rarepair.fans</a>, from the address on your account. We delete your account, your sessions and your saved reading positions. A position saved in the last moments before the delete can stay until it expires, within a year. Accepted works stay public, with no account attached to them. Reports you made stay, without your email address, and so does a moderator's record of what they did. Your email asking for this stays in that mailbox, and what a request, a copyright notice or the wait list keeps stays as described above. We do not delete a banned account, because the ban is kept on it.</li>
 <li>Our anti-spam check, provided by Cloudflare, runs on the sign-in, upload, removal and copyright notice pages and, before launch, on the wait list form on the coming-soon home page. Each check sends the visitor's network address (Turnstile's <code>remoteip</code>) to Cloudflare.</li>
 </ul>`,
+    siteCard(),
   );
 
 export interface SignInForm {
@@ -239,20 +245,33 @@ export const notSignedInPage = () =>
     `<p>You are not signed in.<span data-sign-in-offer> <a href="/login">Sign in</a>.</span></p>`,
   );
 
+/** Presses the confirm form once. It follows the form, which is on the page as this runs. */
+const submitConfirmForm = (nonce: string) =>
+  `<script nonce="${escapeHtml(nonce)}">document.querySelector('form[action="/login/confirm"]').submit();</script>`;
+
 /**
- * The emailed link's page: only a button that posts the token. Opening the link
- * uses nothing up, so a mail scanner's prefetch can't spend it. No script, so it
- * works with JavaScript off. `next` is already reduced to a same-site path.
+ * The emailed link's page: a button that posts the token. Opening the link uses
+ * nothing up, so a mail scanner's prefetch can't spend it. For the browser that asked
+ * for the link, `submitNonce` adds a script that presses it once; for any other there
+ * is no script. Either way it works with JavaScript off. `next` is already reduced to
+ * a same-site path.
  */
-export const confirmPage = (token: string, next: string) =>
-  layout(
+export const confirmPage = (
+  token: string,
+  next: string,
+  maskedAddress: string | null,
+  submitNonce?: string,
+) => {
+  const account = maskedAddress === null ? "" : `<p>Sign in as ${escapeHtml(maskedAddress)}</p>\n`;
+  return layout(
     "Sign in",
-    `<form method="post" action="/login/confirm">
+    `${account}<form method="post" action="/login/confirm">
 <input type="hidden" name="token" value="${escapeHtml(token)}">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
 <button type="submit">Sign in</button>
-</form>`,
+</form>${submitNonce === undefined ? "" : submitConfirmForm(submitNonce)}`,
   );
+};
 
 /**
  * Signing in failed on our side, not the link's. The link may already be spent
@@ -272,6 +291,13 @@ export const tooManyRequestsPage = (seconds: number) =>
   layout(
     "Too many requests",
     `<p>There have been too many requests in a short time. Please try again in ${seconds === 1 ? "1 second" : `${seconds} seconds`}.</p>`,
+  );
+
+/** `POST /login` for an address that has had the day's sign-in emails. */
+export const tooManyRequestsTodayPage = () =>
+  layout(
+    "Too many requests",
+    `<p>There have been too many sign-in requests for this address today. Please try again after midnight UTC.</p>`,
   );
 
 /**

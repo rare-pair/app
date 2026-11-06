@@ -7,7 +7,7 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - Better Auth's `user`, `session`, `account` and `verification` tables exist in Postgres; magic-link tokens are stored hashed in `verification`; `user` has a `terms_accepted_at` field
 - Turnstile is configured on the sign-in form; a test Turnstile token that passes and one that fails are available
 - The Workers rate-limiting binding is configured per IP and per email for `POST /login`
-- The web Worker puts sign-in emails on the `email` queue; the mailer Worker (`apps/mailer`) consumes it, with a stub Resend sender capturing sent messages and a failover provider stub (Postmark or SES) wired in
+- The web Worker puts sign-in emails on the `email` queue; the mailer Worker (`apps/mailer`) consumes it, with a stub Resend sender capturing sent messages
 - No passwords are stored anywhere
 - `disableSignUp` is not set, so Better Auth creates an account for an unknown email when its link is confirmed
 
@@ -61,11 +61,93 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - THEN the response is 429 with a `Retry-After` header and no email is queued
 - AND a plain page says when to try again
 
+### One address gets at most 5 sign-in emails a day
+- GIVEN one email address that has had 5 `POST /login` requests counted this UTC day (a request is counted before its send, and a send that fails stays counted), however many solved Turnstile challenges and IPs were used
+- WHEN a sixth is submitted for it, spelt with any case or surrounding spaces, with a passing Turnstile token
+- THEN the response is 429 with a `Retry-After` header counting to the next midnight UTC, no token is made and no email is queued
+- AND a plain page says to try again after midnight UTC
+- AND the same address with a `+tag` or an extra dot is another address, with its own count
+
+### The count starts again the next day
+- GIVEN one email address that used all 5 of its sign-in emails yesterday (UTC)
+- WHEN a `POST /login` with a passing Turnstile token is submitted for it today
+- THEN the link is sent, and it is the first of today's 5
+- AND yesterday's counts, for every address, are deleted
+
+### Sign-in still goes through when the daily count can't be made
+- GIVEN the daily count can't be made
+- WHEN a `POST /login` with a passing Turnstile token is submitted
+- THEN the link is sent, as with the other limits when they fail
+- AND the log holds no address
+
 ### Opening the emailed link uses nothing up
-- GIVEN an unused token issued less than 15 minutes ago
+- GIVEN an unused token issued less than 15 minutes ago, and a browser with no sign-in marker
 - WHEN the link `GET /login/confirm?token=<token>` is opened, as a mail scanner prefetching it would
 - THEN the page shows a "Sign in" button in a POST form
 - AND the token is still unused and no session is created
+
+### The button page names the account, masked
+- GIVEN an unused token issued to `Jane.Doe@Example.com`
+- WHEN its link is opened in a browser with no sign-in marker
+- THEN the page says "Sign in as j***@example.com" above the button: the first character of the local part, three stars whatever the local part's length, then the domain, all lowercased
+- AND a one-character local part looks the same, so `j@example.com` also shows `j***@example.com`
+- AND the page says the same whether or not the address has an account
+- AND the full address isn't in the page, its attributes, the URL or any log
+- AND opening the page reads the token's row directly and writes nothing: no clean-up delete of expired rows
+
+### An unknown, used or expired token shows nothing about any account
+- GIVEN a token that was never issued, a malformed one, a used one or an expired one
+- WHEN its link is opened
+- THEN the page is the same in every case, apart from the token in its form, and names no address
+- AND pressing the button is refused as today: a redirect to `/login` with the plain message
+- AND a link with no token, or one far longer than any token issued, shows no page: it redirects to `/login` with the plain message, as before
+
+### The browser that asked for the link signs in without a press
+- GIVEN a browser whose `POST /login` was accepted, which still holds the marker, and an unused token
+- WHEN it opens the emailed link with JavaScript on
+- THEN it is signed in and redirected to its `next`, and nothing was pressed
+
+### The marker posts whichever link is opened
+- GIVEN a browser holding the marker
+- WHEN it opens an older sign-in link, used or expired
+- THEN the page posts by itself and lands on the used-or-expired message
+- AND the marker is gone, so its newest link then takes a press
+- AND, as an accepted limit (#606, #657), someone who asked for their own link and opens, or is navigated to, a planted one within 15 minutes is signed in to the planter's account with no press
+
+### Opening the link still uses nothing up
+- GIVEN an unused token
+- WHEN `GET /login/confirm` is opened, with or without the marker
+- THEN it spends no token and creates no session
+- AND only `POST /login/confirm` does, with its origin check unchanged
+
+### Another browser still gets the button
+- GIVEN an unused token and a browser with no marker
+- WHEN it opens the emailed link
+- THEN the page has the "Sign in" button and no script
+- AND the token stays unused until the button is pressed
+
+### A browser with JavaScript off still gets the button
+- GIVEN a browser with the marker and JavaScript off
+- WHEN it opens the emailed link and presses "Sign in"
+- THEN it is signed in
+
+### Going back after signing in shows no error
+- GIVEN a browser with the marker, and sign-in open (before launch both routes redirect)
+- WHEN the Worker's `POST /login/confirm` route answers it in any way, a refusal or a fault included
+- THEN the answer clears the marker, so going back to or reloading the link page posts nothing by itself
+
+### A refused request sets no marker
+- GIVEN a `POST /login`
+- WHEN the origin check, Turnstile or a rate limit refuses it, or its address or size is refused
+- THEN it sets no marker
+- AND an accepted request sets it the same way whether or not the address has an account
+
+### The marker says nothing about who asked
+- GIVEN an accepted `POST /login`
+- WHEN its marker cookie is set
+- THEN it holds nothing about the address, the token or the account
+- AND it has `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/` and no `Domain`, and lasts no longer than the newest link it was set for
+- AND it isn't treated as a session, and a signed-out reader holding it still gets edge-cached chapter pages
 
 ### Confirming signs the user in
 - GIVEN an unused token issued less than 15 minutes ago
@@ -76,7 +158,7 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - AND the cookie has no `Domain` attribute, so it covers `rarepair.fans` only and never `content.rarepair.fans`
 
 ### Confirming works without JavaScript
-- GIVEN an unused token and a browser with JavaScript off
+- GIVEN an unused token and a browser with JavaScript off and no marker
 - WHEN the user opens the emailed link and presses "Sign in"
 - THEN they are signed in and redirected, with no script involved
 
@@ -117,11 +199,6 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - GIVEN several sign-in emails waiting on the email queue
 - WHEN the mailer Worker takes them off the queue
 - THEN it sends them through Resend's batch API rather than one API call per email
-
-### Email sending fails over to the second provider
-- GIVEN Resend is refusing messages (rate limit, quota or outage)
-- WHEN a sign-in email is taken off the email queue
-- THEN it is sent through the failover provider instead
 
 ### New email creates an account on confirm
 - GIVEN an email address with no account, and an unused token issued to it less than 15 minutes ago

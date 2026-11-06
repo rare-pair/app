@@ -20,6 +20,7 @@ Relates to: docs/FRONTEND-DISCOVERY.md § Decisions so far (JavaScript, Paginati
 - GIVEN JavaScript is on
 - WHEN pages load
 - THEN on sign in, upload, `/remove` and `/dmca` scripts run Turnstile and the form, including upload progress
+- AND on the sign-in link page, a script submits its form once for a browser that holds the sign-in marker; the page has the "Sign in" button either way, and without the marker it has no script
 - AND on every other page scripts only add reader settings without reload, saving reading position and in-place upload status
 
 ### WCAG 2.2 AA

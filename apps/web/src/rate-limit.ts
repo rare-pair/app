@@ -3,7 +3,7 @@
 // requests and the wait list. Each route passes its own binding and key.
 
 import type { Context } from "hono";
-import { tooManyRequestsPage } from "./pages";
+import { tooManyRequestsPage, tooManyRequestsTodayPage } from "./pages";
 
 /** The sign-in limits' window, as wrangler.jsonc sets it: the binding doesn't say. */
 export const LOGIN_WINDOW_SECONDS = 60;
@@ -125,11 +125,22 @@ export async function isLimited(limiter: RateLimit | undefined, key: string): Pr
  */
 export function tooManyRequests(seconds: number): Response {
   const wait = Math.max(1, Math.ceil(seconds));
-  return new Response(tooManyRequestsPage(wait), {
+  return plainPage429(tooManyRequestsPage(wait), wait);
+}
+
+/**
+ * The 429 for an address that has had the day's sign-in emails: `seconds`, to midnight UTC, are
+ * too many to read, so the page names the time and only `Retry-After` counts.
+ */
+export const tooManyRequestsToday = (seconds: number): Response =>
+  plainPage429(tooManyRequestsTodayPage(), seconds);
+
+function plainPage429(html: string, seconds: number): Response {
+  return new Response(html, {
     status: 429,
     headers: {
       "Content-Type": "text/html; charset=UTF-8",
-      "Retry-After": String(wait),
+      "Retry-After": String(seconds),
       "Cache-Control": "no-store",
     },
   });

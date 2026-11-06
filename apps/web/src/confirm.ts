@@ -6,6 +6,8 @@ import { INVALID_TOKEN, readForm } from "./login";
 import { confirmPage, forbiddenPage, signInFailedPage } from "./pages";
 import type { SecurityVariables } from "./security";
 import { isSameOrigin, safeNext } from "./signin";
+import { maskedAddressOfLink } from "./signin-address";
+import { holdsSignInMarker } from "./signin-marker";
 
 // Better Auth's tokens are 32 characters. Anything far longer was never issued, and
 // isn't put back into the page.
@@ -15,19 +17,43 @@ type ConfirmContext = Context<{ Bindings: Bindings; Variables: SecurityVariables
 
 /**
  * `GET /login/confirm`: the emailed link. It shows a button and uses nothing up
- * (ARCHITECTURE, Auth). The link's query is anyone's to write, so `next` is
- * reduced again here.
+ * (ARCHITECTURE, Auth); for the browser that asked for a link, the page presses the
+ * button itself. The link's query is anyone's to write, so `next` is reduced again here.
  */
-export function showConfirm(c: ConfirmContext) {
+export async function showConfirm(c: ConfirmContext) {
   const token = c.req.query("token") ?? "";
   if (token === "" || token.length > MAX_LINK_TOKEN) return c.redirect(REFUSED, 302);
-  return c.html(confirmPage(token, safeNext(c.req.query("next") ?? null)), 200, {
-    // The token is in the URL: keep it out of caches, and let a Referer carry only
-    // the origin. Not no-referrer: under it the browser sends the page's own POST with
-    // `Origin: null` (Fetch, "append a request Origin header"), which isSameOrigin refuses.
-    "Cache-Control": "no-store",
-    "Referrer-Policy": "strict-origin",
-  });
+  const submitNonce = holdsSignInMarker(c) ? c.get("nonce") : undefined;
+  const maskedAddress = await readMaskedAddress(c, token);
+  return c.html(
+    confirmPage(token, safeNext(c.req.query("next") ?? null), maskedAddress, submitNonce),
+    200,
+    {
+      // The token is in the URL: keep it out of caches, and let a Referer carry only
+      // the origin. Not no-referrer: under it the browser sends the page's own POST with
+      // `Origin: null` (Fetch, "append a request Origin header"), which isSameOrigin refuses.
+      "Cache-Control": "no-store",
+      "Referrer-Policy": "strict-origin",
+    },
+  );
+}
+
+/**
+ * The masked address for the page, or null. The line is a courtesy, so a read that fails
+ * leaves the plain page with its button. The log names the kind of fault, never the row.
+ */
+async function readMaskedAddress(c: ConfirmContext, token: string): Promise<string | null> {
+  const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString });
+  try {
+    return await maskedAddressOfLink(db, token);
+  } catch (error) {
+    console.error(
+      `GET /login/confirm: address unavailable: ${error instanceof Error ? error.name : "Error"}`,
+    );
+    return null;
+  } finally {
+    c.executionCtx.waitUntil(db.destroy());
+  }
 }
 
 /**

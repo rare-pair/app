@@ -56,8 +56,10 @@ export type Bindings = {
   UPLOAD_QUOTA_NEW: string;
   /** Uploads a moderator or admin may confirm per UTC day (src/quota.ts). */
   UPLOAD_QUOTA_TRUSTED: string;
+  /** Sign-in emails one address may be sent per UTC day (src/quota.ts). */
+  LOGIN_EMAIL_QUOTA: string;
   TURNSTILE_SECRET_KEY: string;
-  /** Keys the HMAC of a requester's network address (src/ip-hash.ts). */
+  /** Keys the HMAC of a requester's network address, and of the daily sign-in count's address (src/ip-hash.ts). */
   IP_HASH_KEY: string;
   /** The moderators' contact address, shown to a visitor without JavaScript (wrangler.jsonc). */
   MODERATORS_EMAIL: string;

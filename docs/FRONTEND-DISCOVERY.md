@@ -17,12 +17,13 @@ fandoms and pseuds in it are invented placeholders.
 | --- | --- |
 | Visual direction | Modern and minimal. The identity is plain HTML with a strong typographic hierarchy: type, spacing and rules do the work, not boxes, shadows or imagery |
 | Warnings | **Hard constraint:** rating and archive warnings show on every work card and work page. They are never collapsed, never behind a hover, and never hidden to save space. Minimalism applies to everything else |
-| JavaScript | Reading, browsing, search and reader settings work fully with JavaScript off; small scripts only enhance them (settings without a reload, saving reading position). Forms with a Turnstile check (sign-in, upload, `/remove`, the copyright notice at `/dmca`, and the wait list before launch) need JavaScript, because Turnstile can't produce a token without it; with JS off they say so in a `<noscript>` message |
+| JavaScript | Reading, browsing, search and reader settings work fully with JavaScript off; small scripts only enhance them (settings without a reload, saving reading position). On the sign-in link's page, a script presses the button for the browser that asked for the link. Forms with a Turnstile check (sign-in, upload, `/remove`, the copyright notice at `/dmca`, and the wait list before launch) need JavaScript, because Turnstile can't produce a token without it; with JS off they say so in a `<noscript>` message |
 | Pagination | Server-side pages with real URLs. No infinite scroll |
 | Branding | The logo is the pinwheel star ✯ (U+272F) before the site name in the header, hidden from assistive technology, and the same star drawn as our own SVG for the browser tab. No AO3 or OTW name, symbols or styling in the UI. Ratings and warnings are text badges, not symbol icons (ARCHITECTURE, opening) |
 | Author identity | No claims, no author accounts, no "my works". Removal and opt-out are a public request form that needs no sign-in (ARCHITECTURE, *Author requests & takedowns*) |
 | Site header | Every HTML page that runs after the session lookup has a header that carries, left to right: Search, Add work, My uploads (signed in), Admin (moderator or admin only), then Sign in (signed out) or Sign out (signed in, a form posting to `/logout`, so it works with JavaScript off). Before launch Search, Add work and My uploads show disabled, as the footer's closed links do (`/search` is closed until then); Sign in, Sign out and Admin stay live. A cross-site refusal, answered before the session, shows the bare site name with its star, and a missing static file's 404 shows the signed-out links, whoever asks. An account that hasn't accepted the terms sees the header as ruled, and Search, Add work and My uploads lead back to the terms page (the terms gate has no exception for `/search`). It shows no name or address. It is built for each response from the session and never stored in a shared cache: a signed-in reader is never served from the edge page cache. One consequence: the tag listing, which a browser may keep for up to two minutes, can show the signed-out header for that long after sign-in. Accepted |
 | Card summaries | Clamped to 3 lines with a "more" link to the work page, which shows the full summary. Rating and archive warnings are separate lines and are never clamped. A content note in summary line 4 is hidden on cards, and that's accepted |
+| Link cards | A shared rarepair link shows a text-only card: Open Graph tags plus `twitter:card` set to `summary`, and no image. A work page's card holds the title, then a description of the byline ("Anonymous" when none), the rating ("Not Rated" when none), every archive warning and the fandoms, in that order so a sharing site that clips it loses the fandoms first, and its own address without a query. This keeps the *Warnings* constraint: rating and warnings are on every work card. The card has no summary, on any rating, because a summary can hold content notes and a sharing site would show it with no warning around it (operator's ruling). The public pages that aren't a work (home, coming-soon, search, tag listings, About, Terms, Privacy, `/remove`, `/dmca`) share one site card that says what the site is. Cards are opt-in and built from fixed fields, never from the request: signed-in state, a token or a query never reaches a tag. Chapters, the entire work, the warnings screen, withheld works, the sign-in and token pages (removal and wait list links included), account and admin pages and the not-found page have none. A card has no length cap; a sharing site clips it. A sharing site may keep a card it has already fetched, so one can outlast a work's removal there; nothing recalls it |
 | Home page | Leads with search. Popular fandoms and recently added works go below |
 | Original AO3 link | A live link with a note that it works again once AO3 is back. Nothing changes automatically when AO3 returns; redirecting works to AO3 is part of a later wind-down the operator starts by hand |
 | Discovery output | This doc plus low-fidelity clickable wireframes |
@@ -85,7 +86,9 @@ Reading never requires an account (ARCHITECTURE, *Auth*).
 3. The link opens a short page with a "Sign in" button (a POST form, so a mail
    scanner opening the link in advance can't use it up). Pressing it signs them
    in, with or without JavaScript, and sends them back to the page they started
-   from. It uses a stored same-site `next` value, never an open redirect.
+   from. It uses a stored same-site `next` value, never an open redirect. In the
+   browser that asked for the link, with JavaScript on, the page presses it
+   itself: nothing to do.
 4. An email with no account gets one at this point. A new account first lands
    on a one-time terms page (`/welcome/terms`) and must accept before going
    anywhere else (bar the pages open to anyone: see the Accept terms row); then it continues to `next`. Returning users never see it.
@@ -134,7 +137,9 @@ Reading never requires an account (ARCHITECTURE, *Auth*).
    check* (held versions, works live with the "may be imperfect" notice, and
    "This version is wrong" reports). Each is a plain table, oldest first.
 2. Each item has a detail page with actions: hide, remove, restore, approve,
-   reject, block requester, ban uploader. An open report also has "Dismiss report",
+   reject, ban uploader, and on a removal or opt-out request's page, block
+   requester (a takedown's requester is free text, so its page doesn't offer
+   it). An open report also has "Dismiss report",
    which closes it for having no merit and changes nothing on the work. Removing can ask for a public reason, and
    a removal list entry can be withheld (`/admin/listed-pseuds`, or the work's admin
    page). A request's page lists the other
@@ -169,7 +174,7 @@ without it. Elsewhere the
 | Entire work | `/works/:id/full` | all | All chapters on one page; the "may be imperfect" notice when it applies | Saves position |
 | Reader settings | `/settings/reader` | all | POST form sets a cookie, then redirects back; signed-in readers also get the warnings on/off choice, saved to their account | Applied live from the reader |
 | Sign in | `/login` | all | `<noscript>` message: signing in needs JavaScript | Email form with Turnstile, "check your email", error states |
-| Confirm sign-in | `/login/confirm?token=…` | all | "Sign in" button (POST form); used, expired or unknown links redirect to `/login` with a message | — |
+| Confirm sign-in | `/login/confirm?token=…` | all | "Sign in" button (POST form), under "Sign in as j***@example.com" for an unused link and with no address for any other; pressing it on a used, expired or unknown link redirects to `/login` with a message | In the browser that asked for the link (it holds the sign-in marker), a script submits the form once on load, so nothing needs pressing. In any other browser the page has no script |
 | Sign out | `/logout` | all (signed in or not) | Signed in: a "Sign out" button (POST form) that ends the session and goes to `/`, or, if the session row couldn't be deleted, answers a 500 "Sign out didn't work, try again" page with the same button; GET signs nobody out. Signed out: says so, with a link to sign in | — |
 | Accept terms | `/welcome/terms` | new accounts, once | Terms summary, link to `/terms`, Accept button (POST form); every other signed-in page redirects here until accepted, except the pages open to anyone and to sign-in (`/terms`, `/privacy`, `/about`, `/remove` and `/dmca`, so a typed request or notice isn't lost, `/login`, `/logout`), `/admin` and static files (`TERMS_EXEMPT` in `apps/web/src/terms.ts`); `/search` is not exempt | — |
 | Upload | `/upload` | signed in | `<noscript>` message: uploading needs JavaScript | Turnstile, then direct-to-R2 upload with progress, one or more files |
