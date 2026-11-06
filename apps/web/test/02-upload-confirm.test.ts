@@ -60,7 +60,12 @@ async function expectFreed(up: { id: string; key: string }) {
 }
 
 /** A confirm in this isolate, on these bindings, for what Miniflare can't be made to do. */
-async function completeWith(id: string, cookie: string, bindings: Partial<typeof env>) {
+type Faulty = {
+  INGEST?: { send: () => Promise<never> };
+  BUCKET?: { get: () => Promise<never>; delete: (key: string) => Promise<void> };
+};
+
+async function completeWith(id: string, cookie: string, bindings: Faulty) {
   const ctx = createExecutionContext();
   const res = await app.fetch(
     new Request(`${BASE}/uploads/${id}/complete`, {
@@ -80,8 +85,7 @@ const QUEUE_DOWN = {
       throw new TypeError("queue down");
     },
   },
-  // SAFETY: the route calls only `send` on the queue.
-} as unknown as Partial<typeof env>;
+};
 
 /** Bytes that are no real epub and no fic: random, so no two tests share a hash. */
 const randomBytes = (n = 64) => crypto.getRandomValues(new Uint8Array(n));
@@ -304,8 +308,7 @@ describe("02-upload-handshake", () => {
       delete: (key: string) => env.BUCKET.delete(key),
     };
 
-    // SAFETY: the route calls only these two of the binding's methods here.
-    const res = await completeWith(up.id, cookie, { BUCKET: bucket as unknown as R2Bucket });
+    const res = await completeWith(up.id, cookie, { BUCKET: bucket });
 
     await expectRefused(res, 500);
     await expectFreed(up);

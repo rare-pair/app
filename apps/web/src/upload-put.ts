@@ -36,9 +36,6 @@ const DIDNT_FINISH = "That file didn't finish uploading. Please upload it again.
 const NO_SUCH_UPLOAD = "There is no such upload.";
 const ALREADY_HANDLED = "That upload was already handled. Check its status on the upload page.";
 
-/** Only the error's name: a driver's message can carry the query's values. */
-const nameOf = (error: unknown) => (error instanceof Error ? error.name : "unknown");
-
 /**
  * Deletes an upload's object. One that fails is left for the bucket's 7-day lifecycle rule, and
  * nothing the uploader is told depends on it.
@@ -47,7 +44,10 @@ export async function deleteObject(bucket: R2Bucket, key: string): Promise<void>
   try {
     await bucket.delete(key);
   } catch (error) {
-    console.error("deleting an upload's object failed", nameOf(error));
+    console.error(
+      "deleting an upload's object failed",
+      error instanceof Error ? error.name : "unknown",
+    );
   }
 }
 
@@ -131,13 +131,16 @@ async function store(c: UploadIdContext, upload: OwnUpload, userId: string, body
       c.executionCtx.waitUntil(db.destroy());
     }
   } catch (error) {
-    console.error("storing an upload failed", nameOf(error));
+    console.error("storing an upload failed", error instanceof Error ? error.name : "unknown");
     const db = openDb();
     try {
       await freeUpload(db, bucket, upload.id, userId);
     } catch (freeError) {
       // The reaper removes the row, and the object with it.
-      console.error("freeing a failed upload failed", nameOf(freeError));
+      console.error(
+        "freeing a failed upload failed",
+        freeError instanceof Error ? freeError.name : "unknown",
+      );
     } finally {
       c.executionCtx.waitUntil(db.destroy());
     }
@@ -182,7 +185,7 @@ export async function putUpload(c: UploadIdContext) {
     }
   } catch (error) {
     // The page's script reads JSON: a fault in the database gets one too.
-    console.error("checking an upload failed", nameOf(error));
+    console.error("checking an upload failed", error instanceof Error ? error.name : "unknown");
     return refuse(500, "Something went wrong sending that file. Please try again.");
   } finally {
     c.executionCtx.waitUntil(db.destroy());
@@ -217,7 +220,7 @@ export async function giveUpUpload(c: UploadIdContext) {
     if (!(await freeUpload(db, c.env.BUCKET, id, user.id))) return refuse(404, NO_SUCH_UPLOAD);
     return c.json({ status: "freed" }, 200, NO_STORE);
   } catch (error) {
-    console.error("freeing an upload failed", nameOf(error));
+    console.error("freeing an upload failed", error instanceof Error ? error.name : "unknown");
     return refuse(500, "Something went wrong. Please try again.");
   } finally {
     c.executionCtx.waitUntil(db.destroy());

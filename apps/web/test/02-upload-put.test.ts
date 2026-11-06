@@ -56,10 +56,11 @@ async function putRaw(
   id: string,
   body: ReadableStream<Uint8Array> | null,
   headers: Record<string, string>,
-  bindings: Partial<typeof env> = {},
+  bindings: { BUCKET?: { put: () => Promise<never>; delete: (key: string) => Promise<void> } } = {},
 ) {
   const ctx = createExecutionContext();
   const res = await app.fetch(
+    // SAFETY: `duplex` is what workerd needs of a stream body, and RequestInit has no such field.
     new Request(`${BASE}/uploads/${id}`, {
       method: "PUT",
       headers: { "content-type": EPUB, ...SAME_ORIGIN, ...headers },
@@ -316,13 +317,7 @@ describe("02-upload-handshake", () => {
       delete: (key: string) => env.BUCKET.delete(key),
     };
     await expectRefused(
-      await putRaw(
-        up.id,
-        bodyOf(10),
-        { cookie, "content-length": "10" },
-        // SAFETY: the route calls only these two of the binding's methods here.
-        { BUCKET: bucket as unknown as R2Bucket },
-      ),
+      await putRaw(up.id, bodyOf(10), { cookie, "content-length": "10" }, { BUCKET: bucket }),
       400,
     );
     await expectFreed(up);
@@ -369,7 +364,7 @@ describe("02-upload-handshake", () => {
   async function endingMidway(
     cookie: string,
     id: string,
-    meanwhile: () => Promise<unknown>,
+    meanwhile: () => Promise<object | string>,
   ): Promise<Response> {
     const body = heldBody();
     const sent = putRaw(id, body.stream, { cookie, "content-length": "10" });
