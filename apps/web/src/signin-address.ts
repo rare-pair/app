@@ -32,9 +32,10 @@ export async function maskedAddressOfLink(
     .where("expires_at", ">", new Date())
     .executeTakeFirst();
   if (row === undefined) return null;
-  // SAFETY: the row's value is JSON the plugin wrote; a value of any other shape throws here or fails the check.
-  const { email } = JSON.parse(row.value) as { email?: unknown };
-  return typeof email === "string" ? maskEmail(email) : null;
+  // SAFETY: the row's value is JSON the plugin wrote. A value of any other shape throws,
+  // here or in maskEmail, and the caller shows the plain page.
+  const { email } = JSON.parse(row.value) as { email: string };
+  return maskEmail(email);
 }
 
 /** The plugin's stored form of a token: SHA-256, as unpadded base64url. */
