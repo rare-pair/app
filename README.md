@@ -7,8 +7,9 @@ From the repository root, after `npm ci`:
 | Command | Runs |
 |---|---|
 | `npm test` | Every workspace's Vitest suites (Node, and workerd through `@cloudflare/vitest-plugin`), then `scripts/*.test.mjs`. Needs no browser. |
-| `npm run test:browser` | The browser suites in `apps/web/browser/`: headless Chromium against the web, ingest and content Workers. Not part of `npm test`. Under a minute. |
+| `npm run test:browser` | The browser suites in `apps/web/browser/`: headless Chromium against the web, ingest and content Workers. Not part of `npm test`. A few minutes, on 4 workers. |
 | `npm run typecheck`, `npm run lint`, `npm run format:check`, `npm run build` | The other standing checks. |
+| `bash scripts/heavy.sh <check>` | Any of those, one at a time across every worktree, at below-normal priority: `ci`, `lint`, `format`, `typecheck`, `test`, `build`, `browser`. Agents use this. |
 
 ### The browser suites
 

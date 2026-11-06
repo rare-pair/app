@@ -37,17 +37,19 @@ It reads the commits since the merge base, plus uncommitted changes to tracked f
 Run from the repo root:
 
 ```bash
-npm ci
-npm run lint
-npm run format:check
-npm run typecheck
-npm test
-npm run build
+bash scripts/heavy.sh ci
+bash scripts/heavy.sh lint
+bash scripts/heavy.sh format
+bash scripts/heavy.sh typecheck
+bash scripts/heavy.sh test
+bash scripts/heavy.sh build
 ```
+
+`scripts/heavy.sh` runs one check at a time across every worktree, at below-normal priority, so it may wait its turn: give it a long timeout. Run the checks only through it, because several at once stall the machine. A single test file run directly with vitest needn't go through it.
 
 The root `package.json` defines these scripts. `lint` (oxlint with ai-deslop's rules, `oxlint.config.ts`) and `format:check` (oxfmt, `.oxfmtrc.jsonc`) run once from the root over every workspace and `scripts/`; `npm run format` fixes what `format:check` finds. The other three run in each workspace with `--if-present`, which silently skips a workspace that lacks the script: report that workspace's check **not run: not defined yet**, never pass. A cache hit is not a run: pass the tool's force flag when the runner caches.
 
-When the protocols include `web` or `integration`, also run the browser suite, `npm run test:browser`, once `npm test` has finished: both start workerd, so don't run them together. It needs Playwright's Chromium, which `npm ci` doesn't download. If it's missing, don't install it: report it and stop, because the operator installs browsers.
+When the protocols include `web` or `integration`, also run the browser suite, `bash scripts/heavy.sh browser`. It needs Playwright's Chromium, which `npm ci` doesn't download. If it's missing, don't install it: report it and stop, because the operator installs browsers.
 
 A check that fails in a workspace the item should not have touched is a stop event, not a fix. Report it under *Deviations* with the failing output, and name the choice in the final report for the operator.
 
@@ -139,7 +141,7 @@ A bullet only a deployed environment can show, such as real R2, Queues, Turnstil
 1. `git fetch`. Don't bring `main` in yet: §6.4 does it once, just before the merge, so the ladder reviews the branch's own work.
 2. CI on the PR's head is green, or report it not run when the repo has no CI yet.
 3. The review ladder below, scaled by the PR's risk tier. The operator may waive it or stop it at any rung. *What was run* names the tier and the rungs that ran. A rung starts once the fixes from the rung before are pushed. There is no Copilot review (operator's ruling).
-4. Merge with `gh pr merge <n> --squash` only when the operator has said to merge. For a PR built under `/orchestrate`, the standing rule in `docs/process.md` (*Work items*, "The orchestrator merges") is that word, and only the orchestrator merges: a builder, or any agent launched to run this gate, never merges the PR. Bring `main` in once, just before the merge, if the branch doesn't contain it (`git merge-base --is-ancestor origin/main origin/<branch>`). It isn't needed after each other merge that lands meanwhile. Then rerun §3 on the merged head. Under `/orchestrate`, the orchestrator has an agent on a cheap model try the merge (`/orchestrate` §5), and the builder resolves a conflict. Otherwise whoever merges the PR brings it in, resolves a conflict, and adds a line to the PR's *What was run* block naming the merged head and the §3 results. A conflict resolved by hand goes through the ladder again. Then a draft is marked ready for review (`gh pr ready <n>`) by whoever merges.
+4. Merge with `gh pr merge <n> --squash` only when the operator has said to merge. For a PR built under `/orchestrate`, the standing rule in `docs/process.md` (*Work items*, "The orchestrator merges") is that word, and only the orchestrator merges: a builder, or any agent launched to run this gate, never merges the PR. Bring `main` in once, just before the merge, if the branch doesn't contain it (`git merge-base --is-ancestor origin/main origin/<branch>`). It isn't needed after each other merge that lands meanwhile. Then rerun §3 on the merged head. Under `/orchestrate`, the orchestrator runs `scripts/merge-main.sh` (`/orchestrate` §5), and the builder resolves a conflict. Otherwise whoever merges the PR brings it in, resolves a conflict, and adds a line to the PR's *What was run* block naming the merged head and the §3 results. A conflict resolved by hand goes through the ladder again. Then a draft is marked ready for review (`gh pr ready <n>`) by whoever merges.
 
 **Risk tiers.** Each changed file gets a tier by the first rule it matches, checked from tier 3 down, and the PR takes the highest tier any file gets. When unsure, use the higher.
 
