@@ -11,8 +11,9 @@ Operator rulings, 2026-11-06:
 - Reading position isn't saved on gated works, so an account holds no record of which ones it read.
 - A sign-in link asked for from a gated work goes to the home page, so the email, the queue and Resend hold no work ID. The reader finds the work again after signing in.
 - The operator turns the gate on by hand, after the checks under "Before turning it on". The code ships with it off.
+- A reader can report a work as NSFW. Reports from 3 distinct accounts gate it at once, and a moderator then confirms or clears that. The reason ships with the gate and shows only while the gate is on.
 
-Status: not built. Until this ships, reading needs no account and no JavaScript, and the specs in `mvp/` describe the site. When it ships, specs 09, 10, 11, 12, 21 and 24 change where the cases below say so.
+Status: not built. Until this ships, reading needs no account and no JavaScript, and the specs in `mvp/` describe the site. When it ships, specs 09, 10, 11, 12, 14, 15, 17, 18, 21 and 24 change where the cases below say so.
 
 What this does and does not do: the gate asks for a working email address and a reader's own word about their age. It checks nothing about their age. It does not recall a saved page, a downloaded epub or a copy already in a browser's cache.
 
@@ -25,6 +26,8 @@ Defaults taken where the rulings left a detail open, which the operator can chan
 - It is kept in the cookie alone, as ruled: nothing about age goes on the account, so another browser or device asks again.
 - The report link keeps its `next`, since `requireSignIn` runs before any work is read. A signed-out visitor who reports a gated work gets a sign-in link naming it. Reporting is their own choice, and it needs no gate.
 - Positions saved before the gate, or before a work became gated, aren't deleted. Nothing reads them while the work is gated, and they expire within a year or go with the account. If a rating is later lowered, the Continue link comes back.
+- An NSFW mark belongs to the work, not a version, so a new version or a rollback keeps it. Without that, an upload could undo a moderator's decision.
+- A moderator's "Not NSFW" stops further reports gating the work until a moderator changes it, so the same accounts can't gate it again. It can't open a work that its rating or warnings gate.
 
 Accepted unless the operator says otherwise, each a direct cost of using this sign-in:
 
@@ -33,6 +36,7 @@ Accepted unless the operator says otherwise, each a direct cost of using this si
 - **Database faults.** A signed-in request whose session lookup fails answers 500, so during a Postgres outage gated chapters are unreadable to everyone, while a signed-out reader can still get an ungated chapter from the edge cache for the rest of its 60 s.
 - **A raised rating on a cached file.** A new version doesn't purge the content origin's cache, so a file stored as ungated stays open in that data centre for up to 12 hours after its work becomes gated, and in a browser for an hour after that. It is the same window a hide has (spec 09).
 - **A pass can be passed on.** A signed-in reader who copies their pass cookie can hand someone a day's access to every gated file, and a copied file URL needs a pass of its own. Reading the text was always copyable by the same person.
+- **False reports.** Three accounts can put a harmless work behind sign-in until a moderator clears it. It stays readable after sign-in, and accounts are free to make, so this limits abuse only as far as the 3-account hide does.
 
 ## How the content origin gates without a session
 
@@ -56,7 +60,8 @@ Rejected: a signature in each image URL breaks the one fragment every reader sha
 ## Setup
 
 - `NSFW_GATE` is a setting on the web and content Workers. The gate is on unless it says `off`, the same reading as `PRELAUNCH`, so a typo can't open it. Every case but those under "Turning it on" has it on, and `PRELAUNCH` off
-- A **gated work** is a work rated Mature or Explicit, after trimming and ignoring case, or carrying the archive warning Rape/Non-Con or Underage, compared in their normalized form. AO3 has also spelled the second "Underage Sex", and the list holds both
+- A **gated work** is a work rated Mature or Explicit, after trimming and ignoring case, or carrying the archive warning Rape/Non-Con or Underage, compared in their normalized form, or holding an NSFW mark of `reported` or `confirmed`. AO3 has also spelled the second warning "Underage Sex", and the list holds both
+- A work's **NSFW mark** is a column on `works`: none, `reported` (3 accounts reported it), `confirmed` (a moderator marked it) or `cleared` (a moderator said it isn't NSFW)
 - Live works, each with 5 chapters and an image:
   - E rated Explicit
   - M rated Mature
@@ -481,7 +486,7 @@ Only signed-out requests with no settings, flash or auth cookie read or fill the
 #### Gated works stay listed
 - GIVEN gated work E in fandom F, and a signed-out visitor
 - WHEN they open the home page, F's tag listing, or a listing filtered to Explicit
-- THEN E's card is there with its rating and archive warnings in full, as in spec 14, and no sign-in wording is added to the card
+- THEN E's card is there with its rating and archive warnings in full, as in spec 14, and no sign-in wording is added to the card, whose only new line is "Marked NSFW" on a work with a mark
 
 #### Gated works stay searchable
 - GIVEN gated work E and a signed-out visitor
@@ -493,6 +498,95 @@ Only signed-out requests with no settings, flash or auth cookie read or fill the
 - GIVEN a tag listing kept by the browser for up to two minutes
 - WHEN a reader signs in during that time
 - THEN the listing may show the signed-out header, as already accepted, and its cards are the same either way, so the gate adds nothing that can go stale there
+
+### NSFW reports
+
+The reason sits on the existing report form, with its account, ban, block and closed-report rules (spec 17). Draft label: "This should be marked NSFW", stored as kind `nsfw`.
+
+#### A signed-in reader can report an ungated work as NSFW
+- GIVEN work G and signed-in reader U1 on its report form
+- WHEN U1 submits the reason "This should be marked NSFW"
+- THEN an open `nsfw` report is stored and listed in `/admin/reports`
+- AND G stays open, and the confirmation page says moderators will look at it
+
+#### A signed-out reader signs in first
+- GIVEN work G and a signed-out reader
+- WHEN they follow "Report" or POST a report
+- THEN they are sent to sign in and brought back to the form, as in spec 17, since G isn't gated
+
+#### A gated work doesn't offer the reason
+- GIVEN gated work E, or a work with a `reported` or `confirmed` mark
+- WHEN its report form renders
+- THEN it has no NSFW reason, and a POST of that reason stores nothing and shows the form again
+
+#### Reports from three accounts gate the work
+- GIVEN work G with open `nsfw` reports from U1 and U2
+- WHEN U3 submits one
+- THEN G's mark becomes `reported` in the same transaction, one moderation log row records it, and G is gated
+- AND the work's page entries and files are purged as a removal purges them, with nothing deleted, so the gate applies within the usual window of about 75 s for the cached connection
+- AND a failed purge doesn't fail the report: a page entry lapses within 60 s and a stored file within 12 hours
+
+#### Repeat reports count once, and some don't count
+- GIVEN work G with open `nsfw` reports from U1 only
+- WHEN U1 reports it again, and account K, matching a blocked requester, reports it
+- THEN both are stored, and G's mark doesn't change
+- AND a banned account's report isn't stored, and a closed report doesn't count, as in spec 17
+
+#### NSFW reports never hide a work
+- GIVEN work G with open `nsfw` reports from 3 accounts, and open other reports from 2 others
+- WHEN the counts are taken
+- THEN G stays live, because `nsfw` reports never count toward the 3-account hide, and other reports never count toward the NSFW mark
+
+#### A marked work says why it is gated
+- GIVEN work G rated General Audiences, with a `reported` mark
+- WHEN its card, work page or warnings screen renders
+- THEN its rating still reads "General Audiences"
+- AND the card has a plain line "Marked NSFW", and the work page and screen say "Readers reported this work as NSFW; a moderator will check"
+- AND with a `confirmed` mark the card keeps its line, and the other two say "A moderator marked this work NSFW"
+
+#### A marked work passes through the same gate
+- GIVEN work G with a `reported` mark, which otherwise gets no warnings screen
+- WHEN a signed-out visitor and a signed-in reader with no age cookie open chapter 1
+- THEN each gets the warnings screen for a gated work, with the sign-in link and the age box in turn
+- AND a signed-in reader with the age cookie goes straight to chapter 1, since G has nothing else to warn about
+
+#### A mark gates images and originals
+- GIVEN work G with a `reported` mark, and a request with no valid pass
+- WHEN one of its images or its original is requested past the cache
+- THEN it is refused with the 403, since the content Worker's read includes the mark
+
+#### A moderator confirms
+- GIVEN work G with a `reported` mark and open `nsfw` reports
+- WHEN a moderator uses "Mark NSFW" on the report's detail page
+- THEN the mark becomes `confirmed`, every open `nsfw` report on G is closed, and one moderation log row records it
+
+#### A moderator clears
+- GIVEN work G with a `reported` mark and open `nsfw` reports
+- WHEN a moderator uses "Not NSFW"
+- THEN the mark becomes `cleared`, every open `nsfw` report on G is closed, one moderation log row records it, and G is open again within the usual windows
+- AND no purge is sent: a stored file marked gated is checked again for a request with no pass, as under "Images"
+
+#### A cleared work stays open whatever is reported
+- GIVEN work G with a `cleared` mark
+- WHEN three more accounts report it
+- THEN the reports are stored and listed for a moderator, and G's mark doesn't change
+
+#### A moderator can act without a report
+- GIVEN any live work, on its admin page
+- WHEN a moderator uses "Mark NSFW", or "Not NSFW" on a marked work
+- THEN the mark changes as above, purging as above when that gates the work, with one moderation log row
+- AND "Not NSFW" on a work rated Explicit changes the mark only, and the page says the work stays gated by its rating or warnings
+
+#### A mark outlives a version
+- GIVEN work G with a `confirmed` mark, and a work with a `cleared` mark
+- WHEN a new version goes live, or a moderator makes an older version current
+- THEN each mark stays as it was
+
+#### While the gate is off
+- GIVEN `NSFW_GATE` is `off`
+- WHEN a report form renders
+- THEN it has no NSFW reason, and a POST of that reason stores nothing
+- AND marks and open `nsfw` reports are kept, and marks gate nothing, and show on no page, until the gate is on again
 
 ### Privacy
 

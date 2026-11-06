@@ -923,7 +923,9 @@ can be snapshotted.
   signed-in reader to tick an age statement. A cookie in that browser remembers the tick, and
   nothing about age goes on the account. The gate runs before the warnings check, and the
   warned cookie doesn't pass it. The work's card, work page, listings and search stay public,
-  and Not Rated works stay open. The page cache entry keeps whether the work is gated, so a
+  and Not Rated works stay open. Reports from 3 accounts, or a moderator, can also mark any work
+  NSFW; the mark is on the work, so a new version keeps it, and a moderator can clear it. The
+  page cache entry keeps whether the work is gated, so a
   hit redirects with no read, and a signed-out miss stores the entry without reading a
   fragment. Signed-in readers still never use the entry, so every read of a gated work costs a
   session read and a work read, which is to be measured first. Images and originals are gated
@@ -1469,7 +1471,10 @@ epub, under the normal versioning rules.
   open report on the work still counts). One reason is "This version is wrong"
   (`wrong_version`), which only queues the work in *Works to check*: those
   reports never count toward the 3-account auto-hide. (Authors asking for
-  removal use `/remove`, which needs no account.)
+  removal use `/remove`, which needs no account.) Post-launch, with the NSFW gate, a reason
+  "This should be marked NSFW" (`nsfw`) gates a work once 3 distinct accounts have sent it,
+  until a moderator confirms or clears that. Those reports never count toward the hide either
+  (Reading, NSFW gate).
 - **Moderation.** A small admin area has four queues, each a table, oldest
   first:
   - reports
