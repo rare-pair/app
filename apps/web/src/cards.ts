@@ -1,7 +1,8 @@
 // Link preview cards: Open Graph tags plus `twitter:card`, as raw markup for a page's
 // `head` (pages.ts, `layout`). Opt-in: a page that isn't passed a card has none, so
 // chapters, withheld works, token pages and admin pages are card-free by construction.
-// A card is text only (no image) and holds no summary (FRONTEND-DISCOVERY, Link cards).
+// A card is text only (no image) and a work's holds no summary (FRONTEND-DISCOVERY, Link
+// cards). An update post's holds the post's own summary, which is short plain text the operator wrote.
 // It is built from named fields, never from the request, so no token or query reaches it.
 
 import { escapeHtml } from "./pages";
