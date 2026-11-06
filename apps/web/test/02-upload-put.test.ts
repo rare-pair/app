@@ -337,6 +337,23 @@ describe("02-upload-handshake", () => {
     expect(await rowOf(up.id)).toEqual({ status: "pending", quota_counted_at: null });
   });
 
+  it("A send repeated after its answer was lost can still be confirmed, once", async () => {
+    const { userId, cookie } = await signIn("upslot-repeat-confirm");
+    const bytes = randomBytes(10);
+    const up = await opened(userId, 10);
+    expect((await put(up.id, bytes, { cookie })).status).toBe(200);
+    expect((await put(up.id, bytes, { cookie })).status).toBe(409);
+
+    const confirmed = await postLogin(
+      {},
+      { url: `/uploads/${up.id}/complete`, headers: { cookie } },
+    );
+
+    expect(confirmed.status).toBe(200);
+    expect((await rowOf(up.id))?.quota_counted_at).not.toBeNull();
+    expect(await env.BUCKET.head(up.key)).not.toBeNull();
+  });
+
   it("A second file is refused before its body is read, whatever its headers", async () => {
     const { userId, cookie } = await signIn("upslot-second-unread");
     const first = randomBytes(10);

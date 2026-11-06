@@ -332,6 +332,7 @@ database doesn't check that a `pseud_norm` isn't made only of invisibles:
    answer is 409. `waitUntil` keeps this going for a bounded time after a client that goes away,
    and the reaper has what it doesn't finish. A database fault answers 500 before the stream, and
    after it leaves the row as it is, for the reaper or the confirm.
+   A PUT answered 409 goes on to the confirm, which says what became of the upload.
    A PUT that fails in the browser, a stalled one the page ended and a confirm that never reached
    the server, or ended in a server fault, are reported with `DELETE /uploads/:id`, which only ever
    frees the caller's own open upload (same cross-site check; anything else is answered 404). It
