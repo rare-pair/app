@@ -71,6 +71,7 @@ async function request(key: string, init: RequestInit = {}, bindings: Env = E) {
 }
 
 /** Bindings that fail any request touching them: Postgres, and R2 for a read or a write. */
+// SAFETY: nothing can be read from it: the handler below throws for every property.
 const noBindings = new Proxy({} as Env, {
   get(_, name) {
     throw new Error(`The refusal reached ${String(name)}`);
@@ -212,6 +213,9 @@ describe("24-crawler-and-agent-blocking", () => {
 
   it("Every response asks not to be indexed or used", async () => {
     const TAG = "noindex, noarchive, noai, noimageai";
+    const down: Pick<R2Bucket, "get"> = { get: () => Promise.reject(new Error("R2 unavailable")) };
+    // SAFETY: the Worker calls only BUCKET.get. A read that fails answers 503, so a 200 is a hit.
+    const noR2 = { BUCKET: down as R2Bucket, HYPERDRIVE: E.HYPERDRIVE };
     await caches.default.delete(`${ORIGIN}/${imageOf(W)}`);
     await caches.default.delete(`${ORIGIN}/${original}`);
     for (const key of [imageOf(W), original]) {
@@ -223,22 +227,13 @@ describe("24-crawler-and-agent-blocking", () => {
         `${ORIGIN}/${key}`,
         new Response(miss.body, { headers: { "Cache-Control": "public, max-age=43200" } }),
       );
-      const failing = { get: () => Promise.reject(new Error("The hit read R2")) };
-      // SAFETY: a hit reads no binding, and this bucket fails if it does.
-      const hit = await request(
-        key,
-        {},
-        { BUCKET: failing as unknown as R2Bucket, HYPERDRIVE: E.HYPERDRIVE },
-      );
+      const hit = await request(key, {}, noR2);
       expect(hit.res.status, key).toBe(200);
       expect(hit.res.headers.get("x-robots-tag"), `hit ${key}`).toBe(TAG);
       const head = await request(key, { method: "HEAD" });
       expect(head.res.headers.get("x-robots-tag"), `HEAD ${key}`).toBe(TAG);
     }
 
-    const down = { get: () => Promise.reject(new Error("R2 unavailable")) };
-    // SAFETY: the Worker calls only BUCKET.get on this path.
-    const noR2 = { BUCKET: down as unknown as R2Bucket, HYPERDRIVE: E.HYPERDRIVE };
     const others: [string, number, Awaited<ReturnType<typeof request>>][] = [
       ["refusal", 403, await request(imageOf(W), { headers: CRAWLER })],
       ["robots.txt", 200, await request("robots.txt")],
