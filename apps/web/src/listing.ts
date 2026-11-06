@@ -15,6 +15,7 @@ import {
 } from "@archive/db";
 import type { Context } from "hono";
 import type { Bindings } from "./env";
+import { siteCard } from "./cards";
 import { escapeHtml, layout } from "./pages";
 import { tidySummary, withoutLinks } from "./summary";
 import { TAG_LABELS, TAG_NAMES, tagHref } from "./tag-links";
@@ -122,7 +123,7 @@ export async function showTagListing(c: Context<{ Bindings: Bindings }>) {
       // nobody has used, and the page repeats nothing from its URL.
       return page === 1
         ? c.html(
-            layout("No works with this tag", "<p>No works have this tag yet.</p>"),
+            layout("No works with this tag", "<p>No works have this tag yet.</p>", siteCard()),
             200,
             CACHED,
           )
@@ -147,7 +148,7 @@ export async function showTagListing(c: Context<{ Bindings: Bindings }>) {
         // The name, then its type, so two pages with one name read differently.
         `${heading} (${TAG_NAMES[type].toLowerCase()})`,
         `${filterForm(listingHref(type, name, []), query)}\n${list}\n${pager(href, page, last)}`,
-        canonical,
+        `${canonical}${siteCard()}`,
       ),
       200,
       CACHED,
