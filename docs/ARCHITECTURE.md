@@ -19,6 +19,7 @@ an unofficial stopgap.
 | Crawlers and agents | Clients that declare themselves automated are refused the whole site, search engines and link previews included. The Workers and the custom rule except `robots.txt` and one-click unsubscribe. Bot Fight Mode is on and the AI Crawler and Agent access policies are on block. Reading needs no sign-in at launch (NSFW works will, post-launch), and the app adds no challenge, but Cloudflare's bot protection can challenge a reader it flags (operator ruling, 2026-11-06, replacing 2026-11-04) |
 | Hosting | Cloudflare on the Workers Paid plan: Workers, R2 (one bucket for every prefix), Queues, KV, plus Neon Postgres through Hyperdrive: a config with caching off for every read that decides something, and one with caching on for public pages only (see Connections). Workers Paid is an operator ruling, 2026-11-05 |
 | Load target | Surge-ready: assume tens of thousands of signups in the first days |
+| Upload transfer | Each file goes through the web Worker, which checks the session and the upload's row and streams it to R2 through the bucket binding. There is no presigned link. A size refusal, a failed confirm or a failed upload frees its slot at once, and the reaper stays for what the server never hears about or a fault stops it freeing (operator rulings, 2026-11-06) |
 | Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend alone. There is no failover provider at launch, and while Resend is down sign-in stops until it returns (operator ruling, 2026-11-05) |
 | Accepted files | AO3-native epub exports only. FanFicFare support comes later |
 | New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. A consistent edit goes live with no hold: readers' reports and rollback are the check (operator ruling, 2026-11-05). The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) |
@@ -48,8 +49,8 @@ an unofficial stopgap.
    │                    ▲                             • write chapters to R2, rows to PG
    │                    └─────────────────────────────┘
    │  web Worker ── Queues: email, email-bulk ──▶ mailer Worker ──▶ Resend
-   │  upload: presigned PUT from the browser (needs JS, like every Turnstile form)
-   ├────────────────────────────────────────────────▶ R2: uploads/  (raw epubs)
+   │  web Worker ── bucket binding ──▶ R2: uploads/  (raw epubs)
+   │  upload: PUT to the web Worker from the browser (needs JS, like every Turnstile form)
    │
    │             ┌───────────────────── content.rarepair.fans ──────────────────────┐
    └──────────▶  │  content Worker: epub images + original-file downloads from R2   │
@@ -61,10 +62,9 @@ an unofficial stopgap.
 ### Why these pieces
 
 - **R2 for all bytes.** It has no egress fees, which matters most when the
-  workload is mostly serving books. All prefixes live in one bucket, and the
-  token the web Worker uses to presign uploads can read and write the whole
-  bucket, not just `uploads/`. We accept the risk that a leak of that token
-  exposes every object. Fresh uploads land in `uploads/`, which
+  workload is mostly serving books. All prefixes live in one bucket, which
+  the Workers reach through their bindings: no R2 API token is held, and no
+  browser talks to the bucket. Fresh uploads land in `uploads/`, which
   expires on its own. Original files we keep go in `originals/`, and processed
   chapters go under `works/<ao3_work_id>/<upload_id>/`: one prefix per version,
   keyed by the upload that produced it, so a retried job overwrites only its own
@@ -306,25 +306,47 @@ database doesn't check that a `pseud_norm` isn't made only of invisibles:
    quota (Moderation, *Block and ban*), and `GET /upload` shows it a page saying
    it can't upload. A batch that would take the account's open uploads past the cap
    gets 429 (Orphaned uploads). Otherwise it inserts an `uploads` row for each file, all in
-   one transaction, and returns a presigned R2 `PUT` URL for each, valid for 10 minutes,
-   locked to `Content-Type: application/epub+zip` and signed for the file's declared
-   size as `Content-Length`: JSON `{ id, url }` for one file,
-   `{ uploads: [{ id, url }, ...] }` for several. R2 presigned URLs support PUT but not
-   form POST, and the bucket needs a CORS rule for `rarepair.fans`.
-2. **Upload.** The browser PUTs each file straight to R2 and shows each file's
-   progress, three at a time so fewer files wait on a URL that lasts 10 minutes (a
-   file that still starts too late fails, and another click sends the files not yet
-   uploaded). The page's
-   script sends with `XMLHttpRequest`, since `fetch` reports no upload progress.
+   one transaction, and returns their ids: JSON `{ id }` for one file,
+   `{ uploads: [{ id }, ...] }` for several. Transfer and confirm stay two requests after it, so
+   a confirm can be refused without a file on the wire.
+2. **Upload.** The browser PUTs each file to `PUT /uploads/:id` on the web Worker and shows each
+   file's progress, three at a time, and another click sends the files not yet uploaded. The
+   page's script sends with `XMLHttpRequest`, since `fetch` reports no upload progress.
    Each finished PUT is confirmed with `POST /uploads/:id/complete`.
    Uploading needs JavaScript, as every form with a Turnstile check does
    (Turnstile can't produce a token without it); without JS the upload page
    says so (FRONTEND-DISCOVERY, *Where the frontend changes the architecture*).
+   The route has the same cross-site check as the other upload routes, before the session lookup,
+   and a script's JSON 401 without a session or accepted terms. It spends no rate limit: each file
+   was counted at step 1, its upload stores one file, and a repeat is refused before its body is
+   read. Another user's upload is answered 404, like an unknown
+   one, and an upload that isn't open any more (`pending` and uncounted) 409. A banned account,
+   read from the database, gets 403 on an upload still open, which ends `account_banned`. An upload
+   whose file is already stored gets 409 and keeps it. A `Content-Type` other than exactly
+   `application/epub+zip` gets 415, a `Content-Length` that is missing or no whole number 411, one
+   over 25 MB 413 and any other size than was declared 400, before a byte is read, and each of
+   those frees the upload's slot (Orphaned uploads). Then the database connection is closed, so a slow upload holds
+   none and no lock a ban would wait on, and the body is streamed, never buffered, through a
+   `FixedLengthStream` of the declared size into the bucket binding. So the Worker holds the size
+   itself as the file arrives: a body longer or shorter than declared, or one that dies midway,
+   fails the stream, nothing is stored, and the slot is freed. The answer is the same 400 whether
+   the body or R2 failed, as the Worker can't tell them apart. The write is create-only
+   (`If-None-Match: *`, which R2 evaluates as it commits), so of two PUTs at once one gets 409 and
+   the first file stays. Once the file is stored the row is read again: if a ban, the reaper
+   or a confirm that found no file ended the upload meanwhile, the object is deleted and the
+   answer is 409. `waitUntil` keeps this going for a bounded time after a client that goes away,
+   and the reaper has what it doesn't finish. A database fault answers 500 before the stream, and
+   after it leaves the row as it is, for the reaper or the confirm.
+   A PUT answered 409 goes on to the confirm, which says what became of the upload.
+   A PUT that fails in the browser, a stalled one the page ended and a confirm that never reached
+   the server, or ended in a server fault, are reported with `DELETE /uploads/:id`, which only ever
+   frees the caller's own open upload (same cross-site check; anything else is answered 404). It
+   reads no ban, as it can only remove.
 3. **Confirm.** For a banned account, `POST /uploads/:id/complete` answers 403
-   and ends the upload `account_banned` before reading the object. Otherwise it HEADs the object, checks its size,
-   and hashes it (SHA-256). An object over 25 MB is deleted and the upload ends `too_large`
-   (413). An object of any other size than was declared is deleted with a plain 400, and
-   the upload stays `pending` and uncounted for the reaper (Orphaned uploads). If the hash matches an earlier upload that was
+   and ends the upload `account_banned`, deleting its object, before reading it; a confirm of an
+   upload a ban has already ended answers 409 and deletes the object too. Otherwise it reads the
+   object, and hashes it (SHA-256) if it is the size declared. No object, or one of any other size,
+   frees the slot with a plain 400. If the hash matches an earlier upload that was
    ingested into a work that is `live` or `hidden` (that upload's status is
    `live`, `held_for_review` or `duplicate`, with a `work_id`), the new upload
    is marked `duplicate` straight away, with `work_id` set to that work:
@@ -335,10 +357,13 @@ database doesn't check that a `pseud_norm` isn't made only of invisibles:
    was removed) gets no shortcut: the new upload is enqueued like any other,
    and the versioning rules, the same rejection, or (for a removed work) the
    opt-out and takedown checks, then `work_removed`, decide it. Otherwise it
-   enqueues `{upload_id}`. The presigned PUT stays valid after confirm, so the
-   object can change: on an enqueued upload, the hash stored here stands until a
-   job records the hash of what it read (EPUB processor, step 2). A repeat confirm
-   of an upload still `pending` hashes the object again and stores that, and a job
+   enqueues `{upload_id}`. A send that fails gives the use of the quota back and frees the slot,
+   with a 503 saying to upload the file again, since the page never sends the same confirm twice; a
+   repeat confirm's failed send changes nothing, as the first's message should still be queued
+   (a confirm that died between its count and its send, or whose refund failed, is #689). A fault
+   in the database or R2 frees an upload still open, with a 500. On an enqueued upload, the hash
+   stored here stands until a job records the hash of what it read (EPUB processor, step 2). A
+   repeat confirm of an upload still `pending` hashes the object again and stores that, and a job
    that reads the file afterwards replaces it in turn. An upload marked `duplicate`
    here has no job, so it keeps this hash.
 4. **Process.** The ingest consumer handles one upload per invocation (a batch
@@ -766,7 +791,7 @@ message to the uploader. `work_removed` is the upload of a work a moderator or
 its author removed, checked after the opt-out and takedown lists and before
 the current version is read. `account_banned` is an upload by an account a
 moderator banned, or one since deleted (Auth, Deleting an account) (its meaning to the uploader: the account can no longer
-upload): the ban sets it on the account's `pending` uploads (and a confirm sets
+upload): the ban sets it on the account's `pending` uploads (and a send or a confirm sets
 it on one written after the ban), and ingest sets it on a job whose uploader is
 banned, checked before the file is read and again, with a key-share lock on the
 account's row, in the save's transaction. A save that took that lock first
@@ -852,11 +877,8 @@ can be snapshotted.
   allowance, `frame-src https://challenges.cloudflare.com`, for the challenge
   iframe. Turnstile's `api.js` loads through a nonced `<script>`, which
   `'strict-dynamic'` already covers. Reader and work pages never get it.
-- **The upload page alone also adds** `connect-src 'self'
-  https://<R2 account id>.r2.cloudflarestorage.com`, the one host its script
-  PUTs files to. It is built per request from the Worker's `R2_ACCOUNT_ID`
-  (and left out if that isn't plain letters and digits, so the upload fails
-  closed). Every other page keeps `default-src 'self'` for connections.
+- **Every page keeps `default-src 'self'` for connections.** The upload page's
+  script sends its files to this site, so it needs nothing more.
 - **HTML pages aren't left to a shared cache with their nonce.** The CSP
   middleware sets `Cache-Control: private, no-store` on every HTML response
   that has no `Cache-Control` of its own, so a zone Cache Rule or a proxy can't
@@ -1231,8 +1253,8 @@ What stays, and why:
   on that version's row, with no ban form. A confirmed upload not yet saved is
   refused as a banned uploader's is, because `isUploaderBanned` counts an account
   with no row as banned. An open upload can't be confirmed with no account, so the
-  reaper takes its row and file (Orphaned uploads). A link already handed out can
-  still store its file until the link expires, and the `uploads/` expiry removes it.
+  reaper takes its row and file (Orphaned uploads). A file still arriving finds no row
+  of its account when it ends, so its object is deleted.
   A version held for review stays held, and a moderator can still approve it.
 - **Reports**, with `reporter_id` as it was. It has no foreign key, so a deleted
   account's report still counts toward the automatic hide (Author requests &
@@ -1331,9 +1353,9 @@ epub, under the normal versioning rules.
   for another reason first. Its live works and finished uploads stay
   until a moderator acts on them. A moderator bans from a work's admin page
   (`POST /admin/users/:id/ban`); nobody bans themselves, a moderator or an
-  admin, and there is no unban at launch. The upload and report routes read
-  the ban from the database on every request, so a session signed in before it
-  is refused after it.
+  admin, and there is no unban at launch. The routes that ask for, send or confirm an
+  upload, and the report route, read the ban from the database, so a session signed in
+  before it is refused after it. `DELETE /uploads/:id` doesn't: it can only remove.
 - **What hidden, held and removed works show.**
   - **Hidden** (`hidden`, by a removal request or opt-out, by reports, or by a
     moderator): 451 on the work page, every chapter URL and `/full`, with one
@@ -1441,7 +1463,7 @@ epub, under the normal versioning rules.
   Each withhold and un-withhold logs `withhold` or `unwithhold`,
   on the work, or on target kind `pseud` with the `pseud_norm` as `target_id`. `/remove`
   and `/dmca` say what will be published before anyone submits. The pages carry
-  `X-Robots-Tag: noindex` and give the moderators' contact address. Requests
+  `X-Robots-Tag: noindex, noarchive, noai, noimageai` and give the moderators' contact address. Requests
   `pageCacheable` allows share one edge cache entry per page number for up to 60 s,
   holding the page's data and not its nonce, on top of up to about 75 s in the cached
   Hyperdrive connection if these pages read through it (see *Connections*), so in each
@@ -1708,7 +1730,7 @@ markup: its inline `style` attributes become stylesheet rules, because
   **redirected to `/login`** with a plain message. A signed-out request to a
   signed-in page, or a signed-out report POST, is **redirected to sign in**,
   carrying `next` (Auth); a signed-out request a script makes, such as
-  `POST /uploads`, gets **401** instead, since a script can't follow that
+  `POST /uploads` and `PUT` or `DELETE /uploads/:id`, gets **401** instead, since a script can't follow that
   redirect. A non-moderator on `/admin`, signed out included,
   gets **404** (Author requests & takedowns, Moderation).
 - Upload quotas are hard limits, so they're counted in Postgres (or a Durable
@@ -1735,14 +1757,16 @@ markup: its inline `style` attributes become stylesheet rules, because
   - **Known limit.** A stranger who solves Turnstile 5 times can use up someone's
     sign-ins for the rest of the day, and a real person who loses their links can hit
     the cap. That person waits until the next day.
-- **Orphaned uploads.** Each presigned PUT signs the size declared for its file as
-  `Content-Length`, but nothing shows that this stops a PUT of another size:
-  Cloudflare's docs say a signed `Content-Type` is enforced and, as far as two searches
-  on 2026-11-05 found, don't say whether a signed `Content-Length` is. The live check on
-  real R2 is on the operator's list for after deploy. So a file that reaches `/complete` is checked
-  either way: it deletes an object over 25 MB or of any other size than was declared, unless a
-  confirm has already counted the upload, when the object is ingest's. A client may also never
-  call `/complete`, so three more limits apply. An account's open uploads (`pending` and not
+- **Orphaned uploads.** A failure the server hears about frees the upload's slot at once, unless a
+  database fault stops it, when the reaper has it: the row goes, by a delete of the caller's own open upload that also says who won, and only the request
+  whose delete matched removes the object. So a size refusal at the PUT, a body that doesn't match
+  or dies midway, a failed store, a confirm that finds no file or another size, a failed queue send
+  (with the quota's use given back) and a faulting confirm each leave the cap usable, and so does a
+  failure the page reports (`DELETE /uploads/:id`). An upload a confirm has counted is never
+  freed this way: its message is in the queue (bar #689), and its object is ingest's. An upload over the daily quota at
+  confirm keeps its row as `over_quota`, which holds no slot, and loses its object.
+  The server hears nothing of a closed tab or a lost network, or of files picked and never started,
+  so three more limits apply. An account's open uploads (`pending` and not
   counted by a confirm) can't pass its daily quota for its tier: asking past that cap gets 429
   with a `Retry-After` of an hour, the row lock in `insertUploadsWithinCap` holding it under
   parallel asks. The daily sweep's reaper deletes open uploads older than `UNCONFIRMED_UPLOAD_DAYS`
@@ -1751,16 +1775,14 @@ markup: its inline `style` attributes become stylesheet rules, because
   at most 500,000 rows, and the next takes the rest. A confirmed upload is never reaped, whatever
   its age. And an R2 lifecycle rule expires anything under `uploads/` after 7 days, which also
   takes an object whose delete failed.
-  **What an account can store depends on the live check.** Nothing checks the size of an object
-  nobody confirms. If R2 enforces the signed size, an account holds at most its cap times 25 MB
-  through unfinished links: 500 MB on the new-account quota of 20, 2.5 GB on the trusted 100. If R2
-  doesn't, each link can hold what one PUT can (5 GiB by R2's limit, as far as its docs say), so
-  about 100 GiB per new account for the day or two until the reaper runs. Those are the bounds on
-  unfinished links, not on an account. A link still works for its 10 minutes after confirm, so a
-  file can be replaced behind a counted upload, where neither the cap nor the reaper sees it
-  until the 7-day rule: a day's quota of 20 for 8 days holds about 4 GB if R2 enforces the size,
-  about 800 GiB if it doesn't. A link whose upload has ended has no per-account bound at all,
-  only the rate limits and Turnstile (the open bugs #635 and #637). Since the cap is the daily quota, raising
+  **What an account can store.** The Worker stores a file only for an open upload, and only of its
+  declared size, at most 25 MB, once. So an account holds at most its cap times 25 MB through
+  unfinished uploads: 500 MB on the new-account quota of 20, 2.5 GB on the trusted 100, for the day
+  or two until the reaper runs. A confirmed upload's file also stays under `uploads/` until the
+  7-day rule, so a day's quota for 8 days adds about 4 GB on the new-account quota and 20 GB on the
+  trusted one. A ban ends an account's pending uploads, which takes them out of
+  the reaper's reach, so a file stored and never confirmed before a ban waits for the 7-day rule
+  (#685). Since the cap is the daily quota, raising
   `UPLOAD_QUOTA_NEW` raises these bounds with it, and a quota under 10 can't take a full batch of 10.
   Raw files the archive keeps are copied to `originals/` during ingest.
 - Queue backpressure: set a maximum consumer concurrency so Neon connections
@@ -1905,7 +1927,7 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
 
 **MVP (ship in days)**
 1. Magic-link sign-in, with a one-time terms page for new accounts
-2. Upload: presigned PUT, then queue, then parse, sanitize and dedupe
+2. Upload: PUT through the web Worker, then queue, then parse, sanitize and dedupe
 3. Work page: metadata, tags, warnings, link to the original AO3 URL
 4. Reader: chapters, reader settings, warnings interstitial, saved position,
    download original

@@ -4,11 +4,11 @@ import { EPUB_TYPE, MAX_BATCH_FILES, MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./u
 /**
  * The upload page's script, served from UPLOAD_SCRIPT_PATH and loaded with the page's
  * nonce. On Upload it asks `POST /uploads` once for every file picked, with the Turnstile
- * token and one `size` each, then PUTs each file straight to R2 with an XMLHttpRequest
- * (`fetch` reports no upload progress), three at a time so fewer files wait on a URL that
- * is good for ten minutes; one that still starts too late fails, and another click on Upload
- * sends the files not yet uploaded. Each finished PUT is confirmed with
- * `POST /uploads/:id/complete`. The server stays the authority: what the script checks first
+ * token and one `size` each, then sends each file to `PUT /uploads/:id` with an XMLHttpRequest
+ * (`fetch` reports no upload progress), three at a time; another click on Upload sends the
+ * files not yet uploaded. Each finished PUT is confirmed with `POST /uploads/:id/complete`, and
+ * one that fails is reported with `DELETE /uploads/:id`, so its slot is free for that next click.
+ * The server stays the authority: what the script checks first
  * (type, size, count) only saves a round trip. Built with textContent only, never innerHTML,
  * so a file name is never read as markup.
  */
@@ -19,8 +19,8 @@ export const UPLOAD_SCRIPT = `"use strict";
   const MAX_MB = ${MAX_UPLOAD_MB};
   const MAX_FILES = ${MAX_BATCH_FILES};
   const AT_ONCE = 3;
-  const URL_LIFETIME_MS = 600000;
   const STALL_MS = 120000;
+  const REPORT_MS = 10000;
   // Files already uploaded and confirmed, so a second click, to retry the rest, skips them.
   const finished = new Set();
   const input = document.getElementById("file");
@@ -56,15 +56,12 @@ export const UPLOAD_SCRIPT = `"use strict";
     }
   };
 
-  // The browser PUTs the file itself: its bytes never go through this site's Worker.
-  const put = (file, url, row, deadline) =>
+  const pathOf = (id) => "/uploads/" + encodeURIComponent(id);
+
+  const put = (file, id, row) =>
     new Promise((resolve) => {
-      // The URL stops working ten minutes after it was signed, and R2 checks that as the
-      // request starts: a file that would start after that is not sent, but one under way
-      // is left to finish.
-      if (deadline - Date.now() <= 0) return resolve(false);
       const xhr = new XMLHttpRequest();
-      xhr.open("PUT", url);
+      xhr.open("PUT", pathOf(id));
       xhr.setRequestHeader("Content-Type", TYPE);
       // A transfer that stops moving is ended, rather than holding the button and the
       // other files for ever.
@@ -77,28 +74,51 @@ export const UPLOAD_SCRIPT = `"use strict";
           row.bar.value = event.loaded;
         }
       };
-      const end = (ok) => {
+      const end = (ok, error) => {
         clearTimeout(watchdog);
-        resolve(ok);
+        resolve({ ok, error });
       };
-      xhr.onload = () => end(xhr.status >= 200 && xhr.status < 300);
+      const reason = () => {
+        try {
+          return JSON.parse(xhr.responseText).error;
+        } catch {
+          return undefined;
+        }
+      };
+      // A 409 means a file is there, or the upload has ended: the confirm says which and acts on it.
+      xhr.onload = () =>
+        (xhr.status >= 200 && xhr.status < 300) || xhr.status === 409
+          ? end(true)
+          : end(false, reason());
       xhr.onerror = () => end(false);
       xhr.onabort = () => end(false);
       xhr.ontimeout = () => end(false);
       xhr.send(file);
     });
 
+  // Tells the server an upload failed, so its slot is free for the next click. On a network that
+  // has just failed this may hang, so it isn't waited on for long. If it fails too, the server's
+  // daily clean-up has it.
+  const report = (id) =>
+    fetch(pathOf(id), { method: "DELETE", signal: AbortSignal.timeout(REPORT_MS) }).catch(
+      () => undefined,
+    );
+
   const confirm = async (file, id, row) => {
     row.note.textContent = "Checking the file.";
     try {
-      const res = await fetch("/uploads/" + encodeURIComponent(id) + "/complete", { method: "POST" });
+      const res = await fetch(pathOf(id) + "/complete", { method: "POST" });
       const body = await readJson(res);
       if (res.ok) finished.add(file);
       if (res.ok && body.status === "duplicate") row.note.textContent = "We already have this one.";
       else if (res.ok) row.note.textContent = "Uploaded. It will appear once it has been checked.";
       else row.note.textContent = body.error || "Something went wrong. Please try again.";
+      // A fault may have come from the edge, with the Worker's own clean-up never run.
+      if (res.status >= 500) await report(id);
     } catch {
       row.note.textContent = "Something went wrong. Please try again.";
+      // The server may never have heard of this confirm. One it did count, it keeps.
+      await report(id);
     }
   };
 
@@ -145,8 +165,6 @@ export const UPLOAD_SCRIPT = `"use strict";
     body.set("cf-turnstile-response", token);
     let res = null;
     let reply = {};
-    // The URLs are signed while the ask is answered; counting from before it errs early.
-    const deadline = Date.now() + URL_LIFETIME_MS;
     try {
       res = await fetch("/uploads", { method: "POST", body });
       reply = await readJson(res);
@@ -159,7 +177,7 @@ export const UPLOAD_SCRIPT = `"use strict";
     const granted = res && res.ok ? (Array.isArray(reply.uploads) ? reply.uploads : [reply]) : [];
     if (
       granted.length !== toSend.length ||
-      granted.some((one) => !one || typeof one.id !== "string" || typeof one.url !== "string")
+      granted.some((one) => !one || typeof one.id !== "string")
     ) {
       say((res && !res.ok && reply.error) || "We couldn't start the upload. Please try again.");
       for (const { row } of toSend) row.note.textContent = "Not uploaded.";
@@ -169,8 +187,10 @@ export const UPLOAD_SCRIPT = `"use strict";
     await runAtOnce(
       toSend.map(({ file, row }, i) => async () => {
         row.note.textContent = "Uploading.";
-        if (!(await put(file, granted[i].url, row, deadline))) {
-          row.note.textContent = "The upload didn't finish. Please try again.";
+        const sent = await put(file, granted[i].id, row);
+        if (!sent.ok) {
+          row.note.textContent = sent.error || "The upload didn't finish. Please try again.";
+          await report(granted[i].id);
           return;
         }
         await confirm(file, granted[i].id, row);

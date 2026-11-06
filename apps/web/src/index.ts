@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { except } from "hono/combine";
+import { routePath } from "hono/route";
 import { admin } from "./admin";
 import { assetRoute } from "./assets";
 import { confirmSignIn, showConfirm } from "./confirm";
@@ -32,6 +33,7 @@ import {
   wwwToBareDomain,
   type SecurityVariables,
 } from "./security";
+import { robotsTag, robotsTxt } from "./robots";
 import { requireSignIn, sessionMiddleware, type SessionVariables } from "./session";
 import { saveSettings, SETTINGS_PATH, showSettings } from "./settings";
 import { LOGO_PATH, LOGO_SVG } from "./logo";
@@ -40,6 +42,7 @@ import { acceptTerms, showTerms, termsGate, WELCOME_TERMS } from "./terms";
 import { showMyUploads } from "./my-uploads";
 import { requestUpload, sameOriginUpload, showUpload } from "./upload";
 import { completeUpload } from "./upload-complete";
+import { giveUpUpload, putUpload } from "./upload-put";
 import { showUploadStatus } from "./upload-status";
 import { joinWaitlist } from "./waitlist";
 import { confirmWaitlist, showWaitlistConfirm } from "./waitlist-confirm";
@@ -55,13 +58,18 @@ const app = new Hono<{
 // Order matters: HSTS covers everything, the www redirect included, and www
 // never reaches the CSP, the routes or anything that could set a cookie. Before
 // launch, closed pages are redirected next, so they carry HSTS but never a page.
+app.use(robotsTag);
 app.use(strictTransportSecurity);
 app.use(wwwToBareDomain);
 app.use(closedBeforeLaunch);
 app.use(contentSecurityPolicy);
+// Before the session and the terms gate: any client gets it, signed in or not.
+app.get("/robots.txt", robotsTxt);
 // Before the session, so a cross-site upload or report is refused without a lookup.
 app.post("/uploads", sameOriginUpload);
 app.post("/uploads/:id/complete", sameOriginUpload);
+app.put("/uploads/:id", sameOriginUpload);
+app.delete("/uploads/:id", sameOriginUpload);
 app.post("/works/:id/report", sameOriginOnly);
 app.post("/works/:id/position", sameOriginOnly);
 app.post("/works/:id/warnings", sameOriginOnly);
@@ -112,6 +120,8 @@ app.post("/waitlist/unsubscribe", unsubscribeWaitlist);
 app.get("/waitlist", (c) => (isPrelaunch(c.env) ? c.notFound() : c.redirect("/", 302)));
 app.get("/upload", showUpload);
 app.post("/uploads", requestUpload);
+app.put("/uploads/:id", putUpload);
+app.delete("/uploads/:id", giveUpUpload);
 app.post("/uploads/:id/complete", completeUpload);
 app.get("/uploads/:id", showUploadStatus);
 app.get("/me/uploads", requireSignIn, showMyUploads);
@@ -209,10 +219,12 @@ app.notFound((c) => {
 // Hono's default logs the whole error, and one from Postgres can quote the row it
 // failed on, a sign-in address included. Log only what kind of error it was.
 app.onError((error, c) => {
-  // The path is decoded, so a control, format or line-separator character in it
-  // could start a forged line or reorder what a log viewer shows.
-  const path = c.req.path.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, "?");
-  console.error(`${c.req.method} ${path}: ${error.name}`);
+  // The route's pattern, such as /works/:id/full, not the request's path: a reading URL
+  // carries the work id and chapter, and none belongs in a log line (spec 24). The pattern
+  // is written in this code, so nothing a requester sends can start a forged line.
+  // The last matched route is the handler's: a middleware that throws sits earlier in the list
+  // and would name only "*". A request that matched no route (a failing notFound) has none.
+  console.error(`${c.req.method} ${routePath(c, -1) || "(no route)"}: ${error.name}`);
   return c.text("Internal Server Error", 500);
 });
 

@@ -1,9 +1,8 @@
 #!/usr/bin/env node
-// Applies the R2 bucket's rules: the CORS rule that lets the upload page PUT a raw epub straight
-// to a presigned URL (ARCHITECTURE, Ingestion pipeline, step 1), and the lifecycle rule that
-// expires uploads/ after 7 days, so an upload whose /complete never comes deletes itself
-// (ARCHITECTURE, Orphaned uploads); R2 removes an expired object typically within 24 hours. Then it
-// prints the bucket's current rules, for the gate.
+// Applies the R2 bucket's lifecycle rules: the rule that expires uploads/ after 7 days, so an
+// upload whose /complete never comes deletes itself (ARCHITECTURE, Orphaned uploads); R2 removes an
+// expired object typically within 24 hours. Then it prints the bucket's current rules, for the
+// gate. The bucket has no CORS rule: no browser talks to it.
 //
 //   node scripts/r2-bucket-rules.mjs [--dry-run]
 //
@@ -15,12 +14,12 @@
 // passes on may name the account id. Every call names apps/content/wrangler.jsonc as its config,
 // which has no account_id, so no wrangler config in a parent directory picks another account.
 //
-// Both `set` calls pass --force, which skips wrangler's prompt. On `lifecycle set` it also skips
-// R2 Data Catalog's check; the bucket has no Data Catalog, and enabling one means revisiting this.
+// `lifecycle set` passes --force, which skips wrangler's prompt and R2 Data Catalog's check; the
+// bucket has no Data Catalog, and enabling one means revisiting this.
 //
-// Every rule this bucket has lives here. `cors set` and `lifecycle set` replace the bucket's whole
-// rule set, so a rule added any other way (the dashboard, `wrangler r2 bucket lifecycle add`) is
-// deleted by the next run: add it to corsRules or lifecycleRules instead.
+// Every lifecycle rule this bucket has lives here. `lifecycle set` replaces the bucket's whole rule
+// set, so a rule added any other way (the dashboard, `wrangler r2 bucket lifecycle add`) is deleted
+// by the next run: add it to lifecycleRules instead.
 //
 // The only rule that deletes objects is expire-uploads, on exactly uploads/. Every other lifecycle
 // rule only aborts incomplete multipart uploads. The second rule, "Default Multipart Abort Rule",
@@ -28,15 +27,13 @@
 // kept: without it, `lifecycle set` removes the default, and an unfinished multipart upload keeps
 // its parts, and their storage bill, for good.
 //
-// --dry-run prints both rule sets, the wrangler commands and the wrangler it would run, and calls
+// --dry-run prints the rule set, the wrangler commands and the wrangler it would run, and calls
 // nothing.
 // R2_BUCKET_RULES_WRANGLER, when set, is the wrangler script to run in place of the installed
 // one, resolved from the current directory and named on stderr; the tests point it at a stub. It
 // runs with the operator's environment, token included, so leave it unset for a real run.
 // Exits 0 when the rules are applied and printed (or the dry run printed them), and 2 on a usage
-// error or when wrangler fails: missing, unauthenticated, or refused. Each rule set it replaces is
-// named on stdout as it lands, so a run that fails part way says how far it got; it is safe to
-// repeat, but not to run twice at once, since the two sets can interleave.
+// error or when wrangler fails: missing, unauthenticated, or refused. It is safe to repeat.
 import { execFile } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -47,20 +44,6 @@ import { promisify } from "node:util";
 
 const BUCKET = "rarepair";
 const DAY = 86400;
-
-export function corsRules() {
-  return {
-    rules: [
-      {
-        allowed: {
-          origins: ["https://rarepair.fans"],
-          methods: ["PUT"],
-          headers: ["Content-Type"],
-        },
-      },
-    ],
-  };
-}
 
 export function lifecycleRules() {
   return {
@@ -106,10 +89,10 @@ const execFileAsync = promisify(execFile);
 
 // Relative to the repo root, where wrangler runs.
 const CONFIG = ["--config", "apps/content/wrangler.jsonc"];
-const setArgs = (kind, file) => [
+const setArgs = (file) => [
   "r2",
   "bucket",
-  kind,
+  "lifecycle",
   "set",
   BUCKET,
   "--file",
@@ -117,36 +100,30 @@ const setArgs = (kind, file) => [
   "--force",
   ...CONFIG,
 ];
-const listArgs = (kind) => ["r2", "bucket", kind, "list", BUCKET, ...CONFIG];
+const LIST_ARGS = ["r2", "bucket", "lifecycle", "list", BUCKET, ...CONFIG];
 
 async function main(dryRun) {
-  const configs = { cors: corsRules(), lifecycle: lifecycleRules() };
-  const kinds = Object.keys(configs);
+  const lifecycle = lifecycleRules();
   const bin = wranglerBin();
   if (dryRun) {
-    const commands = [
-      ...kinds.map((kind) => setArgs(kind, `<${kind}.json>`)),
-      ...kinds.map((kind) => listArgs(kind)),
-    ].map((args) => ["wrangler", ...args].join(" "));
-    console.log(JSON.stringify({ ...configs, commands, wrangler: bin }, null, 2));
+    const commands = [setArgs("<lifecycle.json>"), LIST_ARGS].map((args) =>
+      ["wrangler", ...args].join(" "),
+    );
+    console.log(JSON.stringify({ lifecycle, commands, wrangler: bin }, null, 2));
     return 0;
   }
   const wrangler = async (args) =>
     (await execFileAsync(process.execPath, [bin, ...args], { cwd: root, encoding: "utf8" })).stdout;
   const dir = mkdtempSync(join(tmpdir(), "r2-bucket-rules-"));
   try {
-    for (const kind of kinds) {
-      const file = join(dir, `${kind}.json`);
-      writeFileSync(file, JSON.stringify(configs[kind]));
-      await wrangler(setArgs(kind, file));
-      console.log(`r2-bucket-rules: set the ${kind} rules on ${BUCKET}`);
-    }
+    const file = join(dir, "lifecycle.json");
+    writeFileSync(file, JSON.stringify(lifecycle));
+    await wrangler(setArgs(file));
+    console.log(`r2-bucket-rules: set the lifecycle rules on ${BUCKET}`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-  for (const kind of kinds) {
-    console.log(await wrangler(listArgs(kind)));
-  }
+  console.log(await wrangler(LIST_ARGS));
   return 0;
 }
 

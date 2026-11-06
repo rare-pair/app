@@ -101,7 +101,7 @@ export async function uploadFilesThroughPage(
       .toMatch(/Uploaded\.|We already have this one\./);
   }
   const added = (await idsOf()).filter((id) => !before.has(id));
-  // Every row asked for a URL, so each file has an upload of its own.
+  // Every row was asked for, so each file has an upload of its own.
   expect(added).toHaveLength(files.length);
   return added;
 }

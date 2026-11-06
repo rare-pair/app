@@ -149,7 +149,7 @@ A bullet only a deployed environment can show, such as real R2, Queues, Turnstil
   - Executable process: `scripts/`, `.github/`, `.claude/settings*.json`, a hook, any script under `.claude/`.
   - Build and runtime configuration: a `wrangler` config, a dependency change in `package.json` or `package-lock.json`.
   - A migration under `packages/db`.
-  - The security boundary: the sanitizer, the zip limits, the CSP, `apps/content`'s headers, presigned upload URLs, magic-link tokens and sessions, rate limits and quotas, and the opt-out, takedown and removal paths.
+  - The security boundary: the sanitizer, the zip limits, the CSP, `apps/content`'s headers, the upload routes (`PUT` and `DELETE /uploads/:id`), magic-link tokens and sessions, rate limits and quotas, and the opt-out, takedown and removal paths.
   - A test change that removes or loosens an assertion guarding any of these.
   - Any file no lower tier names, such as root configuration.
 - **Tier 1: rungs 1 and 3, with one `/code-review` round** on specification completeness: `docs/ARCHITECTURE.md`, other design documents under `docs/`, and `.claude/skills/` Markdown.

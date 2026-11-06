@@ -68,7 +68,7 @@ export function quotaSpent(c: Context): Response {
 const OPEN_RETRY_SECONDS = 3600;
 
 /**
- * The 429 of asking past the cap on open uploads: links asked for and never confirmed, which the
+ * The 429 of asking past the cap on open uploads: uploads asked for and never confirmed, which the
  * sweep's daily reaper clears. "About a day" is apps/sweep's UNCONFIRMED_UPLOAD_DAYS, which this
  * Worker can't read.
  */

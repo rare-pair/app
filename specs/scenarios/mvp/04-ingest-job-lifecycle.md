@@ -165,8 +165,13 @@ Relates to: docs/ARCHITECTURE.md § EPUB processor (steps 1, 2 and 8), § Ingest
 - WHEN the job ends the upload refused any other way, such as `account_banned` or `parse_failed`
 - THEN the file stays, for the 7-day expiry to delete
 
+### A message for an upload whose slot was freed is acked, with nothing parsed
+- GIVEN a message naming an upload whose row a failed confirm has since deleted
+- WHEN the job runs
+- THEN it finds no row to lease, parses nothing, and the message is acked with no retry
+
 ### A file swapped after confirm is recorded by what was read
-- GIVEN an upload confirmed as file A, whose object has since been replaced by file B through the same presigned URL
+- GIVEN an upload confirmed as file A, whose object has since been replaced by file B (the site stores one file per upload, so nothing there can do this now; ingest's rule stands)
 - WHEN the job runs
 - THEN the job handles file B, as it would any upload, with no new rejection code and nothing new for the uploader to see
 - AND the upload's row ends with the hash of B, the bytes the job read, in place of A's
