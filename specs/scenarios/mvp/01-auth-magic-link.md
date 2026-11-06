@@ -61,6 +61,25 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - THEN the response is 429 with a `Retry-After` header and no email is queued
 - AND a plain page says when to try again
 
+### One address gets at most 5 sign-in emails a day
+- GIVEN one email address that has had 5 `POST /login` requests counted this UTC day (a request is counted before its send, and a send that fails stays counted), however many solved Turnstile challenges and IPs were used
+- WHEN a sixth is submitted for it, spelt with any case or surrounding spaces, with a passing Turnstile token
+- THEN the response is 429 with a `Retry-After` header counting to the next midnight UTC, no token is made and no email is queued
+- AND a plain page says to try again after midnight UTC
+- AND the same address with a `+tag` or an extra dot is another address, with its own count
+
+### The count starts again the next day
+- GIVEN one email address that used all 5 of its sign-in emails yesterday (UTC)
+- WHEN a `POST /login` with a passing Turnstile token is submitted for it today
+- THEN the link is sent, and it is the first of today's 5
+- AND yesterday's counts, for every address, are deleted
+
+### Sign-in still goes through when the daily count can't be made
+- GIVEN the daily count can't be made
+- WHEN a `POST /login` with a passing Turnstile token is submitted
+- THEN the link is sent, as with the other limits when they fail
+- AND the log holds no address
+
 ### Opening the emailed link uses nothing up
 - GIVEN an unused token issued less than 15 minutes ago, and a browser with no sign-in marker
 - WHEN the link `GET /login/confirm?token=<token>` is opened, as a mail scanner prefetching it would

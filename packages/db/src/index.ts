@@ -28,6 +28,7 @@ export {
   useUploadQuota,
   countUploadQuota,
   refundUploadQuota,
+  countSignInEmail,
   removeWork,
   type RemovedWork,
   type OwnUpload,

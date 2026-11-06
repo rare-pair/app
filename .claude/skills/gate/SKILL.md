@@ -89,7 +89,7 @@ The parser and sanitizer are the security boundary (ARCHITECTURE, *Sanitizing*).
 - Sign-in (ARCHITECTURE, *Auth*): our routes, not Better Auth, do these, because server-side `auth.api` calls skip its own checks:
   - `POST /login` and `POST /login/confirm` refuse with 403 a request with neither `Origin` nor `Sec-Fetch-Site`, a present `Origin` other than `https://rarepair.fans`, or a present `Sec-Fetch-Site` other than `same-origin`, so a sibling host such as `content.rarepair.fans` is refused too.
   - `next` is reduced to a same-site path, checked after URL normalization, so `/a/..//evil.example` can't become `//evil.example`.
-  - Sign-in is rate limited per IP and per email.
+  - Sign-in is rate limited per IP and per email, and one address gets at most `LOGIN_EMAIL_QUOTA` sign-in emails a UTC day, counted in Postgres.
   - `GET /login/confirm` spends no token and creates no session: only `POST /login/confirm` does. The link page may carry a script for the browser that asked for the link (it holds the sign-in marker): nonced, submitting the form at most once. Without the marker it has no script.
   - The sign-in marker holds nothing about the address, the token or the account, is `HttpOnly; Secure; SameSite=Lax; Path=/` with no `Domain`, lasts no longer than the newest link, and is set only by an accepted `POST /login`. With sign-in open, every answer of the `POST /login/confirm` route clears it.
   - Magic-link tokens stay in the Postgres `verification` table, never KV.

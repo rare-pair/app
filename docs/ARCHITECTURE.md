@@ -27,6 +27,7 @@ an unofficial stopgap.
 | Search scope | Metadata only: title, author, tags, summary |
 | Chapter rendering | Inline in app pages behind a strict CSP, with no iframe |
 | Wait list | Before launch, `/` is a coming-soon page with a double opt-in wait list. Each confirmed address is sent one launch email, from the same mail subdomain as sign-in, spread over hours on its own queue. The list is deleted after the launch send |
+| Sign-in emails per day | One address gets at most 5 sign-in emails a UTC day, counted in Postgres under a keyed hash, with no merging of `+tag` or dot spellings. The count fails open, and a failed send isn't given back. See Surge controls (operator ruling, 2026-11-05) |
 | Requester data | What a requester sends with a removal or opt-out request (email address, hashed network address, statement), and a requester block's email and hash, is kept until the site closes, then deleted by hand. It is not erased on request. There is no retention sweep job and no migration for it. The only delete of a request's row is the rollback when its confirmation email cannot be queued. A copyright notice, with its sender's contact details and signature, follows the same rule (operator ruling, 2026-11-05). Account data is not covered: see Account deletion. Privacy page copy is draft, pending legal review (operator ruling, 2026-11-04) |
 | Account deletion | Someone asks at admin@rarepair.fans and the operator runs a script: no self-service button and no form (operator ruling, 2026-11-05). It removes the account, its sessions and its saved reading positions, bar one saved in the last moments, which expires within a year. Upload rows stay with no user attached, and works and versions stay public. The script refuses a banned account, because the ban would go with the row (pending the operator's ruling, wave 11). See Auth, Deleting an account |
 
@@ -220,6 +221,9 @@ sweep_state  (id,                -- one row: id 1
               after NULL,        -- the R2 key the periodic sweep's next run lists after; NULL starts over
               current NULL,      -- the folder a run is in; still set at the next start, it was killed there
               updated_at)
+sign_in_email_counts (address_hash,  -- keyed hash of the address, never the address
+              day,               -- the UTC day; (address_hash, day) is the key
+              count)             -- earlier days' rows are deleted as requests count (Surge controls)
 ```
 
 `user.role` is `user`, `moderator` or `admin`. An admin has every moderator
@@ -983,7 +987,8 @@ origin. Work pages, listings and search stay open, so people can still find work
     same-site with the bare domain
   - it rate limits per IP and per email with the Workers rate-limiting binding
     (429 with `Retry-After`; a failed or missing Turnstile token gets 400 and
-    the form again with an error, as in Surge controls)
+    the form again with an error, as in Surge controls), then counts the address
+    against its daily cap in Postgres (Surge controls, Sign-in emails per day)
   - it reduces `next` to a same-site path (root-relative only: no `//`, no
     `\`, no control characters) before passing it on. The `//` check runs
     again after URL normalization, because `/a/..//evil.example` normalizes
@@ -1590,6 +1595,26 @@ markup: its inline `style` attributes become stylesheet rules, because
   Object). There are two daily tiers: new accounts get a lower limit, trusted
   users a higher one. The numbers and the rule for "trusted" are configuration,
   set before launch from load testing.
+- **Sign-in emails per day.** One address gets at most `LOGIN_EMAIL_QUOTA` (5)
+  sign-in emails a UTC day, however many solved Turnstile challenges someone brings
+  (operator ruling, 2026-11-05). It's counted in Postgres, in `sign_in_email_counts`,
+  by one statement, so the count holds across isolates and two requests can't both
+  take the last one. `POST /login` counts after Turnstile and the per-minute limits,
+  so a flood those catch costs no database write, and before the send: a send that
+  then fails isn't given back. Past the limit it's the 429 page, saying to try again
+  after midnight UTC, with `Retry-After` counting to then, and nothing is sent. If the
+  count fails the request goes through, like the other limits: sending the link needs
+  the same database.
+  - The address is held only as the hex HMAC-SHA-256, keyed with the `IP_HASH_KEY`
+    secret, of a prefix and the address trimmed and lowercased (`src/ip-hash.ts`).
+    `+tag` and dot spellings are not merged (operator ruling, 2026-11-05). Changing
+    the key only starts the day's counts again.
+  - The statement that counts also deletes every address's rows from earlier days,
+    so a day's rows last until a later day's first counted request. This one table's rows
+    are all it deletes: it's no retention job for other data.
+  - **Known limit.** A stranger who solves Turnstile 5 times can use up someone's
+    sign-ins for the rest of the day, and a real person who loses their links can hit
+    the cap. That person waits until the next day.
 - **Orphaned uploads.** Each presigned PUT signs the size declared for its file as
   `Content-Length`, but nothing shows that this stops a PUT of another size:
   Cloudflare's docs say a signed `Content-Type` is enforced and, as far as two searches
