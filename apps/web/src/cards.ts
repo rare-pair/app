@@ -40,16 +40,19 @@ export type WorkCardFields = {
  * A work's card. The description runs byline, rating, warnings, fandoms, so a sharing
  * site that clips it loses the least important part first. Values are raw: escaped here.
  */
-export const workCard = (work: WorkCardFields) =>
-  card(
+export const workCard = (work: WorkCardFields) => {
+  const byline = work.pseuds.filter((pseud) => pseud.trim() !== "").join(", ");
+  const rating = (work.rating ?? "").trim();
+  return card(
     "article",
     work.title.trim() === "" ? "Untitled work" : work.title,
     [
-      `by ${work.pseuds.length === 0 ? "Anonymous" : work.pseuds.join(", ")}`,
-      work.rating ?? "Not Rated",
+      `by ${byline === "" ? "Anonymous" : byline}`,
+      rating === "" ? "Not Rated" : rating,
       ...[work.warnings, work.fandoms].flatMap((names) =>
         names.length > 0 ? names.join(", ") : [],
       ),
     ].join(" · "),
     `${SITE}/works/${work.ao3WorkId}`,
   );
+};
