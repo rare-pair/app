@@ -3,6 +3,7 @@ import { except } from "hono/combine";
 import { routePath } from "hono/route";
 import { admin } from "./admin";
 import { assetRoute } from "./assets";
+import { refuseAutomated } from "./automated";
 import { confirmSignIn, showConfirm } from "./confirm";
 import { clearSignInMarker } from "./signin-marker";
 import type { Bindings } from "./env";
@@ -65,6 +66,11 @@ app.use(closedBeforeLaunch);
 app.use(contentSecurityPolicy);
 // Before the session and the terms gate: any client gets it, signed in or not.
 app.get("/robots.txt", robotsTxt);
+// Before launch, links to closed pages are shown disabled, the refusal's footer's included.
+app.use(disableClosedLinks);
+// Inside HSTS, the redirects and the CSP, which its 403 needs, and ahead of the rest: no guard,
+// session, cache or route sees a refused request.
+app.use(refuseAutomated);
 // Before the session, so a cross-site upload or report is refused without a lookup.
 app.post("/uploads", sameOriginUpload);
 app.post("/uploads/:id/complete", sameOriginUpload);
@@ -86,8 +92,6 @@ app.use(except("/assets/*", sessionMiddleware, termsGate));
 // The reader's settings, on every page. Inside the CSP, which keys on what it returns,
 // and after the terms gate, never in front of it.
 app.use(pageState);
-// Before launch, links to closed pages are shown disabled.
-app.use(disableClosedLinks);
 // The header's links, from the session. Inside disableClosedLinks, so that sees them.
 app.use(siteHeader);
 
