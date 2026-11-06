@@ -5,6 +5,7 @@ import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { homeHtml, homePage } from "../src/home";
 import app from "../src/index";
+import { updatePage } from "../src/updates";
 import { type Update, UPDATES } from "../src/updates-data";
 import { BASE, fetchW, signIn, STRICT, withoutNonce } from "./helpers";
 
@@ -119,7 +120,6 @@ describe("25-updates", () => {
     expect(card).not.toContain("<b>friends</b>");
     expect(card).not.toContain("<script>x</script>");
 
-    const { updatePage } = await import("../src/updates");
     const post = updatePage("odd", [odd]) ?? "";
     expect(post).toContain(
       "<h1>rarepair v0.1.0 &quot;Chuhura&quot; &amp; &lt;b&gt;friends&lt;/b&gt;</h1>",

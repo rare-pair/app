@@ -1,12 +1,13 @@
 // Link preview cards: Open Graph tags plus `twitter:card`, as raw markup for a page's
 // `head` (pages.ts, `layout`). Opt-in: a page that isn't passed a card has none, so
 // chapters, withheld works, token pages and admin pages are card-free by construction.
-// A card is text only (no image) and a work's holds no summary (FRONTEND-DISCOVERY, Link
-// cards). An update post's holds the post's own summary, which is short plain text the operator wrote.
+// A card is text only (no image). A work's card holds no summary (FRONTEND-DISCOVERY, Link
+// cards); an update post's card holds the summary its author wrote.
 // It is built from named fields, never from the request, so no token or query reaches it.
 
 import { escapeHtml } from "./pages";
 import { SITE } from "./signin";
+import type { Update } from "./updates-data";
 
 const SITE_NAME = "rarepair";
 const SITE_DESCRIPTION = "An unofficial, temporary, community-run reading archive for fanworks.";
@@ -28,7 +29,7 @@ const card = (type: "website" | "article", title: string, description: string, u
 export const siteCard = () => card("website", SITE_NAME, SITE_DESCRIPTION);
 
 /** An update post's card: its title and summary, never its body. */
-export const updateCard = (update: { slug: string; title: string; summary: string }) =>
+export const updateCard = (update: Pick<Update, "slug" | "title" | "summary">) =>
   card("article", update.title, update.summary, `${SITE}/updates/${update.slug}`);
 
 export type WorkCardFields = {
