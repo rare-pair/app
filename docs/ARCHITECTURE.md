@@ -14,8 +14,9 @@ an unofficial stopgap.
 | Question | Decision |
 | --- | --- |
 | Name and domain | rarepair, always written lowercase as one word. The site is served at `rarepair.fans`, and `www.rarepair.fans` redirects there. Epub images and original downloads are served from `content.rarepair.fans` |
-| Who can read uploads | Shared public archive. Every upload is readable by everyone, with takedowns and author removal requests from day one. The one exception is below, in Crawlers and agents |
-| Crawlers and agents | Clients that declare themselves automated are refused the whole site, search engines and link previews included. The Workers and the custom rule except `robots.txt` and one-click unsubscribe. Bot Fight Mode is on and the AI Crawler and Agent access policies are on block. Reading needs no sign-in, and the app adds no challenge, but Cloudflare's bot protection can challenge a reader it flags (operator ruling, 2026-11-06, replacing 2026-11-04) |
+| Who can read uploads | Shared public archive. Every upload is readable by everyone, with takedowns and author removal requests from day one. The one exception is below, in Crawlers and agents. After launch, NSFW works will need a sign-in too (next row) |
+| NSFW works | No gate at launch: every work can be read without an account. One follows soon after, using the existing email magic-link sign-in (operator ruling, 2026-11-06). **Post-launch, not built:** specs/scenarios/later/08-nsfw-sign-in-gate.md, and which ratings count is listed there for the operator. See Reading, NSFW sign-in gate |
+| Crawlers and agents | Clients that declare themselves automated are refused the whole site, search engines and link previews included. The Workers and the custom rule except `robots.txt` and one-click unsubscribe. Bot Fight Mode is on and the AI Crawler and Agent access policies are on block. Reading needs no sign-in at launch (NSFW works will, post-launch), and the app adds no challenge, but Cloudflare's bot protection can challenge a reader it flags (operator ruling, 2026-11-06, replacing 2026-11-04) |
 | Hosting | Cloudflare on the Workers Paid plan: Workers, R2 (one bucket for every prefix), Queues, KV, plus Neon Postgres through Hyperdrive: a config with caching off for every read that decides something, and one with caching on for public pages only (see Connections). Workers Paid is an operator ruling, 2026-11-05 |
 | Load target | Surge-ready: assume tens of thousands of signups in the first days |
 | Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend alone. There is no failover provider at launch, and while Resend is down sign-in stops until it returns (operator ruling, 2026-11-05) |
@@ -911,6 +912,19 @@ can be snapshotted.
   `/settings/reader`; the choice is stored on their account (`user.warnings_off`), not
   in the settings cookie, and skips the screen for every work that would show it, a
   work with no rating included. Signed-out readers can't turn them off.
+- **NSFW sign-in gate (post-launch, not built).** At launch no work needs an account. Soon
+  after (operator ruling, 2026-11-06), a signed-out visitor to a chapter or `/full` of an
+  NSFW work is sent to the work's warnings screen, which offers sign-in in place of
+  Continue. The gate runs before the warnings check, and the warned cookie doesn't pass it.
+  It follows the rating, and is recommended for every rating but General and Teen, pending
+  the operator's ruling. The work's card, work page, listings and search stay public. The
+  page cache entry keeps whether the work is gated, so a hit redirects with no read, and a
+  signed-out miss stores the entry without reading a fragment. Signed-in readers still never
+  use the entry, so every read of a gated work costs a session read and a work read, which is
+  to be measured first. The content origin doesn't change: it has no session, so the work
+  page simply gives signed-out visitors no link to the original, and images are named only by
+  gated text, so a URL already out keeps working. This isn't an age check. See
+  specs/scenarios/later/08-nsfw-sign-in-gate.md.
 - **"May be imperfect" notice.** When the current version has review reasons
   that no moderator has cleared (EPUB processor, step 5), the work page and
   every reader page show one line: "Chapters may be imperfect; a moderator will
@@ -942,7 +956,8 @@ can be snapshotted.
   backfill version the upload it was re-made from (`source_upload_id`). The
   download never meets the warnings screen: the content origin has no session and
   the link isn't gated, so a Mature, Explicit or warned work can be downloaded
-  without seeing it. We accept that.
+  without seeing it. We accept that. (Post-launch, the work page won't show a signed-out
+  visitor the link on an NSFW work: NSFW sign-in gate, above. The content origin is unchanged.)
 
 ### Crawlers and agents
 
@@ -1003,7 +1018,9 @@ content origin, also have the throttles and the cross-site check below.
 - **What this doesn't stop.** A scraper posing as a browser across many addresses is
   slowed, and challenged only if Bot Fight Mode flags it, and an agent driving a person's real
   browser looks like that person. Stopping those would take a sign-in to read, which the
-  operator ruled out on 2026-11-04 to keep the archive readable by everyone.
+  operator ruled out on 2026-11-04 to keep the archive readable by everyone. The ruling of
+  2026-11-06 narrows that for NSFW works, post-launch (Reading, NSFW sign-in gate); it asks
+  for an email address, so it adds a step for a scraper and doesn't stop one.
 
 ## Auth (magic link: Better Auth + Resend)
 
@@ -1159,7 +1176,8 @@ content origin, also have the throttles and the cross-site check below.
   - The login page tells people that links can take a minute to arrive during
     busy periods.
 - Accounts are needed only to upload, report, save reading position or turn
-  the warnings screen off. Reading never needs an account.
+  the warnings screen off. At launch, reading never needs an account. Post-launch,
+  reading an NSFW work will (Reading, NSFW sign-in gate).
 
 ### Deleting an account
 
@@ -1882,6 +1900,7 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
 8. Terms, a privacy notice and a clear "unofficial, temporary" banner
 
 **Later**
+- NSFW works behind sign-in, soon after launch (operator ruling, 2026-11-06)
 - Bookmarks, kudos and per-user reading history
 - Series pages and collections
 - Tag synonym merging and filtering by excluded tags
