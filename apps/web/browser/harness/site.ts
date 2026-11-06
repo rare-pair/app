@@ -244,7 +244,12 @@ export async function startSite({
     newContext,
     offSite,
     fetch: (path, init = {}) =>
-      mf.dispatchFetch(new URL(path, SITE).toString(), { redirect: "manual", ...init }),
+      mf.dispatchFetch(new URL(path, SITE).toString(), {
+        redirect: "manual",
+        ...init,
+        // Not Miniflare's `undici`, which is on the crawler list and would be refused.
+        headers: { "user-agent": "Mozilla/5.0", ...Object.fromEntries(new Headers(init.headers)) },
+      }),
     async emails() {
       const res = await emailSink.fetch("https://email-sink/");
       // SAFETY: the sink answers with the JSON array of message bodies it was delivered.
