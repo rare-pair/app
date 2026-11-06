@@ -1840,8 +1840,8 @@ markup: its inline `style` attributes become stylesheet rules, because
 - Observability: Workers Logs and traces are on from day one, except that the
   web and content Workers' per-request invocation logs are off (their URLs carry
   the AO3 work id, and the web Worker's the chapter too); their errors and metrics
-  stay on, and the content Worker's traces are off too (turned on only for a live
-  fault). Track queue depth, ingest failure
+  stay on, and both the web and content Workers' traces are off too (turned on only
+  for a live fault). Track queue depth, ingest failure
   rate and search p95 on a dashboard, with crawler refusals by reason and throttled
   reads, each counted from a log line holding only the reason.
 
