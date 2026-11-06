@@ -9,6 +9,7 @@ import { createDb, searchLiveWorks, tagNameKeys } from "@archive/db";
 import type { Context } from "hono";
 import type { Bindings } from "./env";
 import { PAGE_SIZE, pager, pageOf, RATINGS, select, workList, type Pair } from "./listing";
+import { siteCard } from "./cards";
 import { DRAFT, escapeHtml, layout } from "./pages";
 import { ipKey, isLimited, SEARCH_WINDOW_SECONDS, tooManyRequests, userKey } from "./rate-limit";
 import type { SessionVariables } from "./session";
@@ -70,7 +71,7 @@ export async function showSearch(c: Context<{ Bindings: Bindings; Variables: Ses
   const q = cut((c.req.query("q") ?? "").replaceAll("\0", " "), MAX_QUERY);
   const filters = filtersOf(c.req.query("fandom"), c.req.query("rating"));
   // A missing or blank query shows the form and no results, whatever the filters.
-  if (q.trim() === "") return c.html(layout("Search", searchForm(q, filters)));
+  if (q.trim() === "") return c.html(layout("Search", searchForm(q, filters), siteCard()));
   // Counted before the search opens its own database connection, so a refused search runs no
   // query (the session lookup, for a request with a cookie, runs earlier, in the middleware).
   // A bare form (above) costs none of the budget. The user first, so one user over their limit
@@ -103,7 +104,11 @@ export async function showSearch(c: Context<{ Bindings: Bindings; Variables: Ses
       works.length === 0 ? `<p>No works match your search.</p>\n${DRAFT}` : workList(works);
     const href = (n: number) => searchHref(q, filters, n);
     return c.html(
-      layout("Search", `${searchForm(q, filters)}\n${list}\n${pager(href, page, last)}`),
+      layout(
+        "Search",
+        `${searchForm(q, filters)}\n${list}\n${pager(href, page, last)}`,
+        siteCard(),
+      ),
     );
   } finally {
     c.executionCtx.waitUntil(db.destroy());

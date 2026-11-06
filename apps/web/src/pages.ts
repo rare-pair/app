@@ -1,6 +1,7 @@
 // The shared layout every app page goes through, and the pages built on it:
 // the sign-in pages, the not-found page and the static about, terms and privacy pages.
 
+import { siteCard } from "./cards";
 import { TURNSTILE_ORIGIN } from "./security";
 import { LINK_LIFETIME_MINUTES } from "./signin";
 import { LOGO_PATH } from "./logo";
@@ -98,6 +99,7 @@ export const aboutPage = () =>
 <p>People upload the epub files they downloaded from the original archive while it is offline. Anyone can browse and read the works that have been uploaded and accepted. Work pages link back to the original page, and the credit belongs to its author.</p>
 <p>Accepted uploads are public. Anyone can ask for a work to be removed, with no need to prove who they are, using the "Remove my work" link in the footer.</p>
 <p>The wait list pages are set in Fraunces (<a href="${FRAUNCES_LICENCE}">licence</a>) and IBM Plex Mono (<a href="${PLEX_LICENCE}">licence</a>).</p>`,
+    siteCard(),
   );
 
 export const termsPage = () =>
@@ -112,6 +114,7 @@ export const termsPage = () =>
 <li>We may hide or remove any work, and close any account, to keep the site safe.</li>
 <li>This site is an unofficial, temporary stopgap with no guarantees: it may change or close at any time.</li>
 </ul>`,
+    siteCard(),
   );
 
 /**
@@ -147,6 +150,7 @@ export const privacyPage = () =>
 <li>To have your account deleted, ask at <a href="mailto:admin@rarepair.fans">admin@rarepair.fans</a>, from the address on your account. We delete your account, your sessions and your saved reading positions. A position saved in the last moments before the delete can stay until it expires, within a year. Accepted works stay public, with no account attached to them. Reports you made stay, without your email address, and so does a moderator's record of what they did. Your email asking for this stays in that mailbox, and what a request, a copyright notice or the wait list keeps stays as described above. We do not delete a banned account, because the ban is kept on it.</li>
 <li>Our anti-spam check, provided by Cloudflare, runs on the sign-in, upload, removal and copyright notice pages and, before launch, on the wait list form on the coming-soon home page. Each check sends the visitor's network address (Turnstile's <code>remoteip</code>) to Cloudflare.</li>
 </ul>`,
+    siteCard(),
   );
 
 export interface SignInForm {

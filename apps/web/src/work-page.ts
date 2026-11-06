@@ -4,6 +4,7 @@
 
 import { createDb, getLiveWork, getWorkAvailability, type LiveWork } from "@archive/db";
 import type { Context } from "hono";
+import { workCard } from "./cards";
 import { originalUrl } from "./content-host";
 import type { Bindings } from "./env";
 import { escapeHtml, layout } from "./pages";
@@ -68,6 +69,14 @@ export function workPage(live: LiveWork, position: Position | null = null): stri
     work.complete ? "Complete" : "In progress",
     work.updated_at === null ? null : `Updated ${work.updated_at.toISOString().slice(0, 10)}`,
   ].filter((part) => part !== null);
+  const card = workCard({
+    ao3WorkId: work.ao3_work_id,
+    title: work.title,
+    pseuds: authors.map((a) => a.pseud),
+    rating: work.rating,
+    warnings: tags.filter((tag) => tag.type === "warning").map((tag) => tag.name),
+    fandoms: fandoms.map((tag) => tag.name),
+  });
   return layout(
     work.title,
     `<p class="authors">by ${byline}</p>
@@ -80,6 +89,7 @@ ${needsCheck ? `<p class="review-notice">Chapters may be imperfect; a moderator 
 <p class="remove"><a href="/remove?work=${work.ao3_work_id}">Ask for this to be removed</a></p>
 <p class="unofficial">rarepair is an unofficial stopgap, not the original archive: this copy is here while the original is offline.</p>
 <p class="original"><a href="https://archiveofourown.org/works/${work.ao3_work_id}">The original work</a>, where the credit belongs. The link works again once the original archive is back.</p>`,
+    card,
   );
 }
 
