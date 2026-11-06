@@ -3,6 +3,7 @@ import { seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import handler, { type Env } from "../src/index";
+import wrangler from "../wrangler.jsonc?raw";
 import { freshIp } from "./client";
 
 // SAFETY: the test env is the bindings wrangler.jsonc declares, which Env describes.
@@ -17,8 +18,9 @@ const CACHED = 8812701;
 const EPUB = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 9, 9, 9, 9]);
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9, 9, 9]);
 const IMAGE = `works/${W}/img/${"b".repeat(64)}`;
-const ORIGINAL_LIMIT = 10;
-const WINDOW_SECONDS = 60;
+// As wrangler.jsonc sets them, so a new period there can't leave Retry-After behind unseen.
+const [, ORIGINAL_LIMIT = 0, WINDOW_SECONDS = 0] =
+  wrangler.match(/"limit": (\d+), "period": (\d+)/)?.map(Number) ?? [];
 
 let original = "";
 let cachedOriginal = "";
@@ -53,11 +55,16 @@ function stubLimiter(...answers: boolean[]) {
 }
 
 /** A request through the Worker's entry, waiting for its cache write. */
-async function request(key: string, init: RequestInit = {}, limiter?: RateLimit) {
+async function request(
+  key: string,
+  init: RequestInit = {},
+  limiter: RateLimit = E.ORIGINAL_LIMIT,
+  lookups: Partial<Env> = {},
+) {
   const pending: Promise<unknown>[] = [];
   // SAFETY: the Worker calls only waitUntil on its context.
   const ctx = { waitUntil: (p: Promise<unknown>) => void pending.push(p) } as ExecutionContext;
-  const bindings = limiter === undefined ? E : { ...E, ORIGINAL_LIMIT: limiter };
+  const bindings = { ...E, ORIGINAL_LIMIT: limiter, ...lookups };
   const res = await handler.fetch(new Request(`${ORIGIN}/${key}`, init), bindings, ctx);
   const body = new Uint8Array(await res.arrayBuffer());
   await Promise.all(pending);
@@ -65,14 +72,14 @@ async function request(key: string, init: RequestInit = {}, limiter?: RateLimit)
 }
 
 /** Bindings that fail any use: a request that got past the throttle would fail with them. */
-const noLookups = (limiter: RateLimit) => {
+const noLookups = () => {
   // SAFETY: nothing can be read from it: the handler below throws for every property.
   const gone = new Proxy({} as never, {
     get(_, name) {
       throw new Error(`The throttled read reached ${String(name)}`);
     },
   });
-  return { BUCKET: gone, HYPERDRIVE: gone, ORIGINAL_LIMIT: limiter } satisfies Env;
+  return { BUCKET: gone, HYPERDRIVE: gone } satisfies Partial<Env>;
 };
 
 /** Shows a response is the throttle's: nothing of the file, and nothing to keep. */
@@ -126,17 +133,8 @@ describe("24-crawler-and-agent-blocking", () => {
       for (const method of ["GET", "HEAD"]) {
         for (const extra of headersFor) {
           const what = `${method} ${key} ${JSON.stringify(extra)}`;
-          const { res, body } = await handler
-            .fetch(
-              new Request(`${ORIGIN}/${key}`, {
-                method,
-                headers: { "cf-connecting-ip": freshIp(), ...extra },
-              }),
-              noLookups(limiter),
-              // SAFETY: a throttled read has nothing to wait on, so the context goes unused.
-              {} as ExecutionContext,
-            )
-            .then(async (r) => ({ res: r, body: new Uint8Array(await r.arrayBuffer()) }));
+          const headers = { "cf-connecting-ip": freshIp(), ...extra };
+          const { res, body } = await request(key, { method, headers }, limiter, noLookups());
           expectThrottled(res, body, what);
         }
       }
@@ -191,7 +189,7 @@ describe("24-crawler-and-agent-blocking", () => {
     await caches.default.delete(`${ORIGIN}/${IMAGE}`);
     const headers = { "cf-connecting-ip": freshIp() };
     // Past the limit on originals, for one reader on one address, through the real binding.
-    for (let i = 0; i < ORIGINAL_LIMIT * 3; i++) {
+    for (let i = 0; i <= ORIGINAL_LIMIT; i++) {
       const { res, body } = await request(IMAGE, { headers });
       expect(res.status, `image ${i + 1}`).toBe(200);
       expect(body, `image ${i + 1}`).toEqual(PNG);

@@ -995,9 +995,10 @@ can be snapshotted.
 The whole site is refused to clients that say they are automated. The exempt paths are
 `/robots.txt` on each host and `POST /waitlist/unsubscribe`, which mail providers send for
 one-click unsubscribe. Works can't be found through search engines, and shared links show
-no preview from a service that identifies itself. The fic text paths, `/works/:id/chapters`,
+no preview from a service that identifies itself. The fic text paths are `/works/:id/chapters`,
 its chapter pages and `/full` on the app, and `/works/:id/img/*` and `/originals/*` on the
-content origin, also have the throttles and the cross-site check below.
+content origin. Chapter pages, `/full` and originals also have the throttles below, and all of
+them but images the cross-site check.
 
 - **Who is refused.** A request with a `Signature-Agent` header (Web Bot Auth,
   which isn't verified, since announcing itself is enough) or with a `User-Agent`
