@@ -51,6 +51,7 @@ describe("24-crawler-and-agent-blocking", () => {
     const login = await (await fetchW("/login")).text();
     const sheet = login.match(/href="(\/assets\/[^"]+\.css)"/)?.[1];
     expect(sheet).toBeDefined();
+    // SAFETY: each entry is a [path, RequestInit] pair, listed here.
     for (const [path, init] of [
       ["/", {}],
       ["/about", {}],
