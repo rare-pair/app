@@ -98,6 +98,16 @@ describe("20-site-chrome-and-legal", () => {
     expect(privacy).toMatch(/do not erase them when you ask/i);
   });
 
+  it("The privacy page says how to ask for an account to be deleted", async () => {
+    const privacy = await htmlOf("/privacy");
+    expect(privacy).toContain("admin@rarepair.fans");
+    expect(privacy).toMatch(/delete your account, your sessions and your saved reading positions/i);
+    expect(privacy).toMatch(/accepted works stay public/i);
+    expect(privacy).toMatch(/reports you made stay/i);
+    expect(privacy).toMatch(/your email asking for this stays in that mailbox/i);
+    expect(privacy).toMatch(/do not delete a banned account/i);
+  });
+
   it("Footer links to removal", async () => {
     for (const path of APP_PAGES) {
       const html = await htmlOf(path);

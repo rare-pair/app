@@ -274,16 +274,19 @@ describe("packages/db moderation constraints", () => {
     ).rejects.toThrow(/check constraint/i);
   });
 
-  it("A report for a work or account that doesn't exist is refused", async () => {
-    const { workId } = await seedWork(t.db);
+  // reporter_id, resolved_by and created_by have no foreign key since 0020: they outlive the
+  // account. A report needs a session and an action a moderator's, so the id is real when written.
+  it("A report for a work that doesn't exist is refused", async () => {
     const reporter = await addUser();
-    const report = (work_id: string, reporter_id: string) =>
-      t.db.insertInto("reports").values({ work_id, reporter_id, kind: "other" }).execute();
-    await expect(report("no-such-work", reporter)).rejects.toThrow(/foreign key/i);
-    await expect(report(workId, "no-such-user")).rejects.toThrow(/foreign key/i);
+    await expect(
+      t.db
+        .insertInto("reports")
+        .values({ work_id: "no-such-work", reporter_id: reporter, kind: "other" })
+        .execute(),
+    ).rejects.toThrow(/foreign key/i);
   });
 
-  it("Rows that point at a missing work, request or moderator are refused", async () => {
+  it("Rows that point at a missing work or request are refused", async () => {
     await expect(addRequest({ kind: "remove_work", work_id: "no-such-work" })).rejects.toThrow(
       /foreign key/i,
     );
@@ -299,22 +302,9 @@ describe("packages/db moderation constraints", () => {
         .values({ work_id: "no-such-work", requester: "r", basis: "b" })
         .execute(),
     ).rejects.toThrow(/foreign key/i);
-    const { workId } = await seedWork(t.db);
-    await expect(
-      t.db
-        .insertInto("takedowns")
-        .values({ work_id: workId, requester: "r", basis: "b", resolved_by: "no-such-user" })
-        .execute(),
-    ).rejects.toThrow(/foreign key/i);
-    await expect(
-      t.db
-        .insertInto("requester_blocks")
-        .values({ ip_hash: "h", created_by: "no-such-user" })
-        .execute(),
-    ).rejects.toThrow(/foreign key/i);
   });
 
-  it("A reported work or reporter can't be deleted", async () => {
+  it("A reported work can't be deleted", async () => {
     const { workId } = await seedWork(t.db);
     const reporter = await addUser();
     await t.db
@@ -322,9 +312,6 @@ describe("packages/db moderation constraints", () => {
       .values({ work_id: workId, reporter_id: reporter, kind: "other" })
       .execute();
     await expect(t.db.deleteFrom("works").where("id", "=", workId).execute()).rejects.toThrow(
-      /foreign key/i,
-    );
-    await expect(t.db.deleteFrom("user").where("id", "=", reporter).execute()).rejects.toThrow(
       /foreign key/i,
     );
   });

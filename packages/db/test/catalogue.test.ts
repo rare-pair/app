@@ -94,7 +94,7 @@ const expected = {
   },
   uploads: {
     id: { type: "text", nullable: false },
-    user_id: { type: "text", nullable: false },
+    user_id: { type: "text", nullable: true },
     r2_key: { type: "text", nullable: false },
     sha256: { type: "text", nullable: true },
     bytes: { type: "int4", nullable: false },

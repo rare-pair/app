@@ -31,7 +31,10 @@ const NO_STORE = { "Cache-Control": "no-store" };
 const logFailure = (error: unknown) =>
   console.error(`Reading position: ${error instanceof Error ? error.name : "unknown"}`);
 
-/** KV's key for one reader's place in one work: the user ID and the AO3 work ID. */
+/**
+ * KV's key for one reader's place in one work: the user ID and the AO3 work ID.
+ * `scripts/account-delete.mjs` finds a reader's keys by this form's `pos:<user id>:` prefix.
+ */
 export const positionKey = (userId: string, workId: number) => `pos:${userId}:${workId}`;
 
 export const serializePosition = (position: Position) => JSON.stringify(position);
