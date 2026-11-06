@@ -485,8 +485,7 @@ describe("01-auth-magic-link", () => {
       await waitOnExecutionContext(ctx);
       return res.status;
     };
-    expect(await post()).toBe(200);
-    expect(await post()).toBe(429);
+    expect([await post(), await post()]).toEqual([200, 429]);
   });
 
   it("The daily count holds a keyed hash of the address, not the address", async () => {

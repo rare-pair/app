@@ -36,9 +36,12 @@ describe("01-auth-magic-link: the daily count", () => {
 
   it("two addresses have their own counts", async () => {
     const [one, other] = [randomUUID(), randomUUID()];
-    expect(await countSignInEmail(t.db, one, 1)).toBe(true);
-    expect(await countSignInEmail(t.db, one, 1)).toBe(false);
-    expect(await countSignInEmail(t.db, other, 1)).toBe(true);
+    const results = [
+      await countSignInEmail(t.db, one, 1),
+      await countSignInEmail(t.db, one, 1),
+      await countSignInEmail(t.db, other, 1),
+    ];
+    expect(results).toEqual([true, false, true]);
   });
 
   it("a limit under one fits nothing and keeps nothing", async () => {
