@@ -167,9 +167,8 @@ describe("22-waitlist", () => {
     // stylesheet, and no inline style for the CSP to refuse.
     const siteCss = await (await fetchW(STYLESHEET_PATH)).text();
     // A link to follow loads nothing, so anchors aren't read.
-    const refs = [...html.matchAll(/<(?!a\b)[^>]*?\s(?:src|href)="([^"]*)"/g)].map(
-      (m) => m[1] ?? "",
-    );
+    const withoutAnchors = html.replace(/<a\b[^>]*>/g, "");
+    const refs = [...withoutAnchors.matchAll(/\s(?:src|href)="([^"]*)"/g)].map((m) => m[1] ?? "");
     for (const sheet of [css, siteCss]) {
       refs.push(
         ...[...sheet.matchAll(/url\(\s*["']?([^"')]*)/g)].map((m) => m[1] ?? ""),

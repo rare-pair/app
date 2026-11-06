@@ -11,11 +11,11 @@ const footerLinks = (html: string) => {
 };
 
 /** Pages that stay open before launch, each with the footer. */
-const OPEN_PAGES = ["/", "/about", "/terms", "/privacy"];
+const FOOTER_PAGES = ["/", "/about", "/terms", "/privacy"];
 
 describe("20-closed-links before launch", () => {
   it("Every app page's footer shows Remove my work as a disabled link", async () => {
-    for (const path of OPEN_PAGES) {
+    for (const path of FOOTER_PAGES) {
       const res = await fetchW(path);
       expect(res.status, path).toBe(200);
       const links = footerLinks(await res.text());
@@ -34,7 +34,7 @@ describe("20-closed-links before launch", () => {
   });
 
   it("Footer links to the GitHub repository", async () => {
-    for (const path of OPEN_PAGES) {
+    for (const path of FOOTER_PAGES) {
       const links = footerLinks(await (await fetchW(path)).text());
       expect(links, path).toContainEqual([' href="https://github.com/rare-pair/app"', "GitHub"]);
     }
