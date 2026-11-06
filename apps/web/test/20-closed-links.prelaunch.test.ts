@@ -30,6 +30,13 @@ describe("20-closed-links before launch", () => {
     }
   });
 
+  it("Footer links to the GitHub repository", async () => {
+    for (const path of ["/", "/about", "/terms", "/privacy"]) {
+      const links = footerLinks(await (await fetchW(path)).text());
+      expect(links, path).toContainEqual([' href="https://github.com/rare-pair/app"', "GitHub"]);
+    }
+  });
+
   it("The not-found page's search form shows with its input and button disabled", async () => {
     const res = await fetchW("/waitlist");
     expect(res.status).toBe(404);

@@ -177,6 +177,8 @@ describe("22-waitlist", () => {
     expect(siteCss).not.toMatch(/@font-face|woff2/);
     for (const ref of refs) {
       if (ref === TURNSTILE_API) continue;
+      // The footer's link to the repository: a link to follow, so the page loads nothing from it.
+      if (ref === "https://github.com/rare-pair/app") continue;
       expect(new URL(ref, BASE).origin).toBe(BASE);
     }
     expect(html).not.toMatch(/<style\b|\sstyle=/i);

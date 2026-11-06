@@ -123,6 +123,14 @@ describe("20-site-chrome-and-legal", () => {
     }
   });
 
+  it("Footer links to the GitHub repository", async () => {
+    for (const path of APP_PAGES) {
+      const html = await htmlOf(path);
+      const footer = html.match(/<footer\b[\s\S]*?<\/footer>/)?.[0] ?? "";
+      expect(footer, path).toContain('<a href="https://github.com/rare-pair/app">GitHub</a>');
+    }
+  });
+
   it("Not-found page", async () => {
     const res = await fetchW("/no-such-page");
     const html = await res.text();
