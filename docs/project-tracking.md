@@ -100,6 +100,7 @@ The breakdown was cut on 2026-10-30, from `main` at `ee0b9c7`: 72 items covering
 | Later | L3 | Tag synonym merging (later) | B2, MOD1 | [#79](https://github.com/rare-pair/app/issues/79) |
 | Later | L4 | Exclude tags in listing filters (later) | B2 | [#80](https://github.com/rare-pair/app/issues/80) |
 | Later | L5 | Operator wind-down: redirect works to AO3 (later) | R1, R4 | [#81](https://github.com/rare-pair/app/issues/81) |
+| Later | L6 | A moderator's "Not NSFW" sticks (later) | the NSFW gate, spec 09, no ticket yet | [#682](https://github.com/rare-pair/app/issues/682) |
 
 ## Follow-ups
 

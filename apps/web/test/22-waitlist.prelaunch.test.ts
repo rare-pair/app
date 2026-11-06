@@ -166,7 +166,9 @@ describe("22-waitlist", () => {
     // Nothing from another host but Turnstile's api.js, in the page or either
     // stylesheet, and no inline style for the CSP to refuse.
     const siteCss = await (await fetchW(STYLESHEET_PATH)).text();
-    const refs = [...html.matchAll(/\s(?:src|href)="([^"]*)"/g)].map((m) => m[1] ?? "");
+    // A link to follow loads nothing, so anchors aren't read.
+    const withoutAnchors = html.replace(/<a\b[^>]*>/g, "");
+    const refs = [...withoutAnchors.matchAll(/\s(?:src|href)="([^"]*)"/g)].map((m) => m[1] ?? "");
     for (const sheet of [css, siteCss]) {
       refs.push(
         ...[...sheet.matchAll(/url\(\s*["']?([^"')]*)/g)].map((m) => m[1] ?? ""),

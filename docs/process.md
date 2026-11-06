@@ -58,13 +58,14 @@ Collections, with the fields `docs/ledger/page.html` reads:
 
 - **`lanes`**: id, name, scope, issue, order. A lane is a group of items, such as an area of the work.
 - **`items`**: the doc id is the work-item id. Fields:
-  - label?, lane, order, title, issue, pr[], status, gates[], model?, mergedAt, note
+  - label?, lane, order, title, issue, pr[], status, gates[], staged?, model?, mergedAt, note
   - status is one of:
-    - `queued` or `waiting` (Ready)
+    - `queued` or `waiting` (Ready if `staged`, otherwise Backlog)
     - `building`, `running` or `blocked` (In progress)
     - `gating` or `review` (Testing)
     - `merged`, `done` or `closed` (Done; `closed` for an item that ended without merging)
   - `gates` names the items that must merge first: the issue's `Depends on:` line.
+  - `staged` is true when the operator has added the item to the next wave. Ready holds only staged items, dimmed while a gate is open. Every other queued or waiting item is in the Backlog section. An item with no row can't be staged, so a follow-up added to a wave gets an item row too.
 - **`agents`**: one doc per explorer, builder, consultant, gate or reviewer (the cheap agent that brings `main` in before a merge is a `gate`). Fields:
   - kind (`explorer`, `builder`, `consultant`, `gate`, or `reviewer` for an ad hoc review only, never the review agents inside `/gate merge`), name, item (or task, for work with no item), model, lane, step, pr[], startedAt, finishedAt, note
   - the doc id is `<item or task>-<kind>`, with `-<n>` added for the second and later of the same kind: `E1-explorer`, `E1-builder`, `E1-consultant-2`. A relaunched agent gets a new id, so the first one's row stays. For consultants, `n` counts every consult of the item, the engineer's own and the orchestrator's: query `agents` for the next free id before adding a row.

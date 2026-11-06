@@ -1910,9 +1910,13 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
 7. Remove-my-work and opt-out requests, reports, DMCA form, minimal
    moderation queue, public removal list
 8. Terms, a privacy notice and a clear "unofficial, temporary" banner
+9. Updates: up to three summary cards on the home page, each linking to a static
+   post, held in the web Worker's code
 
 **Later**
 - NSFW works behind sign-in and an age statement, soon after launch (operator rulings, 2026-11-06)
+- A moderator's "Not NSFW" that later reports can't undo (specs/scenarios/later/10-nsfw-clear-sticks.md)
+- Updates from a static JSON file, with a list page and paging between updates
 - Bookmarks, kudos and per-user reading history
 - Series pages and collections
 - Tag synonym merging and filtering by excluded tags
