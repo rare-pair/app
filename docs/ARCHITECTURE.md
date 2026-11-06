@@ -964,8 +964,9 @@ origin. Work pages, listings and search stay open, so people can still find work
   opening a link planted by another person isn't signed in just by opening it,
   and asking on a laptop and opening the email on a phone takes one press. The
   marker says this browser asked for a link recently, not which one: someone who
-  asked for their own and opens a planted one within 15 minutes is signed in to
-  the planter's account with no press, a limit the operator accepted (#606).
+  asked for their own and opens, or is navigated to, a planted one within 15
+  minutes is signed in to the planter's account with no press, a limit the
+  operator accepted (#606, #657).
 - **Signed-out requests to signed-in pages.** Opening a page that needs an
   account (`/upload`, `/me/uploads`, `/works/:id/report`) while signed out, or
   POSTing a report, redirects to sign in, carrying the page as `next`, so the

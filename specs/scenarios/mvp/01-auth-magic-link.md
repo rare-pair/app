@@ -77,6 +77,7 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - WHEN it opens an older sign-in link, used or expired
 - THEN the page posts by itself and lands on the used-or-expired message
 - AND the marker is gone, so its newest link then takes a press
+- AND, as an accepted limit (#606, #657), someone who asked for their own link and opens, or is navigated to, a planted one within 15 minutes is signed in to the planter's account with no press
 
 ### Opening the link still uses nothing up
 - GIVEN an unused token
