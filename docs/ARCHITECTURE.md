@@ -1428,7 +1428,8 @@ epub, under the normal versioning rules.
   email address (the `NOTICES_EMAIL` var) for a notice, which a person reads and which
   doesn't reach the takedowns queue. A rate limit per IP, counted before the
   check, is its other abuse control; a refused post gives the form back with what
-  was typed.- **Reports.** Every work has a report button. Reporting needs a signed-in
+  was typed.
+- **Reports.** Every work has a report button. Reporting needs a signed-in
   account, so each report has a reporter who can be rate limited or blocked;
   signed-out readers, opening the form or POSTing a report, are redirected to
   sign in, carrying `next`, and brought back to the form. A work with open
