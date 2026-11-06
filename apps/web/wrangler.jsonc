@@ -135,6 +135,13 @@
       "simple": { "limit": 60, "period": 60 },
     },
   ],
+  // Invocation logs are off: a reading URL carries the AO3 work id and chapter number. Errors and
+  // metrics stay, so the console.error lines the code logs on purpose are kept (ARCHITECTURE,
+  // Observability). Traces are not set here: whether they go on is the operator's call (#620).
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "invocation_logs": false },
+  },
   "vars": {
     // "on" until the archive opens (ARCHITECTURE, Wait list): / is the coming-soon
     // page and other app pages redirect to it. Only "off" turns it off; a missing or

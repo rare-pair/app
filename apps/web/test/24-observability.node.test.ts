@@ -1,0 +1,35 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+interface WebConfig {
+  observability?: {
+    enabled?: boolean;
+    logs?: { enabled?: boolean; invocation_logs?: boolean };
+  };
+}
+
+// wrangler.jsonc without its comments and trailing commas: strings are kept whole, so a `//`
+// inside one survives.
+function readConfig(): WebConfig {
+  const text = readFileSync(join(import.meta.dirname, "..", "wrangler.jsonc"), "utf8");
+  const json = text
+    .replace(/"(?:[^"\\]|\\.)*"|\/\/[^\n]*/g, (m) => (m.startsWith('"') ? m : ""))
+    .replace(/,(\s*[}\]])/g, "$1");
+  // SAFETY: the tests read only `observability`, from the file's own JSON.
+  return JSON.parse(json) as WebConfig;
+}
+
+// Reads the config only: it cannot show what the deployed Worker has, or that the platform
+// keeps error lines when invocation logs are off.
+describe("24-crawler-and-agent-blocking", () => {
+  it("Counting refusals does not log what people read: invocation logs are off", () => {
+    expect(readConfig().observability?.logs?.invocation_logs).toBe(false);
+  });
+
+  it("Web errors and metrics are kept", () => {
+    const { observability } = readConfig();
+    expect(observability?.enabled).toBe(true);
+    expect(observability?.logs?.enabled).toBe(true);
+  });
+});
