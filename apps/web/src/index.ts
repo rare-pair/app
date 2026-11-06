@@ -19,6 +19,7 @@ import { showSearch } from "./search";
 import { requestSignIn, showSignIn } from "./login";
 import { sameOriginLogout, showLogout, signOutRoute } from "./logout";
 import { jumpToChapter, showChapter } from "./reader";
+import { throttleReads } from "./read-throttle";
 import { sameOriginOnly, showReportForm, submitReport } from "./report";
 import { aboutPage, notFoundPage, privacyPage, termsPage } from "./pages";
 import { showRemoveForm, submitRemove } from "./remove";
@@ -71,6 +72,8 @@ app.use(disableClosedLinks);
 // Inside HSTS, the redirects and the CSP, which its 403 needs, and ahead of the rest: no guard,
 // session, cache or route sees a refused request.
 app.use(refuseAutomated);
+// After the refusals, which spend no limit, and before anything is looked up, the edge cache included.
+app.use(throttleReads);
 // Before the session, so a cross-site upload or report is refused without a lookup.
 app.post("/uploads", sameOriginUpload);
 app.post("/uploads/:id/complete", sameOriginUpload);

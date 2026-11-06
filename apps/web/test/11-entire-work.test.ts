@@ -2,10 +2,18 @@ import { createDb } from "@archive/db";
 import { putFragments, seedWork, type SeedChapter } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { STRICT, TURNSTILE, fetchW, nonceOf, withoutNonce } from "./helpers";
+import { STRICT, TURNSTILE, fetchW as fetchWorker, freshIp, nonceOf, withoutNonce } from "./helpers";
 
 // Every work here has an AO3 work ID in 21000-21999 and tags named r4-..., so no other
 // test file sharing the database sees them. Text is synthetic markers only.
+
+/** Each request as a new client, so these reads don't spend each other's limit of whole works. */
+const fetchW = (path: string, init: RequestInit = {}) => {
+  const headers = new Headers(init.headers);
+  headers.set("cf-connecting-ip", freshIp());
+  return fetchWorker(path, { ...init, headers });
+};
+
 const W = 21001;
 const TITLE = `R4 <b>entire</b> & "work"`;
 const TITLE_ESCAPED = "R4 &lt;b&gt;entire&lt;/b&gt; &amp; &quot;work&quot;";

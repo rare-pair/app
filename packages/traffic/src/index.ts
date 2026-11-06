@@ -4,6 +4,7 @@
 import { CRAWLER_LIST } from "./crawler-list";
 
 export { clientOf, hashKey, ipKey } from "./client-key";
+export { isLimited } from "./limited";
 
 /** Why a request declares itself automated. Each is also how a refusal's log line names it. */
 export type DeclaredReason = "signature" | "crawler list";

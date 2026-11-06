@@ -3,6 +3,7 @@ import { seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import handler, { type Env } from "../src/index";
+import { asNewClient } from "./client";
 
 // SAFETY: the test env is the bindings wrangler.jsonc declares, which Env describes.
 const E = env as Env;
@@ -62,7 +63,7 @@ async function request(key: string, init: RequestInit = {}, bindings: Env = E) {
   const pending: Promise<unknown>[] = [];
   // SAFETY: the Worker calls only waitUntil on its context.
   const ctx = { waitUntil: (p: Promise<unknown>) => void pending.push(p) } as ExecutionContext;
-  const res = await handler.fetch(new Request(`${ORIGIN}/${key}`, init), bindings, ctx);
+  const res = await handler.fetch(new Request(`${ORIGIN}/${key}`, asNewClient(init)), bindings, ctx);
   const body = new Uint8Array(await res.arrayBuffer());
   await Promise.all(pending);
   return { res, body };
@@ -243,7 +244,7 @@ describe("24-crawler-and-agent-blocking", () => {
     const TAG = "noindex, noarchive, noai, noimageai";
     const down: Pick<R2Bucket, "get"> = { get: () => Promise.reject(new Error("R2 unavailable")) };
     // SAFETY: the Worker calls only BUCKET.get. A read that fails answers 503, so a 200 is a hit.
-    const noR2 = { BUCKET: down as R2Bucket, HYPERDRIVE: E.HYPERDRIVE };
+    const noR2 = { ...E, BUCKET: down as R2Bucket };
     await caches.default.delete(`${ORIGIN}/${imageOf(W)}`);
     await caches.default.delete(`${ORIGIN}/${original}`);
     for (const key of [imageOf(W), original]) {
