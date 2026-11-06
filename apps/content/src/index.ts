@@ -167,11 +167,10 @@ export default {
     }
     // Ahead of everything that depends on the path or a file, so the 403 shows nothing of which
     // files exist. Only originals have the cross-site check: images aren't throttled (spec 24).
+    const isOriginal = ORIGINAL.test(path);
     const reason =
       declaredClient(request.headers) ??
-      (ORIGINAL.test(path) && isCrossSiteSubresource(request.headers)
-        ? "cross-site subresource"
-        : null);
+      (isOriginal && isCrossSiteSubresource(request.headers) ? "cross-site subresource" : null);
     if (reason !== null) {
       // The whole line: the reason and nothing else, since a URL or address has no place in it.
       console.log(`refused: ${reason}`);
@@ -184,9 +183,7 @@ export default {
     // second cacheable URL for the same bytes, one that a purge of the bare URL on
     // removal would miss, so only bare paths are served.
     if (request.url.includes("?")) return notFound();
-    const isImage = IMAGE.test(path);
-    const isOriginal = ORIGINAL.test(path);
-    if (!isImage && !isOriginal) return notFound();
+    if (!isOriginal && !IMAGE.test(path)) return notFound();
 
     // Only a plain GET reads or fills the cache. The key is the bare URL string, not the
     // Request, so no request header can pick a different entry, and the purge removal

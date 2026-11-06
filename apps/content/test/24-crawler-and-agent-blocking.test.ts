@@ -1,13 +1,11 @@
 import { createDb } from "@archive/db";
 import { seedWork } from "@archive/db/seed";
-import { env, exports } from "cloudflare:workers";
+import { env } from "cloudflare:workers";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import handler, { type Env } from "../src/index";
 
 // SAFETY: the test env is the bindings wrangler.jsonc declares, which Env describes.
 const E = env as Env;
-// SAFETY: the default export is the Worker under test, loaded from wrangler.jsonc's main.
-const worker = (exports as any).default as Fetcher;
 const ORIGIN = "https://content.rarepair.fans";
 
 // This file keeps to AO3 work ids 8812600 to 8812699. Bytes are synthetic.
@@ -165,9 +163,8 @@ describe("24-crawler-and-agent-blocking", () => {
   it("Exempt paths are still served", async () => {
     for (const headers of DECLARED) {
       for (const method of ["GET", "HEAD"]) {
-        const res = await worker.fetch(`${ORIGIN}/robots.txt`, { method, headers });
+        const { res } = await request("robots.txt", { method, headers }, noBindings);
         expect(res.status, `${method} /robots.txt`).toBe(200);
-        await res.arrayBuffer();
       }
       // Nothing else is exempt: another method, a query string, a slash after, another spelling.
       for (const key of ["robots.txt?x", "robots.txt/", "%72obots.txt", "robots.txt/x"]) {
