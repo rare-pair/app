@@ -103,7 +103,11 @@ export const aboutPage = () =>
 <p>rarepair is a temporary, community-run reading archive for fanworks. It is an unofficial stopgap, not the original archive, and it is not affiliated with or approved by that archive or the organisation behind it.</p>
 <p>People upload the epub files they downloaded from the original archive while it is offline. Anyone can browse and read the works that have been uploaded and accepted. Work pages link back to the original page, and the credit belongs to its author.</p>
 <p>Accepted uploads are public. Anyone can ask for a work to be removed, with no need to prove who they are, using the "Remove my work" link in the footer.</p>
-<p>The wait list pages are set in Fraunces (<a href="${FRAUNCES_LICENCE}">licence</a>) and IBM Plex Mono (<a href="${PLEX_LICENCE}">licence</a>).</p>`,
+<p>The wait list pages are set in Fraunces (<a href="${FRAUNCES_LICENCE}">licence</a>) and IBM Plex Mono (<a href="${PLEX_LICENCE}">licence</a>).</p>
+<h2>Crawlers and AI agents</h2>
+<p>rarepair is built by a swarm of AI coding agents, directed by a person. We know how that sounds next to fanworks, so to be plain: we are here to serve, not to steal.</p>
+<p>Anything that identifies itself as a bot, a crawler or an AI agent is refused the whole site. That includes search engines and link previews, so works won't show up in search, and shared links show no preview. We ask crawlers to stay away, and we limit how fast one network address can read or download. We also use Cloudflare's bot protection, which now and then may ask a real reader to pass a quick check.</p>
+<p>We can't promise this stops everything. The archive stays open to read, so a scraper pretending to be a browser, or an agent using someone's own browser, can still get what any reader can.</p>`,
     siteCard(),
   );
 
