@@ -143,9 +143,6 @@
     // The public Turnstile sitekey of every Turnstile form: coming-soon, sign-in, upload, removal and copyright notice. The widget is for
     // rarepair.fans, with its secret in TURNSTILE_SECRET_KEY. Without a matching pair those forms fail closed (the copyright notice form too: the page's email address is the only way to send one).
     "TURNSTILE_SITE_KEY": "0x4AAAAAAF0X4q4IwNS4pX4A",
-    // The bucket presigned upload URLs PUT into, under uploads/ (src/presign.ts). It must be
-    // the BUCKET binding's bucket_name above, which /complete and ingest read uploads from.
-    "R2_BUCKET": "rarepair",
     // The least time POST /waitlist takes to answer, in milliseconds, so how long it took
     // can't show whether an address is on the list (#216). It must be longer than the
     // slowest path (insert, update, queue send, over Hyperdrive to Neon): a floor can't hide
@@ -180,9 +177,7 @@
   // Set with `wrangler secret put`. IP_HASH_KEY also keys the daily sign-in count's stored address
   // hash (src/ip-hash.ts). It keys the HMAC of a requester's stored network
   // address (src/ip-hash.ts): a long random value, kept for as long as stored hashes are
-  // matched, since changing it orphans them. The R2 ones sign upload URLs: an R2 API token with Object
-  // Read and Write on the rarepair bucket only. Only its secret key is secret: every issued URL
-  // shows the access key id and the account id, which are here only to keep them out of the repo.
+  // matched, since changing it orphans them.
   // CLOUDFLARE_PURGE_TOKEN is the Cloudflare API token a removal purges the cache with: permission
   // Zone > Cache Purge > Purge, on the rarepair.fans zone only.
   "secrets": {
@@ -190,9 +185,6 @@
       "BETTER_AUTH_SECRET",
       "TURNSTILE_SECRET_KEY",
       "IP_HASH_KEY",
-      "R2_ACCOUNT_ID",
-      "R2_ACCESS_KEY_ID",
-      "R2_SECRET_ACCESS_KEY",
       "CLOUDFLARE_PURGE_TOKEN",
     ],
   },

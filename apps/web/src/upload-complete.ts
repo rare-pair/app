@@ -8,7 +8,6 @@ import {
   countUploadQuota,
   refundUploadQuota,
   rejectOverQuotaUpload,
-  rejectOversizedUpload,
 } from "@archive/db";
 import type { Context } from "hono";
 import type { Bindings } from "./env";
@@ -17,11 +16,12 @@ import { limitFor, quotaSpent } from "./quota";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
 import { BANNED_UPLOADER } from "./upload";
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./upload-limit";
+import { isUploadId } from "./upload-limit";
+import { deleteObject, freeUpload } from "./upload-put";
 
 // ARCHITECTURE, Ingestion pipeline, step 3. The upload page's script calls
-// `POST /uploads/:id/complete` once the browser's PUT to R2 has finished. The object is
-// read through the BUCKET binding, which is the same bucket the presigned URL wrote to.
+// `POST /uploads/:id/complete` once its `PUT /uploads/:id` has finished. A confirm that fails
+// frees the upload's slot at once: its row and its object go.
 
 type CompleteContext = Context<
   {
@@ -30,10 +30,6 @@ type CompleteContext = Context<
   },
   "/uploads/:id/complete"
 >;
-
-// Upload ids are random text bounded at 64 characters (apps/ingest/src/message.ts). Nothing
-// longer, or holding a NUL, which Postgres refuses, can name an upload.
-const MAX_ID = 64;
 
 /** The lowercase hex of a SHA-256 digest. */
 const hex = (digest: ArrayBuffer) =>
@@ -46,7 +42,7 @@ const hex = (digest: ArrayBuffer) =>
  * the account's daily quota is spent.
  */
 export async function completeUpload(c: CompleteContext) {
-  const refuse = (status: 400 | 401 | 403 | 404 | 409 | 413 | 500 | 503, error: string) =>
+  const refuse = (status: 400 | 401 | 403 | 404 | 409 | 500 | 503, error: string) =>
     c.json({ error }, status, NO_STORE);
 
   // A script can't follow a sign-in redirect, so it gets a 401 to act on.
@@ -54,7 +50,7 @@ export async function completeUpload(c: CompleteContext) {
   if (user === undefined) return refuse(401, "Sign in to upload.");
 
   const id = c.req.param("id");
-  if (id.length > MAX_ID || id.includes("\0")) return refuse(404, "There is no such upload.");
+  if (!isUploadId(id)) return refuse(404, "There is no such upload.");
 
   // One connection serves every query here.
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
@@ -65,30 +61,24 @@ export async function completeUpload(c: CompleteContext) {
     // Ingest, or an earlier confirm, has taken it: its outcome is at GET /uploads/:id.
     const taken = () =>
       refuse(409, "That upload was already handled. Check its status on the upload page.");
+    // A ban ended it, and nothing will read its file now.
+    if (upload.status === "account_banned") await deleteObject(c.env.BUCKET, upload.r2_key);
     if (upload.status !== "pending") return taken();
     // A ban ends an account's pending uploads; this one was written after it, so it is ended
     // the same way. Before the object is read, so nothing of it is hashed or queued.
     if (await isBanned(db, user.id)) {
-      await endBannedUpload(db, upload.id, user.id);
+      if (await endBannedUpload(db, upload.id, user.id)) {
+        await deleteObject(c.env.BUCKET, upload.r2_key);
+      }
       return refuse(403, BANNED_UPLOADER);
     }
 
-    // A delete that fails leaves the object for the bucket's 7-day lifecycle rule.
-    const deleteObject = async (what: string) => {
-      try {
-        await c.env.BUCKET.delete(upload.r2_key);
-      } catch (error) {
-        console.error(`deleting ${what} failed`, error);
-      }
-    };
-
     // An upload over the quota is marked first, and only the request that marks it deletes the
-    // object, as for an oversized one. The mark is refused for an upload another confirm has
-    // counted, so a loser never rejects or deletes what a parallel confirm of the same upload
-    // won.
+    // object. The mark is refused for an upload another confirm has counted, so a loser never
+    // rejects or deletes what a parallel confirm of the same upload won.
     const discardOverQuota = async () => {
       if (!(await rejectOverQuotaUpload(db, upload.id, user.id))) return null;
-      await deleteObject("an over-quota object");
+      await deleteObject(c.env.BUCKET, upload.r2_key);
       return quotaSpent(c);
     };
 
@@ -103,50 +93,22 @@ export async function completeUpload(c: CompleteContext) {
       if (refused !== null) return refused;
     }
 
-    const missing = () => refuse(400, "That file didn't finish uploading. Please upload it again.");
-    // The declared size was checked at POST /uploads, but the PUT can store more. The row is
-    // marked first, and only the request that marks it deletes the object.
-    const discardOversized = async () => {
-      if (!(await rejectOversizedUpload(db, upload.id))) return taken();
-      await deleteObject("an oversized object");
-      return refuse(
-        413,
-        `That file is over the ${MAX_UPLOAD_MB} MB limit, so it can't be uploaded.`,
-      );
-    };
+    // Frees the upload and says why. One a confirm has counted isn't freed: it is in the queue,
+    // its confirm is a repeat, and its object is ingest's to read and to refuse.
+    const fail = async (error: string) =>
+      (await freeUpload(db, c.env.BUCKET, upload.id, user.id)) ? refuse(400, error) : taken();
 
-    // Another size than was declared, and signed into the link: refused whatever R2 did at the
-    // PUT, whose check of a signed size Cloudflare's docs don't promise. The row stays open, so
-    // the reaper removes it. One already counted is in the queue: its confirm is a repeat, and
-    // its object is ingest's to read, as for an over-quota discard.
-    const discardWrongSize = async () => {
-      if (upload.quota_counted_at !== null) return taken();
-      await deleteObject("an object of the wrong size");
-      return refuse(
-        400,
+    const object = await c.env.BUCKET.get(upload.r2_key);
+    if (object === null) {
+      return await fail("That file didn't finish uploading. Please upload it again.");
+    }
+    // PUT /uploads/:id stores nothing else, so this holds unless R2 has broken its promises to
+    // that route: the check that matters is on the object about to be hashed.
+    if (object.size !== upload.bytes) {
+      await object.body.cancel();
+      return await fail(
         "That file isn't the size it was when you picked it, so it wasn't kept. Please upload it again.",
       );
-    };
-
-    /** What to do about an object of this size, or null when it's the size declared. */
-    const refusalFor = (size: number) => {
-      if (size > MAX_UPLOAD_BYTES) return discardOversized;
-      return size === upload.bytes ? null : discardWrongSize;
-    };
-
-    const head = await c.env.BUCKET.head(upload.r2_key);
-    if (head === null) return missing();
-    const refuseHead = refusalFor(head.size);
-    if (refuseHead !== null) return refuseHead();
-
-    // The presigned URL still works for ten minutes, so the object can have been replaced since
-    // the HEAD: the size is checked again on the object that is hashed.
-    const object = await c.env.BUCKET.get(upload.r2_key);
-    if (object === null) return missing();
-    const refuseObject = refusalFor(object.size);
-    if (refuseObject !== null) {
-      await object.body.cancel();
-      return refuseObject();
     }
     // Streamed through the digest, never buffered: the body can be 25 MiB.
     const digest = new crypto.DigestStream("SHA-256");
@@ -158,7 +120,7 @@ export async function completeUpload(c: CompleteContext) {
     if (recorded === null) return taken();
     if (recorded.duplicateOf !== null) {
       // No second copy is kept.
-      await deleteObject("a duplicate's object");
+      await deleteObject(c.env.BUCKET, upload.r2_key);
       // No work id in the reply: the uploader's link is GET /uploads/:id's, which shows a work
       // only while it is live, and by its public id.
       return c.json({ status: "duplicate" }, 200, NO_STORE);
@@ -170,37 +132,53 @@ export async function completeUpload(c: CompleteContext) {
     // An upload is counted once: a repeat confirm of one that is counted is `already`, and is
     // queued again (ingest's lease makes a second job a no-op) without taking another use.
     const counted = await countUploadQuota(db, user.id, upload.id, limit);
-    // Another request rejected it (an oversized or over-quota upload) since the lookup.
+    // Another request ended it (an over-quota upload, or a failed confirm) since the lookup.
     if (counted === "gone") return taken();
     if (counted === "spent") {
       // Lost a race for the last use.
       return (await discardOverQuota()) ?? taken();
     }
 
-    // The hash is stored by now, so a failed send leaves a `pending` row that a retried
-    // confirm takes through again. Its use of the quota is given back, or the retry would
-    // count it twice. Only by the request that counted it: a repeat's failed send says nothing
-    // of the first's message, and an upload made to look unconfirmed is one the reaper removes.
+    // The page never sends the same confirm again, so a failed send frees the slot for the next
+    // click: the use is given back, then the open row and its object go. Only by the request
+    // that counted it: a repeat's failed send says nothing of the first's message, which the
+    // row and object must be there for.
     try {
       await c.env.INGEST.send({ upload_id: upload.id });
     } catch (error) {
       console.error("ingest queue send failed", error);
-      try {
-        if (counted === "counted") await refundUploadQuota(db, user.id, upload.id);
-      } catch (refundError) {
-        console.error(
-          "refunding the quota failed",
-          refundError instanceof Error ? refundError.name : "unknown",
-        );
+      if (counted === "counted") {
+        try {
+          await refundUploadQuota(db, user.id, upload.id);
+          await freeUpload(db, c.env.BUCKET, upload.id, user.id);
+        } catch (refundError) {
+          console.error(
+            "refunding the quota failed",
+            refundError instanceof Error ? refundError.name : "unknown",
+          );
+        }
       }
-      return refuse(503, "We couldn't queue that file just now. Please try again in a minute.");
+      return refuse(
+        503,
+        "We couldn't queue that file just now. Please upload it again in a minute.",
+      );
     }
     return c.json({ status: "queued" }, 200, NO_STORE);
   } catch (error) {
     // The page's script reads JSON: a fault in the database or R2 gets one too.
     // Only the error's name: a driver's message can carry the query's values, the file's hash.
     console.error("confirming an upload failed", error instanceof Error ? error.name : "unknown");
-    return refuse(500, "Something went wrong confirming that file. Please try again.");
+    // Only an upload still open: one a confirm has counted is in the queue.
+    try {
+      await freeUpload(db, c.env.BUCKET, id, user.id);
+    } catch (freeError) {
+      // The reaper removes the row, and the object with it.
+      console.error(
+        "freeing a failed confirm failed",
+        freeError instanceof Error ? freeError.name : "unknown",
+      );
+    }
+    return refuse(500, "Something went wrong confirming that file. Please upload it again.");
   } finally {
     c.executionCtx.waitUntil(db.destroy());
   }

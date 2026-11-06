@@ -6,15 +6,14 @@ import {
   uploadThroughPage,
   useJourneySite,
 } from "../harness/journey";
-import { R2_HOST } from "../harness/r2-put";
 import { signedIn } from "../harness/sessions";
 import { SITE, type Site } from "../harness/site";
 import { startAtHome, viaHeader } from "../harness/walk";
 import { chapterSentence, generatedEpub } from "./epubs";
 
-// An uploader's files from the page to a reader: the page's script asks for URLs, PUTs each file
-// to the R2 stand-in with a progress bar, confirms it, and ingest makes it a work. Works here
-// take AO3 ids 41900 to 41909; epubs are built in the test (epubs.ts).
+// An uploader's files from the page to a reader: the page's script asks to upload, PUTs each file
+// to the web Worker with a progress bar, confirms it, and ingest makes it a work. Works here take
+// AO3 ids 41900 to 41909 and 8812200 to 8812209; epubs are built in the test (epubs.ts).
 describe("upload journeys", () => {
   const running = useJourneySite();
 
@@ -48,31 +47,22 @@ describe("upload journeys", () => {
     const held = new Promise<void>((resolve) => (release = resolve));
     // A failed assertion must not leave the PUT held, or closing the page would wait on it.
     onTestFinished(() => release());
-    await page.route(`https://${R2_HOST}/**`, async (route) => {
-      await held;
+    await page.route(`${SITE}/uploads/*`, async (route) => {
+      if (route.request().method() === "PUT") await held;
       await route.continue();
-    });
-    // What the web Worker is sent: the file's bytes must not be among it (scenario 02).
-    const toWeb: { method: string; bytes: number }[] = [];
-    page.on("request", (request) => {
-      if (request.url().startsWith(SITE)) {
-        toWeb.push({ method: request.method(), bytes: request.postData()?.length ?? 0 });
-      }
     });
 
     const [put] = await Promise.all([
       page.waitForRequest((request) => request.method() === "PUT"),
       sendFiles(page, [file]),
     ]);
-    expect(put.url().startsWith(`https://${R2_HOST}/rarepair/uploads/`)).toBe(true);
+    // To this site, and nowhere else: the Worker streams it to R2 (scenario 02).
+    expect(put.url().startsWith(`${SITE}/uploads/`)).toBe(true);
     const row = page.locator("#files li");
     await expect.poll(() => row.innerText()).toContain("Uploading.");
     await expect.poll(() => row.locator("progress").isVisible()).toBe(true);
     release();
     await expect.poll(() => row.innerText()).toContain("Uploaded.");
-
-    expect(toWeb.some((request) => request.method === "PUT")).toBe(false);
-    expect(toWeb.every((request) => request.bytes < file.bytes.length)).toBe(true);
 
     const upload = await site.db
       .selectFrom("uploads")
@@ -95,6 +85,34 @@ describe("upload journeys", () => {
     await expect
       .poll(() => reader.locator("main").innerText())
       .toContain(chapterSentence(41900, 1));
+  });
+
+  it("A failed upload frees its slot, and another click sends the file", async () => {
+    const { site } = running;
+    const { context, userId } = await uploader("upslot-retry@example.test");
+    const page = await context.newPage();
+    let dropping = true;
+    await page.route(`${SITE}/uploads/*`, (route) =>
+      dropping && route.request().method() === "PUT" ? route.abort() : route.continue(),
+    );
+    const uploadsOfUser = () =>
+      site.db.selectFrom("uploads").select("id").where("user_id", "=", userId).execute();
+
+    await sendFiles(page, [{ name: "retry.epub", bytes: generatedEpub({ workId: 8812200 }) }]);
+
+    const row = page.locator("#files li");
+    await expect.poll(() => row.innerText()).toContain("didn't finish");
+    // The page told the server, so no row is left holding a slot.
+    await expect.poll(async () => (await uploadsOfUser()).length).toBe(0);
+
+    dropping = false;
+    await page.getByRole("button", { name: "Upload" }).click();
+    await expect.poll(() => row.innerText()).toContain("Uploaded.");
+    const [upload] = await uploadsOfUser();
+    await site.waitForUpload(upload!.id);
+    expect(await worksAmong(site, [8812200])).toEqual([8812200]);
+    // The dropped PUT's own line in the console, and nothing else.
+    await site.assertClean({ allow: [/net::ERR_FAILED/] });
   });
 
   it("Several files are each confirmed and each ends live", async () => {

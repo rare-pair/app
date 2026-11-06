@@ -1,12 +1,8 @@
 import { createDb, type UploadStatus } from "@archive/db";
-import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { sql } from "kysely";
 import { afterAll, describe, expect, it } from "vitest";
-import app from "../src/index";
-import { presignPut } from "../src/presign";
 import {
-  BASE,
   fetchW,
   freshIp,
   TURNSTILE,
@@ -14,22 +10,17 @@ import {
   UPLOAD_TOKEN,
   postLogin,
   signIn as signInAs,
-  UPLOAD_CSP,
   withoutHeader,
   withoutNonce,
 } from "./helpers";
 
-// U1's cases: the upload page and `POST /uploads`, which hands out a presigned PUT URL.
-// That R2 refuses a PUT with another content type, or after 10 minutes, is shown on the
-// URL's signature in presign.node.test.ts: Miniflare's R2 has no S3 endpoint to PUT to.
+// U1's cases: the upload page and `POST /uploads`, which makes an upload's row and answers with
+// its id. The file then goes to `PUT /uploads/:id` (02-upload-put.test.ts).
 
 // One database serves every test file of a project, so each test signs in its own user
 // and finds rows by that user.
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 afterAll(() => db.destroy());
-
-// vitest.config.ts's throwaway R2 account id, as the presigned URL's host names it.
-const S3_HOST = "test0000000000000000000000000acct.r2.cloudflarestorage.com";
 
 /**
  * Signs `email` in through the Worker, with the terms accepted, and returns the user's id
@@ -45,7 +36,7 @@ async function signIn(email: string): Promise<{ userId: string; cookie: string }
   return { userId: user.id, cookie };
 }
 
-/** The upload page's script asking for a URL, as a browser on rarepair.fans sends it. */
+/** The upload page's script asking to upload, as a browser on rarepair.fans sends it. */
 const requestUpload = (fields: Record<string, string>, headers: Record<string, string> = {}) =>
   postLogin(fields, { url: "/uploads", headers });
 
@@ -56,26 +47,7 @@ const uploadsOf = (userId: string) =>
     .where("user_id", "=", userId)
     .execute();
 
-type Reply = { id?: string; url?: string; error?: string };
-
-/** The URL `presignPut` gives upload `id` for `bytes`, at the moment `put` was signed. */
-const signedFor = (id: string, bytes: number, put: URL) =>
-  presignPut({
-    accountId: env.R2_ACCOUNT_ID,
-    bucket: env.R2_BUCKET,
-    accessKeyId: env.R2_ACCESS_KEY_ID,
-    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-    key: `uploads/${id}`,
-    contentType: "application/epub+zip",
-    contentLength: bytes,
-    expiresSeconds: 600,
-    now: new Date(
-      (put.searchParams.get("X-Amz-Date") ?? "").replace(
-        /^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)Z$/,
-        "$1-$2-$3T$4:$5:$6Z",
-      ),
-    ),
-  });
+type Reply = { id?: string; error?: string };
 
 /** The JSON reply of a refused request: an error to show, and nothing else. */
 async function expectRefused(res: Response, status: number) {
@@ -85,7 +57,6 @@ async function expectRefused(res: Response, status: number) {
   expect(res.headers.get("cache-control")).toBe("no-store");
   // SAFETY: POST /uploads answers JSON.
   const body = (await res.json()) as Reply;
-  expect(body.url).toBeUndefined();
   expect(body.id).toBeUndefined();
   expect(body.error).toEqual(expect.any(String));
   return body.error!;
@@ -104,57 +75,23 @@ describe("01-auth-magic-link", () => {
 });
 
 describe("02-upload-handshake", () => {
-  it("Upload request returns a presigned PUT URL", async () => {
+  it("Upload request makes an upload and returns its id", async () => {
     const { userId, cookie } = await signIn("u1-presigned@example.test");
     const res = await requestUpload(
       { size: "123456", "cf-turnstile-response": UPLOAD_TOKEN },
       { cookie },
     );
     expect(res.status).toBe(200);
-    // The URL can write to the bucket: no cache may keep it.
     expect(res.headers.get("cache-control")).toBe("no-store");
     // SAFETY: POST /uploads answers JSON.
-    const { id, url } = (await res.json()) as Reply;
+    const reply = (await res.json()) as Reply;
+    // No link to the bucket: an id, and nothing else.
+    expect(Object.keys(reply)).toEqual(["id"]);
+    const { id } = reply;
 
     expect(await uploadsOf(userId)).toEqual([
       { id, r2_key: `uploads/${id}`, bytes: 123456, status: "pending", sha256: null },
     ]);
-
-    const put = new URL(url!);
-    expect(put.origin).toBe(`https://${S3_HOST}`);
-    expect(put.pathname).toBe(`/rarepair/uploads/${id}`);
-    expect(put.searchParams.get("X-Amz-Expires")).toBe("600");
-    expect(put.searchParams.get("X-Amz-SignedHeaders")).toBe("content-length;content-type;host");
-    expect(put.searchParams.get("X-Amz-Signature")).toMatch(/^[0-9a-f]{64}$/);
-    // Signed for the size declared, in workerd too: the Request keeps its Content-Length.
-    expect(url).toBe(await signedFor(id!, 123456, put));
-    expect(url).not.toBe(await signedFor(id!, 123457, put));
-  });
-
-  it("Each link is signed for the size declared when it was asked for", async () => {
-    const { userId, cookie } = await signIn("uploadcap-three-sizes@example.test");
-    const sizes = [1000, 2000, 3000];
-    const res = await postLogin(
-      {},
-      {
-        url: "/uploads",
-        headers: { cookie },
-        body: new URLSearchParams([
-          ...sizes.map((size): [string, string] => ["size", String(size)]),
-          ["cf-turnstile-response", UPLOAD_TOKEN],
-        ]).toString(),
-      },
-    );
-    expect(res.status).toBe(200);
-    // SAFETY: POST /uploads answers JSON, with one entry per file for several.
-    const { uploads } = (await res.json()) as { uploads: { id: string; url: string }[] };
-    const rows = await uploadsOf(userId);
-    expect(rows.map((row) => row.bytes).sort((a, b) => a - b)).toEqual(sizes);
-    for (const { id, url } of uploads) {
-      const put = new URL(url);
-      const bytes = rows.find((row) => row.id === id)?.bytes ?? 0;
-      expect(url).toBe(await signedFor(id, bytes, put));
-    }
   });
 
   it("Declared size of exactly 25 MB is accepted", async () => {
@@ -164,9 +101,6 @@ describe("02-upload-handshake", () => {
       { cookie },
     );
     expect(res.status).toBe(200);
-    // SAFETY: POST /uploads answers JSON.
-    const { url } = (await res.json()) as Reply;
-    expect(new URL(url!).origin).toBe(`https://${S3_HOST}`);
     expect((await uploadsOf(userId)).map((row) => row.bytes)).toEqual([26214400]);
   });
 
@@ -239,7 +173,8 @@ describe("02-upload-handshake", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
     const csp = res.headers.get("content-security-policy");
-    expect(withoutNonce(csp)).toBe(UPLOAD_CSP);
+    // Nothing past the Turnstile pages' policy: files go to this site, under default-src 'self'.
+    expect(withoutNonce(csp)).toBe(TURNSTILE);
 
     const html = await res.text();
     const noscript = html.match(/<noscript>([\s\S]*?)<\/noscript>/)?.[1] ?? "";
@@ -257,19 +192,6 @@ describe("02-upload-handshake", () => {
     for (const tag of scripts) expect(tag).toContain(`nonce="${nonceOf(csp)}"`);
   });
 
-  it("An account id that is not letters and digits adds nothing to the policy", async () => {
-    const { cookie } = await signIn("u3-bad-account@example.test");
-    const ctx = createExecutionContext();
-    const res = await app.fetch(
-      new Request(`${BASE}/upload`, { headers: { cookie } }),
-      { ...env, R2_ACCOUNT_ID: "acct.example; script-src *" },
-      ctx,
-    );
-    await waitOnExecutionContext(ctx);
-    expect(res.status).toBe(200);
-    expect(withoutNonce(res.headers.get("content-security-policy"))).toBe(TURNSTILE);
-  });
-
   it("The upload page's script is served with the page's nonce and nothing else is let in", async () => {
     const { cookie } = await signIn("u3-script-tag@example.test");
     const res = await fetchW("/upload", { headers: { cookie } });
@@ -282,8 +204,8 @@ describe("02-upload-handshake", () => {
     expect(script.headers.get("content-type")).toMatch(/^text\/javascript/);
     expect(script.headers.get("x-content-type-options")).toBe("nosniff");
     expect(script.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
-    // Only the page's own address and R2's: nothing else the script could send a file to.
-    expect(res.headers.get("content-security-policy")).not.toMatch(/connect-src[^;]*\*/);
+    // Only the page's own address: nothing else the script could send a file to.
+    expect(res.headers.get("content-security-policy")).not.toContain("connect-src");
   });
 
   it("The upload page has the site's chrome", async () => {

@@ -20,8 +20,7 @@ const strictPolicy = (nonce: string) =>
 
 // The pages with a Turnstile check, matched exactly: only they, and / and /waitlist
 // before launch (hasTurnstile), may frame the challenge.
-const UPLOAD_PATH = "/upload";
-const TURNSTILE_PATHS = new Set(["/login", UPLOAD_PATH, "/remove", "/dmca"]);
+const TURNSTILE_PATHS = new Set(["/login", "/upload", "/remove", "/dmca"]);
 export const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
 const TURNSTILE_FRAME = `frame-src ${TURNSTILE_ORIGIN}`;
 
@@ -60,22 +59,12 @@ const newNonce = () => btoa(String.fromCharCode(...crypto.getRandomValues(new Ui
 const hasTurnstile = (path: string, env: Pick<Bindings, "PRELAUNCH">) =>
   TURNSTILE_PATHS.has(path) || ((path === "/" || path === "/waitlist") && isPrelaunch(env));
 
-// The upload page alone sends files out: it PUTs each to R2's S3 endpoint for the
-// account, at https://<account id>.r2.cloudflarestorage.com. That one host is its whole
-// allowance. An account id is letters and digits, so anything else (a typo in the secret
-// that would otherwise add to the policy) leaves the directive out and the upload fails closed.
-const connectSrc = (accountId: string | undefined) =>
-  accountId !== undefined && /^[A-Za-z0-9]+$/.test(accountId)
-    ? `connect-src 'self' https://${accountId}.r2.cloudflarestorage.com`
-    : null;
-
 /**
  * Sets the CSP on every HTML response, with a nonce handlers read as c.get("nonce").
- * The Turnstile pages get the challenge frame too, keyed on path so any method has it,
- * and the upload page the R2 host its files go to.
+ * The Turnstile pages get the challenge frame too, keyed on path so any method has it.
  */
 export const contentSecurityPolicy: MiddlewareHandler<{
-  Bindings: Pick<Bindings, "PRELAUNCH" | "R2_ACCOUNT_ID">;
+  Bindings: Pick<Bindings, "PRELAUNCH">;
   Variables: SecurityVariables;
 }> = async (c, next) => {
   const nonce = newNonce();
@@ -84,10 +73,6 @@ export const contentSecurityPolicy: MiddlewareHandler<{
   if (c.res.headers.get("content-type")?.toLowerCase().startsWith("text/html")) {
     const parts = [strictPolicy(nonce)];
     if (hasTurnstile(c.req.path, c.env)) parts.push(TURNSTILE_FRAME);
-    if (c.req.path === UPLOAD_PATH) {
-      const connect = connectSrc(c.env.R2_ACCOUNT_ID);
-      if (connect !== null) parts.push(connect);
-    }
     c.header("Content-Security-Policy", parts.join("; "));
     // The nonce is fresh for this response, so a shared cache that kept the page would
     // hand it to every visitor and it would protect nothing. A page that chose its own

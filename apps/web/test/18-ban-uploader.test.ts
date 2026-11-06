@@ -162,6 +162,8 @@ describe("18-moderation", () => {
     expect(await confirmed.json()).toEqual({ error: "This account can't upload." });
     // Ended as the ban ends every pending upload, so it never sits "not uploaded yet".
     expect(await statusOf(late)).toBe("account_banned");
+    // And its file doesn't wait for the bucket's 7-day rule.
+    expect(await env.BUCKET.head(`uploads/${late}`)).toBeNull();
     const form = await get("/upload", z.cookie);
     expect(form.status).toBe(403);
     expect(form.headers.get("cache-control")).toBe("no-store");
@@ -188,6 +190,13 @@ describe("18-moderation", () => {
     expect(await statusOf(pending)).toBe("account_banned");
     const polled = await get(`/uploads/${pending}`, z.cookie);
     expect(await polled.json()).toEqual({ id: pending, status: "account_banned", work: null });
+    // A confirm of it arrives too late, and takes its file with it.
+    const tooLate = await postLogin(
+      {},
+      { url: `/uploads/${pending}/complete`, headers: { cookie: z.cookie } },
+    );
+    expect(tooLate.status).toBe(409);
+    expect(await env.BUCKET.head(`uploads/${pending}`)).toBeNull();
   });
 
   it("A second ban changes nothing", async () => {

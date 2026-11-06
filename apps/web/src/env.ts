@@ -67,13 +67,6 @@ export type Bindings = {
   NOTICES_EMAIL: string;
   /** Signs Better Auth's session cookies. */
   BETTER_AUTH_SECRET: string;
-  /** The bucket presigned upload URLs PUT into (src/presign.ts). */
-  R2_BUCKET: string;
-  /** The Cloudflare account whose R2 S3 endpoint presigned URLs name. */
-  R2_ACCOUNT_ID: string;
-  /** The R2 API token presigned URLs are signed with: Object Read and Write on R2_BUCKET only. */
-  R2_ACCESS_KEY_ID: string;
-  R2_SECRET_ACCESS_KEY: string;
   /** The Cloudflare API token removal purges the cache with: Cache Purge on the zone only (src/purge.ts). */
   CLOUDFLARE_PURGE_TOKEN: string;
   /** The rarepair.fans zone, whose cache removal purges (wrangler.jsonc). */
