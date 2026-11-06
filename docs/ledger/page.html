@@ -4,7 +4,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
-/* Layout: a ledger sheet; agents, then a four-column board, then lanes, reviews, follow-ups and the log. */
+/* Layout: a ledger sheet; agents, then a four-column board, the backlog, then lanes, reviews, follow-ups and the log. */
 :root {
   --paper: #f3f5f4;
   --sheet: #fbfcfb;
@@ -80,7 +80,7 @@ header { display: grid; gap: 10px; border-bottom: 2px solid var(--ink); padding-
 .s-running::before { animation: pulse 1.6s ease-in-out infinite; }
 .s-review { color: var(--review); background: var(--review-bg); }
 .s-ready { color: var(--ready); background: var(--ready-bg); }
-.s-waiting { color: var(--waiting); background: var(--waiting-bg); }
+.s-waiting, .s-backlog { color: var(--waiting); background: var(--waiting-bg); }
 .s-blocked { color: var(--blocked); background: var(--blocked-bg); }
 @keyframes pulse { 50% { opacity: 0.25; } }
 @media (prefers-reduced-motion: reduce) { .s-running::before { animation: none; } }
@@ -123,6 +123,8 @@ details.finished li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items
 .tile.gated { opacity: 0.72; }
 .col .more { font-size: 12px; color: var(--muted); padding: 0 2px; }
 .col .none { font-size: 12px; color: var(--muted); padding: 6px 2px; }
+.backlog { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 8px; }
+.backlog .tile { background: var(--sheet); }
 
 /* One card per open item; lanes with nothing open collapse to a single line. */
 .lanes { display: grid; gap: 24px; }
@@ -196,9 +198,17 @@ ul.list li:first-child { border-top: 0; }
   <section aria-labelledby="h-board">
     <div class="sec-head">
       <h2 id="h-board">Board</h2>
-      <span class="muted">Ready, in progress, testing, done. Dimmed cards wait on a gate.</span>
+      <span class="muted">Ready is what's staged for the next wave. Dimmed cards wait on a gate.</span>
     </div>
     <div class="board" id="board"></div>
+  </section>
+
+  <section aria-labelledby="h-backlog">
+    <div class="sec-head">
+      <h2 id="h-backlog">Backlog</h2>
+      <span class="muted" id="backlog-count">Not staged for a wave</span>
+    </div>
+    <div id="backlog"></div>
   </section>
 
   <section aria-labelledby="h-lanes">
@@ -263,7 +273,7 @@ const span = (from, to) => {
   return `${Math.floor(h / 24)}d ${h % 24}h`;
 };
 
-const LABELS = { merged: "Merged", running: "Building", building: "Building", gating: "In gate", review: "In review", ready: "Ready", waiting: "Waiting", blocked: "Blocked", open: "Open", closed: "Closed", done: "Done", queued: "Queued", idle: "Idle", finished: "Finished", failed: "Failed" };
+const LABELS = { merged: "Merged", running: "Building", building: "Building", gating: "In gate", review: "In review", ready: "Ready", waiting: "Waiting", backlog: "Backlog", blocked: "Blocked", open: "Open", closed: "Closed", done: "Done", queued: "Queued", idle: "Idle", finished: "Finished", failed: "Failed" };
 const TONE = { building: "running", running: "running", gating: "review", review: "review", idle: "waiting", finished: "merged", failed: "blocked", done: "merged", closed: "merged" };
 const pill = (s, text) => `<span class="pill s-${TONE[s] || s}" ${text ? ` title="${esc(text)}"` : ""}>${esc(text || LABELS[s] || s)}</span>`;
 const isDone = (s) => s === "merged" || s === "closed" || s === "done";
@@ -277,16 +287,17 @@ const fields = (pairs) => {
 
 function byId() { return Object.fromEntries(state.items.map((i) => [i.id, i])); }
 
-// A queued item is Ready once every gate has merged, otherwise Waiting on the gates still open.
-// A gate counts as cleared only when it exists and merged (or is done); one that is missing,
-// or `closed` without merging, still blocks.
+// A queued or waiting item not staged for the next wave is Backlog. A staged one is Ready once every
+// gate has merged, otherwise Waiting on the gates still open. A gate counts as cleared only when it
+// exists and merged (or is done); one that is missing, or `closed` without merging, still blocks.
 function effective(item, idx) {
-  if (item.status !== "queued") return { s: item.status, open: [] };
+  if (item.status !== "queued" && item.status !== "waiting") return { s: item.status, open: [] };
   const open = (item.gates || []).filter((g) => !idx[g] || !(idx[g].status === "merged" || idx[g].status === "done"));
-  return open.length ? { s: "waiting", open } : { s: "ready", open };
+  if (!item.staged) return { s: "backlog", open };
+  return open.length || item.status === "waiting" ? { s: "waiting", open } : { s: "ready", open };
 }
 
-const STAGE = { ready: "ready", waiting: "ready", building: "progress", running: "progress", blocked: "progress", gating: "testing", review: "testing", merged: "done", done: "done", closed: "done" };
+const STAGE = { backlog: "backlog", ready: "ready", waiting: "ready", building: "progress", running: "progress", blocked: "progress", gating: "testing", review: "testing", merged: "done", done: "done", closed: "done" };
 
 function renderHeader() {
   const m = state.meta || {};
@@ -295,7 +306,7 @@ function renderHeader() {
   const idx = byId();
   const counts = {};
   for (const i of state.items) { let s = effective(i, idx).s; s = TONE[s] && s !== "gating" ? TONE[s] : s; counts[s] = (counts[s] || 0) + 1; }
-  const order = ["running", "gating", "review", "ready", "waiting", "blocked", "merged"];
+  const order = ["running", "gating", "review", "ready", "waiting", "blocked", "backlog", "merged"];
   document.getElementById("tally").innerHTML = order.filter((s) => counts[s]).map((s) => pill(s, `${counts[s]} ${LABELS[s].toLowerCase()}`)).join("");
 }
 
@@ -330,25 +341,26 @@ function renderAgents() {
 
 function renderBoard() {
   const idx = byId();
-  const cols = { ready: [], progress: [], testing: [], done: [] };
+  const cols = { backlog: [], ready: [], progress: [], testing: [], done: [] };
   for (const i of state.items) {
     const e = effective(i, idx);
     const stage = STAGE[e.s];
     if (stage) cols[stage].push({ i, e });
   }
   cols.ready.sort((a, b) => (a.e.s === "ready" ? 0 : 1) - (b.e.s === "ready" ? 0 : 1) || (a.i.order ?? 0) - (b.i.order ?? 0));
+  cols.backlog.sort((a, b) => (a.i.order ?? 0) - (b.i.order ?? 0));
   cols.progress.sort((a, b) => (a.i.order ?? 0) - (b.i.order ?? 0));
   cols.testing.sort((a, b) => (a.i.order ?? 0) - (b.i.order ?? 0));
   cols.done.sort((a, b) => ((a.i.mergedAt || "") < (b.i.mergedAt || "") ? 1 : -1));
   const DONE_SHOWN = 8;
   const tile = ({ i, e }, stage) => {
     let g = "";
-    if (e.s === "waiting") g = `after ${e.open.map((x) => idx[x]?.label || x).join(", ")}`;
+    if (e.open.length) g = `after ${e.open.map((x) => idx[x]?.label || x).join(", ")}`;
     else if (i.pr?.length) g = `PR ${i.pr.map((p) => `#${p}`).join(" ")}`;
     else if (i.issue) g = `issue #${i.issue}`;
     if (stage === "done" && i.mergedAt) g = `${g}${g ? " · " : ""}${day(i.mergedAt)}`;
-    return `<div class="tile${e.s === "waiting" ? " gated" : ""}">
-      <div class="top"><span class="id">${esc(i.label || i.id)}</span>${stage === "done" ? "" : pill(e.s)}</div>
+    return `<div class="tile${e.open.length ? " gated" : ""}">
+      <div class="top"><span class="id">${esc(i.label || i.id)}</span>${stage === "done" || stage === "backlog" ? "" : pill(e.s)}</div>
       <div class="t">${esc(i.title)}</div>
       ${g ? `<div class="g">${esc(g)}</div>` : ""}
     </div>`;
@@ -364,6 +376,10 @@ function renderBoard() {
     </div>`;
   };
   document.getElementById("board").innerHTML = col("ready", "Ready") + col("progress", "In progress") + col("testing", "Testing") + col("done", "Done");
+  document.getElementById("backlog-count").textContent = `${cols.backlog.length} not staged for a wave`;
+  document.getElementById("backlog").innerHTML = cols.backlog.length
+    ? `<div class="backlog">${cols.backlog.map((x) => tile(x, "backlog")).join("")}</div>`
+    : `<div class="notice">Nothing in the backlog.</div>`;
 }
 
 function renderLanes() {
@@ -377,7 +393,7 @@ function renderLanes() {
     const pct = items.length ? Math.round((done / items.length) * 100) : 0;
     const cards = open.map((i) => {
       const e = effective(i, idx);
-      const stateText = e.s === "waiting" ? `Waiting on ${e.open.map((g) => idx[g]?.label || g).join(", ")}` : null;
+      const stateText = e.s === "waiting" && e.open.length ? `Waiting on ${e.open.map((g) => idx[g]?.label || g).join(", ")}` : null;
       return `<article class="card">
         <div class="top"><span class="id">${esc(i.label || i.id)}</span>${pill(e.s, stateText)}</div>
         <div class="t">${esc(i.title)}</div>
