@@ -74,6 +74,8 @@ export type ContextOptions = {
   ip?: string;
   /** Whether the context runs scripts. Default: true; false is a browser with JavaScript off. */
   javaScript?: boolean;
+  /** The `User-Agent` it sends. Default: the browser's own. */
+  userAgent?: string;
 };
 
 /** The running site: the Workers, their database and bucket, and a browser to visit them with. */
@@ -207,10 +209,11 @@ export async function startSite({
   const offSite: string[] = [];
   const check = cleanCheck(offSite);
 
-  async function newContext({ ip = freshIp(), javaScript = true }: ContextOptions = {}) {
+  async function newContext({ ip = freshIp(), javaScript = true, userAgent }: ContextOptions = {}) {
     const context = await running.newContext({
       viewport,
       javaScriptEnabled: javaScript,
+      userAgent,
       // Miniflare's certificate is self-signed.
       ignoreHTTPSErrors: true,
       reducedMotion: "reduce",

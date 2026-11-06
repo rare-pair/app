@@ -155,7 +155,10 @@ describe("24-crawler-and-agent-blocking", () => {
       ["POST", "/uploads/bw-upload/complete"],
       ["GET", "/uploads/bw-upload"],
     ] as const) {
-      const html = await expectRefusal(await fetchW(path, { method, headers }), `${method} ${path}`);
+      const html = await expectRefusal(
+        await fetchW(path, { method, headers }),
+        `${method} ${path}`,
+      );
       expect(html, path).toContain(REFUSAL);
     }
   });

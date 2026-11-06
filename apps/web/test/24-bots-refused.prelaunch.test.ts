@@ -66,7 +66,11 @@ describe("24-crawler-and-agent-blocking", () => {
       body: "List-Unsubscribe=One-Click",
     });
     expect(res.status).toBe(200);
-    const left = await db.selectFrom("waitlist").select("email").where("email", "=", email).execute();
+    const left = await db
+      .selectFrom("waitlist")
+      .select("email")
+      .where("email", "=", email)
+      .execute();
     expect(left).toEqual([]);
   });
 });

@@ -6,7 +6,16 @@ const request = (site: string, dest: string) =>
 
 describe("24-crawler-and-agent-blocking", () => {
   it("Another site can't spend a reader's limits: what another site embeds", () => {
-    for (const dest of ["image", "iframe", "frame", "script", "style", "object", "embed", "empty"]) {
+    for (const dest of [
+      "image",
+      "iframe",
+      "frame",
+      "script",
+      "style",
+      "object",
+      "embed",
+      "empty",
+    ]) {
       expect(isCrossSiteSubresource(request("cross-site", dest)), dest).toBe(true);
     }
   });
