@@ -166,7 +166,10 @@ describe("22-waitlist", () => {
     // Nothing from another host but Turnstile's api.js, in the page or either
     // stylesheet, and no inline style for the CSP to refuse.
     const siteCss = await (await fetchW(STYLESHEET_PATH)).text();
-    const refs = [...html.matchAll(/\s(?:src|href)="([^"]*)"/g)].map((m) => m[1] ?? "");
+    // A link to follow loads nothing, so anchors aren't read.
+    const refs = [...html.matchAll(/<(?!a\b)[^>]*?\s(?:src|href)="([^"]*)"/g)].map(
+      (m) => m[1] ?? "",
+    );
     for (const sheet of [css, siteCss]) {
       refs.push(
         ...[...sheet.matchAll(/url\(\s*["']?([^"')]*)/g)].map((m) => m[1] ?? ""),
@@ -177,8 +180,6 @@ describe("22-waitlist", () => {
     expect(siteCss).not.toMatch(/@font-face|woff2/);
     for (const ref of refs) {
       if (ref === TURNSTILE_API) continue;
-      // The footer's link to the repository: a link to follow, so the page loads nothing from it.
-      if (ref === "https://github.com/rare-pair/app") continue;
       expect(new URL(ref, BASE).origin).toBe(BASE);
     }
     expect(html).not.toMatch(/<style\b|\sstyle=/i);
