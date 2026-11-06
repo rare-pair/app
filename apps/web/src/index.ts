@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { except } from "hono/combine";
+import { routePath } from "hono/route";
 import { admin } from "./admin";
 import { assetRoute } from "./assets";
 import { confirmSignIn, showConfirm } from "./confirm";
@@ -209,10 +210,12 @@ app.notFound((c) => {
 // Hono's default logs the whole error, and one from Postgres can quote the row it
 // failed on, a sign-in address included. Log only what kind of error it was.
 app.onError((error, c) => {
-  // The path is decoded, so a control, format or line-separator character in it
-  // could start a forged line or reorder what a log viewer shows.
-  const path = c.req.path.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, "?");
-  console.error(`${c.req.method} ${path}: ${error.name}`);
+  // The route's pattern, such as /works/:id/full, not the request's path: a reading URL
+  // carries the work id and chapter, and none belongs in a log line (spec 24). The pattern
+  // is written in this code, so nothing a requester sends can start a forged line.
+  // The last matched route is the handler's: a middleware that throws sits earlier in the list
+  // and would name only "*". A request that matched no route (a failing notFound) has none.
+  console.error(`${c.req.method} ${routePath(c, -1) || "(no route)"}: ${error.name}`);
   return c.text("Internal Server Error", 500);
 });
 
