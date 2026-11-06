@@ -31,7 +31,7 @@ an unofficial stopgap.
 | Wait list | Before launch, `/` is a coming-soon page with a double opt-in wait list. Each confirmed address is sent one launch email, from the same mail subdomain as sign-in, spread over hours on its own queue. The list is deleted after the launch send |
 | Sign-in emails per day | One address gets at most 5 sign-in emails a UTC day, counted in Postgres under a keyed hash, with no merging of `+tag` or dot spellings. The count fails open, and a failed send isn't given back. See Surge controls (operator ruling, 2026-11-05) |
 | Requester data | What a requester sends with a removal or opt-out request (email address, hashed network address, statement), and a requester block's email and hash, is kept until the site closes, then deleted by hand. It is not erased on request. There is no retention sweep job and no migration for it. The only delete of a request's row is the rollback when its confirmation email cannot be queued. A copyright notice, with its sender's contact details and signature, follows the same rule (operator ruling, 2026-11-05). Account data is not covered: see Account deletion. |
-| Account deletion | Someone asks at admin@rarepair.fans and the operator runs a script: no self-service button and no form (operator ruling, 2026-11-05). It removes the account, its sessions and its saved reading positions, bar one saved in the last moments, which expires within a year. Upload rows stay with no user attached, and works and versions stay public. The script refuses a banned account, because the ban would go with the row (pending the operator's ruling, wave 11). See Auth, Deleting an account |
+| Account deletion | Someone asks at admin@rarepair.fans and the operator runs a script: no self-service button and no form (operator ruling, 2026-11-05). It removes the account, its sessions and its saved reading positions, bar one saved in the last moments, which expires within a year. Upload rows stay with no user attached, and works and versions stay public. The script refuses a banned account, because the ban would go with the row (operator ruling, 2026-11-06). Before running it the operator replies from admin@rarepair.fans to the account's address and waits for an answer. The request email stays in the mailbox until the site closes, like requests and notices. See Auth, Deleting an account |
 
 ## System overview
 
@@ -1216,7 +1216,10 @@ content origin, also have the throttles and the cross-site check below.
 
 A request reaches the operator at admin@rarepair.fans, and the privacy page says
 so. There is no self-service button and no form. The operator checks the request
-came from the address, then runs `scripts/account-delete.mjs <address>` locally:
+came from the address, then replies from admin@rarepair.fans to the account's address
+and waits for an answer (operator ruling, 2026-11-06). Only then does the operator run
+`scripts/account-delete.mjs <address>` locally. The request email stays in the
+mailbox until the site closes, like requests and notices, and then is deleted.
 
 ```
 DATABASE_URL=... CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... \
@@ -1505,14 +1508,16 @@ epub, under the normal versioning rules.
   - takedowns (DMCA notices)
   - removal or opt-out requests
   - *Works to check*: works with a held version, works live with the "may be
-    imperfect" notice, and works reported as "This version is wrong"
+    imperfect" notice, works reported as "This version is wrong", and works the reports hid
+    with no open report left (so a dismissed report can't strand one); the work leaves the
+    list when a moderator restores or removes it, and is dated by its earliest report
 
   Actions are hide, remove, restore, approve, reject, dismiss a report, block a requester, ban
   an uploader and withhold a removal list entry. Block a requester is on removal
   and opt-out request pages only: a takedown's requester is free text, so
   takedown pages don't offer it. "Dismiss report", on an open report's page,
   sets it `closed` and logs `dismiss` on the report. It hides and restores nothing, so a work the
-  reports hid stays hidden until Restore lifts the hide. A `wrong_version` report keeps its own form. A *Works to check* item's page has approve (clears the notice,
+  reports hid stays hidden until Restore lifts the hide, and once its last report is closed it is listed in *Works to check*. A `wrong_version` report keeps its own form. A *Works to check* item's page has approve (clears the notice,
   or publishes the held version), make a version current, hide and remove;
   each work's admin page lists every version with "Make current" and "Approve". Approving a held version
   makes it current and checked; each approve is logged once, on the version. Make current and
