@@ -115,7 +115,7 @@ export const termsPage = () =>
   layout(
     "Terms",
     `${DRAFT}
-<p>By creating an account you agree to these terms.</p>
+<p>By using this site you agree to these terms. New accounts are also asked to accept them once.</p>
 <ul>
 <li>You may upload only epub files exported from the original archive, and only works you are happy to have shared.</li>
 <li>Uploads that pass our checks are public: anyone can read them.</li>
@@ -160,7 +160,17 @@ export const privacyPage = () =>
 <li>We store the settings and reading position you save, to bring them back next time.</li>
 <li>To have your account deleted, ask at <a href="mailto:admin@rarepair.fans">admin@rarepair.fans</a>, from the address on your account. We reply to the address on your account before we delete anything, and wait for your answer. We delete your account, your sessions and your saved reading positions. A position saved in the last moments before the delete can stay until it expires, within a year. Accepted works stay public, with no account attached to them. Reports you made stay, without your email address, and so does a moderator's record of what they did. Your email asking for this stays in that mailbox until the site closes, and what a request, a copyright notice or the wait list keeps stays as described above. We do not delete a banned account, because the ban is kept on it.</li>
 <li>Our anti-spam check, provided by Cloudflare, runs on the sign-in, upload, removal and copyright notice pages and, before launch, on the wait list form on the coming-soon home page. Each check sends the visitor's network address (Turnstile's <code>remoteip</code>) to Cloudflare.</li>
-<li>Cloudflare's bot protection may set its own cookie, <code>__cf_bm</code>, on any page. It helps tell real visitors from automated traffic, and it expires after 30 minutes without activity. After a visitor passes a challenge, Cloudflare may also set <code>cf_clearance</code>, which remembers that they passed.</li>
+</ul>
+<h2>Cookies</h2>
+<p>We use cookies only to make the site work. None is for advertising or analytics.</p>
+<ul>
+<li><code>__Secure-better-auth.session_token</code> keeps you signed in. It lasts 7 days, renews as you use the site, and ends when you sign out.</li>
+<li><code>__Host-signin-pending</code> lets the browser that asked for a sign-in link sign in without pressing a button, as described above. It lasts at most ${LINK_LIFETIME_MINUTES} minutes.</li>
+<li><code>__Host-reader</code> holds your reader settings: theme, text size, line spacing and font. It lasts a year and stays after you sign out.</li>
+<li><code>__Host-warned</code> remembers which works' warnings you have passed, so you don't see them again. It usually ends when you close your browser.</li>
+<li><code>__Host-flash</code> shows a one-line message such as "Reader settings saved." It lasts at most a minute.</li>
+<li><code>__cf_bm</code>: Cloudflare's bot protection may set its own cookie, on any page or file. It helps tell real visitors from automated traffic, and it expires after 30 minutes without activity.</li>
+<li><code>cf_clearance</code> is also Cloudflare's. It may be set to remember that a visitor passed its checks.</li>
 </ul>`,
     siteCard(),
   );
