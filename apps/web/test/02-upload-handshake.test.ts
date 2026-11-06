@@ -76,7 +76,7 @@ describe("01-auth-magic-link", () => {
 
 describe("02-upload-handshake", () => {
   it("Upload request makes an upload and returns its id", async () => {
-    const { userId, cookie } = await signIn("u1-presigned@example.test");
+    const { userId, cookie } = await signIn("u1-returns-id@example.test");
     const res = await requestUpload(
       { size: "123456", "cf-turnstile-response": UPLOAD_TOKEN },
       { cookie },
