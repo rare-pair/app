@@ -86,13 +86,7 @@ export const UPLOAD_SCRIPT = `"use strict";
 
   // Tells the server an upload failed, so its slot is free for the next click. If this fails
   // too, the server's daily clean-up has it.
-  const report = async (id) => {
-    try {
-      await fetch(pathOf(id), { method: "DELETE" });
-    } catch {
-      return;
-    }
-  };
+  const report = (id) => fetch(pathOf(id), { method: "DELETE" }).catch(() => undefined);
 
   const confirm = async (file, id, row) => {
     row.note.textContent = "Checking the file.";

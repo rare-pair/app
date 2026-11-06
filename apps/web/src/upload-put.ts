@@ -5,6 +5,7 @@ import {
   endBannedUpload,
   getUploadOf,
   isBanned,
+  isOpenRow,
   type OwnUpload,
 } from "@archive/db";
 import type { Context } from "hono";
@@ -32,9 +33,13 @@ type UploadIdContext = Context<
 /** The object is written only if the key holds none: R2 evaluates this as it commits the write. */
 const CREATE_ONLY = new Headers({ "If-None-Match": "*" });
 
-const DIDNT_FINISH = "That file didn't finish uploading. Please upload it again.";
-const NO_SUCH_UPLOAD = "There is no such upload.";
-const ALREADY_HANDLED = "That upload was already handled. Check its status on the upload page.";
+// What the upload routes say, here and in upload-complete.ts.
+export const DIDNT_FINISH = "That file didn't finish uploading. Please upload it again.";
+export const WRONG_SIZE =
+  "That file isn't the size it was when you picked it, so it wasn't kept. Please upload it again.";
+export const NO_SUCH_UPLOAD = "There is no such upload.";
+export const ALREADY_HANDLED =
+  "That upload was already handled. Check its status on the upload page.";
 
 /**
  * Deletes an upload's object. One that fails is left for the bucket's 7-day lifecycle rule, and
@@ -69,8 +74,21 @@ export async function freeUpload(
   return true;
 }
 
-const isOpen = (upload: OwnUpload) =>
-  upload.status === "pending" && upload.quota_counted_at === null;
+/**
+ * If the account is banned, ends the upload as a ban would, and its object goes too, by the request
+ * that ended it. Read from the database, never the session: a ban holds at once (ARCHITECTURE,
+ * Moderation).
+ */
+export async function endIfBanned(
+  db: Kysely<Database>,
+  bucket: R2Bucket,
+  upload: OwnUpload,
+  userId: string,
+): Promise<boolean> {
+  if (!(await isBanned(db, userId))) return false;
+  if (await endBannedUpload(db, upload.id, userId)) await deleteObject(bucket, upload.r2_key);
+  return true;
+}
 
 /** Why this request's headers can't carry this upload's file, or null when they can. */
 function headerRefusal(request: Request, bytes: number) {
@@ -88,11 +106,7 @@ function headerRefusal(request: Request, bytes: number) {
     } as const;
   }
   if (Number(length) !== bytes) {
-    return {
-      status: 400,
-      error:
-        "That file isn't the size it was when you picked it, so it wasn't kept. Please upload it again.",
-    } as const;
+    return { status: 400, error: WRONG_SIZE } as const;
   }
   return null;
 }
@@ -103,48 +117,47 @@ function headerRefusal(request: Request, bytes: number) {
  * the limit bounds, errors on the first byte too many or on an end too soon, and `put` then fails
  * with nothing stored, whatever the request's headers said.
  */
-async function store(c: UploadIdContext, upload: OwnUpload, userId: string, body: ReadableStream) {
+async function store(
+  c: UploadIdContext,
+  upload: OwnUpload,
+  userId: string,
+  body: ReadableStream,
+): Promise<"stored" | "ended" | "failed"> {
   const bucket = c.env.BUCKET;
-  const openDb = () => createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
+  let written = true;
   try {
-    const stored = await bucket.put(
+    const object = await bucket.put(
       upload.r2_key,
       body.pipeThrough(new FixedLengthStream(upload.bytes)),
-      {
-        onlyIf: CREATE_ONLY,
-        httpMetadata: { contentType: EPUB_TYPE },
-      },
+      { onlyIf: CREATE_ONLY, httpMetadata: { contentType: EPUB_TYPE } },
     );
-    if (stored === null) return "second" as const;
+    // A file is there already, and it stays.
+    if (object === null) return "ended";
+  } catch (error) {
+    console.error("storing an upload failed", error instanceof Error ? error.name : "unknown");
+    written = false;
+  }
+  const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
+  try {
+    if (!written) {
+      await freeUpload(db, bucket, upload.id, userId);
+      return "failed";
+    }
     // The row was checked before the bytes arrived, and a ban, the reaper or a confirm finding
     // no file can have ended it since. Then the object has no row to answer for it. A counted
     // upload is different: a confirm has read this object, and it is ingest's.
-    const db = openDb();
-    try {
-      const now = await getUploadOf(db, upload.id, userId);
-      if (now === null || (now.status !== "pending" && now.quota_counted_at === null)) {
-        await deleteObject(bucket, upload.r2_key);
-        return "ended" as const;
-      }
-      return "stored" as const;
-    } finally {
-      c.executionCtx.waitUntil(db.destroy());
+    const now = await getUploadOf(db, upload.id, userId);
+    if (now === null || (now.status !== "pending" && now.quota_counted_at === null)) {
+      await deleteObject(bucket, upload.r2_key);
+      return "ended";
     }
+    return "stored";
   } catch (error) {
-    console.error("storing an upload failed", error instanceof Error ? error.name : "unknown");
-    const db = openDb();
-    try {
-      await freeUpload(db, bucket, upload.id, userId);
-    } catch (freeError) {
-      // The reaper removes the row, and the object with it.
-      console.error(
-        "freeing a failed upload failed",
-        freeError instanceof Error ? freeError.name : "unknown",
-      );
-    } finally {
-      c.executionCtx.waitUntil(db.destroy());
-    }
-    return "failed" as const;
+    // The reaper has a row left open. A stored file is left for the confirm, which reads the row.
+    console.error("settling an upload failed", error instanceof Error ? error.name : "unknown");
+    return written ? "stored" : "failed";
+  } finally {
+    c.executionCtx.waitUntil(db.destroy());
   }
 }
 
@@ -170,12 +183,8 @@ export async function putUpload(c: UploadIdContext) {
     // Another user's upload is answered as an unknown one, so ids can't be probed.
     upload = await getUploadOf(db, id, user.id);
     if (upload === null) return refuse(404, NO_SUCH_UPLOAD);
-    if (!isOpen(upload)) return refuse(409, ALREADY_HANDLED);
-    // From the database, never the session: a ban holds at once (ARCHITECTURE, Moderation).
-    if (await isBanned(db, user.id)) {
-      if (await endBannedUpload(db, upload.id, user.id)) {
-        await deleteObject(c.env.BUCKET, upload.r2_key);
-      }
+    if (!isOpenRow(upload)) return refuse(409, ALREADY_HANDLED);
+    if (await endIfBanned(db, c.env.BUCKET, upload, user.id)) {
       return refuse(403, BANNED_UPLOADER);
     }
     const refusal = headerRefusal(c.req.raw, upload.bytes);
@@ -197,7 +206,7 @@ export async function putUpload(c: UploadIdContext) {
   const stored = store(c, upload, user.id, body);
   c.executionCtx.waitUntil(stored);
   const outcome = await stored;
-  if (outcome === "second" || outcome === "ended") return refuse(409, ALREADY_HANDLED);
+  if (outcome === "ended") return refuse(409, ALREADY_HANDLED);
   if (outcome === "failed") return refuse(400, DIDNT_FINISH);
   return c.json({ status: "stored" }, 200, NO_STORE);
 }

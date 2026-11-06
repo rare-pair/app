@@ -412,6 +412,10 @@ export async function insertUpload(
 const isOpenUpload = (eb: ExpressionBuilder<Database, "uploads">) =>
   eb.and([eb("status", "=", "pending"), eb("quota_counted_at", "is", null)]);
 
+/** The same test on a row already read: it saves work, and `isOpenUpload` in a write decides. */
+export const isOpenRow = (upload: Pick<OwnUpload, "status" | "quota_counted_at">) =>
+  upload.status === "pending" && upload.quota_counted_at === null;
+
 /**
  * Inserts a batch of `pending` uploads, all or none, unless they would take the account's open
  * uploads (`pending` and not counted by a confirm) past `cap`; then says how many still fit. The

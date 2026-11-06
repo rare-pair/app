@@ -16,7 +16,8 @@ export type SessionVariables = { session: Session | null };
  * account decides what to do without one. Better Auth's default lifetime holds
  * (seven days, extended once a day of use). The lookup can write: an extension
  * updates the session row and comes back as a new cookie, passed on here, and an
- * expired session's row is deleted.
+ * expired session's row is deleted. The connection closes as soon as the lookup is done, so a route
+ * that runs for minutes, such as an upload's PUT, doesn't hold it.
  */
 export const sessionMiddleware: MiddlewareHandler<{
   Bindings: Bindings;
@@ -28,25 +29,20 @@ export const sessionMiddleware: MiddlewareHandler<{
     return next();
   }
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString });
-  try {
-    const { headers, response } = await makeAuth(c.env, db).api.getSession({
-      headers: c.req.raw.headers,
-      returnHeaders: true,
-    });
-    c.set("session", response);
-    await next();
-    // After the handler, as HSTS is: a handler's own Response doesn't keep headers
-    // set before it. A route that set a cookie itself, such as a sign-out, has the last
-    // word on it: a refresh, or the lookup's own clearing of a dead session, after it
-    // would undo it or repeat it.
-    const nameOf = (cookie: string) => cookie.slice(0, cookie.indexOf("="));
-    const own = new Set(c.res.headers.getSetCookie().map(nameOf));
-    for (const cookie of headers.getSetCookie()) {
-      if (own.has(nameOf(cookie))) continue;
-      c.header("Set-Cookie", cookie, { append: true });
-    }
-  } finally {
-    c.executionCtx.waitUntil(db.destroy());
+  const { headers, response } = await makeAuth(c.env, db)
+    .api.getSession({ headers: c.req.raw.headers, returnHeaders: true })
+    .finally(() => c.executionCtx.waitUntil(db.destroy()));
+  c.set("session", response);
+  await next();
+  // After the handler, as HSTS is: a handler's own Response doesn't keep headers
+  // set before it. A route that set a cookie itself, such as a sign-out, has the last
+  // word on it: a refresh, or the lookup's own clearing of a dead session, after it
+  // would undo it or repeat it.
+  const nameOf = (cookie: string) => cookie.slice(0, cookie.indexOf("="));
+  const own = new Set(c.res.headers.getSetCookie().map(nameOf));
+  for (const cookie of headers.getSetCookie()) {
+    if (own.has(nameOf(cookie))) continue;
+    c.header("Set-Cookie", cookie, { append: true });
   }
 };
 

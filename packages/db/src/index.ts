@@ -21,6 +21,7 @@ export {
   insertUploadsWithinCap,
   deleteUnconfirmedUploads,
   getUploadOf,
+  isOpenRow,
   recordUploadHash,
   deleteOpenUpload,
   rejectOverQuotaUpload,

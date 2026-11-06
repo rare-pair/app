@@ -1,9 +1,7 @@
 import {
   createDb,
-  endBannedUpload,
   getUploadOf,
   getUploadQuota,
-  isBanned,
   recordUploadHash,
   countUploadQuota,
   refundUploadQuota,
@@ -17,7 +15,15 @@ import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
 import { BANNED_UPLOADER } from "./upload";
 import { isUploadId } from "./upload-limit";
-import { deleteObject, freeUpload } from "./upload-put";
+import {
+  ALREADY_HANDLED,
+  deleteObject,
+  DIDNT_FINISH,
+  endIfBanned,
+  freeUpload,
+  NO_SUCH_UPLOAD,
+  WRONG_SIZE,
+} from "./upload-put";
 
 // ARCHITECTURE, Ingestion pipeline, step 3. The upload page's script calls
 // `POST /uploads/:id/complete` once its `PUT /uploads/:id` has finished. A confirm that fails
@@ -50,26 +56,22 @@ export async function completeUpload(c: CompleteContext) {
   if (user === undefined) return refuse(401, "Sign in to upload.");
 
   const id = c.req.param("id");
-  if (!isUploadId(id)) return refuse(404, "There is no such upload.");
+  if (!isUploadId(id)) return refuse(404, NO_SUCH_UPLOAD);
 
   // One connection serves every query here.
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString, max: 1 });
   try {
     // Another user's upload is answered as an unknown one, so ids can't be probed.
     const upload = await getUploadOf(db, id, user.id);
-    if (upload === null) return refuse(404, "There is no such upload.");
+    if (upload === null) return refuse(404, NO_SUCH_UPLOAD);
     // Ingest, or an earlier confirm, has taken it: its outcome is at GET /uploads/:id.
-    const taken = () =>
-      refuse(409, "That upload was already handled. Check its status on the upload page.");
+    const taken = () => refuse(409, ALREADY_HANDLED);
     // A ban ended it, and nothing will read its file now.
     if (upload.status === "account_banned") await deleteObject(c.env.BUCKET, upload.r2_key);
     if (upload.status !== "pending") return taken();
     // A ban ends an account's pending uploads; this one was written after it, so it is ended
     // the same way. Before the object is read, so nothing of it is hashed or queued.
-    if (await isBanned(db, user.id)) {
-      if (await endBannedUpload(db, upload.id, user.id)) {
-        await deleteObject(c.env.BUCKET, upload.r2_key);
-      }
+    if (await endIfBanned(db, c.env.BUCKET, upload, user.id)) {
       return refuse(403, BANNED_UPLOADER);
     }
 
@@ -86,7 +88,7 @@ export async function completeUpload(c: CompleteContext) {
     // atomic count below is what holds the cap; this read only saves work. An upload that is
     // already counted goes on instead: its confirm is a repeat.
     const quota = await getUploadQuota(db, user.id);
-    if (quota === null) return refuse(404, "There is no such upload.");
+    if (quota === null) return refuse(404, NO_SUCH_UPLOAD);
     const limit = limitFor(quota.role, c.env);
     if (quota.usedToday >= limit) {
       const refused = await discardOverQuota();
@@ -99,16 +101,12 @@ export async function completeUpload(c: CompleteContext) {
       (await freeUpload(db, c.env.BUCKET, upload.id, user.id)) ? refuse(400, error) : taken();
 
     const object = await c.env.BUCKET.get(upload.r2_key);
-    if (object === null) {
-      return await fail("That file didn't finish uploading. Please upload it again.");
-    }
+    if (object === null) return await fail(DIDNT_FINISH);
     // PUT /uploads/:id stores nothing else, so this holds unless R2 has broken its promises to
     // that route: the check that matters is on the object about to be hashed.
     if (object.size !== upload.bytes) {
       await object.body.cancel();
-      return await fail(
-        "That file isn't the size it was when you picked it, so it wasn't kept. Please upload it again.",
-      );
+      return await fail(WRONG_SIZE);
     }
     // Streamed through the digest, never buffered: the body can be 25 MiB.
     const digest = new crypto.DigestStream("SHA-256");

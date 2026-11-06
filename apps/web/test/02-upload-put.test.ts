@@ -134,7 +134,7 @@ async function expectCapUsable(cookie: string) {
   expect(res.status).toBe(200);
 }
 
-/** Open uploads until the account has `NEW_LIMIT` with `up` among them. */
+/** All but one of the account's `NEW_LIMIT` open uploads, so the next one fills the cap. */
 async function fillCap(userId: string) {
   const rows = Array.from({ length: NEW_LIMIT - 1 }, () => {
     const id = crypto.randomUUID();

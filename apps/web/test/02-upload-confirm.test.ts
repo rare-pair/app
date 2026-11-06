@@ -27,7 +27,7 @@ async function signIn(email: string): Promise<{ userId: string; cookie: string }
   return { userId: user.id, cookie };
 }
 
-/** An upload row as `POST /uploads` leaves it, and the object the browser's PUT stored. */
+/** An upload row as `POST /uploads` leaves it, and the object its PUT stored. */
 async function uploaded(
   userId: string,
   bytes: Uint8Array | null,
