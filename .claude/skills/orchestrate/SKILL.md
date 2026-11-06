@@ -53,7 +53,7 @@ A running wave doesn't stop to ask the operator anything. In wave 10 it stopped 
 
 **A piece that can't go on without a ruling parks.** It waits, its question goes on the list, and everything else keeps running. A ruling that changes a ticket's design also parks the pieces that depend on it.
 
-**Interrupt only for:** an irreversible or outward-facing step nobody has approved, a permission refusal, a missing install, or a wave where nothing at all can run. Launch all that can start before you ask, because an open question holds up the reports that come back while it waits.
+**Interrupt only for:** an irreversible or outward-facing step nobody has approved, a permission refusal, a missing install, a leaked secret, or a wave where nothing at all can run. Launch all that can start before you ask, because an open question holds up the reports that come back while it waits.
 
 **Ask once, at the end.** The list goes to the operator through the ask tool in §7, with the evidence and your recommendation for each, ordered by what it blocks. An idea the operator raises mid-wave is filed for the next wave's planning, with no follow-up questions until then.
 
