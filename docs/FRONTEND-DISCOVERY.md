@@ -137,7 +137,9 @@ Reading never requires an account (ARCHITECTURE, *Auth*).
    check* (held versions, works live with the "may be imperfect" notice, and
    "This version is wrong" reports). Each is a plain table, oldest first.
 2. Each item has a detail page with actions: hide, remove, restore, approve,
-   reject, block requester, ban uploader. An open report also has "Dismiss report",
+   reject, ban uploader, and on a removal or opt-out request's page, block
+   requester (a takedown's requester is free text, so its page doesn't offer
+   it). An open report also has "Dismiss report",
    which closes it for having no merit and changes nothing on the work. Removing can ask for a public reason, and
    a removal list entry can be withheld (`/admin/listed-pseuds`, or the work's admin
    page). A request's page lists the other

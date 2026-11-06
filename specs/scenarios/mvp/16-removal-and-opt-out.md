@@ -7,7 +7,7 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Author identity), § Data 
 - Live works W2 and W3 also by pseud P, and work X by another pseud
 - No work in the archive has AO3 URL `archiveofourown.org/works/99999`
 - Turnstile is configured on `/remove`; rate limits apply per email and per IP
-- `pseud_norm` is the pseud in Unicode NFKC, case-folded, with leading and trailing whitespace trimmed and inner runs of whitespace collapsed to one space; punctuation is kept
+- `pseud_norm` is the pseud in Unicode NFKC, with default-ignorable characters dropped, lower-cased, NFKC again, runs of whitespace collapsed to one space and the ends trimmed (ARCHITECTURE, *Pseuds*); punctuation is kept
 - A requester B blocked by a moderator, by contact email and IP hash
 - The visitor is signed out
 
