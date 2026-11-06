@@ -15,13 +15,18 @@ describe("24-crawler-and-agent-blocking", () => {
 
   it("Every response asks not to be indexed or used", async () => {
     // A closed page redirects before launch; the redirect carries the header too.
-    for (const path of ["/", "/privacy", "/terms", "/works/1", "/search", "/robots.txt"]) {
+    for (const [path, status] of [
+      ["/", 200],
+      ["/privacy", 200],
+      ["/terms", 200],
+      ["/works/1", 302],
+      ["/search", 302],
+      ["/robots.txt", 200],
+    ] as const) {
       const res = await fetchW(path);
-      expect(res.headers.get("x-robots-tag"), `${path} ${res.status}`).toBe(
-        "noindex, noarchive, noai, noimageai",
-      );
+      expect(res.status, path).toBe(status);
+      expect(res.headers.get("x-robots-tag"), path).toBe("noindex, noarchive, noai, noimageai");
     }
-    expect((await fetchW("/search")).status).toBe(302);
   });
 
   it("Privacy page names Cloudflare's cookies", async () => {

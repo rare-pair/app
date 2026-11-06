@@ -106,7 +106,7 @@ export const termsPage = () =>
   layout(
     "Terms",
     `${DRAFT}
-<p>By creating an account you agree to these terms. The rule on automated access applies to everyone who uses the site, not only people with an account.</p>
+<p>By creating an account you agree to these terms.</p>
 <ul>
 <li>You may upload only epub files exported from the original archive, and only works you are happy to have shared.</li>
 <li>Uploads that pass our checks are public: anyone can read them.</li>

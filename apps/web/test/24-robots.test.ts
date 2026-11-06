@@ -30,7 +30,8 @@ describe("24-crawler-and-agent-blocking", () => {
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toMatch(/^text\/plain/);
       const body = await res.text();
-      expect(body).toMatch(/^User-agent: \*\nDisallow: \/$/m);
+      // One group: the signal sits in it, with no blank line between.
+      expect(body).toMatch(/^User-agent: \*\nDisallow: \/\nContent-Signal: /);
       expect(body).toContain("Content-Signal: search=no, ai-input=no, ai-train=no");
       expect(res.headers.get("cache-control")).toBe("public, max-age=3600");
       expect(res.headers.get("set-cookie")).toBeNull();

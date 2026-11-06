@@ -15,7 +15,6 @@ export const robotsTag: MiddlewareHandler = async (c, next) => {
 
 export const ROBOTS_TXT = `User-agent: *
 Disallow: /
-
 Content-Signal: search=no, ai-input=no, ai-train=no
 `;
 
