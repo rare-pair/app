@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { expectAgentNoticeHidden } from "../harness/agent-notice";
 import { useJourneySite } from "../harness/journey";
 import { SITE } from "../harness/site";
 import { seedLaunched, waitlistEmailCount, waitlistLink } from "../harness/waitlist";
@@ -9,6 +10,10 @@ import { byAddress, startAtHome, viaFooter } from "../harness/walk";
 
 describe("wait list journey", () => {
   const running = useJourneySite({ prelaunch: true });
+
+  it("The agent notice on the coming-soon page is hidden from people and screen readers", async () => {
+    await expectAgentNoticeHidden(await startAtHome(await running.site.newContext()));
+  });
 
   it("A visitor joins and confirms by the emailed link", async () => {
     const { site } = running;

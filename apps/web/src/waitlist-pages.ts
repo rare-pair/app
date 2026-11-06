@@ -5,7 +5,7 @@
 // Draft copy, written from specs/scenarios/mvp/22-waitlist.md for the operator to proof.
 
 import { siteCard } from "./cards";
-import { escapeHtml, layout, TURNSTILE_API } from "./pages";
+import { AGENT_NOTICE, escapeHtml, layout, TURNSTILE_API } from "./pages";
 import { TURNSTILE_ACTIONS } from "./turnstile";
 
 // Served from public/ by assetRoute. The names carry each file's content hash.
@@ -34,7 +34,8 @@ export const comingSoonPage = (
   const n = escapeHtml(nonce);
   return waitlistPage(
     "rarepair is coming soon",
-    `<p>A temporary, community-run reading archive for fanworks. Upload the epub files you downloaded, and anyone can browse, search and read them in the browser.</p>
+    `${AGENT_NOTICE}
+<p>A temporary, community-run reading archive for fanworks. Upload the epub files you downloaded, and anyone can browse, search and read them in the browser.</p>
 ${form.error === undefined ? "" : `<p role="alert">${escapeHtml(form.error)}</p>\n`}<form class="waitlist" method="post" action="/waitlist">
 <label for="email">Email address</label>
 <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required${form.email ? ` value="${escapeHtml(form.email)}"` : ""}>
