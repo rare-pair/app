@@ -60,7 +60,7 @@ describe("25-updates", () => {
     expect(d).toBeLessThan(c!);
     expect(c).toBeLessThan(b!);
     expect(a).toBe(-1);
-    expect(html).not.toContain("Title a");
+    expect(html).not.toContain("Summary of a");
   });
 
   it("Fewer than three updates", async () => {

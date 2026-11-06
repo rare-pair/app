@@ -6,15 +6,15 @@ import { escapeHtml, layout } from "./pages";
 import { latestUpdates, type Update, UPDATES } from "./updates-data";
 
 const byline = (update: Update) =>
-  `<p class="update-meta">${escapeHtml(update.author)} · <time datetime="${update.created}">${update.created}</time></p>`;
+  `<p class="update-meta">${escapeHtml(update.author)} · <time datetime="${escapeHtml(update.created)}">${escapeHtml(update.created)}</time></p>`;
 
 const card = (update: Update) =>
-  `<li class="update"><h3><a href="/updates/${update.slug}">${escapeHtml(update.title)}</a></h3>
+  `<li class="update"><h3><a href="/updates/${escapeHtml(update.slug)}">${escapeHtml(update.title)}</a></h3>
 <p>${escapeHtml(update.summary)}</p>
 ${byline(update)}</li>`;
 
 /** Up to three summary cards, newest first; nothing at all, not even a heading, for none. */
-export const updatesSection = (list: readonly Update[] = UPDATES): string => {
+export const updatesSection = (list: readonly Update[]): string => {
   const latest = latestUpdates(list);
   if (latest.length === 0) return "";
   return `<h2>Updates</h2>
