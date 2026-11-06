@@ -151,7 +151,7 @@ An engineer writes under `<scratch>` from outside its worktree, so it may raise 
 Each engineer ends with one status:
 
 - **`ready`**: the engineer ran `/gate merge`, fixed the findings in the PR's scope, and filed the rest as bug issues. You decide whether it's done, and you merge it, as `docs/process.md` says (*Work items*, "The orchestrator merges"):
-  1. Check the PR: its body's *What was run* block is the merge gate's and names the tier's ladder, no finding in its scope is open, and every other finding has a bug issue. Read its reviews and review comments yourself (`gh api --paginate repos/rare-pair/app/pulls/<n>/reviews` and `.../pulls/<n>/comments`). A gap goes back to the engineer.
+  1. Check the PR: its body's *What was run* block is the merge gate's and names the tier's ladder, no finding in its scope is open, and every other finding has a bug issue or, for a live exploit, a private advisory (`docs/process.md`, *Working rules*). Read its reviews and review comments yourself (`gh api --paginate repos/rare-pair/app/pulls/<n>/reviews` and `.../pulls/<n>/comments`). A gap goes back to the engineer.
   2. Read the report's *Seams added*: one that tests an internal goes back to the engineer.
   3. **Bring `main` in, once, when this PR is next to merge.** Don't do it each time another PR merges, and don't send engineers still in their gates to do it. `git fetch`, and check whether the PR contains `main` (`git merge-base --is-ancestor origin/main origin/<branch>`). If it doesn't, launch a `general-purpose` agent on `haiku` with `isolation: "worktree"`. The step is mechanical, so it costs neither the engineer's tier nor yours. Give it:
      - the PR number and the branch;
@@ -205,6 +205,7 @@ End with:
 - **Waiting on you:** <each stop event, open question, or PR you couldn't merge, with why>
 - **Not done:** <each item not merged, with the reason>
 - **Bugs filed:** <each issue the merge gates filed>
+- **Private advisories:** <each advisory's link, with a neutral description, or "none">
 ```
 
 Then ask everything in `## For the operator` through the ask tool, in one sitting (*Questions*).
