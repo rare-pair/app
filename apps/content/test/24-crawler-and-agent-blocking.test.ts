@@ -81,6 +81,8 @@ describe("24-crawler-and-agent-blocking", () => {
     // Two files a reader has already put in the data centre's cache.
     await caches.default.delete(`${ORIGIN}/${imageOf(CACHED)}`);
     await caches.default.delete(`${ORIGIN}/${cachedOriginal}`);
+    await caches.default.delete(`${ORIGIN}/${imageOf(W)}`);
+    await caches.default.delete(`${ORIGIN}/${original}`);
     expect((await request(imageOf(CACHED))).res.status).toBe(200);
     expect((await request(cachedOriginal)).res.status).toBe(200);
     const cacheRead = vi.spyOn(caches.default, "match");
@@ -152,9 +154,8 @@ describe("24-crawler-and-agent-blocking", () => {
       expect(res.headers.get("x-content-type-options"), what).toBe("nosniff");
       expect(res.headers.get("cache-control"), what).toBe("public, max-age=3600");
       expect(res.headers.has("set-cookie"), what).toBe(false);
-      expect(new TextDecoder().decode(body), what).toBe(
-        "User-agent: *\nDisallow: /\nContent-Signal: search=no, ai-input=no, ai-train=no\n",
-      );
+      // Content-Signal is the app's file only (ARCHITECTURE, Signals).
+      expect(new TextDecoder().decode(body), what).toBe("User-agent: *\nDisallow: /\n");
       expect(log, what).not.toHaveBeenCalled();
       vi.restoreAllMocks();
     }
@@ -206,6 +207,13 @@ describe("24-crawler-and-agent-blocking", () => {
     const image = await request(imageOf(W), { headers: embed });
     expect(image.res.status).toBe(200);
     expect(image.body).toEqual(PNG);
+
+    // A scripted request is one of these too, whatever its method. An image isn't guarded.
+    const scripted = { "sec-fetch-site": "cross-site", "sec-fetch-dest": "empty" };
+    const post = await request(original, { method: "POST", headers: scripted }, noBindings);
+    expect(post.res.status).toBe(403);
+    const imagePost = await request(imageOf(W), { method: "POST", headers: scripted }, noBindings);
+    expect(imagePost.res.status).toBe(405);
   });
 
   it("Every response asks not to be indexed or used", async () => {

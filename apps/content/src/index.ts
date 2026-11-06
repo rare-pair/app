@@ -54,11 +54,10 @@ function respond(body: BodyInit | null, status: number, headers: Record<string, 
   return new Response(body, { status, headers: h });
 }
 
-// The same file the app serves (ARCHITECTURE, Crawlers and agents); a Worker can't reach another's
-// src, so it is written here too.
+// The one path served here besides images and originals (ARCHITECTURE, Signals). `Content-Signal`
+// is the app's file only.
 const ROBOTS_TXT = `User-agent: *
 Disallow: /
-Content-Signal: search=no, ai-input=no, ai-train=no
 `;
 
 // Requests the cache would answer differently from the Worker (206, 304): they skip it.
@@ -159,10 +158,11 @@ export default {
     const path = new URL(request.url).pathname;
     const isRead = request.method === "GET" || request.method === "HEAD";
     // The one path open to a declared client, so it comes first, and only in this one spelling.
-    if (isRead && path === "/robots.txt" && !request.url.includes("?")) {
+    const hasQuery = request.url.includes("?");
+    if (isRead && path === "/robots.txt" && !hasQuery) {
       return respond(ROBOTS_TXT, 200, {
         "Content-Type": "text/plain; charset=utf-8",
-        "Cache-Control": BROWSER_CACHE_CONTROL,
+        "Cache-Control": "public, max-age=3600",
       });
     }
     // Ahead of everything that depends on the path or a file, so the 403 shows nothing of which
@@ -182,7 +182,7 @@ export default {
     // A query string, even an empty one (`search` is "" for a bare "?"), would make a
     // second cacheable URL for the same bytes, one that a purge of the bare URL on
     // removal would miss, so only bare paths are served.
-    if (request.url.includes("?")) return notFound();
+    if (hasQuery) return notFound();
     if (!isOriginal && !IMAGE.test(path)) return notFound();
 
     // Only a plain GET reads or fills the cache. The key is the bare URL string, not the
