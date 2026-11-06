@@ -1010,7 +1010,7 @@ content origin, also have the throttles and the cross-site check below.
 - **Signals.** `/robots.txt` on the app and on the content origin disallows everything. The
   app's also states `Content-Signal: search=no, ai-input=no, ai-train=no`. On the content
   origin it is the one path served there besides images and originals. Every page and file
-  also sends `X-Robots-Tag: noindex, noarchive, noai, noimageai`. The page at `/` also holds a
+  also sends `X-Robots-Tag: noindex, noarchive, noai, noimageai`. Every app page also holds a
   notice asking agents not to crawl, hidden from people and screen readers, for an agent whose
   fetch tool poses as a browser and so isn't refused. All of these are requests a crawler can
   ignore, and a crawler obeying `robots.txt` never fetches the header, so a blocked search

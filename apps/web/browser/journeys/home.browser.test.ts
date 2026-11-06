@@ -24,7 +24,7 @@ const WORKS = [
 describe("home journey", () => {
   const running = useJourneySite();
 
-  it("The agent notice on the home page is hidden from people and screen readers", async () => {
+  it("The agent notice is hidden from people and screen readers", async () => {
     await expectAgentNoticeHidden(await startAtHome(await running.site.newContext()));
   });
 

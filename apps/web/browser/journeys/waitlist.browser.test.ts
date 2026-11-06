@@ -11,7 +11,7 @@ import { byAddress, startAtHome, viaFooter } from "../harness/walk";
 describe("wait list journey", () => {
   const running = useJourneySite({ prelaunch: true });
 
-  it("The agent notice on the coming-soon page is hidden from people and screen readers", async () => {
+  it("The agent notice is hidden from people and screen readers", async () => {
     await expectAgentNoticeHidden(await startAtHome(await running.site.newContext()));
   });
 
