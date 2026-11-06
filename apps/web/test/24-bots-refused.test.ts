@@ -347,6 +347,7 @@ describe("24-crawler-and-agent-blocking", () => {
       `/works/${W}/%63hapters/1`,
       `/works/${W}/chapters/%31`,
       `/works/${H}/chapters/1`,
+      `/works/${R}/chapters/1`,
       `/works/${NO_WORK}/full`,
     ];
     const embed = (dest: string, site = "cross-site") => ({
