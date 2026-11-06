@@ -1,10 +1,19 @@
-import { createDb } from "@archive/db";
+import { countSignInEmail, createDb } from "@archive/db";
 import { isAPIError } from "better-auth/api";
 import type { Context } from "hono";
 import { makeAuth } from "./auth";
 import type { Bindings } from "./env";
+import { signInEmailHash } from "./ip-hash";
 import { checkEmailPage, forbiddenPage, signInPage } from "./pages";
-import { emailKey, ipKey, isLimited, LOGIN_WINDOW_SECONDS, tooManyRequests } from "./rate-limit";
+import { secondsToReset, signInEmailLimit } from "./quota";
+import {
+  emailKey,
+  ipKey,
+  isLimited,
+  LOGIN_WINDOW_SECONDS,
+  tooManyRequests,
+  tooManyRequestsToday,
+} from "./rate-limit";
 import type { SecurityVariables } from "./security";
 import { isSameOrigin, safeNext } from "./signin";
 import { SET_SIGN_IN_MARKER } from "./signin-marker";
@@ -80,6 +89,26 @@ export async function readForm(
 }
 
 /**
+ * Counts one sign-in email against the address's day, and says whether it was over the limit.
+ * When the count fails the request goes through, as with the other limits: sending the link needs
+ * the same database, and Turnstile still guards the form. Only the error's name is logged, since
+ * the message could carry the address's hash.
+ */
+async function isOverDailyLimit(
+  env: Bindings,
+  db: ReturnType<typeof createDb>,
+  email: string,
+): Promise<boolean> {
+  try {
+    const hash = await signInEmailHash(env.IP_HASH_KEY, email);
+    return !(await countSignInEmail(db, hash, signInEmailLimit(env)));
+  } catch (error) {
+    console.error(`Sign-in count unavailable: ${error instanceof Error ? error.name : "Error"}`);
+    return false;
+  }
+}
+
+/**
  * `POST /login`: emails a sign-in link. Our route makes the checks `auth.api`
  * calls skip (ARCHITECTURE, Auth): the origin, before the body is read; then
  * Turnstile; then `next`, reduced to a same-site path.
@@ -146,6 +175,11 @@ export async function requestSignIn(c: LoginContext) {
 
   const db = createDb({ connectionString: c.env.HYPERDRIVE.connectionString });
   try {
+    // After the limits above, so a flood they catch costs no database write. Counted before
+    // the send, so two requests can't both take the last one; a failed send isn't given back.
+    if (await isOverDailyLimit(c.env, db, email)) {
+      return tooManyRequestsToday(secondsToReset(new Date()));
+    }
     await makeAuth(c.env, db).api.signInMagicLink({
       // `next` reaches the link through metadata (auth.ts); Better Auth's own
       // callbackURL is for its verify endpoint, which isn't mounted.

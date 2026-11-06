@@ -1,9 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { ipHash } from "../src/ip-hash";
+import { ipHash, signInEmailHash } from "../src/ip-hash";
 
 // Throwaway keys, not credentials.
 const KEY = "test-only-ip-hash-key";
 const OTHER_KEY = "another-test-only-ip-hash-key";
+
+describe("signInEmailHash", () => {
+  it("is the hex HMAC-SHA-256 of the prefixed address under the key", async () => {
+    // Worked out apart from this code, with Node's own crypto.
+    expect(await signInEmailHash(KEY, "reader+tag@example.test")).toBe(
+      "a86b201e0369eb61780ed421f0d4e9bface7ebad6e92e5c23748e587513fb261",
+    );
+  });
+
+  it("is the same however the address is cased or spaced", async () => {
+    const hash = await signInEmailHash(KEY, "reader@example.test");
+    expect(await signInEmailHash(KEY, "  READER@Example.Test ")).toBe(hash);
+  });
+
+  it("keeps plus tags and dots as other addresses", async () => {
+    const hash = await signInEmailHash(KEY, "reader@example.test");
+    expect(await signInEmailHash(KEY, "reader+tag@example.test")).not.toBe(hash);
+    expect(await signInEmailHash(KEY, "re.ader@example.test")).not.toBe(hash);
+  });
+
+  it("is keyed, and never the IP hash of the same text", async () => {
+    const hash = await signInEmailHash(KEY, "reader@example.test");
+    expect(await signInEmailHash(OTHER_KEY, "reader@example.test")).not.toBe(hash);
+    expect(await ipHash(KEY, "reader@example.test")).not.toBe(hash);
+  });
+});
 
 describe("ipHash", () => {
   it("is one lowercase hex SHA-256 that holds no part of the address", async () => {

@@ -2,8 +2,9 @@ import type { Context } from "hono";
 import { isModerator } from "./admin";
 import { tooManyRequestsJson } from "./rate-limit";
 
-// The daily upload quota's pure parts (ARCHITECTURE, Surge controls). The count is kept in
-// Postgres (`useUploadQuota` in @archive/db); the day is the UTC calendar day.
+// The daily upload quota's pure parts, and the daily limit on sign-in emails (ARCHITECTURE,
+// Surge controls). The counts are kept in Postgres (`useUploadQuota` and `countSignInEmail` in
+// @archive/db); the day is the UTC calendar day.
 
 /** Used when `UPLOAD_QUOTA_NEW` is missing or misspelt: a bad var never turns the quota off. */
 export const DEFAULT_NEW_LIMIT = 20;
@@ -32,6 +33,14 @@ export function limitFor(
   return isModerator(role)
     ? Math.max(lower, limitOf(vars.UPLOAD_QUOTA_TRUSTED, DEFAULT_TRUSTED_LIMIT))
     : lower;
+}
+
+/**
+ * The most sign-in emails one address may be sent in a UTC day (`countSignInEmail` in
+ * @archive/db). A missing or misspelt `LOGIN_EMAIL_QUOTA` gives 5: a bad var never turns it off.
+ */
+export function signInEmailLimit(vars: { LOGIN_EMAIL_QUOTA?: string }): number {
+  return limitOf(vars.LOGIN_EMAIL_QUOTA, 5);
 }
 
 /** Whole seconds to the next midnight UTC, rounded up: the quota's reset, and `Retry-After`. */

@@ -581,6 +581,35 @@ export async function rejectOverQuotaUpload(
 const TODAY_UTC = sql<string>`(now() at time zone 'utc')::date`;
 
 /**
+ * Counts one sign-in email against today's (the UTC day's) `limit` for a hashed address, and
+ * says whether it fit. One statement, so under concurrency the row lock makes the rest re-check
+ * the count the winner left: no more than `limit` ever succeed. The same statement deletes every
+ * address's counts from earlier days, which nothing needs once the day is over.
+ */
+export async function countSignInEmail(
+  db: Kysely<Database>,
+  addressHash: string,
+  limit: number,
+): Promise<boolean> {
+  if (limit < 1) return false;
+  const row = await db
+    .with("earlier_days", (cte) =>
+      cte.deleteFrom("sign_in_email_counts").where("day", "<", TODAY_UTC),
+    )
+    .insertInto("sign_in_email_counts")
+    .values({ address_hash: addressHash, day: TODAY_UTC, count: 1 })
+    .onConflict((conflict) =>
+      conflict
+        .columns(["address_hash", "day"])
+        .doUpdateSet({ count: sql`sign_in_email_counts.count + 1` })
+        .where("sign_in_email_counts.count", "<", limit),
+    )
+    .returning("count")
+    .executeTakeFirst();
+  return row !== undefined;
+}
+
+/**
  * A user's role and how many uploads they have confirmed today (the UTC day), or null for no
  * such user. A count left from an earlier day, or never dated, reads as zero.
  */

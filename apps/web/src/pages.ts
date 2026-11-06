@@ -138,6 +138,7 @@ export const privacyPage = () =>
 <p>This is what we keep about you.</p>
 <ul>
 <li>Signing in uses an email link. We keep your email address and no password. Each session also keeps the network address and browser (user agent) it was started from, for as long as the session lasts.</li>
+<li>To send one address at most a few sign-in emails a day, we count them under a keyed hash of the address, not the address itself. A day's count is deleted when the next day's first sign-in email is asked for, by anyone.</li>
 <li>Asking for a sign-in link sets a short-lived cookie that holds nothing about you. It lets the browser that asked sign in without pressing a button, and it goes the next time that browser uses a sign-in link, or after ${LINK_LIFETIME_MINUTES} minutes.</li>
 <li>Accepted uploads are public. We do not publish your email address.</li>
 <li>Removal and opt-out requests keep what you send with them: your email address, a hashed form of your network address, the work or pseud you name, and any statement you write. A block on a requester keeps the same email address and hashed network address. We keep this until the site closes, and then delete it. We do not erase it when you ask.</li>
@@ -279,6 +280,13 @@ export const tooManyRequestsPage = (seconds: number) =>
   layout(
     "Too many requests",
     `<p>There have been too many requests in a short time. Please try again in ${seconds === 1 ? "1 second" : `${seconds} seconds`}.</p>`,
+  );
+
+/** `POST /login` for an address that has had the day's sign-in emails. */
+export const tooManyRequestsTodayPage = () =>
+  layout(
+    "Too many requests",
+    `<p>There have been too many sign-in requests for this address today. Please try again after midnight UTC.</p>`,
   );
 
 /**

@@ -166,6 +166,10 @@
     // testing; these are first values, to be revisited then.
     "UPLOAD_QUOTA_NEW": "20",
     "UPLOAD_QUOTA_TRUSTED": "100",
+    // The most sign-in emails one address may be sent in a UTC day (src/quota.ts), counted in
+    // Postgres because the rate-limiting bindings only have short windows. ARCHITECTURE (Surge
+    // controls) records the limit this leaves.
+    "LOGIN_EMAIL_QUOTA": "5",
     // The rarepair.fans zone, whose cache a work's removal purges (src/purge.ts): its pages and
     // fragments, and content.rarepair.fans's image and download URLs (a custom domain on the
     // same zone), in case the zone caches them. Not a secret. A placeholder: the operator deploys with the real id in its place

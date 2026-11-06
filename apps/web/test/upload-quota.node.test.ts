@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_NEW_LIMIT, DEFAULT_TRUSTED_LIMIT, limitFor, secondsToReset } from "../src/quota";
+import {
+  DEFAULT_NEW_LIMIT,
+  DEFAULT_TRUSTED_LIMIT,
+  limitFor,
+  secondsToReset,
+  signInEmailLimit,
+} from "../src/quota";
 
 const vars = { UPLOAD_QUOTA_NEW: "7", UPLOAD_QUOTA_TRUSTED: "40" };
 
@@ -28,6 +34,18 @@ describe("19-surge-controls-and-quotas", () => {
       expect(limitFor("admin", broken)).toBe(DEFAULT_TRUSTED_LIMIT);
     }
     expect(DEFAULT_TRUSTED_LIMIT).toBeGreaterThan(DEFAULT_NEW_LIMIT);
+  });
+});
+
+describe("01-auth-magic-link: the daily limit on sign-in emails", () => {
+  it("is the configured number", () => {
+    expect(signInEmailLimit({ LOGIN_EMAIL_QUOTA: "9" })).toBe(9);
+  });
+
+  it("a missing, zero or malformed var keeps 5, so a typo never turns the cap off", () => {
+    for (const bad of [undefined, "", "0", "-3", "1.5", "lots", "1e3", "99999999999"]) {
+      expect(signInEmailLimit({ LOGIN_EMAIL_QUOTA: bad })).toBe(5);
+    }
   });
 });
 

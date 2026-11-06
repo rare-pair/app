@@ -16,7 +16,19 @@ const UNKNOWN = "unknown";
  * missing or empty address is one fixed marker, so the column is never blank.
  */
 export async function ipHash(key: string, address: string | null): Promise<string> {
-  const client = address === null || address === "" ? UNKNOWN : clientOf(address);
+  return hmacHex(key, address === null || address === "" ? UNKNOWN : clientOf(address));
+}
+
+/**
+ * The form of an email address the daily sign-in count stores: the same HMAC, of the address
+ * trimmed and lowercased as the limits' keys are, no more merged than that. The prefix keeps it
+ * apart from anything `ipHash` makes. Changing the key only starts the day's counts again.
+ */
+export function signInEmailHash(key: string, address: string): Promise<string> {
+  return hmacHex(key, `sign-in-email:${address.trim().toLowerCase()}`);
+}
+
+async function hmacHex(key: string, text: string): Promise<string> {
   const hmacKey = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(key),
@@ -24,6 +36,6 @@ export async function ipHash(key: string, address: string | null): Promise<strin
     false,
     ["sign"],
   );
-  const mac = await crypto.subtle.sign("HMAC", hmacKey, new TextEncoder().encode(client));
+  const mac = await crypto.subtle.sign("HMAC", hmacKey, new TextEncoder().encode(text));
   return [...new Uint8Array(mac)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
