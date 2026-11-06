@@ -69,10 +69,11 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Load target), § Surge con
 - WHEN T's daily quota is checked
 - THEN it is the configured trusted-user limit, which is higher than the new-account limit
 
-### Oversized objects are cleaned up at confirm
-- GIVEN an object PUT through a presigned URL that exceeds 25 MB
-- WHEN `/complete` is called
-- THEN the object is deleted
+### Oversized files are refused as they arrive
+- GIVEN an open upload
+- WHEN a file over 25 MB, or one longer than its upload's declared size, is sent to `PUT /uploads/:id`
+- THEN the Worker refuses it, by its `Content-Length` before a byte is read or by the stream as it arrives
+- AND nothing is stored, and the upload's row is deleted, so its slot is free
 
 ### Abandoned uploads expire
 - GIVEN an object under `uploads/` whose client never called `/complete`

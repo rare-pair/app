@@ -101,7 +101,7 @@ reading an NSFW work will (ARCHITECTURE, *Reading*, NSFW gate).
 
 **3. Upload works** (uploader)
 1. They pick one or more `.epub` files on the upload page and submit. Each
-   file goes straight to R2 with a progress bar; uploading needs JavaScript.
+   file goes through the Worker to R2 with a progress bar; uploading needs JavaScript.
 2. Each file appears on *My uploads* with a status: processing, live, held for
    review, already in the archive, or rejected with a plain reason. A held
    version isn't public; only they and the moderators see it.
@@ -141,7 +141,8 @@ reading an NSFW work will (ARCHITECTURE, *Reading*, NSFW gate).
 **6. Moderate** (moderator)
 1. Four queues: reports, takedowns, removal or opt-out requests, and *Works to
    check* (held versions, works live with the "may be imperfect" notice, and
-   "This version is wrong" reports). Each is a plain table, oldest first.
+   "This version is wrong" reports, and works the reports hid that have no open
+   report left). Each is a plain table, oldest first.
 2. Each item has a detail page with actions: hide, remove, restore, approve,
    reject, ban uploader, and on a removal or opt-out request's page, block
    requester (a takedown's requester is free text, so its page doesn't offer
@@ -184,7 +185,7 @@ without it. Elsewhere the
 | Confirm sign-in | `/login/confirm?token=…` | all | "Sign in" button (POST form), under "Sign in as j***@example.com" for an unused link and with no address for any other; pressing it on a used, expired or unknown link redirects to `/login` with a message | In the browser that asked for the link (it holds the sign-in marker), a script submits the form once on load, so nothing needs pressing. In any other browser the page has no script |
 | Sign out | `/logout` | all (signed in or not) | Signed in: a "Sign out" button (POST form) that ends the session and goes to `/`, or, if the session row couldn't be deleted, answers a 500 "Sign out didn't work, try again" page with the same button; GET signs nobody out. Signed out: says so, with a link to sign in | — |
 | Accept terms | `/welcome/terms` | new accounts, once | Terms summary, link to `/terms`, Accept button (POST form); every other signed-in page redirects here until accepted, except the pages open to anyone and to sign-in (`/terms`, `/privacy`, `/about`, `/remove` and `/dmca`, so a typed request or notice isn't lost, `/login`, `/logout`), `/admin` and static files (`TERMS_EXEMPT` in `apps/web/src/terms.ts`); `/search` is not exempt | — |
-| Upload | `/upload` | signed in | `<noscript>` message: uploading needs JavaScript | Turnstile, then direct-to-R2 upload with progress, one or more files |
+| Upload | `/upload` | signed in | `<noscript>` message: uploading needs JavaScript | Turnstile, then upload through the Worker with progress, one or more files |
 | My uploads | `/me/uploads` | signed in | Status list; with JS it updates in place, without JS a `<meta http-equiv="refresh">` inside `<noscript>` reloads it while anything is processing | Updates in place |
 | Remove my work / opt out | `/remove` (`?work=:id` prefills) | all | `<noscript>` message with the moderators' contact address | Request form with Turnstile, then a "check your email" page that is the same for every requester. The emailed link is `/remove/confirm?token=` (a button page, then a confirmed page, or one page for a used, expired or unknown link) |
 | Removal list | `/removed`, `/removed/pseuds` | all | Paged lists, newest first. Removed works: title, byline, "The original work" link with its ID and note, date, reason. Opted-out pseuds: name, date, reason. Says that nobody's identity is checked, and gives the moderators' contact address | — |
@@ -210,7 +211,7 @@ updated to match.
    JavaScript, and sign-in, upload, `/remove`, the copyright notice and the wait
    list before launch all require one. So those forms need JS and show a `<noscript>` message without it, while
    reading, browsing and search stay fully usable with JS off. Uploads are
-   direct presigned PUTs to R2 with progress (R2 doesn't accept form POSTs);
+   PUTs to the web Worker, which streams them to R2, with progress;
    the earlier no-JS multipart path through the Worker was dropped. Turnstile
    pages add `frame-src https://challenges.cloudflare.com` to the CSP.
 2. **Reader settings under the CSP.** `style-src 'self'` blocks inline `style=`

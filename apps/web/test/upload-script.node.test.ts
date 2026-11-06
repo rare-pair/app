@@ -4,7 +4,7 @@ import { UPLOAD_SCRIPT } from "../src/upload-script";
 
 // U3's browser half, run as text over hand-written fakes for the page's DOM, `fetch`,
 // `XMLHttpRequest` and Turnstile. It shows what the script asks for and sends, not how a
-// real browser, the CSP or R2's CORS answer: that is the manual check in the PR.
+// real browser or the CSP answer: that is the browser suite's (browser/journeys/).
 
 type Fake = { name: string; size: number };
 type Row = { children: FakeElement[] };
@@ -47,6 +47,7 @@ class FakeXhr {
   headers: Record<string, string> = {};
   sent: Fake | null = null;
   status = 0;
+  responseText = "";
   upload = new FakeUpload();
   onload?: () => void;
   onerror?: () => void;
@@ -92,7 +93,8 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
   );
   elements["file"]!.files = files;
   const calls: Call[] = [];
-  const clock = { now: 1_000_000 };
+  // The uploads the page has reported as failed. Each is answered without using up a reply.
+  const reported: string[] = [];
   const timers: FakeTimer[] = [];
   const turnstile = {
     token: "token-1",
@@ -106,18 +108,23 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
       createElement: () => new FakeElement(),
     },
     fetch: async (url: string, init: { method: string; body?: URLSearchParams }) => {
+      if (init.method === "DELETE") {
+        reported.push(url);
+        return { ok: true, status: 200, json: async () => ({ status: "freed" }) };
+      }
       const call = { url, method: init.method, body: init.body };
       calls.push(call);
       const reply = replies[calls.length - 1]!(call);
+      if (reply.status === 0) throw new TypeError("Failed to fetch");
       return { ok: reply.status < 300, status: reply.status, json: async () => reply.body };
     },
-    Date: { now: () => clock.now },
     setTimeout: (run: () => void, ms: number) => timers.push(new FakeTimer(ms, run)) - 1,
     clearTimeout: (id: number) => {
       timers[id]!.cleared = true;
     },
     XMLHttpRequest: FakeXhr,
     URLSearchParams,
+    AbortSignal,
     turnstile,
   };
   // The script reaches Turnstile as window.turnstile; the page's globals are the same object.
@@ -126,7 +133,7 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
   const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
   return {
     calls,
-    clock,
+    reported,
     timers,
     turnstile,
     button: elements["send"]!,
@@ -155,12 +162,12 @@ describe("script", () => {
 });
 
 describe("02-upload-handshake", () => {
-  it("Browser with JS uploads straight to R2 with progress", async () => {
+  it("Browser with JS sends a file through the Worker with progress", async () => {
     const file = epub(1, 5000);
     const p = page(
       [file],
       [
-        () => ({ status: 200, body: { id: "up-1", url: "https://r2.example/put-1" } }),
+        () => ({ status: 200, body: { id: "up-1" } }),
         () => ({ status: 200, body: { status: "queued" } }),
       ],
     );
@@ -174,9 +181,9 @@ describe("02-upload-handshake", () => {
     // A token is single use.
     expect(p.turnstile.resets).toBe(1);
 
-    // The file goes to the presigned URL, with the one type that URL signs.
+    // The file goes to its upload's address on this site, with the one type that takes.
     const [xhr] = FakeXhr.all;
-    expect(xhr).toMatchObject({ method: "PUT", url: "https://r2.example/put-1", sent: file });
+    expect(xhr).toMatchObject({ method: "PUT", url: "/uploads/up-1", sent: file });
     expect(xhr!.headers).toEqual({ "Content-Type": "application/epub+zip" });
 
     // Progress moves the file's own bar.
@@ -192,6 +199,8 @@ describe("02-upload-handshake", () => {
     ]);
     expect(note(p.rows()[0]!)).toMatch(/Uploaded/);
     expect(p.button.disabled).toBe(false);
+    // Nothing failed, so nothing is reported.
+    expect(p.reported).toEqual([]);
   });
 
   it("Upload of several files in one go", async () => {
@@ -200,11 +209,7 @@ describe("02-upload-handshake", () => {
       () => ({
         status: 200,
         body: {
-          uploads: [
-            { id: "a", url: "https://r2.example/a" },
-            { id: "b", url: "https://r2.example/b" },
-            { id: "c", url: "https://r2.example/c" },
-          ],
+          uploads: [{ id: "a" }, { id: "b" }, { id: "c" }],
         },
       }),
       () => ({ status: 200, body: { status: "queued" } }),
@@ -219,11 +224,11 @@ describe("02-upload-handshake", () => {
     expect(sizesOf(p.calls[0]!.body)).toEqual(["1001", "1002", "1003"]);
     expect(p.turnstile.resets).toBe(1);
 
-    // Each file goes to its own URL, and its progress moves its own bar only.
+    // Each file goes to its own address, and its progress moves its own bar only.
     expect(FakeXhr.all.map((x) => [x.url, x.sent])).toEqual([
-      ["https://r2.example/a", files[0]],
-      ["https://r2.example/b", files[1]],
-      ["https://r2.example/c", files[2]],
+      ["/uploads/a", files[0]],
+      ["/uploads/b", files[1]],
+      ["/uploads/c", files[2]],
     ]);
     FakeXhr.all[1]!.upload.onprogress!({ lengthComputable: true, loaded: 400, total: 1002 });
     expect(p.rows().map((r) => bar(r).value)).toEqual([0, 400, 0]);
@@ -244,13 +249,13 @@ describe("02-upload-handshake", () => {
     ]);
   });
 
-  it("Sends at most three files at a time, so later URLs don't expire waiting", async () => {
+  it("Sends at most three files at a time", async () => {
     const files = [1, 2, 3, 4, 5].map((n) => epub(n));
     const ids = ["a", "b", "c", "d", "e"];
     const p = page(files, [
       () => ({
         status: 200,
-        body: { uploads: ids.map((id) => ({ id, url: `https://r2.example/${id}` })) },
+        body: { uploads: ids.map((id) => ({ id })) },
       }),
       ...ids.map(() => () => ({ status: 200, body: { status: "queued" } })),
     ]);
@@ -268,7 +273,7 @@ describe("02-upload-handshake", () => {
     expect(FakeXhr.all).toHaveLength(5);
   });
 
-  it("An error reply is shown and nothing is sent to R2", async () => {
+  it("An error reply is shown and nothing is sent", async () => {
     const p = page(
       [epub(1), epub(2)],
       [() => ({ status: 429, body: { error: "You have 1 upload left today.", retryAfter: 60 } })],
@@ -303,7 +308,7 @@ describe("02-upload-handshake", () => {
     const p = page(
       [{ name: "notes.txt", size: 10 }, epub(2, 77)],
       [
-        () => ({ status: 200, body: { id: "x", url: "https://r2.example/x" } }),
+        () => ({ status: 200, body: { id: "x" } }),
         () => ({ status: 200, body: { status: "queued" } }),
       ],
     );
@@ -332,24 +337,99 @@ describe("02-upload-handshake", () => {
     expect(p.message.textContent).toMatch(/anti-spam/);
   });
 
-  it("A transfer that fails is not confirmed and says to try again", async () => {
-    const p = page(
-      [epub(1)],
-      [() => ({ status: 200, body: { id: "up-1", url: "https://r2.example/put-1" } })],
-    );
+  it("A transfer that fails is not confirmed, says to try again and is reported", async () => {
+    const p = page([epub(1)], [() => ({ status: 200, body: { id: "up-1" } })]);
     const clicked = p.click();
     await p.flush();
     done(FakeXhr.all[0]!, 403);
     await clicked;
     expect(p.calls).toHaveLength(1);
     expect(note(p.rows()[0]!)).toMatch(/try again/);
+    expect(p.reported).toEqual(["/uploads/up-1"]);
+  });
+
+  it("A confirm that never reaches the server is reported", async () => {
+    const p = page(
+      [epub(1)],
+      [() => ({ status: 200, body: { id: "up-1" } }), () => ({ status: 0, body: {} })],
+    );
+    const clicked = p.click();
+    await p.flush();
+    done(FakeXhr.all[0]!);
+    await clicked;
+    expect(note(p.rows()[0]!)).toMatch(/try again/);
+    expect(p.reported).toEqual(["/uploads/up-1"]);
+  });
+
+  it("A confirm the server refuses isn't reported: the server has settled it", async () => {
+    const p = page(
+      [epub(1)],
+      [
+        () => ({ status: 200, body: { id: "up-1" } }),
+        () => ({ status: 400, body: { error: "That file didn't finish uploading." } }),
+      ],
+    );
+    const clicked = p.click();
+    await p.flush();
+    done(FakeXhr.all[0]!);
+    await clicked;
+    expect(note(p.rows()[0]!)).toMatch(/didn't finish/);
+    expect(p.reported).toEqual([]);
+  });
+
+  it("A confirm that ends in a server fault is reported: the Worker may never have freed it", async () => {
+    const p = page(
+      [epub(1)],
+      [() => ({ status: 200, body: { id: "up-1" } }), () => ({ status: 502, body: {} })],
+    );
+    const clicked = p.click();
+    await p.flush();
+    done(FakeXhr.all[0]!);
+    await clicked;
+    expect(note(p.rows()[0]!)).toMatch(/try again/);
+    expect(p.reported).toEqual(["/uploads/up-1"]);
+  });
+
+  it("A transfer answered 409 goes on to the confirm and isn't reported", async () => {
+    // A PUT that was stored and whose answer was lost, sent again by the browser, gets a 409.
+    const p = page(
+      [epub(1)],
+      [
+        () => ({ status: 200, body: { id: "up-1" } }),
+        () => ({ status: 200, body: { status: "queued" } }),
+      ],
+    );
+    const clicked = p.click();
+    await p.flush();
+    done(FakeXhr.all[0]!, 409);
+    await clicked;
+    expect(p.calls.map((c) => c.url)).toEqual(["/uploads", "/uploads/up-1/complete"]);
+    expect(note(p.rows()[0]!)).toMatch(/Uploaded/);
+    expect(p.reported).toEqual([]);
+  });
+
+  it("A refused transfer shows the server's reason", async () => {
+    const p = page([epub(1)], [() => ({ status: 200, body: { id: "up-1" } })]);
+    const clicked = p.click();
+    await p.flush();
+    FakeXhr.all[0]!.responseText = JSON.stringify({ error: "This account can't upload." });
+    done(FakeXhr.all[0]!, 403);
+    await clicked;
+    expect(note(p.rows()[0]!)).toBe("This account can't upload.");
+  });
+
+  it("A transfer answered with no JSON still says to try again", async () => {
+    const p = page([epub(1)], [() => ({ status: 200, body: { id: "up-1" } })]);
+    const clicked = p.click();
+    await p.flush();
+    FakeXhr.all[0]!.responseText = "<html>Bad gateway</html>";
+    done(FakeXhr.all[0]!, 502);
+    await clicked;
+    expect(note(p.rows()[0]!)).toMatch(/try again/);
   });
 
   it("A transfer that stops moving is ended, and one that moves is not", async () => {
-    const p = page(
-      [epub(1)],
-      [() => ({ status: 200, body: { id: "up-1", url: "https://r2.example/put-1" } })],
-    );
+    const p = page([epub(1)], [() => ({ status: 200, body: { id: "up-1" } })]);
     const clicked = p.click();
     await p.flush();
     const [first] = p.timers;
@@ -363,6 +443,7 @@ describe("02-upload-handshake", () => {
     await clicked;
     expect(note(p.rows()[0]!)).toMatch(/try again/);
     expect(p.button.disabled).toBe(false);
+    expect(p.reported).toEqual(["/uploads/up-1"]);
   });
 
   it("Files the script refuses don't count towards the ten", async () => {
@@ -373,9 +454,7 @@ describe("02-upload-handshake", () => {
       () => ({
         status: 200,
         body: {
-          uploads: files
-            .slice(0, 9)
-            .map((_, i) => ({ id: `i${i}`, url: `https://r2.example/${i}` })),
+          uploads: files.slice(0, 9).map((_, i) => ({ id: `i${i}` })),
         },
       }),
     ]);
@@ -391,42 +470,17 @@ describe("02-upload-handshake", () => {
     expect(FakeXhr.all).toHaveLength(9);
   });
 
-  it("A file that would start after its URL has expired is not sent", async () => {
-    const files = [1, 2, 3, 4].map((n) => epub(n));
-    const ids = ["a", "b", "c", "d"];
-    const p = page(files, [
-      () => ({
-        status: 200,
-        body: { uploads: ids.map((id) => ({ id, url: `https://r2.example/${id}` })) },
-      }),
-      () => ({ status: 200, body: { status: "queued" } }),
-    ]);
-    const clicked = p.click();
-    await p.flush();
-    // Past ten minutes from signing, the fourth file's URL is dead, so it never starts.
-    p.clock.now += 601000;
-    done(FakeXhr.all[0]!);
-    FakeXhr.all[1]!.onerror!();
-    FakeXhr.all[2]!.onerror!();
-    await clicked;
-    expect(FakeXhr.all).toHaveLength(3);
-    expect(note(p.rows()[3]!)).toMatch(/try again/);
-  });
-
   it("A second click sends only the files not yet uploaded", async () => {
     const files = [epub(1), epub(2)];
     const p = page(files, [
       () => ({
         status: 200,
         body: {
-          uploads: [
-            { id: "a", url: "https://r2.example/a" },
-            { id: "b", url: "https://r2.example/b" },
-          ],
+          uploads: [{ id: "a" }, { id: "b" }],
         },
       }),
       () => ({ status: 200, body: { status: "queued" } }),
-      () => ({ status: 200, body: { id: "c", url: "https://r2.example/c" } }),
+      () => ({ status: 200, body: { id: "c" } }),
       () => ({ status: 200, body: { status: "queued" } }),
     ]);
     const first = p.click();
@@ -444,16 +498,14 @@ describe("02-upload-handshake", () => {
     await second;
   });
 
-  it("A network error on a transfer is shown too", async () => {
-    const p = page(
-      [epub(1)],
-      [() => ({ status: 200, body: { id: "up-1", url: "https://r2.example/put-1" } })],
-    );
+  it("A network error on a transfer is shown and reported too", async () => {
+    const p = page([epub(1)], [() => ({ status: 200, body: { id: "up-1" } })]);
     const clicked = p.click();
     await p.flush();
     FakeXhr.all[0]!.onerror!();
     await clicked;
     expect(p.calls).toHaveLength(1);
     expect(note(p.rows()[0]!)).toMatch(/try again/);
+    expect(p.reported).toEqual(["/uploads/up-1"]);
   });
 });

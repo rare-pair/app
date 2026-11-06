@@ -17,8 +17,7 @@ From the repository root, after `npm ci`:
 
 Three things stand in for the outside world:
 
-- **Turnstile's script**, inside the browser. It solves every widget at once and draws no frame, so the CSP's `frame-src` goes unexercised.
-- **R2's S3 endpoint**, for the browser's presigned PUT: a small Worker (`harness/r2-put.ts`) that answers the CORS preflight, signs the URL again with `presignPut` and refuses a mismatch, then stores the body in the shared bucket. It is not R2. R2's own signature check, any cap on how long a URL may live and the bucket's CORS rule are shown only by a deploy, as is the real Turnstile widget with the CSP's `frame-src` it needs: those stay a manual check at each deploy.
+- **Turnstile's script**, inside the browser. It solves every widget at once and draws no frame, so the CSP's `frame-src` goes unexercised. The real widget with the `frame-src` it needs stays a manual check at each deploy, as does an upload streamed to real R2 (scenario 02).
 - **Email's consumer**, a sink that `site.emails()` reads.
 - **The Workers' own outbound network**: web's siteverify and purge calls get `test/stand-ins.ts`'s answers, and anything else any Worker fetches gets a 599.
 

@@ -3,7 +3,6 @@ import type { Context, MiddlewareHandler } from "hono";
 import type { Bindings } from "./env";
 import { readForm } from "./login";
 import { DRAFT, layout, uploadPage } from "./pages";
-import { presignPut } from "./presign";
 import { limitFor, quotaShort, quotaSpent, tooManyOpen } from "./quota";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
@@ -16,20 +15,16 @@ import {
 } from "./rate-limit";
 import { isSameOrigin } from "./signin";
 import { TURNSTILE_ACTIONS, verifyTurnstile } from "./turnstile";
-import { EPUB_TYPE, MAX_BATCH_FILES, MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./upload-limit";
+import { MAX_BATCH_FILES, MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./upload-limit";
 
 // ARCHITECTURE, Ingestion pipeline, step 1. The upload page's script calls
 // `POST /uploads` once for all the files picked, with one Turnstile token and a
-// `size` for each, and PUTs each file straight to R2: no byte of one passes through
-// this Worker.
+// `size` for each, and then sends each file to `PUT /uploads/:id` (src/upload-put.ts).
 
 type UploadContext = Context<{
   Bindings: Bindings;
   Variables: SecurityVariables & SessionVariables;
 }>;
-
-// How long a presigned URL works: 10 minutes.
-const UPLOAD_URL_SECONDS = 600;
 
 const TOO_FAST = "You're uploading too fast. Please wait a moment and try again.";
 
@@ -37,7 +32,7 @@ const TOO_FAST = "You're uploading too fast. Please wait a moment and try again.
 // reads "0x10", "1e3" and " 12". No empty epub exists, so zero isn't one either.
 const SIZE = /^[1-9][0-9]*$/;
 
-// No cache keeps a reply: a URL in one can write to the bucket.
+// No cache keeps a reply: each is about one account's uploads.
 const NO_STORE = { "Cache-Control": "no-store" };
 
 /** What a banned account is told, by the page and by the upload routes. */
@@ -73,7 +68,7 @@ export async function showUpload(c: UploadContext) {
 }
 
 /**
- * Refuses a `POST /uploads` from anywhere but a page on the site, with a JSON 403.
+ * Refuses a request on an upload route from anywhere but a page on the site, with a JSON 403.
  * It runs before the session middleware, so a refused request costs no lookup.
  */
 export const sameOriginUpload: MiddlewareHandler = async (c, next) => {
@@ -84,10 +79,9 @@ export const sameOriginUpload: MiddlewareHandler = async (c, next) => {
 };
 
 /**
- * `POST /uploads`: an `uploads` row and a presigned PUT URL for each file, as JSON
- * `{ id, url }` for one file or `{ uploads: [{ id, url }, ...] }` for several, or
- * `{ error }` for the page to show. The body is a plain form: `size`, the declared
- * bytes, once per file, and `cf-turnstile-response`.
+ * `POST /uploads`: an `uploads` row for each file, as JSON `{ id }` for one file or
+ * `{ uploads: [{ id }, ...] }` for several, or `{ error }` for the page to show. The body
+ * is a plain form: `size`, the declared bytes, once per file, and `cf-turnstile-response`.
  */
 export async function requestUpload(c: UploadContext) {
   const refuse = (status: 400 | 401 | 403 | 413 | 503, error: string) =>
@@ -179,40 +173,20 @@ export async function requestUpload(c: UploadContext) {
     }
 
     // The keys are ours alone: nothing in them comes from the request.
-    const files = await Promise.all(
-      declared.map(async (bytes) => {
-        const id = crypto.randomUUID();
-        const key = `uploads/${id}`;
-        // Every URL is signed before any row is written, so a signing fault leaves no row behind.
-        const url = await presignPut({
-          accountId: c.env.R2_ACCOUNT_ID,
-          bucket: c.env.R2_BUCKET,
-          accessKeyId: c.env.R2_ACCESS_KEY_ID,
-          secretAccessKey: c.env.R2_SECRET_ACCESS_KEY,
-          key,
-          contentType: EPUB_TYPE,
-          contentLength: bytes,
-          expiresSeconds: UPLOAD_URL_SECONDS,
-          now: new Date(),
-        });
-        return { id, key, bytes, url };
-      }),
-    );
-    // All the rows or none, and none past the cap on links never finished, which is the daily
+    const files = declared.map((bytes) => {
+      const id = crypto.randomUUID();
+      return { id, r2Key: `uploads/${id}`, bytes };
+    });
+    // All the rows or none, and none past the cap on uploads never finished, which is the daily
     // quota's number: asking counts nothing above, so without it one account could hold any
-    // amount of storage through links it never confirms.
-    const stored = await insertUploadsWithinCap(
-      db,
-      user.id,
-      files.map(({ id, key, bytes }) => ({ id, r2Key: key, bytes })),
-      limit,
-    );
+    // amount of storage through uploads it never confirms.
+    const stored = await insertUploadsWithinCap(db, user.id, files, limit);
     if (!stored.inserted) return tooManyOpen(c, stored.left);
     const [only] = files;
     return c.json(
       files.length === 1 && only !== undefined
-        ? { id: only.id, url: only.url }
-        : { uploads: files.map(({ id, url }) => ({ id, url })) },
+        ? { id: only.id }
+        : { uploads: files.map(({ id }) => ({ id })) },
       200,
       NO_STORE,
     );

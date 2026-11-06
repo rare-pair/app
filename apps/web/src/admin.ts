@@ -204,7 +204,8 @@ type Check = { title: string; ao3WorkId: number; created: Date; reasons: string[
 /**
  * `GET /admin/works`: Works to check. One row per work, oldest trigger first, for
  * any of: a version held for review, a live current version whose review reasons no
- * moderator has cleared, an open "This version is wrong" report. Removed works are
+ * moderator has cleared, an open "This version is wrong" report, or a hide by
+ * reports with none left open (nothing else queues such a work). Removed works are
  * not listed; hidden ones are. Each row links to the work's admin page, which has the actions.
  */
 export async function showWorksToCheck(c: AdminContext) {
@@ -255,6 +256,43 @@ export async function showWorksToCheck(c: AdminContext) {
     .orderBy("works.id")
     .limit(QUEUE_LIMIT + 1)
     .execute();
+  // Hidden by reports, and in the Reports queue no longer: no open report but a wrong-version one.
+  // No hide time is stored, so it is dated by the work's earliest report, else its current version.
+  const hiddenByReports = await db
+    .selectFrom("works")
+    .leftJoin("work_versions", "work_versions.id", "works.current_version_id")
+    .select(["works.id", "works.title", "works.ao3_work_id"])
+    .select((eb) =>
+      eb
+        .fn<Date>("coalesce", [
+          eb
+            .selectFrom("reports")
+            .select((e) => e.fn.min("reports.created_at").as("first"))
+            .whereRef("reports.work_id", "=", "works.id"),
+          "work_versions.created_at",
+          // Never null, so a work with neither can't break the sort.
+          sql<Date>`now()`,
+        ])
+        .as("created_at"),
+    )
+    .where("works.status", "=", "hidden")
+    .where("works.hidden_cause", "=", "reports")
+    .where((eb) =>
+      eb.not(
+        eb.exists(
+          eb
+            .selectFrom("reports")
+            .select("reports.id")
+            .whereRef("reports.work_id", "=", "works.id")
+            .where("reports.status", "=", "open")
+            .where("reports.kind", "<>", "wrong_version"),
+        ),
+      ),
+    )
+    .orderBy("created_at")
+    .orderBy("works.id")
+    .limit(QUEUE_LIMIT + 1)
+    .execute();
 
   const byWork = new Map<string, Check>();
   const add = (
@@ -277,6 +315,7 @@ export async function showWorksToCheck(c: AdminContext) {
   for (const r of held) add(r, "Held version");
   for (const r of flagged) add(r, `Review reasons: ${r.review_reasons.join(", ")}`);
   for (const r of wrong) add(r, "Reported: this version is wrong");
+  for (const r of hiddenByReports) add(r, "Hidden by reports, none open: restore or remove");
 
   const rows = [...byWork.entries()]
     .sort(([aId, a], [bId, b]) => +a.created - +b.created || (aId < bId ? -1 : aId > bId ? 1 : 0))

@@ -165,7 +165,7 @@ async function run(
     return { status: "too_large", failure: { stage: "read", error: "too_large" } };
   }
   const bytes = new Uint8Array(await object.arrayBuffer());
-  // What the job read, not what confirm hashed: the same URL can have replaced the file since.
+  // What the job read, not what confirm hashed: the job records the bytes it handled.
   lease.sha256 = await sha256Hex(bytes);
   // Still the job's before the slow step? Throws `LeaseLost` if another job took it over.
   await lease.keeper?.renew();

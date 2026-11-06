@@ -7,9 +7,9 @@ import { afterAll, describe, expect, it } from "vitest";
 import app from "../src/index";
 import { BASE, deliveredIngest, fetchW, postLogin, signIn as signInAs } from "./helpers";
 
-// U2's cases: `POST /uploads/:id/complete`, which checks the object a presigned PUT stored,
+// U2's cases: `POST /uploads/:id/complete`, which checks the object `PUT /uploads/:id` stored,
 // hashes it, and either marks it a duplicate or enqueues it. The test puts the object in
-// `env.BUCKET` itself, as the browser's PUT would have: Miniflare's R2 has no S3 endpoint.
+// `env.BUCKET` itself, so it can also store one the route never would.
 // The `ingest` queue's consumer is vitest.config.ts's ingest-sink.
 
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
@@ -27,7 +27,7 @@ async function signIn(email: string): Promise<{ userId: string; cookie: string }
   return { userId: user.id, cookie };
 }
 
-/** An upload row as `POST /uploads` leaves it, and the object the browser's PUT stored. */
+/** An upload row as `POST /uploads` leaves it, and the object its PUT stored. */
 async function uploaded(
   userId: string,
   bytes: Uint8Array | null,
@@ -50,6 +50,42 @@ const rowOf = (id: string) =>
     .select(["status", "sha256", "work_id"])
     .where("id", "=", id)
     .executeTakeFirstOrThrow();
+
+/** The upload's row and object are gone, so its slot is free. */
+async function expectFreed(up: { id: string; key: string }) {
+  expect(
+    await db.selectFrom("uploads").select("id").where("id", "=", up.id).executeTakeFirst(),
+  ).toBeUndefined();
+  expect(await env.BUCKET.head(up.key)).toBeNull();
+}
+
+/** A confirm in this isolate, on these bindings, for what Miniflare can't be made to do. */
+type Faulty = {
+  INGEST?: { send: () => Promise<never> };
+  BUCKET?: { get: () => Promise<never>; delete: (key: string) => Promise<void> };
+};
+
+async function completeWith(id: string, cookie: string, bindings: Faulty) {
+  const ctx = createExecutionContext();
+  const res = await app.fetch(
+    new Request(`${BASE}/uploads/${id}/complete`, {
+      method: "POST",
+      headers: { cookie, origin: BASE, "sec-fetch-site": "same-origin" },
+    }),
+    { ...env, ...bindings },
+    ctx,
+  );
+  await waitOnExecutionContext(ctx);
+  return res;
+}
+
+const QUEUE_DOWN = {
+  INGEST: {
+    send: async () => {
+      throw new TypeError("queue down");
+    },
+  },
+};
 
 /** Bytes that are no real epub and no fic: random, so no two tests share a hash. */
 const randomBytes = (n = 64) => crypto.getRandomValues(new Uint8Array(n));
@@ -225,46 +261,59 @@ describe("02-upload-handshake", () => {
     });
   });
 
-  // Two scenario cases, 02's and 19's, with the same steps.
-  describe.each([
-    ["Confirm deletes an oversized object", 0],
-    ["Oversized objects are cleaned up at confirm", 1],
-  ])("%s", (title, n) => {
-    it(title, async () => {
-      const { userId, cookie } = await signIn(`u2-oversized-${n}@example.test`);
-      // The declared size was small; the PUT stored 25 MiB and a byte.
-      const up = await uploaded(userId, new Uint8Array(MAX + 1), 1);
-      const res = await complete(up.id, { cookie });
-      await expectRefused(res, 413);
-      expect(await env.BUCKET.head(up.key)).toBeNull();
-      expect(await rowOf(up.id)).toEqual({ status: "too_large", sha256: null, work_id: null });
-      await queueDrained(userId, cookie);
-      expect(await ingestSent(up.id)).toEqual([]);
-    });
-  });
-
   it.each([
     ["larger", 2000, 1000],
     ["smaller", 1000, 2000],
+    ["over 25 MiB", MAX + 1, 1],
   ])(
-    "Confirm refuses and deletes a file of another size than declared: stored %s",
+    "Confirm refuses a stored file of another size than declared and frees its slot: %s",
     async (word, stored, declared) => {
-      const { userId, cookie } = await signIn(`uploadcap-size-${word}@example.test`);
-      const up = await uploaded(userId, randomBytes(stored), declared);
+      const { userId, cookie } = await signIn(`uploadcap-size-${word.at(0)}@example.test`);
+      const up = await uploaded(userId, new Uint8Array(stored), declared);
 
       const res = await complete(up.id, { cookie });
 
       await expectRefused(res.clone(), 400);
       // SAFETY: POST /uploads/:id/complete answers JSON.
       expect(((await res.json()) as { error: string }).error).toMatch(/size/);
-      expect(await env.BUCKET.head(up.key)).toBeNull();
-      // Left pending, for the reaper: not counted against the quota, and never queued.
-      expect(await rowOf(up.id)).toEqual({ status: "pending", sha256: null, work_id: null });
+      await expectFreed(up);
+      // Not counted against the quota, and never queued.
       expect(await usedOf(userId)).toBe(0);
       await queueDrained(userId, cookie);
       expect(await ingestSent(up.id)).toEqual([]);
     },
   );
+
+  it("A confirm that can't reach the queue frees the slot and gives back the use", async () => {
+    const { userId, cookie } = await signIn("upslot-send-fails@example.test");
+    const up = await uploaded(userId, randomBytes(1000));
+    await setUsedToday(userId, 3);
+
+    const res = await completeWith(up.id, cookie, QUEUE_DOWN);
+
+    await expectRefused(res.clone(), 503);
+    // SAFETY: POST /uploads/:id/complete answers JSON.
+    expect(((await res.json()) as { error: string }).error).toMatch(/upload it again/);
+    await expectFreed(up);
+    expect(await usedOf(userId)).toBe(3);
+  });
+
+  it("A confirm that faults frees the slot", async () => {
+    const { userId, cookie } = await signIn("upslot-confirm-fault@example.test");
+    const up = await uploaded(userId, randomBytes(1000));
+    const bucket = {
+      get: async () => {
+        throw new TypeError("R2 is down");
+      },
+      delete: (key: string) => env.BUCKET.delete(key),
+    };
+
+    const res = await completeWith(up.id, cookie, { BUCKET: bucket });
+
+    await expectRefused(res, 500);
+    await expectFreed(up);
+    expect(await usedOf(userId)).toBe(0);
+  });
 
   it("A confirmed upload's object is left alone by a repeat confirm of another size", async () => {
     const { userId, cookie } = await signIn("uploadcap-size-counted@example.test");
@@ -303,25 +352,7 @@ describe("02-upload-handshake", () => {
     expect((await complete(up.id, { cookie })).status).toBe(200);
     expect(await usedOf(userId)).toBe(1);
 
-    const ctx = createExecutionContext();
-    const res = await app.fetch(
-      new Request(`${BASE}/uploads/${up.id}/complete`, {
-        method: "POST",
-        headers: { cookie, origin: BASE, "sec-fetch-site": "same-origin" },
-      }),
-      {
-        ...env,
-        INGEST: {
-          send: async () => {
-            throw new TypeError("queue down");
-          },
-        },
-      },
-      ctx,
-    );
-    await waitOnExecutionContext(ctx);
-
-    await expectRefused(res, 503);
+    await expectRefused(await completeWith(up.id, cookie, QUEUE_DOWN), 503);
     // Its first message is still in the queue: giving the use back would make it look unconfirmed,
     // and the reaper would take it.
     expect(await usedOf(userId)).toBe(1);
@@ -389,11 +420,11 @@ describe("02-upload-confirm refusals", () => {
     expect(await env.BUCKET.head(up.key)).not.toBeNull();
   });
 
-  it("An upload whose object never arrived is refused and stays pending", async () => {
+  it("An upload whose object never arrived is refused and frees its slot", async () => {
     const { userId, cookie } = await signIn("u2-missing@example.test");
     const up = await uploaded(userId, null);
     await expectRefused(await complete(up.id, { cookie }), 400);
-    expect((await rowOf(up.id)).status).toBe("pending");
+    await expectFreed(up);
   });
 
   it("A confirm after ingest has taken the upload is refused and sends nothing", async () => {

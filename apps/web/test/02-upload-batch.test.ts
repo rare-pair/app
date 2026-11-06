@@ -12,7 +12,6 @@ import { BASE, freshIp, postLogin, signIn as signInAs, UPLOAD_TOKEN } from "./he
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 afterAll(() => db.destroy());
 
-const S3_HOST = "test0000000000000000000000000acct.r2.cloudflarestorage.com";
 const NEW_LIMIT = Number(env.UPLOAD_QUOTA_NEW);
 
 async function signIn(name: string): Promise<{ userId: string; cookie: string }> {
@@ -43,9 +42,9 @@ const form = (sizes: string[], token = UPLOAD_TOKEN) =>
 const requestBatch = (cookie: string, sizes: string[], token?: string) =>
   postLogin({}, { url: "/uploads", headers: { cookie }, body: form(sizes, token) });
 
-type Reply = { uploads?: { id: string; url: string }[]; id?: string; error?: string };
+type Reply = { uploads?: { id: string }[]; id?: string; error?: string };
 
-/** A refused batch: JSON error, no URLs, and not one row. */
+/** A refused batch: JSON error, no ids, and not one row. */
 async function expectRefused(res: Response, status: number, userId: string) {
   expect(res.status).toBe(status);
   expect(res.headers.get("cache-control")).toBe("no-store");
@@ -75,16 +74,10 @@ describe("02-upload-handshake", () => {
     const { uploads } = (await res.json()) as Reply;
     expect(uploads).toHaveLength(3);
     expect(new Set(uploads!.map((u) => u.id)).size).toBe(3);
-    expect(new Set(uploads!.map((u) => u.url)).size).toBe(3);
 
     const rows = await uploadsOf(userId);
     expect(rows.map((r) => r.bytes).sort((a, b) => a - b)).toEqual([1000, 2000, 26214400]);
-    for (const { id, url } of uploads!) {
-      const put = new URL(url);
-      expect(put.origin).toBe(`https://${S3_HOST}`);
-      expect(put.pathname).toBe(`/rarepair/uploads/${id}`);
-      expect(put.searchParams.get("X-Amz-Expires")).toBe("600");
-      expect(put.searchParams.get("X-Amz-SignedHeaders")).toBe("content-length;content-type;host");
+    for (const { id } of uploads!) {
       expect(rows.find((r) => r.id === id)).toMatchObject({
         r2_key: `uploads/${id}`,
         status: "pending",
@@ -97,7 +90,7 @@ describe("02-upload-handshake", () => {
     const res = await requestBatch(cookie, ["1000"]);
     // SAFETY: POST /uploads answers JSON.
     const body = (await res.json()) as Reply;
-    expect(Object.keys(body).sort()).toEqual(["id", "url"]);
+    expect(Object.keys(body)).toEqual(["id"]);
   });
 
   it("One file over 25 MB or one bad size refuses the whole batch", async () => {

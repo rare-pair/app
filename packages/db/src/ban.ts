@@ -94,20 +94,24 @@ export async function isBanned(db: Kysely<Database>, userId: string): Promise<bo
 /**
  * Ends a banned account's upload as `account_banned`, as the ban ended its other pending ones:
  * for a row written after the ban, by a request that had passed its check just before. Only
- * while it is `pending` and `userId`'s. Its object is left to the `uploads/` expiry.
+ * while it is `pending` and `userId`'s. True when this call ended it, so only that caller deletes
+ * its object.
  */
 export async function endBannedUpload(
   db: Kysely<Database>,
   uploadId: string,
   userId: string,
-): Promise<void> {
-  await endPending(db, userId, [uploadId]);
+): Promise<boolean> {
+  return (await endPending(db, userId, [uploadId])) > 0;
 }
 
-/** Ends those of `ids` that are still `userId`'s `pending` uploads as `account_banned`. */
-async function endPending(db: Kysely<Database>, userId: string, ids: string[]): Promise<void> {
-  if (ids.length === 0) return;
-  await db
+/**
+ * Ends those of `ids` that are still `userId`'s `pending` uploads as `account_banned`, and says
+ * how many it ended.
+ */
+async function endPending(db: Kysely<Database>, userId: string, ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const ended = await db
     .updateTable("uploads")
     .set({ status: "account_banned" })
     // One array parameter, not one per id: nothing caps an account's pending uploads, and
@@ -115,7 +119,9 @@ async function endPending(db: Kysely<Database>, userId: string, ids: string[]): 
     .where(sql<boolean>`id = any(${ids}::text[])`)
     .where("user_id", "=", userId)
     .where("status", "=", "pending")
+    .returning("id")
     .execute();
+  return ended.length;
 }
 
 /** The one rule both checks share: a banned account, or none at all. */
