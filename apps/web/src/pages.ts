@@ -261,15 +261,17 @@ export const confirmPage = (
   next: string,
   maskedAddress: string | null,
   submitNonce?: string,
-) =>
-  layout(
+) => {
+  const account = maskedAddress === null ? "" : `<p>Sign in as ${escapeHtml(maskedAddress)}</p>\n`;
+  return layout(
     "Sign in",
-    `${maskedAddress === null ? "" : `<p>Sign in as ${escapeHtml(maskedAddress)}</p>\n`}<form method="post" action="/login/confirm">
+    `${account}<form method="post" action="/login/confirm">
 <input type="hidden" name="token" value="${escapeHtml(token)}">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
 <button type="submit">Sign in</button>
 </form>${submitNonce === undefined ? "" : submitConfirmForm(submitNonce)}`,
   );
+};
 
 /**
  * Signing in failed on our side, not the link's. The link may already be spent
