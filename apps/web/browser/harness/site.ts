@@ -1,7 +1,7 @@
 import type { Database, UploadStatus } from "@archive/db";
 import { createTestDb } from "@archive/db/testing";
 import type { Kysely } from "kysely";
-import type { Miniflare, RequestInit, Response } from "miniflare";
+import { Headers, type Miniflare, type RequestInit, type Response } from "miniflare";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { inject } from "vitest";
 import { parseMessage, type EmailMessage } from "../../../mailer/src/message";
@@ -243,13 +243,16 @@ export async function startSite({
     bucket,
     newContext,
     offSite,
-    fetch: (path, init = {}) =>
-      mf.dispatchFetch(new URL(path, SITE).toString(), {
+    fetch: (path, init = {}) => {
+      const headers = new Headers(init.headers);
+      // Not Miniflare's `undici`, which is on the crawler list and would be refused.
+      if (!headers.has("user-agent")) headers.set("user-agent", "Mozilla/5.0");
+      return mf.dispatchFetch(new URL(path, SITE).toString(), {
         redirect: "manual",
         ...init,
-        // Not Miniflare's `undici`, which is on the crawler list and would be refused.
-        headers: { "user-agent": "Mozilla/5.0", ...Object.fromEntries(new Headers(init.headers)) },
-      }),
+        headers,
+      });
+    },
     async emails() {
       const res = await emailSink.fetch("https://email-sink/");
       // SAFETY: the sink answers with the JSON array of message bodies it was delivered.
