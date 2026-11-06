@@ -113,7 +113,9 @@ describe("20-site-chrome-and-legal", () => {
     expect(privacy).toMatch(/accepted works stay public/i);
     expect(privacy).toMatch(/reports you made stay/i);
     expect(privacy).toMatch(/we reply to the address on your account before we delete anything/i);
-    expect(privacy).toMatch(/your email asking for this stays in that mailbox until the site closes/i);
+    expect(privacy).toMatch(
+      /your email asking for this stays in that mailbox until the site closes/i,
+    );
     expect(privacy).toMatch(/do not delete a banned account/i);
   });
 
