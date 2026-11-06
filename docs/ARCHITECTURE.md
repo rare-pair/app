@@ -1518,7 +1518,7 @@ epub, under the normal versioning rules.
     list when a moderator restores or removes it, and is dated by its earliest report
 
   Actions are hide, remove, restore, approve, reject, dismiss a report, block a requester, ban
-  an uploader and withhold a removal list entry. Block a requester is on removal
+  an uploader and, once the removal list is built, withhold an entry. Block a requester is on removal
   and opt-out request pages only: a takedown's requester is free text, so
   takedown pages don't offer it. "Dismiss report", on an open report's page,
   sets it `closed` and logs `dismiss` on the report. It hides and restores nothing, so a work the
