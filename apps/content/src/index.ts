@@ -43,9 +43,9 @@ const ROBOTS_TAG = "noindex, noarchive, noai, noimageai";
 
 /**
  * Every response this Worker returns, errors included, goes out through here with
- * `nosniff` and the robots tag (error pages the platform itself generates never reach this code). Its headers
- * are only this module's literals, so none sets a cookie; cookies a zone feature adds
- * after the Worker are kept off this host by zone config (ARCHITECTURE, Hosts).
+ * `nosniff` and the robots tag (error pages the platform itself generates never reach this
+ * code). Its headers are only this module's literals, so none sets a cookie; cookies a zone
+ * feature adds after the Worker are kept off this host by zone config (ARCHITECTURE, Hosts).
  */
 function respond(body: BodyInit | null, status: number, headers: Record<string, string> = {}) {
   const h = new Headers(headers);
@@ -157,15 +157,17 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const path = new URL(request.url).pathname;
     const isRead = request.method === "GET" || request.method === "HEAD";
-    // The one path open to a declared client, so it comes first, and only in this one spelling.
+    // The one path open to a declared client, so it comes first. It is never stored, so a query
+    // string makes no second cacheable URL here. Any other spelling of the path isn't exempt.
     if (isRead && path === "/robots.txt") {
       return respond(ROBOTS_TXT, 200, {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "public, max-age=3600",
       });
     }
-    // Ahead of the method and path checks, the cache, Postgres and R2, so the 403 shows nothing of
-    // which files exist. Only originals have the cross-site check: images aren't throttled (spec 24).
+    // Ahead of the method and path checks, the cache, Postgres and R2, so the 403 shows nothing
+    // of which files exist. Only originals have the cross-site check: images aren't throttled
+    // (spec 24).
     const isOriginal = ORIGINAL.test(path);
     const reason =
       declaredClient(request.headers) ??
@@ -180,7 +182,7 @@ export default {
     }
     // A query string, even an empty one (`search` is "" for a bare "?"), would make a
     // second cacheable URL for the same bytes, one that a purge of the bare URL on
-    // removal would miss, so only bare paths are served.
+    // removal would miss, so only bare paths are served as files.
     if (request.url.includes("?")) return notFound();
     if (!isOriginal && !IMAGE.test(path)) return notFound();
 

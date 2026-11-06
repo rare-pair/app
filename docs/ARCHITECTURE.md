@@ -111,9 +111,9 @@ an unofficial stopgap.
     also applies to `content.rarepair.fans` and may set a cookie there, and inject a
     script into the app's HTML (operator ruling, 2026-11-06). The content Worker itself still
     sets no cookie. Browser Integrity Check stays off (Crawlers and agents).
-  - The content Worker keeps no per-request log (invocation logs are off), so its
-    logs hold no reader address next to a work id. Errors, metrics and each refusal's
-    reason line are kept; traces are off too, so no reading data reaches them (the URL carries the work
+  - The content Worker keeps no log of the requests it serves (invocation logs are off), so
+    its logs hold no reader address next to a work id. Errors, metrics and a line with the
+    reason for each refusal, which can be a reader's cross-site embed, are kept; traces are off too, so no reading data reaches them (the URL carries the work
     id). An operator may turn them on to chase a live fault, which records request
     URLs until they are turned off again, so only for as long as the fault needs.
     `apps/content/test/wrangler.test.ts` holds traces off, so that change edits it too.

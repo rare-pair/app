@@ -217,6 +217,20 @@ describe("24-crawler-and-agent-blocking", () => {
     expect(image.res.status).toBe(200);
     expect(image.body).toEqual(PNG);
 
+    // The same refusal for a file that's missing or removed, ahead of the cache.
+    const cacheRead = vi.spyOn(caches.default, "match");
+    const cacheWrite = vi.spyOn(caches.default, "put");
+    for (const key of [original, removedOriginal, "originals/no-such-upload.epub"]) {
+      for (const method of ["GET", "HEAD"]) {
+        const { res, body } = await request(key, { method, headers: embed }, noBindings);
+        expect(res.status, `${method} /${key}`).toBe(403);
+        expect(body.byteLength, `${method} /${key}`).toBe(0);
+      }
+    }
+    expect(cacheRead).not.toHaveBeenCalled();
+    expect(cacheWrite).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+
     // A scripted request is one of these too, whatever its method. An image isn't guarded.
     const scripted = { "sec-fetch-site": "cross-site", "sec-fetch-dest": "empty" };
     const post = await request(original, { method: "POST", headers: scripted }, noBindings);
