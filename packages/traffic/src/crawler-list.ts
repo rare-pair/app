@@ -23,6 +23,8 @@ export const CRAWLER_LIST: readonly string[] = [
   "baiduspider",
   "yandexbot",
   "yandeximages",
+  "yandexmobilebot",
+  "yandexrenderresourcesbot",
   "sogou web spider",
   "seznambot",
   "naverbot",
@@ -34,6 +36,7 @@ export const CRAWLER_LIST: readonly string[] = [
   // Link preview services
   "facebookexternalhit",
   "facebot",
+  "facebookbot",
   "twitterbot",
   "linkedinbot",
   "slackbot",
@@ -120,6 +123,9 @@ export const CRAWLER_LIST: readonly string[] = [
   "guzzlehttp",
   "httpie",
   "postmanruntime",
+  "java/",
+  "deno/",
+  "dart/",
   // Read-later and translation services that fetch on their own servers
   "instapaper",
   "pocketparser",
@@ -127,6 +133,5 @@ export const CRAWLER_LIST: readonly string[] = [
   "wallabag",
   "omnivore",
   "feedly",
-  "google-read-aloud",
   "translate.google.com",
 ];

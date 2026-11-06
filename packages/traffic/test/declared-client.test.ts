@@ -68,7 +68,7 @@ describe("24-crawler-and-agent-blocking", () => {
   it("The list holds product names only, in lower case", () => {
     const tooBroad = ["bot", "crawl", "crawler", "spider", "agent", "fetch", "http", "node"];
     const automation = ["headless", "playwright", "puppeteer", "selenium", "webdriver", "phantom"];
-    const assistive = ["jaws", "nvda", "voiceover", "talkback", "orca"];
+    const assistive = ["jaws", "nvda", "voiceover", "talkback", "orca", "read-aloud"];
     expect(new Set(CRAWLER_LIST).size).toBe(CRAWLER_LIST.length);
     for (const name of CRAWLER_LIST) {
       expect(name, name).toBe(name.toLowerCase().trim());
