@@ -3,6 +3,7 @@ import { useJourneySite } from "../harness/journey";
 import { hasSidewaysScroll } from "../harness/layout";
 import { seedReadableWork } from "../harness/seed";
 import { SITE } from "../harness/site";
+import { startAtHome } from "../harness/walk";
 
 // A person whose browser sends a listed user agent, and a reader on another site's page. What the
 // Worker answers to each kind of client is apps/web/test/24-bots-refused. AO3 work IDs 8812430 to
@@ -23,9 +24,7 @@ describe("automated access journey", () => {
     const context = await site.newContext({
       userAgent: "Mozilla/5.0 (compatible; Instapaper/8.0)",
     });
-    const page = await context.newPage();
-    const home = await page.goto(`${SITE}/`);
-    expect(home?.status()).toBe(403);
+    const page = await startAtHome(context);
     expect(await page.locator("main").innerText()).toContain(REFUSAL);
     expect(await hasSidewaysScroll(page)).toBe(false);
 

@@ -7,8 +7,15 @@ import { chapterPageKey } from "../src/edge-cache";
 import app from "../src/index";
 import { LOGO_PATH } from "../src/logo";
 import { STYLESHEET_PATH } from "../src/styles";
-import { hashToken } from "../src/waitlist";
-import { BASE, consoleDuring, fetchW, signIn, STRICT, withoutNonce } from "./helpers";
+import {
+  BASE,
+  consoleDuring,
+  fetchW,
+  mailedWaitlistAddress,
+  signIn,
+  STRICT,
+  withoutNonce,
+} from "./helpers";
 
 // Runs in the "open" project; 24-bots-refused.prelaunch.test.ts has the cases with PRELAUNCH on.
 // This file keeps to AO3 work IDs 8812400 to 8812419. Text is synthetic.
@@ -79,6 +86,10 @@ async function expectRefusal(res: Response, label: string) {
 
 const crawler = { headers: { "user-agent": CRAWLER } };
 
+/** W's first chapter, asked for with `userAgent`. */
+const chapterAs = (userAgent: string) =>
+  fetchW(`/works/${W}/chapters/1`, { headers: { "user-agent": userAgent } });
+
 /** A request handed to the app itself, so the test's console spies and bindings reach it. */
 async function direct(path: string, init: RequestInit = {}, bindings: Partial<typeof env> = {}) {
   const ctx = createExecutionContext();
@@ -86,24 +97,6 @@ async function direct(path: string, init: RequestInit = {}, bindings: Partial<ty
   await waitOnExecutionContext(ctx);
   return res;
 }
-
-const unsubscribeToken = async () => {
-  const email = `bw-${crypto.randomUUID().slice(0, 8)}@example.test`;
-  const token = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().slice(0, 11);
-  const when = new Date("2026-11-01T10:00:00Z");
-  await db
-    .insertInto("waitlist")
-    .values({
-      email,
-      confirmed_at: when,
-      notified_at: when,
-      unsubscribe_token_hash: await hashToken(token),
-    })
-    .execute();
-  const rows = async () =>
-    (await db.selectFrom("waitlist").select("email").where("email", "=", email).execute()).length;
-  return { token, rows };
-};
 
 const unsubscribe = (token: string) => ({
   path: `/waitlist/unsubscribe?token=${token}`,
@@ -155,11 +148,7 @@ describe("24-crawler-and-agent-blocking", () => {
       ["POST", "/uploads/bw-upload/complete"],
       ["GET", "/uploads/bw-upload"],
     ] as const) {
-      const html = await expectRefusal(
-        await fetchW(path, { method, headers }),
-        `${method} ${path}`,
-      );
-      expect(html, path).toContain(REFUSAL);
+      await expectRefusal(await fetchW(path, { method, headers }), `${method} ${path}`);
     }
   });
 
@@ -187,7 +176,7 @@ describe("24-crawler-and-agent-blocking", () => {
 
   it("The crawler list ignores case", async () => {
     for (const userAgent of ["GPTBOT/1.3", "gptbot/1.3", "GpTbOt/1.3"]) {
-      const res = await fetchW(`/works/${W}/chapters/1`, { headers: { "user-agent": userAgent } });
+      const res = await chapterAs(userAgent);
       await expectRefusal(res, userAgent);
     }
   });
@@ -285,7 +274,7 @@ describe("24-crawler-and-agent-blocking", () => {
       BROWSER,
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/142.0.0.0 Safari/537.36",
     ]) {
-      const res = await fetchW(`/works/${W}/chapters/1`, { headers: { "user-agent": userAgent } });
+      const res = await chapterAs(userAgent);
       expect(res.status, userAgent).toBe(200);
       expect(await res.text()).toContain(TEXT);
     }
@@ -297,14 +286,13 @@ describe("24-crawler-and-agent-blocking", () => {
       "Mozilla/5.0 (compatible; Readwise/1.0)",
       "Mozilla/5.0 Chrome/142.0.0.0 Safari/537.36,gzip(gfe) (via translate.google.com)",
     ]) {
-      const res = await fetchW(`/works/${W}/chapters/1`, { headers: { "user-agent": userAgent } });
+      const res = await chapterAs(userAgent);
       await expectRefusal(res, userAgent);
     }
   });
 
   it("Refusal page explains itself", async () => {
     const html = await expectRefusal(await fetchW("/", crawler), "home");
-    expect(html).toContain(REFUSAL);
     expect(html).toContain("try another browser or turn off the tool that changed yours");
     expect(html).toContain('<a href="/">');
     expect(html).toContain('<a href="/about">');
@@ -323,7 +311,7 @@ describe("24-crawler-and-agent-blocking", () => {
   });
 
   it("Exempt paths are still served: POST /waitlist/unsubscribe", async () => {
-    const { token, rows } = await unsubscribeToken();
+    const { token, rows } = await mailedWaitlistAddress(db);
     const { path, init } = unsubscribe(token);
     expect(await rows()).toBe(1);
     await expectRefusal(await fetchW(path, { headers: DECLARED.signature }), "GET");
@@ -342,7 +330,7 @@ describe("24-crawler-and-agent-blocking", () => {
   });
 
   it("Exempt paths are still served: in the form the router matches", async () => {
-    const { token, rows } = await unsubscribeToken();
+    const { token, rows } = await mailedWaitlistAddress(db);
     const { path, init } = unsubscribe(token);
     const res = await fetchW(path.replace("/unsubscribe", "/%75nsubscribe"), init);
     expect(res.status).toBe(200);
@@ -411,7 +399,7 @@ describe("24-crawler-and-agent-blocking", () => {
   });
 
   it("Refusals are counted by reason: nothing is logged for what isn't refused", async () => {
-    const { token } = await unsubscribeToken();
+    const { token } = await mailedWaitlistAddress(db);
     const { path, init } = unsubscribe(token);
     const lines = await consoleDuring(async () => {
       await direct(path, init);

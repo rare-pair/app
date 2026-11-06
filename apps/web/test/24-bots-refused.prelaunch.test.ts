@@ -1,8 +1,7 @@
 import { createDb } from "@archive/db";
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
-import { hashToken } from "../src/waitlist";
-import { fetchW, STRICT, withoutNonce } from "./helpers";
+import { fetchW, mailedWaitlistAddress, STRICT, withoutNonce } from "./helpers";
 
 // PRELAUNCH on, as wrangler.jsonc deploys it. No work is seeded: a redirect never reads one.
 // AO3 work ID 8812420 is this file's.
@@ -48,29 +47,13 @@ describe("24-crawler-and-agent-blocking", () => {
   it("Exempt paths are still served", async () => {
     expect((await fetchW("/robots.txt", { headers })).status).toBe(200);
 
-    const email = `bw-pre-${crypto.randomUUID().slice(0, 8)}@example.test`;
-    const token = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().slice(0, 11);
-    const when = new Date("2026-11-01T10:00:00Z");
-    await db
-      .insertInto("waitlist")
-      .values({
-        email,
-        confirmed_at: when,
-        notified_at: when,
-        unsubscribe_token_hash: await hashToken(token),
-      })
-      .execute();
+    const { token, rows } = await mailedWaitlistAddress(db);
     const res = await fetchW(`/waitlist/unsubscribe?token=${token}`, {
       method: "POST",
       headers: { ...headers, "content-type": "application/x-www-form-urlencoded" },
       body: "List-Unsubscribe=One-Click",
     });
     expect(res.status).toBe(200);
-    const left = await db
-      .selectFrom("waitlist")
-      .select("email")
-      .where("email", "=", email)
-      .execute();
-    expect(left).toEqual([]);
+    expect(await rows()).toBe(0);
   });
 });
