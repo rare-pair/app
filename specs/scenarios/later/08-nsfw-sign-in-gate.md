@@ -1,12 +1,16 @@
-# Scenario: NSFW works need sign-in to read
+# Scenario: NSFW works need sign-in and an age statement
 
-Relates to: docs/ARCHITECTURE.md § Decisions so far (Who can read uploads, NSFW works), § Reading (Caching, Warnings screen, NSFW sign-in gate, Download original epub), § Crawlers and agents, § Auth, § Connections; docs/FRONTEND-DISCOVERY.md § Decisions so far (JavaScript), § Who uses it, § Key journeys (1), § Page inventory (Warnings screen); specs/scenarios/mvp/01-auth-magic-link.md; specs/scenarios/mvp/09-content-origin.md; specs/scenarios/mvp/10-work-page.md; specs/scenarios/mvp/11-reader-and-csp.md; specs/scenarios/mvp/12-warnings-interstitial.md; specs/scenarios/mvp/21-accessibility-and-no-js.md; specs/scenarios/mvp/24-crawler-and-agent-blocking.md; specs/scenarios/later/07-email-failover.md
+Relates to: docs/ARCHITECTURE.md § Decisions so far (Who can read uploads, NSFW works), § Why these pieces (Hosts), § Reading (Caching, Warnings screen, NSFW gate, Download original epub), § Crawlers and agents, § Auth, § Connections; docs/FRONTEND-DISCOVERY.md § Decisions so far (JavaScript, NSFW works), § Who uses it, § Key journeys (1), § Page inventory (Warnings screen); specs/scenarios/mvp/01-auth-magic-link.md; specs/scenarios/mvp/09-content-origin.md; specs/scenarios/mvp/10-work-page.md; specs/scenarios/mvp/11-reader-and-csp.md; specs/scenarios/mvp/12-warnings-interstitial.md; specs/scenarios/mvp/21-accessibility-and-no-js.md; specs/scenarios/mvp/24-crawler-and-agent-blocking.md; specs/scenarios/later/07-email-failover.md
 
-Operator ruling, 2026-11-06: NSFW works need no gate at launch. One follows soon after, using the existing email magic-link sign-in. This narrows the ruling of 2026-11-04 that ruled out a sign-in to read: every other work stays readable by everyone.
+Operator rulings, 2026-11-06:
+- NSFW works need no gate at launch. One follows soon after, using the existing email magic-link sign-in. This narrows the ruling of 2026-11-04 that ruled out a sign-in to read: every other work stays readable by everyone.
+- A work is gated if it is rated Mature or Explicit, or carries the archive warning Rape/Non-Con or Underage, on any rating. Not Rated works, unknown ratings and every other warning stay open, and keep their warnings screen.
+- A gated work's text, originals and images are all gated, on the content origin too.
+- On top of signing in, a reader ticks an age statement. A cookie remembers it, so the box isn't asked again in that browser.
 
-Status: not built. Until this ships, reading needs no account and no JavaScript, and the specs in `mvp/` describe the site. When it ships, specs 10, 11, 12, 21 and 24 change where the cases below say so, and spec 09 does only if decision 4 goes another way.
+Status: not built. Until this ships, reading needs no account and no JavaScript, and the specs in `mvp/` describe the site. When it ships, specs 09, 10, 11, 12, 21 and 24 change where the cases below say so.
 
-What this does and does not do: the gate asks a reader for a working email address before they read an NSFW work. It does not check anyone's age, since an email address says nothing about age, and no page may claim it does. It does not recall anything already out: a saved page, a downloaded epub, or a file URL someone kept from before the gate.
+What this does and does not do: the gate asks for a working email address and a reader's own word about their age. It checks nothing about their age. It does not recall a saved page, a downloaded epub or a copy already in a browser's cache.
 
 ## Decisions for the operator
 
@@ -14,57 +18,86 @@ The cases below are written to the recommendation in each row. A different rulin
 
 | # | Decision | Recommendation | Other choices, and what they cost | Cases it changes |
 | --- | --- | --- | --- | --- |
-| 1 | Which ratings count as NSFW | Everything but General Audiences and Teen And Up Audiences: Mature, Explicit, Not Rated and any rating we don't recognise. This matches how the warnings screen reads a rating, and the code can share that list. A work with no rating could be anything, so it fails closed | Mature and Explicit only: Not Rated works stay open, some of which are explicit. Explicit only: the narrowest gate, and Mature works with sexual content stay open. The recommendation's cost: Mature includes works that are only violent, and Not Rated includes many harmless works, and all of those readers meet the gate | "Which works are gated" |
-| 2 | Whether an archive warning alone gates a work | No. The gate follows the rating alone, and a General or Teen work with a warning keeps only its warnings screen | Gate some warnings, such as "Underage" or "Rape/Non-Con", on any rating: closer to some readers' idea of NSFW, and a second list to keep | "Which works are gated" |
-| 3 | What stays public about a gated work | Everything but its text: card, work page, summary, tags, chapter titles, listings and search. Rating and warnings must show on every card (FRONTEND-DISCOVERY, *Warnings*), and a reader can't decide to sign in for a work they can't see | Hide the summary, and chapter titles, from signed-out visitors, since either can hold explicit wording: the work page gets a second form, and search still matches on the summary, so a query would show a work for words its card leaves out. Leave gated works out of signed-out listings and search: a much larger change, and shared links stop explaining themselves | "Work page", "Listings and search" |
-| 4 | Originals on the content origin | Hide the link and leave the content Worker as it is. A signed-out visitor is never handed the URL, as with images. A URL already out keeps working until the work is removed, including every one shown publicly between launch and the gate | **Signed links:** the app mints a short-lived link for a signed-in reader, and the content Worker refuses a bare URL, which ends the URLs already out. It takes a secret in two Workers and changes spec 09's rule that a query string is a 404, and every original needs one, whatever its rating, since a cache hit reads no rating. **Serve from the app:** a session-aware `/works/:id/original`, as an attachment. It moves fic bytes onto the app origin, which the content origin exists to avoid, and they lose the 12-hour edge cache | "Originals" |
-| 5 | Images | Leave them ungated. Their URLs hold a hash of the bytes and can only be learned from gated text, and signing them would break the one fragment every reader shares. A signed-in reader can pass on an image's URL, and it works for anyone | Rewrite image URLs per response with a signature: every chapter read costs more, and the edge copy of a fragment stops being servable as it is | "Images" |
-| 6 | An age statement | None: no checkbox and no stored claim. The gate's copy says the rating and asks for sign-in, and no page says we check ages | A line in `/welcome/terms` saying the reader is an adult. It reaches new accounts only, unless existing accounts are asked again, and it checks nothing | "The screen for a signed-out visitor", "Sign-in journey" |
-| 7 | Saved reading position on gated works | Keep saving it, and say so on the privacy page. Everyone reading a gated work now has an account, so `pos:<user id>:<AO3 work id>` becomes a record of the NSFW works that account read. It lasts a year or until the account is deleted | Don't save position on gated works: no such record, and the feature stops for those readers | "Privacy" |
-| 8 | The work ID in the sign-in email | Accept it. The link already carries `next` (`apps/web/src/auth.ts`), so a reader stopped at a gated work gets an email whose link names that work, and the email queue and Resend carry it too. Say so on the privacy page | Send the link with `next` set to `/` for a gated page: the reader's inbox stays clean, and they land on the home page and have to find the work again. Hold `next` on the server instead: a new table | "Sign-in journey", "Privacy" |
-| 9 | When it goes on | The operator turns it on by hand with a Worker setting, after the checks under "Before turning it on". The code can ship with the setting off | Tie it to a date, or to the launch email's send finishing | "Turning it on" |
+| 1 | What stays public about a gated work | Everything but its text and images: card, work page, summary, tags, chapter titles, listings and search. Rating and warnings must show on every card (FRONTEND-DISCOVERY, *Warnings*), and a reader can't decide to sign in for a work they can't see | Hide the summary, and chapter titles, from signed-out visitors, since either can hold explicit wording: the work page gets a second form, and search still matches on the summary, so a query would show a work for words its card leaves out. Leave gated works out of signed-out listings and search: a much larger change, and shared links stop explaining themselves | "Work page", "Listings and search" |
+| 2 | Saved reading position on gated works | Keep saving it, and say so on the privacy page. Everyone reading a gated work now has an account, so `pos:<user id>:<AO3 work id>` becomes a record of the NSFW works that account read. It lasts a year or until the account is deleted | Don't save position on gated works: no such record, and the feature stops for those readers | "Privacy" |
+| 3 | The work ID in the sign-in email | Accept it. The link already carries `next` (`apps/web/src/auth.ts`), so a reader stopped at a gated work gets an email whose link names that work, and the email queue and Resend carry it too. Say so on the privacy page | Send the link with `next` set to `/` for a gated page: the reader's inbox stays clean, and they land on the home page and have to find the work again. Hold `next` on the server instead: a new table | "Sign-in journey", "Privacy" |
+| 4 | When it goes on | The operator turns it on by hand with a Worker setting, after the checks under "Before turning it on". The code can ship with the setting off | Tie it to a date, or to the launch email's send finishing | "Turning it on" |
+
+Defaults taken where the rulings left a detail open, which the operator can change in a word:
+
+- The statement's wording, draft: "I am 18 or older." The age is the draft's, not a ruling.
+- The age cookie lasts a year in that browser. Signing out clears it, so the next person on a shared browser is asked. A session that just ends doesn't clear it.
+- It is kept in the cookie alone, as ruled: nothing about age goes on the account, so another browser or device asks again.
 
 Accepted unless the operator says otherwise, each a direct cost of using this sign-in:
 
-- **JavaScript.** Asking for a sign-in link needs Turnstile, so a browser with JavaScript off can't ask for one, and FRONTEND-DISCOVERY's "reading works fully with JavaScript off" stops being true of gated works. Such a reader can ask from another browser and open the link in this one, since the confirm page's button needs no script.
+- **JavaScript.** The gate itself needs none: the warnings screen and the age box are plain pages and forms. Only asking for a sign-in link does, because `/login` has a Turnstile check, which keeps the form from being used to mail strangers, and Turnstile can't produce a token without a script. So FRONTEND-DISCOVERY's "reading works fully with JavaScript off" stops being true of gated works for a reader with no session. Such a reader can ask from another browser and open the link in this one, since the confirm page's button needs no script.
 - **Email.** While Resend is down, or an address has spent its 5 emails for the UTC day, a signed-out reader can't start reading a gated work (specs/scenarios/later/07-email-failover.md). Anyone already signed in keeps reading.
-- **Database faults.** A signed-in request whose session lookup fails answers 500, so during a Postgres outage gated works are unreadable to everyone, while a signed-out reader can still get an ungated chapter from the edge cache for the rest of its 60 s.
+- **Database faults.** A signed-in request whose session lookup fails answers 500, so during a Postgres outage gated chapters are unreadable to everyone, while a signed-out reader can still get an ungated chapter from the edge cache for the rest of its 60 s.
+- **A raised rating on a cached file.** A new version doesn't purge the content origin's cache, so a file stored as ungated stays open in that data centre for up to 12 hours after its work becomes gated, and in a browser for an hour after that. It is the same window a hide has (spec 09).
+- **A pass can be passed on.** A signed-in reader who copies their pass cookie can hand someone a day's access to every gated file, and a copied file URL needs a pass of its own. Reading the text was always copyable by the same person.
+
+## How the content origin gates without a session
+
+The session cookie has no `Domain` and never reaches `content.rarepair.fans`, and that doesn't change: it is the point of keeping a separate host for bytes served as they are. The app instead gives a reader who has passed the gate a **reader pass**, which proves only that:
+
+- `__Secure-reader-pass`, set by the web Worker with `Domain=rarepair.fans; Path=/; Secure; HttpOnly; SameSite=Lax` and a 24-hour `Max-Age`. A `__Host-` name can't carry a `Domain`.
+- Its value is `<expiry>.<signature>`: an expiry time and an HMAC of it under `READER_PASS_KEY`, a secret both Workers hold. It holds no user id, session or work, so the content origin learns nothing about who is asking and logs nothing new.
+- The content Worker checks it with no database read. It still sets no cookie.
+- Because a chapter's `<img>` and a download link are same-site requests, the browser sends it with no change to fragments or URLs. A cross-site `<img>` doesn't send it, so another site can't embed a gated image.
+
+Rejected: a signature in each image URL breaks the one fragment every reader shares. Serving gated files from the app puts them on the host the content origin exists to keep them off, and loses the 12-hour cache. A `Domain` on the session cookie hands the session to that host.
 
 ## Before turning it on
 
-- Measure signed-in reads under load. Today a signed-in chapter read never uses the page entry, so it takes a session read on the uncached Hyperdrive config plus the work read on the cached one, and every read of a gated work becomes one of these. If that is too much for Neon's connections, the next step is to let signed-in readers use the page entry, deciding the warnings screen from `warnings_off` per request. That changes "A signed-in reader never uses the page entry" below, and the header stays per response either way.
+- Measure signed-in reads under load. Today a signed-in chapter read never uses the page entry, so it takes a session read on the uncached Hyperdrive config plus the work read on the cached one, and every read of a gated work becomes one of these. If that is too much for Neon's connections, the next step is to let signed-in readers use the page entry, deciding the screen per request. That changes "A signed-in reader never uses the page entry" below, and the header stays per response either way.
 - Check Resend's plan against one sign-in email per new reader. The gate turns readers who would never have made an account into sign-ins, on the path that shares its sending reputation with every other sign-in.
+- Set `READER_PASS_KEY` on both Workers.
 - Update `/privacy` as "Privacy" says. The operator proofs the draft copy.
-- The change that adds the gate sets `NSFW_GATE = "off"` in the web Worker's `wrangler` config in the same PR. A missing setting means on, so without it the first deploy gates at once.
+- The change that adds the gate sets `NSFW_GATE = "off"` in both Workers' `wrangler` config in the same PR. A missing setting means on, so without it the first deploy gates at once.
 
 ## Setup
 
-- `NSFW_GATE` is a setting on the web Worker. The gate is on unless it says `off`, the same reading as `PRELAUNCH`, so a typo can't open it. Every case but those under "Turning it on" has it on, and `PRELAUNCH` off
-- Live works, each with 5 chapters:
+- `NSFW_GATE` is a setting on the web and content Workers. The gate is on unless it says `off`, the same reading as `PRELAUNCH`, so a typo can't open it. Every case but those under "Turning it on" has it on, and `PRELAUNCH` off
+- A **gated work** is a work rated Mature or Explicit, after trimming and ignoring case, or carrying the archive warning Rape/Non-Con or Underage, compared in their normalized form. AO3 has also spelled the second "Underage Sex", and the list holds both
+- Live works, each with 5 chapters and an image:
   - E rated Explicit
   - M rated Mature
+  - A rated General Audiences with the archive warning Underage
+  - N rated Teen And Up with the archive warning Rape/Non-Con
+  - T rated Teen And Up with the archive warning "Graphic Depictions Of Violence"
+  - C rated Teen And Up marked "Choose Not To Use Archive Warnings"
   - U with no rating (its version has the `missing_rating` review reason), shown as "Not Rated"
   - R whose rating is the text "Not Rated"
   - Q whose rating is a string we don't recognise
-  - T rated Teen And Up with the archive warning "Graphic Depictions Of Violence"
   - G rated General Audiences with no archive warnings
-- A **gated work** is a work whose rating isn't General Audiences or Teen And Up Audiences, after trimming and ignoring case
-- A signed-out visitor, with no session or with one that has ended. A signed-in reader who has accepted the terms
+- A signed-out visitor, with no session or with one that has ended. A signed-in reader who has accepted the terms, with or without the age cookie
+- The **age cookie** is `__Host-age-confirmed`, fixed value, `Path=/; Secure; HttpOnly; SameSite=Lax`, one year. It says only that this browser's reader ticked the box. Forging it skips only a box anyone could tick, and it never stands in for a session
 - Draft copy is for the operator to proof
 
 ## Cases
 
 ### Which works are gated
 
-#### Mature, Explicit, Not Rated and unknown ratings are gated
-- GIVEN works E, M, U, R and Q and a signed-out visitor
+#### Mature and Explicit works are gated
+- GIVEN works E and M and a signed-out visitor
 - WHEN they open chapter 1 of each
 - THEN each answers the redirect in "A signed-out visitor is stopped before any text"
 
-#### General and Teen works are not gated, warnings or not
-- GIVEN works G and T and a signed-out visitor
+#### Rape/Non-Con and Underage gate a work on any rating
+- GIVEN works A and N and a signed-out visitor
 - WHEN they open chapter 1 of each
-- THEN G opens directly, and T shows its warnings screen with its working Continue, both as in spec 12
+- THEN each answers the same redirect
+
+#### Other warnings, and no rating, are not gated
+- GIVEN works T, C, U, R and Q and a signed-out visitor
+- WHEN they open chapter 1 of each
+- THEN each shows its warnings screen with its working Continue, as in spec 12
+
+#### A general work with no warnings is not gated
+- GIVEN work G and a signed-out visitor
+- WHEN they open chapter 1
+- THEN it opens directly
 
 ### Reading pages
 
@@ -74,10 +107,15 @@ Accepted unless the operator says otherwise, each a direct cost of using this si
 - THEN the response is a 302 to `/works/:id/warnings?next=<the page asked for>` with `Cache-Control: private, no-store`
 - AND no chapter text is in it, and no fragment is read from R2 or the cache
 
-#### The gate can't be passed with the warnings cookie
-- GIVEN a signed-out visitor whose `__Host-warned` cookie lists E, from continuing past its screen before the gate or while signed in
+#### A signed-in reader without the age cookie is stopped the same way
+- GIVEN gated work E and a signed-in reader with no age cookie, with `warnings_off` or not
+- WHEN they open a chapter or `/full`
+- THEN they get the same redirect, and no fragment is read
+
+#### The gate can't be passed with the other cookies
+- GIVEN a signed-out visitor holding an age cookie, a reader pass, and a `__Host-warned` cookie listing E
 - WHEN they open chapter 2 of E
-- THEN they get the same redirect
+- THEN they get the redirect, since only a session opens the text
 
 #### The chapter select leads to the same gate
 - GIVEN gated work E and a signed-out visitor
@@ -101,8 +139,8 @@ Accepted unless the operator says otherwise, each a direct cost of using this si
 - THEN each gets the same 403 or 429 as in spec 24, before the session or the gate
 - AND a redirect from the gate counts as one read, as the redirect to the warnings screen does
 
-#### A signed-in reader reads as today
-- GIVEN gated work E and a signed-in reader
+#### A reader past the gate reads as today
+- GIVEN gated work E and a signed-in reader with the age cookie
 - WHEN they open a chapter or `/full`
 - THEN they get E's warnings screen unless they have seen it this session or have `warnings_off`, and then the page, as in spec 12
 
@@ -118,31 +156,66 @@ Accepted unless the operator says otherwise, each a direct cost of using this si
 
 #### Signing out shuts the gate again
 - GIVEN a reader of E who signs out, with a chapter of E open in another tab
-- WHEN that tab reloads
-- THEN it gets the redirect, whatever the `__Host-warned` cookie lists
+- WHEN they sign out
+- THEN the sign-out response clears the age cookie and the reader pass, as well as the session
+- AND when the tab reloads it gets the redirect, whatever the `__Host-warned` cookie lists
 
-### The screen for a signed-out visitor
+### The warnings screen on a gated work
 
 The warnings screen keeps one URL and one template, so a shared link explains itself instead of landing on a bare email form.
 
-#### The screen says why and offers sign-in
+#### Signed out, the screen offers sign-in
 - GIVEN gated work E and a signed-out visitor on `/works/:id/warnings?next=/works/:id/chapters/3`
 - WHEN it renders
 - THEN it shows E's title, rating and archive warnings, as today
 - AND in place of Continue a link "Sign in to read this work" goes to `/login?next=/works/:id/chapters/3`
 - AND a link goes back to the work page
-- AND there is no Continue button, no turn-off checkbox and no sentence about ages
+- AND there is no Continue button, no age box and no turn-off checkbox
 - AND it has `Cache-Control: private, no-store`
 
-#### `next` stays this work's
-- GIVEN any `next` on that URL other than this work's chapter or `/full`
+#### Signed in without the age cookie, the screen asks for the statement
+- GIVEN gated work E and a signed-in reader with no age cookie
 - WHEN the screen renders
-- THEN the sign-in link carries this work's chapter 1, as Continue's rule has it
+- THEN it shows the title, rating and warnings, a checkbox labelled "I am 18 or older", and Continue, as a POST form
+- AND the turn-off checkbox as in spec 12
+- AND a link back to the work page
+- AND it says this is the reader's own statement, and doesn't say or imply that anything is checked
 
-#### A POST to the screen opens nothing
-- GIVEN a signed-out visitor on an old tab of E's warnings screen, with its Continue form
+#### Ticking the box opens the work
+- GIVEN that screen
+- WHEN the reader ticks the box and continues
+- THEN the response sets the age cookie, the reader pass and the warned cookie for E, and goes to the page asked for with a 303
+
+#### Not ticking the box opens nothing
+- GIVEN that screen, with JavaScript on or off
+- WHEN the reader continues without ticking the box
+- THEN the server shows the screen again saying the box is needed, and sets no cookie
+- AND turn-off, if ticked, isn't saved
+
+#### The box isn't asked again in this browser
+- GIVEN a signed-in reader with the age cookie, on any gated work's screen
+- WHEN it renders
+- THEN it has no age box, and Continue works as in spec 12
+
+#### `warnings_off` doesn't skip the box
+- GIVEN a signed-in reader with `warnings_off` and no age cookie
+- WHEN they open a chapter of gated work E
+- THEN they see the screen with the age box. With the cookie, the chapter opens directly
+
+#### Another browser asks again
+- GIVEN a reader who ticked the box on one device
+- WHEN they sign in on another and open a gated work
+- THEN they are asked again, since nothing about age is on the account
+
+#### `next` stays this work's
+- GIVEN any `next` on that URL other than this work's chapter, `/full` or work page
+- WHEN the screen renders
+- THEN the sign-in link and Continue carry this work's chapter 1, as Continue's rule has it
+
+#### A POST from a signed-out visitor opens nothing
+- GIVEN a signed-out visitor on an old tab of E's warnings screen, with its Continue form and the box ticked
 - WHEN they submit it
-- THEN they are redirected to the page asked for, and that page answers the redirect back to the screen
+- THEN no age cookie or reader pass is set, the tick is ignored, and they are redirected to the page asked for, which answers the redirect back to the screen
 - AND no text is served
 
 #### The screen says what sign-in needs with JavaScript off
@@ -150,23 +223,23 @@ The warnings screen keeps one URL and one template, so a shared link explains it
 - WHEN it renders
 - THEN it renders fully, and a `<noscript>` line says that asking for a sign-in link needs JavaScript
 
+#### The age box needs no JavaScript
+- GIVEN a signed-in reader with JavaScript off, on E's screen
+- WHEN they tick the box and continue
+- THEN the chapter opens
+
 #### The screen works for a work that isn't gated, as today
 - GIVEN work T and a signed-out visitor on its warnings screen
 - WHEN it renders
-- THEN it has Continue as in spec 12, and no sign-in link
+- THEN it has Continue as in spec 12, with no sign-in link and no age box
 
 ### Sign-in journey
 
 #### From the home page to the chapter
 - GIVEN a signed-out visitor, with an existing account that has accepted the terms, on the home page
 - WHEN they follow links to gated work E's listing, its work page and chapter 1, then the sign-in link, then ask for a link and open it in the same browser
-- THEN they land on chapter 1's warnings screen and, after Continue, on chapter 1
+- THEN they land on chapter 1's warnings screen with the age box and, after ticking it and Continue, on chapter 1, with its images loaded
 - AND a browser journey covers this, starting at home
-
-#### `warnings_off` goes straight to the chapter
-- GIVEN the same visitor, whose account has `warnings_off`
-- WHEN they open the link
-- THEN they land on chapter 1 with no screen
 
 #### A new account accepts the terms first
 - GIVEN a visitor with no account
@@ -175,7 +248,7 @@ The warnings screen keeps one URL and one template, so a shared link explains it
 
 #### A shared link to a later chapter comes back to that chapter
 - GIVEN a signed-out visitor who opened a shared link to chapter 3 of E
-- WHEN they sign in
+- WHEN they sign in and tick the box
 - THEN they end on chapter 3, not chapter 1
 
 #### The sign-in email names the work only in its link
@@ -186,7 +259,7 @@ The warnings screen keeps one URL and one template, so a shared link explains it
 
 ### Edge-cached chapter pages
 
-Only signed-out requests with no settings, flash or auth cookie read or fill the page entry (`pageCacheable`, spec 11), and the gate runs before anything is served on a hit, as the warnings screen does today.
+Only signed-out requests with no settings, flash or auth cookie read or fill the page entry (`pageCacheable`, spec 11), and the gate runs before anything is served on a hit, as the warnings screen does today. So a gated work's entry is only ever used to refuse.
 
 #### A hit is gated with no database read
 - GIVEN a page entry for chapter 2 of gated work E, and a signed-out visitor with no cookies
@@ -244,19 +317,130 @@ Only signed-out requests with no settings, flash or auth cookie read or fill the
 - THEN the page may still open from the old entry, or from a read on the cached connection, for up to about 135 s: nothing purges on a new version, and this is the window in ARCHITECTURE, *Caching*. Accepted
 - AND after it, they get the redirect
 
-#### A lowered rating doesn't trap the reader
+#### A lowered rating doesn't trap the reader for long
 - GIVEN gated work E with a page entry, and a new version going live that rates it General Audiences
 - WHEN a signed-out visitor opens the chapter inside the entry's 60 s
 - THEN the entry can still say gated while the warnings screen, reading the new rating, sends them back to the chapter, so the browser can report too many redirects until the entry lapses
 - AND that lasts at most 60 s, needs a rating to drop in that minute, and shows no text it shouldn't. Accepted, like the other windows in ARCHITECTURE, *Caching*
 - AND after it, the chapter opens
 
+### Reader pass
+
+#### A reader past the gate holds a pass
+- GIVEN a signed-in reader with the age cookie and no reader pass, or one with under 12 hours left
+- WHEN the web Worker answers a chapter, `/full` or the work page of a gated work
+- THEN the response sets a fresh pass, so a chapter's images and a download on that page have one
+- AND a response to anyone else sets none, and none is stored in a shared cache
+
+#### A pass is checked with no database read
+- GIVEN a request with a reader pass
+- WHEN the content Worker checks it
+- THEN an expired, malformed or wrongly signed pass is the same as none, and the check reads no database
+
+#### A pass holds nothing about the reader
+- GIVEN a reader pass
+- WHEN its value is read
+- THEN it holds an expiry and a signature, and no user, session, address or work
+
+#### The session cookie still stays away
+- GIVEN a signed-in reader's request to `content.rarepair.fans`
+- WHEN it is sent
+- THEN it carries the pass, and no session or age cookie
+
+#### A missing key fails closed
+- GIVEN the content Worker with `READER_PASS_KEY` unset
+- WHEN a gated file is requested, with any pass
+- THEN it is refused as if with none, and ungated files are served
+
+### Images
+
+#### A gated work's image needs a pass
+- GIVEN an image of gated work E, in or out of the data centre's cache, and a request with no valid pass
+- WHEN it is requested by GET, HEAD, with a `Range` header or with any conditional header
+- THEN the response is 403 with no body, `Cache-Control: no-store` and `nosniff`, no `Set-Cookie`, and nothing is stored
+- AND a URL from before the gate is refused the same way
+
+#### A reader with a pass sees it
+- GIVEN an image of gated work E and a request with a valid pass, on a hit and on a miss
+- WHEN it is requested
+- THEN it is served with no cookie set, and no session or database read on a hit
+- AND its response has `Cache-Control: private, max-age=3600`, not `public`
+- AND the stored entry keeps `public, max-age=43200` and the bare URL as its key, so spec 09's purge still names it
+
+#### A stored entry says whether it is gated
+- GIVEN a file stored in the data centre's cache
+- WHEN the entry is written
+- THEN it holds a mark saying whether its work was gated, which never reaches the browser
+- AND an entry with no mark, stored before the gate, is a miss, so it is checked like any other
+
+#### A marked entry is checked again for a request with no pass
+- GIVEN an entry marked gated, whose work has since been lowered to General Audiences, and a request with no pass
+- WHEN it is requested
+- THEN the work is read, and the file is served, so a lowered rating doesn't leave a reader's images broken for 12 hours
+- AND a request refused this way costs that read, as a 451 does today
+
+#### An ungated work's image is as it was
+- GIVEN an image of work G or T and a request with no pass
+- WHEN it is requested
+- THEN it is served as in spec 09, with `Cache-Control: public, max-age=3600`, and no pass is looked at
+
+#### Refusals keep their order
+- GIVEN a hidden gated work and a removed gated work, and a request with no pass
+- WHEN a file of each is requested past the cache
+- THEN the first answers 451 and the second 404, as in spec 09, before the pass is considered
+
+#### Another site can't embed a gated image
+- GIVEN a page on another site with an `<img>` of gated work E, viewed by a reader holding a pass
+- WHEN the browser requests it
+- THEN `SameSite=Lax` keeps the pass off the request, and it is refused
+
+#### A summary's image doesn't appear on a gated work
+- GIVEN gated work E whose summary holds an `<img>`, which the sanitizer's allowlist keeps
+- WHEN its work page or card renders, for anyone
+- THEN the image is left out, and the rest of the summary shows, so a public page names no gated image
+
+#### Only gated pages name a gated image
+- GIVEN gated work E and a signed-out visitor
+- WHEN they open its work page, warnings screen and a refused chapter
+- THEN none of those responses holds an image URL
+
+### Originals
+
+#### A gated work's original needs a pass
+- GIVEN the original of gated work E, in or out of the data centre's cache, and a request with no valid pass
+- WHEN it is requested by GET, HEAD, with a `Range` header or with any conditional header
+- THEN the response is 403 with no body, `Cache-Control: no-store` and `nosniff`, no `Set-Cookie`, and nothing is stored
+- AND a URL kept from before the gate, or copied from a signed-in reader, is refused the same way
+
+#### A reader with a pass downloads it
+- GIVEN the original of gated work E and a request with a valid pass
+- WHEN it is requested
+- THEN it is served as an attachment, as in spec 09, with `Cache-Control: private, max-age=3600`, and its throttle still applies
+- AND a duplicate upload's original follows its work the same way
+
+#### The work page offers what the reader can use
+- GIVEN gated work E
+- WHEN its work page renders
+- THEN a signed-out visitor gets "Sign in to download the original epub", linking to `/login?next=/works/:id`, and the upload's id appears nowhere in the page's HTML
+- AND a signed-in reader with no age cookie gets "Confirm your age to download the original epub", linking to the warnings screen with `next=/works/:id`
+- AND a reader with the age cookie gets the "Download original epub" link as in spec 10
+
+#### An ungated work's link is unchanged
+- GIVEN work G and a signed-out visitor
+- WHEN they open `/works/:id`
+- THEN the "Download original epub" link is there, and the original is served with no pass, as in spec 09
+
+#### A pass that ran out on an open tab
+- GIVEN a work page left open for over a day, whose pass has expired
+- WHEN the reader follows the download link
+- THEN it is refused, and reloading the page sets a fresh pass while the session and age cookie last
+
 ### Work page
 
 #### The work page stays public
 - GIVEN gated work E and a signed-out visitor
 - WHEN they open `/works/:id`
-- THEN it renders as in spec 10: title, byline, rating, warnings, tags, full summary, stats and chapter list, with the same link card, which has no summary
+- THEN it renders as in spec 10: title, byline, rating, warnings, tags, summary, stats and chapter list, with the same link card, which has no summary
 - AND one line near the chapter list says "Sign in to read this work", linking to `/login?next=/works/:id`
 - AND the chapter links stay, and answer the redirect
 
@@ -266,57 +450,9 @@ Only signed-out requests with no settings, flash or auth cookie read or fill the
 - THEN each behaves as in spec 10, so an author with no account can still ask for their work's removal
 
 #### A signed-in reader sees today's page
-- GIVEN gated work E and a signed-in reader
+- GIVEN gated work E and a signed-in reader with the age cookie
 - WHEN they open `/works/:id`
 - THEN it has no sign-in line, and has the download link and any "Continue where you left off" link, as in spec 10
-
-### Originals
-
-The content origin keeps no session and takes no cookie (spec 09), and that doesn't change: the session cookie has no `Domain`, and giving it one would hand it to the host that serves epub bytes as they are. So the app decides who is given the link. That holds up only because an original's URL can't be guessed: its key is the upload's id, from `crypto.randomUUID()`.
-
-#### A signed-out visitor is not given the link
-- GIVEN gated work E and a signed-out visitor
-- WHEN they open `/works/:id`
-- THEN there is no "Download original epub" link, and in its place "Sign in to download the original epub" links to `/login?next=/works/:id`
-- AND the upload's id appears nowhere in the page's HTML
-
-#### A signed-in reader is
-- GIVEN gated work E and a signed-in reader
-- WHEN they open `/works/:id`
-- THEN the "Download original epub" link is there as in spec 10
-
-#### An ungated work's link is unchanged
-- GIVEN work G and a signed-out visitor
-- WHEN they open `/works/:id`
-- THEN the "Download original epub" link is there as in spec 10
-
-#### A URL already out still works
-- GIVEN the original of gated work E, whose URL a visitor has from before the gate or from a signed-in reader
-- WHEN a signed-out visitor requests it on `content.rarepair.fans`
-- THEN it is served as in spec 09, with its throttle: the content Worker doesn't know who is asking, or the rating. Accepted, decision 4
-
-#### The content Worker doesn't change
-- GIVEN the content Worker
-- WHEN this ships
-- THEN it reads no cookie and no rating, sets no cookie, and its cache, its refusals (451, 404, 503) and spec 09 are all as they were
-
-### Images
-
-#### A gated work's images are served, and only gated text names them
-- GIVEN an image in a chapter of gated work E
-- WHEN a signed-in reader opens the chapter
-- THEN the image loads from `content.rarepair.fans` with no cookie on the request, as in spec 09
-
-#### A signed-out visitor is given no chapter's image URL
-- GIVEN gated work E and a signed-out visitor
-- WHEN they open its work page, warnings screen and a refused chapter
-- THEN none of those responses holds the URL of an image from a chapter
-- AND an image the sanitizer kept in the summary itself is public with the summary (decision 3), so the build checks whether a summary can hold one and, if it can, a gated work's work page shows the summary without it
-
-#### An image URL someone passes on works
-- GIVEN an image URL of gated work E, passed on by a signed-in reader
-- WHEN a signed-out visitor requests it
-- THEN it is served as in spec 09. Accepted, decision 5
 
 ### Listings and search
 
@@ -346,31 +482,38 @@ The content origin keeps no session and takes no cookie (spec 09), and that does
 #### The privacy page says what signing in to read means
 - GIVEN `/privacy`
 - WHEN the gate is on
-- THEN it says that NSFW works need an account, that saved position records which works an account read until it expires or the account is deleted, that a sign-in link can name the work the reader was on, and how to ask for an account's deletion
+- THEN it says that NSFW works need an account and an age statement, that the statement is kept in a cookie in that browser and not on the account, what the reader pass is and that it reaches `content.rarepair.fans`, that saved position records which works an account read until it expires or the account is deleted, that a sign-in link can name the work the reader was on, and how to ask for an account's deletion
 
 #### No page claims an age check
 - GIVEN the warnings screen, `/about`, `/terms` and `/privacy`
 - WHEN each is read
-- THEN none says or implies the site checks a reader's age
+- THEN none says or implies the site verifies a reader's age
 
 ### Turning it on
 
 #### Off, the site is as `mvp/` describes
-- GIVEN `NSFW_GATE` is `off`
-- WHEN a signed-out visitor opens E's chapters, `/full`, warnings screen and work page
-- THEN all of them behave as in specs 10, 11 and 12, and the download link is there
+- GIVEN `NSFW_GATE` is `off` on both Workers
+- WHEN a signed-out visitor opens E's chapters, `/full`, warnings screen, work page, images and original
+- THEN all of them behave as in specs 09, 10, 11 and 12, and the download link is there
 
 #### Any other value is on
-- GIVEN `NSFW_GATE` is missing or misspelt
-- WHEN a signed-out visitor opens a chapter of E
-- THEN they get the redirect
+- GIVEN `NSFW_GATE` is missing or misspelt on a Worker
+- WHEN a signed-out visitor asks that Worker for a chapter or a file of E
+- THEN the web Worker answers the redirect, and the content Worker refuses
 
 #### Entries are marked whether or not the gate is on
-- GIVEN the deploy with the gated mark, with `NSFW_GATE` off, and page entries stored while it is off
+- GIVEN the deploy with the gated marks, with `NSFW_GATE` off, and page entries and files stored while it is off
 - WHEN the setting is turned on
 - THEN those entries gate at once, so turning it on opens no window beyond the deploy that applies the setting
 
+#### The web Worker goes first
+- GIVEN the gate is being turned on
+- WHEN the operator sets it
+- THEN the web Worker is turned on first and the content Worker straight after, so nobody past the gate meets a refused image for want of a pass
+- AND a reader signed in before that gets the age box on their next gated page, and the pass with it
+- AND turning it off goes the other way round
+
 #### Turning it off undoes it
 - GIVEN the gate is on and accounts were made because of it
-- WHEN `NSFW_GATE` is set to `off`
+- WHEN `NSFW_GATE` is set to `off` on both Workers
 - THEN gated works read as they did, and nothing about the accounts changes
