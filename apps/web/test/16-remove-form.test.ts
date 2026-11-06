@@ -37,6 +37,8 @@ const HIDDEN = 40022;
 const S = 40021;
 /** Live until its own test asks for it to be removed. */
 const HASHED = 40020;
+/** OPTOUT's own (60300-60399): asked for alongside a placeholder pseud, and stays live. */
+const OPTOUT_W = 60300;
 const WORK_URL = `${BASE}/works/${W}`;
 const S_URL = `${BASE}/works/${S}`;
 const RECEIVED =
@@ -58,6 +60,7 @@ beforeAll(async () => {
   await seedWork(db, { ao3WorkId: HIDDEN, status: "hidden", hiddenCause: "moderator" });
   await seedWork(db, { ao3WorkId: S });
   await seedWork(db, { ao3WorkId: HASHED });
+  await seedWork(db, { ao3WorkId: OPTOUT_W });
 });
 afterAll(() => db.destroy());
 
@@ -96,6 +99,13 @@ const post = (
   if (ip !== null) sent.set("cf-connecting-ip", ip);
   return fetchW("/remove", { method: "POST", headers: sent, body });
 };
+
+/** The attributes of the form control named `name`. */
+const control = (html: string, name: string) =>
+  html.match(new RegExp(`<(?:input|textarea)[^>]*name="${name}"[^>]*>`))?.[0] ?? "";
+
+/** An address no other test uses, in lowercase. */
+const fresh = (name: string) => `${name}-${crypto.randomUUID().slice(0, 8)}@example.test`;
 
 describe("16-removal-and-opt-out", () => {
   it("Form needs no sign-in", async () => {
@@ -161,6 +171,13 @@ describe("16-removal-and-opt-out", () => {
     expect(html).toContain("nothing to check it against while the original archive is offline");
   });
 
+  it("Form tells authors to opt out each pseud", async () => {
+    const html = await (await fetchW("/remove")).text();
+    const outsideForm = html.replace(/<form[\s\S]*?<\/form>/, "");
+    expect(outsideForm).toContain("An opt-out covers only the pseud you type");
+    expect(outsideForm).toContain("send one request for each");
+  });
+
   describe("Missing Turnstile is refused", () => {
     const email = "x1-turnstile@example.test";
     const fields = { email, work: WORK_URL, statement: "x1 statement" };
@@ -210,10 +227,6 @@ describe("16-removal-and-opt-out", () => {
   });
 
   describe("Missing fields are refused", () => {
-    /** The attributes of the form control named `name`. */
-    const control = (html: string, name: string) =>
-      html.match(new RegExp(`<(?:input|textarea)[^>]*name="${name}"[^>]*>`))?.[0] ?? "";
-
     it("refuses a missing, blank or unsendable contact email, marking the field", async () => {
       for (const email of ["", "   ", "not an address", `${"a".repeat(250)}@example.test`]) {
         const res = await post({ email, work: WORK_URL, statement: "x1 missing email" });
@@ -318,6 +331,58 @@ describe("16-removal-and-opt-out", () => {
       expect(await res.text()).toContain("2000 characters");
       expect(await requestsFrom(email)).toEqual([]);
     });
+  });
+
+  describe("A placeholder pseud is refused", () => {
+    it.each([
+      "orphan_account",
+      "Anonymous",
+      "Orphan_Account",
+      "  ANONYMOUS  ",
+      // Fullwidth forms: NFKC makes them the same pseud.
+      "ＡＮＯＮＹＭＯＵＳ",
+    ])("refuses %s, marks the pseud field and stores nothing", async (pseud) => {
+      const email = fresh("optout-placeholder");
+      const res = await post({ email, pseud, statement: "optout statement" });
+      expect(res.status).toBe(400);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(withoutNonce(res.headers.get("content-security-policy"))).toBe(TURNSTILE);
+      const html = await res.text();
+      const field = control(html, "pseud");
+      expect(field).toContain('aria-invalid="true"');
+      expect(field).toContain('aria-describedby="pseud-error"');
+      // What was typed comes back, trimmed as every field is.
+      expect(field).toContain(`value="${pseud.trim()}"`);
+      expect(html).toContain(`value="${email}"`);
+      expect(html).toContain("optout statement");
+      expect(html).toMatch(/id="pseud-error"[^>]*>[^<]*web address of a specific work/);
+      expect(await requestsFrom(email)).toEqual([]);
+    });
+  });
+
+  it("A placeholder pseud given with a work is a request for the work", async () => {
+    const email = fresh("optout-with-work");
+    const res = await post({ email, work: `${BASE}/works/${OPTOUT_W}`, pseud: "Anonymous" });
+    expect(res.status).toBe(200);
+    const [row, ...rest] = await requestsFrom(email);
+    expect(rest).toEqual([]);
+    expect(row?.kind).toBe("remove_work");
+    expect(row?.pseud_norm).toBeNull();
+  });
+
+  it.each([
+    ["orphan_account2", "orphan_account2"],
+    ["Orphan Account", "orphan account"],
+    ["anonymous author", "anonymous author"],
+  ])("A pseud that only resembles a placeholder is accepted: %s", async (pseud, pseudNorm) => {
+    const email = fresh("optout-near-miss");
+    const res = await post({ email, pseud });
+    expect(res.status).toBe(200);
+    const [row, ...rest] = await requestsFrom(email);
+    expect(rest).toEqual([]);
+    expect(row?.kind).toBe("opt_out");
+    expect(row?.pseud_norm).toBe(pseudNorm);
+    expect(row?.confirmed_at).toBeNull();
   });
 
   describe("Requests record a hashed IP", () => {
@@ -453,9 +518,6 @@ describe("16-removal-and-opt-out", () => {
       expect(html).toContain("<h1>Too many requests</h1>");
       expect(html).toContain(`Please try again in ${REMOVE_WINDOW_SECONDS} seconds.`);
     }
-
-    /** An address no other test uses, in lowercase. */
-    const fresh = (name: string) => `${name}-${crypto.randomUUID().slice(0, 8)}@example.test`;
 
     it("Requests are rate-limited per email", async () => {
       await windowHeadroom(REMOVE_WINDOW_SECONDS);

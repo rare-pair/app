@@ -70,6 +70,21 @@ export async function deleteOriginal(
 }
 
 /**
+ * Deletes the upload's staging file at `r2Key` and returns 1, or 0 for a key it won't touch. The
+ * job has just read the file, so there is no listing to find it. A stored key is trusted only under
+ * `uploads/`, so a bad row can't reach another work's objects. The caller must have ended the
+ * upload: until then a later attempt reads this file.
+ */
+export async function deleteStagingFile(
+  bucket: Pick<SaveBucket, "delete">,
+  r2Key: string,
+): Promise<number> {
+  if (!r2Key.startsWith("uploads/")) return 0;
+  await bucket.delete([r2Key]);
+  return 1;
+}
+
+/**
  * Whether the work is removed now. `now()` keeps Hyperdrive from answering from its cache: a
  * stale `live` would leave behind what a job put back after a removal, and a stale `removed`
  * would delete a restored work's files.

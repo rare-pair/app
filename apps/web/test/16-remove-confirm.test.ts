@@ -192,6 +192,26 @@ describe("16-removal-and-opt-out", () => {
       expect(await emailCount(email)).toBe(0);
     });
 
+    it("A placeholder pseud is refused: no email is queued", async () => {
+      const email = fresh("placeholder");
+      let tried = 0;
+      const queue: Queue<EmailMessage> = {
+        send: async () => {
+          tried += 1;
+          throw new Error("queue refused");
+        },
+        sendBatch: async () => {
+          tried += 1;
+          throw new Error("queue refused the batch");
+        },
+        metrics: async () => ({ backlogCount: 0, backlogBytes: 0 }),
+      };
+      const { res } = await submit({ email, pseud: "orphan_account" }, { EMAIL: queue });
+      expect(res.status).toBe(400);
+      expect(tried).toBe(0);
+      expect(await requestsFrom(email)).toEqual([]);
+    });
+
     it("an email that can't be queued stores nothing, shows a try-again page and logs no address", async () => {
       const email = fresh("unqueued");
       let tried = 0;
