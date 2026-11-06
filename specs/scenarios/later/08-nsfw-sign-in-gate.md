@@ -35,6 +35,7 @@ Accepted unless the operator says otherwise, each a direct cost of using this si
 - Measure signed-in reads under load. Today a signed-in chapter read never uses the page entry, so it takes a session read on the uncached Hyperdrive config plus the work read on the cached one, and every read of a gated work becomes one of these. If that is too much for Neon's connections, the next step is to let signed-in readers use the page entry, deciding the warnings screen from `warnings_off` per request. That changes "A signed-in reader never uses the page entry" below, and the header stays per response either way.
 - Check Resend's plan against one sign-in email per new reader. The gate turns readers who would never have made an account into sign-ins, on the path that shares its sending reputation with every other sign-in.
 - Update `/privacy` as "Privacy" says. The operator proofs the draft copy.
+- The change that adds the gate sets `NSFW_GATE = "off"` in the web Worker's `wrangler` config in the same PR. A missing setting means on, so without it the first deploy gates at once.
 
 ## Setup
 
@@ -246,7 +247,9 @@ Only signed-out requests with no settings, flash or auth cookie read or fill the
 #### A lowered rating doesn't trap the reader
 - GIVEN gated work E with a page entry, and a new version going live that rates it General Audiences
 - WHEN a signed-out visitor opens the chapter inside the entry's 60 s
-- THEN they get the sign-in screen or the chapter, and the two pages never redirect to each other in a loop
+- THEN the entry can still say gated while the warnings screen, reading the new rating, sends them back to the chapter, so the browser can report too many redirects until the entry lapses
+- AND that lasts at most 60 s, needs a rating to drop in that minute, and shows no text it shouldn't. Accepted, like the other windows in ARCHITECTURE, *Caching*
+- AND after it, the chapter opens
 
 ### Work page
 
@@ -269,7 +272,7 @@ Only signed-out requests with no settings, flash or auth cookie read or fill the
 
 ### Originals
 
-The content origin keeps no session and takes no cookie (spec 09), and that doesn't change: the session cookie has no `Domain`, and giving it one would hand it to the host that serves epub bytes as they are. So the app decides who is given the link.
+The content origin keeps no session and takes no cookie (spec 09), and that doesn't change: the session cookie has no `Domain`, and giving it one would hand it to the host that serves epub bytes as they are. So the app decides who is given the link. That holds up only because an original's URL can't be guessed: its key is the upload's id, from `crypto.randomUUID()`.
 
 #### A signed-out visitor is not given the link
 - GIVEN gated work E and a signed-out visitor
@@ -304,10 +307,11 @@ The content origin keeps no session and takes no cookie (spec 09), and that does
 - WHEN a signed-in reader opens the chapter
 - THEN the image loads from `content.rarepair.fans` with no cookie on the request, as in spec 09
 
-#### A signed-out visitor is given no image URL
+#### A signed-out visitor is given no chapter's image URL
 - GIVEN gated work E and a signed-out visitor
 - WHEN they open its work page, warnings screen and a refused chapter
-- THEN none of those responses holds an image URL
+- THEN none of those responses holds the URL of an image from a chapter
+- AND an image the sanitizer kept in the summary itself is public with the summary (decision 3), so the build checks whether a summary can hold one and, if it can, a gated work's work page shows the summary without it
 
 #### An image URL someone passes on works
 - GIVEN an image URL of gated work E, passed on by a signed-in reader
