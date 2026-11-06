@@ -3,7 +3,8 @@ import { CONTENT_HOST } from "./content-host";
 import type { Bindings } from "./env";
 import { isPrelaunch } from "./prelaunch";
 
-export type SecurityVariables = { nonce: string };
+// `refused`: the automated-access refusal answered, on a path that may hold a Turnstile page.
+export type SecurityVariables = { nonce: string; refused?: boolean };
 
 // ARCHITECTURE, Reading: the strict policy every app page sends.
 const strictPolicy = (nonce: string) =>
@@ -72,7 +73,7 @@ export const contentSecurityPolicy: MiddlewareHandler<{
   await next();
   if (c.res.headers.get("content-type")?.toLowerCase().startsWith("text/html")) {
     const parts = [strictPolicy(nonce)];
-    if (hasTurnstile(c.req.path, c.env)) parts.push(TURNSTILE_FRAME);
+    if (hasTurnstile(c.req.path, c.env) && !c.get("refused")) parts.push(TURNSTILE_FRAME);
     c.header("Content-Security-Policy", parts.join("; "));
     // The nonce is fresh for this response, so a shared cache that kept the page would
     // hand it to every visitor and it would protect nothing. A page that chose its own

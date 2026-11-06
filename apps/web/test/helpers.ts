@@ -4,7 +4,10 @@ import { inspect } from "node:util";
 import { NOTICE } from "./agent-notice";
 import { expect, vi } from "vitest";
 import { parseMessage, type EmailMessage } from "../../mailer/src/message";
+import type { Database } from "@archive/db";
+import type { Kysely } from "kysely";
 import app from "../src/index";
+import { hashToken } from "../src/waitlist";
 
 // Shared by the workerd tests. (11-reader-and-csp and 20-site-chrome keep their own
 // copies for now.)
@@ -270,4 +273,26 @@ export async function consoleDuring(run: () => Promise<void>): Promise<string[]>
     for (const spy of spies) spy.mockRestore();
   }
   return logged;
+}
+
+/**
+ * A confirmed, already-mailed wait list address. Returns its unsubscribe token, and how many rows
+ * the address has, so a test can see an unsubscribe take effect.
+ */
+export async function mailedWaitlistAddress(db: Kysely<Database>) {
+  const email = `mailed-${crypto.randomUUID().slice(0, 8)}@example.test`;
+  const token = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().slice(0, 11);
+  const when = new Date("2026-11-01T10:00:00Z");
+  await db
+    .insertInto("waitlist")
+    .values({
+      email,
+      confirmed_at: when,
+      notified_at: when,
+      unsubscribe_token_hash: await hashToken(token),
+    })
+    .execute();
+  const rows = async () =>
+    (await db.selectFrom("waitlist").select("email").where("email", "=", email).execute()).length;
+  return { token, rows };
 }

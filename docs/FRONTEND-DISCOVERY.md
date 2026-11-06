@@ -198,7 +198,7 @@ without it. Elsewhere the
 | Hidden work | `/works/:id`, every chapter URL and `/full` (451) | all | One line naming the cause: "Temporarily hidden after a removal request", "Temporarily hidden after reader reports" or "Temporarily hidden by a moderator", with no details. Left out of search, listings and the home page | — |
 | Removed work | `/works/:id`, every chapter URL and `/full` (410) | all | "This work has been removed", with no details | — |
 | Too many requests | any rate-limited or quota-limited action (429) | all | Plain page saying when to try again, matching `Retry-After` | — |
-| Automated access refused | every page but the exempt paths, for a declared automated client, and chapter URLs and `/full` for a cross-site subresource request (403) | all | Plain page saying automated access to this site isn't allowed and that a person seeing this can try another browser or turn off the tool that changed theirs, with no details of the work, and links to the home page and `/about` | — |
+| Automated access refused | every page but the exempt paths, for a declared automated client, and `/works/:id/chapters`, chapter URLs and `/full` for a cross-site subresource request (403) | all | Plain page saying automated access to this site isn't allowed and that a person seeing this can try another browser or turn off the tool that changed theirs, with no details of the work, and links to the home page and `/about`. Built on the shared layout, with `Cache-Control: no-store` and the strict CSP on every path. The same client is refused the stylesheet, so a person sees it unstyled | — |
 | Not found | any (404), including `/admin` for non-moderators and held versions | all | Search box and home link | — |
 
 ## Where the frontend changes the architecture

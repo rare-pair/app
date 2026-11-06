@@ -159,6 +159,7 @@ describe("20-site-chrome-and-legal: cards", () => {
   });
 
   it("Chapters have no card", async () => {
+    // A link preview service gets the refusal here, which has no card either (spec 24).
     for (const ua of ["Mozilla/5.0", PREVIEW_UA]) {
       const headers = { "user-agent": ua };
       for (const path of [
@@ -240,15 +241,17 @@ describe("20-site-chrome-and-legal: cards", () => {
     }
   });
 
-  it("A link preview service that identifies itself gets the work page's card", async () => {
-    const browser = cardOf(await get(`/works/${W}`));
-    expect(Object.keys(browser)).toContain("og:title");
+  // Spec 24: the card stays in the HTML, and a service that identifies itself gets the 403 instead.
+  it("A link preview service that identifies itself gets no card", async () => {
+    expect(Object.keys(cardOf(await get(`/works/${W}`)))).toContain("og:title");
     const clients: Record<string, string>[] = [
       { "user-agent": PREVIEW_UA },
       { "user-agent": "Mozilla/5.0", "signature-agent": '"https://preview.example"' },
     ];
     for (const headers of clients) {
-      expect(cardOf(await get(`/works/${W}`, { headers }))).toEqual(browser);
+      const res = await fetchW(`/works/${W}`, { headers });
+      expect(res.status).toBe(403);
+      expect(hasCard(await res.text())).toBe(false);
     }
   });
 });

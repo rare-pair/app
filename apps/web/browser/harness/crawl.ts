@@ -24,7 +24,7 @@ import type { Unlinked } from "./unlinked";
 // built) are 120 chapters and 10 entire works a minute for one address; a crawl reads about
 // a dozen chapters and five entire works as one visitor, with an address of its own.
 
-/** A browser's User-Agent: the crawler list of spec 24 refuses HTTP libraries on chapters. */
+/** A browser's User-Agent: the crawler list of spec 24 refuses HTTP libraries. */
 export const CRAWLER_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
   "Chrome/130.0.0.0 Safari/537.36";

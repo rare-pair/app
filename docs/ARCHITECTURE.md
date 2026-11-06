@@ -1002,7 +1002,7 @@ content origin, also have the throttles and the cross-site check below.
 - **Who is refused.** A request with a `Signature-Agent` header (Web Bot Auth,
   which isn't verified, since announcing itself is enough) or with a `User-Agent`
   on the crawler list gets a **403**, whatever its session. The
-  list is one source both Workers are built from, and includes search engines and link
+  list is one source both Workers are built from (`packages/traffic`), and includes search engines and link
   preview services. It names products, matched as plain
   case-insensitive text, with no word as broad as `bot`, which would catch phones whose
   model names hold those letters. In the Worker, the www 308 and the pre-launch redirect
@@ -1966,6 +1966,7 @@ apps/mailer/       Queue consumer: sends email (Resend)
 apps/sweep/        Daily cron: deletes unreferenced images, orphaned upload prefixes and removed works' leftovers from R2, and uploads left unconfirmed
 packages/epub/     unzip + OPF + AO3 preface parser + sanitizer (tested in workerd)
 packages/db/       SQL migrations + typed queries
+packages/traffic/  crawler list and its matching, cross-site check, per-client key (both Workers)
 fixtures/epubs/    real AO3 epub samples for parser and sanitizer tests
 docs/
 ```

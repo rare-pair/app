@@ -237,6 +237,18 @@ export const forbiddenPage = ({ signInLink = true } = {}) =>
       : `<p>That request didn't come from rarepair.</p>`,
   );
 
+/**
+ * The 403 for automated access (spec 24). It says the same on every path, so it shows nothing
+ * of the work asked for or whether there is one.
+ */
+export const automatedAccessPage = () =>
+  layout(
+    "Automated access refused",
+    `<p>Automated access to this site isn't allowed.</p>
+<p>If you're a person seeing this, you can try another browser or turn off the tool that changed yours.</p>
+<p><a href="/">Go to the home page</a> or <a href="/about">read about this site</a>.</p>`,
+  );
+
 const SIGN_OUT_FORM = `<form method="post" action="/logout">
 <button type="submit">Sign out</button>
 </form>`;
