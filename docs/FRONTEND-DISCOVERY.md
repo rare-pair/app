@@ -141,7 +141,8 @@ reading an NSFW work will (ARCHITECTURE, *Reading*, NSFW gate).
 **6. Moderate** (moderator)
 1. Four queues: reports, takedowns, removal or opt-out requests, and *Works to
    check* (held versions, works live with the "may be imperfect" notice, and
-   "This version is wrong" reports). Each is a plain table, oldest first.
+   "This version is wrong" reports, and works the reports hid that have no open
+   report left). Each is a plain table, oldest first.
 2. Each item has a detail page with actions: hide, remove, restore, approve,
    reject, ban uploader, and on a removal or opt-out request's page, block
    requester (a takedown's requester is free text, so its page doesn't offer

@@ -1505,14 +1505,16 @@ epub, under the normal versioning rules.
   - takedowns (DMCA notices)
   - removal or opt-out requests
   - *Works to check*: works with a held version, works live with the "may be
-    imperfect" notice, and works reported as "This version is wrong"
+    imperfect" notice, works reported as "This version is wrong", and works the reports hid
+    with no open report left (so a dismissed report can't strand one); the work leaves the
+    list when a moderator restores or removes it, and is dated by its earliest report
 
   Actions are hide, remove, restore, approve, reject, dismiss a report, block a requester, ban
   an uploader and withhold a removal list entry. Block a requester is on removal
   and opt-out request pages only: a takedown's requester is free text, so
   takedown pages don't offer it. "Dismiss report", on an open report's page,
   sets it `closed` and logs `dismiss` on the report. It hides and restores nothing, so a work the
-  reports hid stays hidden until Restore lifts the hide. A `wrong_version` report keeps its own form. A *Works to check* item's page has approve (clears the notice,
+  reports hid stays hidden until Restore lifts the hide, and once its last report is closed it is listed in *Works to check*. A `wrong_version` report keeps its own form. A *Works to check* item's page has approve (clears the notice,
   or publishes the held version), make a version current, hide and remove;
   each work's admin page lists every version with "Make current" and "Approve". Approving a held version
   makes it current and checked; each approve is logged once, on the version. Make current and
