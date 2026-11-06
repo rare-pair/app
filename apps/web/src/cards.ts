@@ -26,6 +26,10 @@ const card = (type: "website" | "article", title: string, description: string, u
 /** The card the public pages that aren't a work share. */
 export const siteCard = () => card("website", SITE_NAME, SITE_DESCRIPTION);
 
+/** An update post's card: its title and summary, never its body. */
+export const updateCard = (update: { slug: string; title: string; summary: string }) =>
+  card("article", update.title, update.summary, `${SITE}/updates/${update.slug}`);
+
 export type WorkCardFields = {
   ao3WorkId: number;
   title: string;

@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { unstable_readConfig } from "wrangler";
 import type { Inventory } from "./seed";
+import { latestUpdates, UPDATES } from "../../src/updates-data";
 import { freshIp, type ContextOptions, type Site } from "./site";
 
 /**
@@ -24,6 +25,9 @@ export type InventoryPage = {
    */
   prepare?: (site: Site) => Promise<ContextOptions>;
 };
+
+/** The newest update in the real list, which the home page's first card links to. */
+const newestUpdate = () => latestUpdates(UPDATES, 1)[0]!;
 
 /** SEARCH_IP_LIMIT's window, as wrangler.jsonc sets it. */
 function searchPeriodSeconds(): number {
@@ -116,6 +120,7 @@ export const OPEN_PAGES: InventoryPage[] = [
   { name: "about", path: () => "/about", as: "anonymous" },
   { name: "terms", path: () => "/terms", as: "anonymous" },
   { name: "privacy", path: () => "/privacy", as: "anonymous" },
+  { name: "update post", path: () => `/updates/${newestUpdate().slug}`, as: "anonymous" },
   { name: "hidden", path: (s) => `/works/${s.hidden}`, as: "anonymous", status: 451 },
   { name: "removed", path: (s) => `/works/${s.removed}`, as: "anonymous", status: 410 },
   {
