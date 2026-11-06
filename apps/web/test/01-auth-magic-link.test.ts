@@ -17,6 +17,7 @@ import {
   nonceOf,
   LOGIN_TOKEN,
   postLogin,
+  signIn,
   windowHeadroom,
 } from "./helpers";
 
@@ -387,6 +388,58 @@ describe("01-auth-magic-link", () => {
     }
   });
 
+  it("A refused request sets no marker", async () => {
+    const refused = async (
+      status: number,
+      fields: Record<string, string>,
+      options?: Parameters<typeof postLogin>[1],
+    ) => {
+      const res = await postLogin(fields, options);
+      expect(res.status).toBe(status);
+      expect(res.headers.getSetCookie()).toEqual([]);
+    };
+    const email = "marker-refused@example.test";
+    const passing = { email, "cf-turnstile-response": LOGIN_TOKEN };
+
+    // The origin check, Turnstile, the address and the size.
+    await refused(403, passing, { headers: { origin: "https://evil.example" } });
+    await refused(400, { email, "cf-turnstile-response": "a-failing-token" });
+    await refused(503, { email, "cf-turnstile-response": "siteverify-down" });
+    for (const bad of ["not-an-address", " ", `a${LONGEST_EMAIL}`]) {
+      await refused(400, { email: bad, "cf-turnstile-response": LOGIN_TOKEN });
+    }
+    await refused(413, {}, { body: `email=x&padding=${"x".repeat(17 * 1024)}` });
+
+    // The limit per IP.
+    await windowHeadroom(LOGIN_WINDOW_SECONDS);
+    const ip = freshIp();
+    await fillIpLimit(ip);
+    await refused(429, passing, { headers: { "cf-connecting-ip": ip } });
+
+    // The limit per address.
+    const limited = `marker-limited-${crypto.randomUUID()}@example.test`;
+    for (let i = 0; i < LOGIN_EMAIL_LIMIT; i++) {
+      const res = await postLogin({ email: limited, "cf-turnstile-response": LOGIN_TOKEN });
+      expect(res.status).toBe(200);
+    }
+    await refused(429, { email: limited, "cf-turnstile-response": LOGIN_TOKEN });
+  });
+
+  it("An accepted request sets the marker the same way whether or not the address has an account", async () => {
+    const existing = "marker-account@example.test";
+    await signIn(existing);
+
+    for (const email of [existing, "marker-no-account@example.test"]) {
+      const res = await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN });
+      expect(res.status, email).toBe(200);
+      // Exactly this: a fixed value that holds nothing about the address, the token or
+      // the account, no Domain, and the link's 15 minutes.
+      expect(res.headers.getSetCookie(), email).toEqual([
+        "__Host-signin-pending=1; Max-Age=900; Path=/; SameSite=Lax; Secure; HttpOnly",
+      ]);
+    }
+  });
+
   it("Sign-in requests Turnstile refuses don't count against the address", async () => {
     // No wait for headroom: a new window could only let the last request through.
     const email = "per-email-unsolved@example.test";
@@ -450,18 +503,22 @@ describe("Sign-in failures", () => {
     };
     const refusing = { ...env, EMAIL: queue };
     let status = 0;
+    let markers: string[] = [];
     const logged = await consoleDuring(async () => {
       const ctx = createExecutionContext();
       const request = loginRequest({
         email: "logged-nowhere@example.test",
         "cf-turnstile-response": LOGIN_TOKEN,
       });
-      status = (await app.fetch(request, refusing, ctx)).status;
+      const res = await app.fetch(request, refusing, ctx);
+      status = res.status;
+      markers = res.headers.getSetCookie();
       await waitOnExecutionContext(ctx);
     });
-    // It failed where the error names the address.
+    // It failed where the error names the address, and no link went out, so no marker either.
     expect(sends).toBe(1);
     expect(status).toBe(500);
+    expect(markers).toEqual([]);
     expect(logged.length).toBeGreaterThan(0);
     expect(logged.join("\n")).not.toContain("logged-nowhere");
   });

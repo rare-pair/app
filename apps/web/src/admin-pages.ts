@@ -272,7 +272,8 @@ function wrongVersionReports(ao3WorkId: number, open: number) {
  * one is marked. With open "This version is wrong" reports, their count and a form that
  * closes them. The uploader is the
  * account's email: moderators only, on admin pages only, with a "Ban uploader" form, or
- * "Banned" once it is (neither for a moderator or an admin). `actions` is `workActions`.
+ * "Banned" once it is (neither for a moderator or an admin), or "Deleted account" with neither
+ * once the account is gone. `actions` is `workActions`.
  */
 export function workAdminPage(
   title: string,

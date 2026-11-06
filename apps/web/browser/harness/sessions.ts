@@ -34,8 +34,8 @@ export async function signInLink(site: Site, email: string): Promise<string> {
 /**
  * Signs `account` in, in a new browser context, as a reader does: from the home page, the
  * header's Sign in link, the sign-in form (its Turnstile widget solved by the stand-in), then
- * the emailed link's Sign in button. The session cookie is the one the Worker set, with its
- * own flags. Then sets the account's role and, unless `acceptTerms` is false, accepts the terms
+ * the emailed link, whose page signs the browser that asked in with no press. The session
+ * cookie is the one the Worker set, with its own flags. Then sets the account's role and, unless `acceptTerms` is false, accepts the terms
  * for it. Use a new email for each call: the sign-in form allows three a minute for one address.
  */
 export const signedIn = (site: Site, account: Account, options: ContextOptions = {}) =>
@@ -118,11 +118,20 @@ async function signIn(
       page.waitForEvent("load"),
       page.getByRole("button", { name: "Email me a sign-in link" }).click(),
     ]);
-    await page.goto(await signInLink(site, email));
-    await Promise.all([
-      page.waitForEvent("load"),
-      page.getByRole("button", { name: "Sign in" }).click(),
+    // This browser asked for the link, so its page submits itself: nothing to press.
+    const link = await signInLink(site, email);
+    const [answer] = await Promise.all([
+      page.waitForResponse(
+        (res) =>
+          res.request().method() === "POST" && new URL(res.url()).pathname === "/login/confirm",
+      ),
+      page.goto(link),
     ]);
+    // A 403 or a 500 stays on the link's address, so no wait for the next page would end.
+    if (answer.status() !== 303) {
+      throw new Error(`signing ${email} in answered ${answer.status()}`);
+    }
+    await page.waitForURL((url) => url.pathname !== "/login/confirm");
     // A refused link goes back to /login; a session goes on, to the terms for a new account.
     if (new URL(page.url()).pathname === "/login") {
       throw new Error(`signing ${email} in was refused: ${page.url()}`);

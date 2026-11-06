@@ -40,6 +40,11 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Author identity), § Data 
 - WHEN it renders
 - THEN it says plainly that no proof of identity is asked for, because there is nothing to check against while AO3 is down
 
+### Form tells authors to opt out each pseud
+- GIVEN the `/remove` form
+- WHEN it renders
+- THEN it says an opt-out covers only the pseud typed, so an author with several pseuds sends one request for each
+
 ### Remove request by the work's URL here hides it once confirmed
 - GIVEN live work W
 - WHEN a visitor submits `/remove` with W's URL on this site, a contact email, a short statement and a passing Turnstile token
@@ -212,6 +217,23 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Author identity), § Data 
 - WHEN it is submitted without a contact email or without a work or pseud
 - THEN the response is 400 and shows the form again with the missing fields marked as errors
 - AND no request is stored and nothing is hidden
+
+### A placeholder pseud is refused
+- GIVEN the `/remove` form
+- WHEN it is submitted with no work and a pseud that is `orphan_account` or `Anonymous` once normalized
+- THEN the response is 400 and shows the form again with what was typed and the pseud field marked
+- AND the message points the requester to asking for a specific work to be removed
+- AND no request is stored, no email is sent and nothing is hidden
+
+### A placeholder pseud given with a work is a request for the work
+- GIVEN the `/remove` form
+- WHEN it is submitted with a work's URL and a placeholder pseud
+- THEN a `remove_work` request is stored for that work, as for any work and pseud given together
+
+### A pseud that only resembles a placeholder is accepted
+- GIVEN the `/remove` form
+- WHEN it is submitted with no work and a pseud such as `orphan_account2` or `orphan account`
+- THEN an `opt_out` request is stored for that pseud, unconfirmed
 
 ### Requests are rate-limited per email
 - GIVEN one contact email that has reached the request rate limit

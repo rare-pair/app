@@ -3,6 +3,7 @@ import { except } from "hono/combine";
 import { admin } from "./admin";
 import { assetRoute } from "./assets";
 import { confirmSignIn, showConfirm } from "./confirm";
+import { clearSignInMarker } from "./signin-marker";
 import type { Bindings } from "./env";
 import { showDmcaForm, submitDmca } from "./dmca";
 import { showFull } from "./full";
@@ -68,6 +69,8 @@ app.post("/remove", sameOriginOnly);
 app.post("/remove/confirm", sameOriginOnly);
 app.post("/dmca", sameOriginOnly);
 app.post("/logout", sameOriginLogout);
+// Outside the session too, so a failed lookup's answer clears the marker as well.
+app.post("/login/confirm", clearSignInMarker);
 // The session, once, for every page; routes read c.var.session and never mount it
 // again. Static files skip it, and the lookup's database connection with it. Then
 // an account that hasn't accepted the terms is sent to accept them.

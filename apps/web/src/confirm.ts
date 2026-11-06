@@ -6,6 +6,7 @@ import { INVALID_TOKEN, readForm } from "./login";
 import { confirmPage, forbiddenPage, signInFailedPage } from "./pages";
 import type { SecurityVariables } from "./security";
 import { isSameOrigin, safeNext } from "./signin";
+import { holdsSignInMarker } from "./signin-marker";
 
 // Better Auth's tokens are 32 characters. Anything far longer was never issued, and
 // isn't put back into the page.
@@ -15,13 +16,14 @@ type ConfirmContext = Context<{ Bindings: Bindings; Variables: SecurityVariables
 
 /**
  * `GET /login/confirm`: the emailed link. It shows a button and uses nothing up
- * (ARCHITECTURE, Auth). The link's query is anyone's to write, so `next` is
- * reduced again here.
+ * (ARCHITECTURE, Auth); for the browser that asked for a link, the page presses the
+ * button itself. The link's query is anyone's to write, so `next` is reduced again here.
  */
 export function showConfirm(c: ConfirmContext) {
   const token = c.req.query("token") ?? "";
   if (token === "" || token.length > MAX_LINK_TOKEN) return c.redirect(REFUSED, 302);
-  return c.html(confirmPage(token, safeNext(c.req.query("next") ?? null)), 200, {
+  const submitNonce = holdsSignInMarker(c) ? c.get("nonce") : undefined;
+  return c.html(confirmPage(token, safeNext(c.req.query("next") ?? null), submitNonce), 200, {
     // The token is in the URL: keep it out of caches, and let a Referer carry only
     // the origin. Not no-referrer: under it the browser sends the page's own POST with
     // `Origin: null` (Fetch, "append a request Origin header"), which isSameOrigin refuses.

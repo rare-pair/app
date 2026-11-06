@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ao3Epub } from "../../../packages/epub/test/helpers";
 import {
   banUploader,
+  deleteUploader,
   deliver,
   freshAo3WorkId,
   parsedWork,
@@ -34,6 +35,28 @@ describe("18-moderation: Moderator bans an uploader", () => {
     expect(parsed).toEqual([]);
     expect(saved).toEqual([]);
     expect(result.explicitAcks).toEqual(["msg-0"]);
+    expect(result.retryMessages).toEqual([]);
+  });
+
+  it("An account is deleted on request: a job with no uploader left is refused as account_banned", async () => {
+    const work = parsedWork();
+    const id = await pendingUpload(ao3Epub({ workId: Number(work.ao3WorkId) }));
+    // Deleted after the job's first check, so the save's locked check is the one that refuses.
+    const { handler } = watchedWorker({
+      process: async () => {
+        await deleteUploader(id);
+        return work;
+      },
+    });
+
+    const result = await deliver([{ upload_id: id }], { handler });
+
+    const row = await uploadRow(id);
+    expect(row.status).toBe("account_banned");
+    expect(row.error_stage).toBe("save");
+    const rows = await savedRows(Number(work.ao3WorkId), id);
+    expect(rows.works).toEqual([]);
+    expect(rows.versions).toEqual([]);
     expect(result.retryMessages).toEqual([]);
   });
 

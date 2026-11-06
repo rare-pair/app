@@ -5,9 +5,11 @@ import type { KyselyPlugin } from "kysely";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ao3Epub } from "../../../packages/epub/test/helpers";
 import { runJob } from "../src/job";
-import { SaveRejected, saveWork } from "../src/save";
+import { TAKEDOWN_REMOVED } from "../src/lists";
+import { SaveRejected, saveWork, WorkRemoved } from "../src/save";
 import {
   addOptOut,
+  addTakedown,
   banUploader,
   bucketKeys,
   deliver,
@@ -18,6 +20,7 @@ import {
   token,
   uploadRow,
   watchedWorker,
+  withDb,
 } from "./helpers";
 import type { Steps } from "../src/worker";
 
@@ -312,5 +315,240 @@ describe("ORIG: what the delete leaves alone", () => {
 
     expect(await uploadRow(id)).toMatchObject({ status: "work_removed" });
     expect(deletes.filter((keys) => keys.includes(original(id)))).toHaveLength(1);
+  });
+});
+
+// OPTOUT (#259, #525): AO3 work ids 60301-60399 are these cases'.
+
+/** The key `pendingUpload` puts the upload's raw file at. */
+const staging = (id: string) => `uploads/${id}.epub`;
+
+/** The epub processor, with `pseud` as the byline. */
+const bylined = (pseud: string) => async (bytes: Uint8Array) => ({
+  ...(await processEpub(bytes)),
+  authors: [{ pseud, user: null }],
+});
+
+/** An upload of `workId` whose byline, opted out here, ends it `opted_out`. */
+async function optedOutUpload(workId: number) {
+  const pseud = `optout${token()}`;
+  await addOptOut(pseud);
+  const id = await pendingUpload(ao3Epub({ workId }));
+  return { id, process: bylined(pseud) };
+}
+
+/** An upload of `workId`, a removed work, which the save refuses as `work_removed`. */
+async function removedWorkUpload(workId: number) {
+  await seededWork({ ao3WorkId: workId, status: "removed" });
+  return { id: await pendingUpload(ao3Epub({ workId })), process: undefined };
+}
+
+describe("04-ingest-job-lifecycle: A refused upload's staging file is deleted", () => {
+  it("deletes it when the job ends the upload opted_out", async () => {
+    const { id, process } = await optedOutUpload(60301);
+    expect(await bucketKeys(staging(id))).toEqual([staging(id)]);
+    const log = vi.spyOn(console, "log");
+
+    const result = await deliver([{ upload_id: id }], {
+      handler: watchedWorker({ process }).handler,
+    });
+
+    expect(await uploadRow(id)).toMatchObject({ status: "opted_out", error: "opted_out" });
+    expect(await bucketKeys(staging(id))).toEqual([]);
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    // The id and a count: nothing from the file.
+    expect(log).toHaveBeenCalledWith({
+      event: "ingest.refused_upload_deleted",
+      uploadId: id,
+      deleted: 1,
+    });
+  });
+
+  it("deletes it when a re-upload of a taken-down work ends opted_out", async () => {
+    const seeded = await seededWork({ ao3WorkId: 60312, status: "removed" });
+    await addTakedown(seeded.workId, TAKEDOWN_REMOVED);
+    const id = await pendingUpload(ao3Epub({ workId: 60312 }));
+
+    await deliver([{ upload_id: id }], { handler: watchedWorker().handler });
+
+    expect(await uploadRow(id)).toMatchObject({ status: "opted_out", error: "opted_out" });
+    expect(await bucketKeys(staging(id))).toEqual([]);
+  });
+
+  it("deletes it when a retry ends opted_out", async () => {
+    const pseud = `optout${token()}`;
+    const id = await pendingUpload(ao3Epub({ workId: 60302 }));
+    const process = bylined(pseud);
+    await deliver([{ upload_id: id }], {
+      handler: watchedWorker({ process, save: storesThenFails }).handler,
+    });
+    // The attempt that will be retried keeps it: the next one reads it.
+    expect((await uploadRow(id)).status).toBe("pending");
+    expect(await bucketKeys(staging(id))).toEqual([staging(id)]);
+    await addOptOut(pseud);
+
+    await deliver([{ upload_id: id }], {
+      handler: watchedWorker({ process }).handler,
+      attempts: 2,
+    });
+
+    expect((await uploadRow(id)).status).toBe("opted_out");
+    expect(await bucketKeys(staging(id))).toEqual([]);
+    expect(await bucketKeys(`originals/${id}`)).toEqual([]);
+  });
+
+  it("deletes it when the job ends the upload work_removed", async () => {
+    const { id } = await removedWorkUpload(60303);
+    const log = vi.spyOn(console, "log");
+
+    const result = await deliver([{ upload_id: id }], { handler: watchedWorker().handler });
+
+    expect((await uploadRow(id)).status).toBe("work_removed");
+    expect(await bucketKeys(staging(id))).toEqual([]);
+    expect(await bucketKeys(`originals/${id}`)).toEqual([]);
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    expect(log).toHaveBeenCalledWith({
+      event: "ingest.refused_upload_deleted",
+      uploadId: id,
+      deleted: 1,
+    });
+  });
+
+  it.each([
+    ["opted_out", () => optedOutUpload(60304)],
+    ["work_removed", () => removedWorkUpload(60305)],
+  ])("keeps the outcome when the delete itself fails: %s", async (status, upload) => {
+    const { id, process } = await upload();
+    const error = vi.spyOn(console, "error");
+    const { handler } = watchedWorker({
+      process,
+      bucket: beforeDelete(async (keys) => {
+        if (keys.includes(staging(id))) throw new Error("injected R2 failure");
+      }),
+    });
+
+    const result = await deliver([{ upload_id: id }], { handler });
+
+    expect((await uploadRow(id)).status).toBe(status);
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    expect(result.retryMessages).toEqual([]);
+    expect(await bucketKeys(staging(id))).toEqual([staging(id)]);
+    expect(error).toHaveBeenCalledWith({
+      event: "ingest.refused_upload_delete_failed",
+      uploadId: id,
+      error: "Error",
+    });
+  });
+
+  it("keeps it when the ending write fails, so the retry finds the refusal again", async () => {
+    const { id, process } = await optedOutUpload(60306);
+    const refuseEnding: KyselyPlugin = {
+      transformQuery: ({ node }) => {
+        if (node.kind === "UpdateQueryNode" && JSON.stringify(node).includes('"opted_out"')) {
+          throw Object.assign(new Error("connection lost"), { code: "08006" });
+        }
+        return node;
+      },
+      transformResult: ({ result }) => Promise.resolve(result),
+    };
+    await withDb((db) =>
+      expect(
+        runJob(
+          {
+            db: db.withPlugin(refuseEnding),
+            bucket: env.BUCKET,
+            process,
+            save: async () => undefined,
+          },
+          id,
+          1,
+        ),
+      ).rejects.toThrow("connection lost"),
+    );
+    expect((await uploadRow(id)).status).toBe("processing");
+    expect(await bucketKeys(staging(id))).toEqual([staging(id)]);
+
+    // The lease runs out, and the message comes again: read from the file, not `object_missing`.
+    await setLease(id, "-1 hour");
+    await deliver([{ upload_id: id }], {
+      handler: watchedWorker({ process }).handler,
+      attempts: 2,
+    });
+
+    expect(await uploadRow(id)).toMatchObject({ status: "opted_out", error: "opted_out" });
+    expect(await bucketKeys(staging(id))).toEqual([]);
+  });
+
+  it("keeps it when the upload is taken over just before the job ends it opted_out", async () => {
+    const { id, process } = await optedOutUpload(60307);
+    const { handler } = watchedWorker({
+      process: async (bytes) => {
+        const work = await process(bytes);
+        await setLease(id, "1 hour");
+        return work;
+      },
+    });
+
+    const result = await deliver([{ upload_id: id }], { handler });
+
+    expect(await bucketKeys(staging(id))).toEqual([staging(id)]);
+    expect((await uploadRow(id)).status).toBe("processing");
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+  });
+
+  it("keeps it when the upload is taken over just before the job ends it work_removed", async () => {
+    const id = await pendingUpload(ao3Epub({ workId: 60308 }));
+    const { handler } = watchedWorker({
+      save: async () => {
+        await setLease(id, "1 hour");
+        throw new WorkRemoved();
+      },
+    });
+
+    const result = await deliver([{ upload_id: id }], { handler });
+
+    expect(await bucketKeys(staging(id))).toEqual([staging(id)]);
+    expect((await uploadRow(id)).status).toBe("processing");
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+  });
+
+  it("leaves alone a stored key that is not under uploads/", async () => {
+    const { id, process } = await optedOutUpload(60309);
+    const key = `works/60309/${id}/raw.epub`;
+    await env.BUCKET.put(key, ao3Epub({ workId: 60309 }));
+    await withDb((db) =>
+      db.updateTable("uploads").set({ r2_key: key }).where("id", "=", id).execute(),
+    );
+
+    await deliver([{ upload_id: id }], { handler: watchedWorker({ process }).handler });
+
+    expect((await uploadRow(id)).status).toBe("opted_out");
+    expect(await bucketKeys(key)).toEqual([key]);
+  });
+});
+
+describe("04-ingest-job-lifecycle: Other final refusals keep their staging file until it expires", () => {
+  it("keeps it for account_banned", async () => {
+    const id = await pendingUpload(ao3Epub({ workId: 60310 }));
+    await banUploader(id);
+
+    await deliver([{ upload_id: id }], { handler: watchedWorker().handler });
+
+    expect((await uploadRow(id)).status).toBe("account_banned");
+    expect(await bucketKeys(staging(id))).toEqual([staging(id)]);
+  });
+
+  it("keeps it for parse_failed", async () => {
+    const id = await pendingUpload(ao3Epub({ workId: 60311 }));
+    const { handler } = watchedWorker({
+      save: async () => {
+        throw new SaveRejected("save_rejected_23505");
+      },
+    });
+
+    await deliver([{ upload_id: id }], { handler });
+
+    expect((await uploadRow(id)).status).toBe("parse_failed");
+    expect(await bucketKeys(staging(id))).toEqual([staging(id)]);
   });
 });

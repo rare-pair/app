@@ -17,7 +17,7 @@ fandoms and pseuds in it are invented placeholders.
 | --- | --- |
 | Visual direction | Modern and minimal. The identity is plain HTML with a strong typographic hierarchy: type, spacing and rules do the work, not boxes, shadows or imagery |
 | Warnings | **Hard constraint:** rating and archive warnings show on every work card and work page. They are never collapsed, never behind a hover, and never hidden to save space. Minimalism applies to everything else |
-| JavaScript | Reading, browsing, search and reader settings work fully with JavaScript off; small scripts only enhance them (settings without a reload, saving reading position). Forms with a Turnstile check (sign-in, upload, `/remove`, the copyright notice at `/dmca`, and the wait list before launch) need JavaScript, because Turnstile can't produce a token without it; with JS off they say so in a `<noscript>` message |
+| JavaScript | Reading, browsing, search and reader settings work fully with JavaScript off; small scripts only enhance them (settings without a reload, saving reading position). On the sign-in link's page, a script presses the button for the browser that asked for the link. Forms with a Turnstile check (sign-in, upload, `/remove`, the copyright notice at `/dmca`, and the wait list before launch) need JavaScript, because Turnstile can't produce a token without it; with JS off they say so in a `<noscript>` message |
 | Pagination | Server-side pages with real URLs. No infinite scroll |
 | Branding | The logo is the pinwheel star ✯ (U+272F) before the site name in the header, hidden from assistive technology, and the same star drawn as our own SVG for the browser tab. No AO3 or OTW name, symbols or styling in the UI. Ratings and warnings are text badges, not symbol icons (ARCHITECTURE, opening) |
 | Author identity | No claims, no author accounts, no "my works". Removal and opt-out are a public request form that needs no sign-in (ARCHITECTURE, *Author requests & takedowns*) |
@@ -86,7 +86,9 @@ Reading never requires an account (ARCHITECTURE, *Auth*).
 3. The link opens a short page with a "Sign in" button (a POST form, so a mail
    scanner opening the link in advance can't use it up). Pressing it signs them
    in, with or without JavaScript, and sends them back to the page they started
-   from. It uses a stored same-site `next` value, never an open redirect.
+   from. It uses a stored same-site `next` value, never an open redirect. In the
+   browser that asked for the link, with JavaScript on, the page presses it
+   itself: nothing to do.
 4. An email with no account gets one at this point. A new account first lands
    on a one-time terms page (`/welcome/terms`) and must accept before going
    anywhere else (bar the pages open to anyone: see the Accept terms row); then it continues to `next`. Returning users never see it.
@@ -170,7 +172,7 @@ without it. Elsewhere the
 | Entire work | `/works/:id/full` | all | All chapters on one page; the "may be imperfect" notice when it applies | Saves position |
 | Reader settings | `/settings/reader` | all | POST form sets a cookie, then redirects back; signed-in readers also get the warnings on/off choice, saved to their account | Applied live from the reader |
 | Sign in | `/login` | all | `<noscript>` message: signing in needs JavaScript | Email form with Turnstile, "check your email", error states |
-| Confirm sign-in | `/login/confirm?token=…` | all | "Sign in" button (POST form); used, expired or unknown links redirect to `/login` with a message | — |
+| Confirm sign-in | `/login/confirm?token=…` | all | "Sign in" button (POST form); used, expired or unknown links redirect to `/login` with a message | In the browser that asked for the link (it holds the sign-in marker), a script submits the form once on load, so nothing needs pressing. In any other browser the page has no script |
 | Sign out | `/logout` | all (signed in or not) | Signed in: a "Sign out" button (POST form) that ends the session and goes to `/`, or, if the session row couldn't be deleted, answers a 500 "Sign out didn't work, try again" page with the same button; GET signs nobody out. Signed out: says so, with a link to sign in | — |
 | Accept terms | `/welcome/terms` | new accounts, once | Terms summary, link to `/terms`, Accept button (POST form); every other signed-in page redirects here until accepted, except the pages open to anyone and to sign-in (`/terms`, `/privacy`, `/about`, `/remove` and `/dmca`, so a typed request or notice isn't lost, `/login`, `/logout`), `/admin` and static files (`TERMS_EXEMPT` in `apps/web/src/terms.ts`); `/search` is not exempt | — |
 | Upload | `/upload` | signed in | `<noscript>` message: uploading needs JavaScript | Turnstile, then direct-to-R2 upload with progress, one or more files |

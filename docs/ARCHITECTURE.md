@@ -27,7 +27,8 @@ an unofficial stopgap.
 | Search scope | Metadata only: title, author, tags, summary |
 | Chapter rendering | Inline in app pages behind a strict CSP, with no iframe |
 | Wait list | Before launch, `/` is a coming-soon page with a double opt-in wait list. Each confirmed address is sent one launch email, from the same mail subdomain as sign-in, spread over hours on its own queue. The list is deleted after the launch send |
-| Requester data | What a requester sends with a removal or opt-out request (email address, hashed network address, statement), and a requester block's email and hash, is kept until the site closes, then deleted by hand. It is not erased on request. There is no retention sweep job and no migration for it. The only delete of a request's row is the rollback when its confirmation email cannot be queued. A copyright notice, with its sender's contact details and signature, follows the same rule (operator ruling, 2026-11-05). Account data is not covered. Privacy page copy is draft, pending legal review (operator ruling, 2026-11-04) |
+| Requester data | What a requester sends with a removal or opt-out request (email address, hashed network address, statement), and a requester block's email and hash, is kept until the site closes, then deleted by hand. It is not erased on request. There is no retention sweep job and no migration for it. The only delete of a request's row is the rollback when its confirmation email cannot be queued. A copyright notice, with its sender's contact details and signature, follows the same rule (operator ruling, 2026-11-05). Account data is not covered: see Account deletion. Privacy page copy is draft, pending legal review (operator ruling, 2026-11-04) |
+| Account deletion | Someone asks at admin@rarepair.fans and the operator runs a script: no self-service button and no form (operator ruling, 2026-11-05). It removes the account, its sessions and its saved reading positions, bar one saved in the last moments, which expires within a year. Upload rows stay with no user attached, and works and versions stay public. The script refuses a banned account, because the ban would go with the row (pending the operator's ruling, wave 11). See Auth, Deleting an account |
 
 ## System overview
 
@@ -171,13 +172,18 @@ chapters     (work_id, version_id, n, title, words, r2_key)
 tags         (id, type, name, name_norm) -- type: fandom|relationship|character|freeform|warning|category|rating
 work_tags    (work_id, tag_id,
               position)  -- the tag's place in the work's tags, in the author's order
-uploads      (id, user_id, r2_key, sha256, bytes, status, lease_until,
+uploads      (id,
+              user_id NULL,  -- set null when the account is deleted; the row and its work stay
+              r2_key, sha256, bytes, status, lease_until,
               error_stage, error, work_id NULL, created_at,
               quota_counted_at NULL)  -- set when confirm counted it against the daily quota, once;
                                       -- `pending` with this NULL is an open upload (Orphaned uploads)
 reports      (id, work_id, reporter_id, kind, body, status, created_at)  -- reporting needs an account;
-                                                  -- kind includes wrong_version ("This version is wrong")
-takedowns    (id, work_id, requester, basis, status, resolved_by, created_at,
+                                                  -- kind includes wrong_version ("This version is wrong");
+                                                  -- no FK on reporter_id: a deleted account's report still counts
+takedowns    (id, work_id, requester, basis, status,
+              resolved_by,  -- no FK: who resolved it stays after the account is deleted
+              created_at,
               signature, infringing_material, good_faith, accuracy_authority,
               incomplete)  -- a DMCA notice: basis is the copyrighted work, requester the contact
                            -- information; incomplete when a 512(c)(3)(A) element is missing;
@@ -197,7 +203,9 @@ listed_pseuds (pseud_norm PRIMARY KEY,  -- one row per pseud on the removal list
               request_id,        -- the approved opt-out whose pseud_typed is shown
               listed_at,         -- when the pseud was first approved; indexed
               withheld)          -- the removal list leaves the pseud out
-requester_blocks (id, contact_email NULL, ip_hash NULL, created_by, created_at)
+requester_blocks (id, contact_email NULL, ip_hash NULL,
+              created_by,  -- no FK: who made it stays after the account is deleted
+              created_at)
 moderation_actions (id, moderator_id, action, target_kind, target_id, note NULL,
               created_at)  -- no FK on moderator_id (rows outlive the account) or target_id (it
                            -- points at different tables); action and
@@ -621,10 +629,18 @@ Chapter text isn't indexed.
    this delete, or that delete failing, which can leave an opted-out or banned
    upload's file; (4) an upload with no `work_id` whose prefix is gone, which can't be
    tied to its work. The content host refuses all of these (#579), so they can't be
-   downloaded; they are only stored. Only the original goes: fragments and images of a
+   downloaded; they are only stored. Fragments and images of a
    refused upload are the sweep's. A refused upload has no version, so this
    leaves the keep-for-re-sanitize decision intact. A `duplicate`'s original
    is kept (below).
+
+   **A refused upload's staging file.** When the job ends an upload `opted_out` or
+   `work_removed`, it also deletes the raw file at the upload's own key under
+   `uploads/`, by the same rule: after the ending write, only when that write
+   matched, best effort, and logged by upload id and count. An attempt that will be
+   retried keeps it, and so does an ending write that fails, since the next attempt
+   reads it. `opted_out` covers a takedown too. Every other refusal the job ends
+   leaves the file to the 7-day expiry.
 
    A later upload of a known work is decided in the same transaction, from
    facts read before it (the current version's chapter text comes from R2,
@@ -708,7 +724,7 @@ Chapter text isn't indexed.
 message to the uploader. `work_removed` is the upload of a work a moderator or
 its author removed, checked after the opt-out and takedown lists and before
 the current version is read. `account_banned` is an upload by an account a
-moderator banned (its meaning to the uploader: the account can no longer
+moderator banned, or one since deleted (Auth, Deleting an account) (its meaning to the uploader: the account can no longer
 upload): the ban sets it on the account's `pending` uploads (and a confirm sets
 it on one written after the ban), and ingest sets it on a job whose uploader is
 banned, checked before the file is read and again, with a key-share lock on the
@@ -880,9 +896,10 @@ can be snapshotted.
   atomic, and KV can return a value a little stale from another location, so two
   tabs, or two saves from different places in quick succession, can race and the
   last write wins: the furthest point is kept in practice, not guaranteed. It
-  expires after a year. The work page's "Continue where you left off" link names
-  the chapter in its path and the percentage in a `#pos=` fragment, which the
-  script reads once to scroll back; the work page itself never moves the reader.
+  expires after a year, or goes with the account (Auth, Deleting an account). The
+  work page's "Continue where you left off" link names the chapter in its path and
+  the percentage in a `#pos=` fragment, which the script reads once to scroll back;
+  the work page itself never moves the reader.
 - "Download original epub" serves the file from `originals/` with
   `Content-Disposition: attachment` from `content.rarepair.fans`. It's never
   displayed inline. The link names the current version's upload, or for a
@@ -972,13 +989,35 @@ origin. Work pages, listings and search stay open, so people can still find work
     again after URL normalization, because `/a/..//evil.example` normalizes
     to `//evil.example`.
   Tokens last 15 minutes and are stored hashed (`storeToken: "hashed"`) in
-  Better Auth's `verification` table.
+  Better Auth's `verification` table. An accepted request, and no refused one,
+  also sets the sign-in marker: the cookie `__Host-signin-pending`, with a fixed
+  value that holds nothing about the address, the token or the account,
+  `HttpOnly; Secure; SameSite=Lax; Path=/` and no `Domain`, lasting as long as
+  the newest link. It is the same whether or not the address has an account. It isn't
+  a session, and it doesn't stop a signed-out reader's pages coming from the
+  edge cache.
 - **Using the link.** The email links to our `GET /login/confirm?token=…`,
-  which only shows a "Sign in" button: a POST form that uses nothing up. Mail
+  which shows a "Sign in" button: a POST form that uses nothing up. Mail
   scanners that open links in advance therefore can't burn it.
   `POST /login/confirm` calls `auth.api.magicLinkVerify`, which redirects to
   `next` with the session cookie. A used, expired or unknown link is
-  redirected to `/login` with a plain message.
+  redirected to `/login` with a plain message. Every answer of the POST's route,
+  a refusal or a fault included, clears the marker. Before launch sign-in is
+  closed: both routes redirect, so none of this can be reached.
+- **The browser that asked.** When `GET /login/confirm` sees the marker, the
+  page also carries one nonced script that submits its form once as it loads,
+  so the browser that asked for the link, while it holds the marker, signs in
+  with nothing to press. It does this for whichever link is opened: an older,
+  used link lands on the plain message, and the newest then takes a press. With
+  JavaScript off, or a press in that instant, the form works as it always does
+  (a second post gets the used-link answer). Without the marker the page has no
+  script, so a mail scanner that runs scripts can't spend the token, someone
+  opening a link planted by another person isn't signed in just by opening it,
+  and asking on a laptop and opening the email on a phone takes one press. The
+  marker says this browser asked for a link recently, not which one: someone who
+  asked for their own and opens, or is navigated to, a planted one within 15
+  minutes is signed in to the planter's account with no press, a limit the
+  operator accepted (#606, #657).
 - **Signed-out requests to signed-in pages.** Opening a page that needs an
   account (`/upload`, `/me/uploads`, `/works/:id/report`) while signed out, or
   POSTing a report, redirects to sign in, carrying the page as `next`, so the
@@ -1059,6 +1098,69 @@ origin. Work pages, listings and search stay open, so people can still find work
 - Accounts are needed only to upload, report, save reading position or turn
   the warnings screen off. Reading never needs an account.
 
+### Deleting an account
+
+A request reaches the operator at admin@rarepair.fans, and the privacy page says
+so. There is no self-service button and no form. The operator checks the request
+came from the address, then runs `scripts/account-delete.mjs <address>` locally:
+
+```
+DATABASE_URL=... CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... \
+POSITIONS_NAMESPACE_ID=... node scripts/account-delete.mjs <address>
+```
+
+Secrets come from the environment only. The token needs Workers KV Storage Write,
+and `POSITIONS_NAMESPACE_ID` is the id of `apps/web`'s `POSITIONS` binding.
+
+The script finds the account by address in any case, and shows what it will delete
+and what will stay. It goes on only when the address is typed again. Then it
+deletes, in this order:
+
+1. The sessions, so a signed-in reader stops saving positions.
+2. Its unspent sign-in links in `verification`, since one would make a new account
+   at the address.
+3. After a minute's wait, because KV lists can lag a write by up to a minute: the
+   same again, since the person could sign in during the wait, then the
+   `pos:<user id>:` keys, listed through the KV API and removed in bulk.
+4. The same again, then the `user` row, which also takes its `account` rows.
+
+A failure before the row goes leaves it, so running the script again finishes the
+job, unless a ban has landed meanwhile. With the row gone first, the keys could no
+longer be found from the address. A lost reply to the row's delete reads as a
+failure, and the next run finds no account. Keys can still be left behind: a save
+past its session check when the sessions go, or one made during the wait by someone
+who signed in again, may not be in the list. Nothing can read such a key once the
+account is gone, and it expires within a year.
+
+What stays, and why:
+
+- **Upload rows**, with `user_id` null, because `work_versions` points at them;
+  works and versions stay public. A moderator's work page says "Deleted account"
+  on that version's row, with no ban form. A confirmed upload not yet saved is
+  refused as a banned uploader's is, because `isUploaderBanned` counts an account
+  with no row as banned. An open upload can't be confirmed with no account, so the
+  reaper takes its row and file (Orphaned uploads). A link already handed out can
+  still store its file until the link expires, and the `uploads/` expiry removes it.
+  A version held for review stays held, and a moderator can still approve it.
+- **Reports**, with `reporter_id` as it was. It has no foreign key, so a deleted
+  account's report still counts toward the automatic hide (Author requests &
+  takedowns). No page shows a reporter's id. A blocked reporter's report is left
+  out of that count by way of the account's email and sessions, so once the account
+  is gone that report counts again. Someone who signs up again at the same address
+  has a new id, so they count as a second reporter.
+- **`takedowns.resolved_by` and `requester_blocks.created_by`**, with the id as it
+  was and no foreign key: the record of who acted stays, as it does for
+  `moderation_actions.moderator_id` (Moderation).
+- **What a requester or a notice's sender sent.** It follows Decisions so far,
+  Requester data, even when the address is the same.
+
+The script refuses a banned account and says so. A ban is `banned_at` on the row,
+so deleting the row would let the person sign up again with the same address. A
+ban that lands while the prompt waits is seen before anything is touched. One that
+lands during the minute's wait keeps the row, and the script says the sessions and
+positions are already gone. The script prints the account's address and role, counts,
+an HTTP status or a code, and no key, token or raw error.
+
 ## Author requests & takedowns
 
 The archive shows people's work without asking them first, so these features
@@ -1084,7 +1186,11 @@ epub, under the normal versioning rules.
   requester confirms it from the emailed link, it hides every existing work by
   that pseud and becomes an active opt-out, which is checked again at ingest
   for new uploads; until then no opt-out row is active and ingest sees
-  nothing. A moderator approves it. A mistaken opt-out can be reversed.
+  nothing. A moderator approves it. A mistaken opt-out can be reversed. It
+  matches the one pseud given and never an AO3 user name, so the form tells
+  authors to send one request per pseud. The form refuses `orphan_account` and
+  `Anonymous` (compared as `pseud_norm`) when no work is given, since many
+  authors share them, and points the requester to asking for a specific work.
 - **The confirmation link.** It is a token of 32 random bytes, stored only as a
   hash and cleared when used. Opening it shows a button and changes nothing, so
   a mail scanner can't confirm; pressing it (a same-origin POST) is one
@@ -1642,7 +1748,8 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
     matching pair every Turnstile form (sign-in, upload, the wait list, `/remove`, `/dmca`)
     fails closed.
   - **The notices mailbox.** `admin@rarepair.fans` (the `NOTICES_EMAIL` var) must exist
-    and be read. The copyright notice page names it for a visitor without JavaScript and
+    and be read. Requests to delete an account come here too (Auth, Deleting an account); the
+    privacy page names the address itself. The copyright notice page names it for a visitor without JavaScript and
     on a refusal that stops the form working (rate limit, failed or unreachable Turnstile check). Mail sent there doesn't reach the takedowns queue: a person reads it
     and enters the notice.
 - Queries that select `now()` or another non-immutable function are never cached by Hyperdrive.

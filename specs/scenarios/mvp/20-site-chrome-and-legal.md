@@ -28,6 +28,11 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - WHEN they open `/about`, `/terms` and `/privacy`
 - THEN each is a static page that renders without sign-in or JavaScript
 
+### The privacy page says asking for a sign-in link sets a cookie that holds nothing about you
+- GIVEN any visitor
+- WHEN they open `/privacy`
+- THEN it says asking for a sign-in link sets a short-lived cookie that holds nothing about them
+
 ### The privacy page says requester data is kept until the site closes
 - GIVEN any visitor
 - WHEN they open `/privacy`
@@ -43,6 +48,15 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - AND it says a notice sent by email is read by a person and stays in that mailbox
 - AND it says the archive keeps notices until the site closes, and then deletes them
 - AND it says the archive does not erase them when a sender asks
+
+### The privacy page says how to ask for an account to be deleted
+- GIVEN any visitor
+- WHEN they open `/privacy`
+- THEN it says to ask at admin@rarepair.fans
+- AND it says the archive deletes the account, its sessions and its saved reading positions
+- AND it says accepted works stay public
+- AND it says reports the account made stay, and that the email asking stays in that mailbox
+- AND it says a banned account is not deleted
 
 ### Footer links to removal
 - GIVEN any app page

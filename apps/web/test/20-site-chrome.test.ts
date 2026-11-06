@@ -77,6 +77,13 @@ describe("20-site-chrome-and-legal", () => {
     expect(privacy).toMatch(/remoteip/i);
   });
 
+  it("The privacy page says asking for a sign-in link sets a cookie that holds nothing about you", async () => {
+    const privacy = await htmlOf("/privacy");
+    expect(privacy).toContain(
+      "Asking for a sign-in link sets a short-lived cookie that holds nothing about you.",
+    );
+  });
+
   it("The privacy page says requester data is kept until the site closes", async () => {
     const privacy = await htmlOf("/privacy");
     expect(privacy).toMatch(/requests keep .*email address/i);
@@ -96,6 +103,16 @@ describe("20-site-chrome-and-legal", () => {
     expect(privacy).toMatch(/notice you email .* stays in that mailbox/i);
     expect(privacy).toMatch(/keep notices until the site closes, and then delete them/i);
     expect(privacy).toMatch(/do not erase them when you ask/i);
+  });
+
+  it("The privacy page says how to ask for an account to be deleted", async () => {
+    const privacy = await htmlOf("/privacy");
+    expect(privacy).toContain("admin@rarepair.fans");
+    expect(privacy).toMatch(/delete your account, your sessions and your saved reading positions/i);
+    expect(privacy).toMatch(/accepted works stay public/i);
+    expect(privacy).toMatch(/reports you made stay/i);
+    expect(privacy).toMatch(/your email asking for this stays in that mailbox/i);
+    expect(privacy).toMatch(/do not delete a banned account/i);
   });
 
   it("Footer links to removal", async () => {

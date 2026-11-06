@@ -7,6 +7,7 @@ import { checkEmailPage, forbiddenPage, signInPage } from "./pages";
 import { emailKey, ipKey, isLimited, LOGIN_WINDOW_SECONDS, tooManyRequests } from "./rate-limit";
 import type { SecurityVariables } from "./security";
 import { isSameOrigin, safeNext } from "./signin";
+import { SET_SIGN_IN_MARKER } from "./signin-marker";
 import { TURNSTILE_ACTIONS, verifyTurnstile } from "./turnstile";
 
 // The longest address an email can be sent to (RFC 5321), as apps/mailer checks.
@@ -160,5 +161,5 @@ export async function requestSignIn(c: LoginContext) {
   } finally {
     c.executionCtx.waitUntil(db.destroy());
   }
-  return c.html(checkEmailPage());
+  return c.html(checkEmailPage(), 200, { "Set-Cookie": SET_SIGN_IN_MARKER });
 }
