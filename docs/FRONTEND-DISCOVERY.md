@@ -17,7 +17,7 @@ fandoms and pseuds in it are invented placeholders.
 | --- | --- |
 | Visual direction | Modern and minimal. The identity is plain HTML with a strong typographic hierarchy: type, spacing and rules do the work, not boxes, shadows or imagery |
 | Warnings | **Hard constraint:** rating and archive warnings show on every work card and work page. They are never collapsed, never behind a hover, and never hidden to save space. Minimalism applies to everything else |
-| JavaScript | Reading, browsing, search and reader settings work fully with JavaScript off; small scripts only enhance them (settings without a reload, saving reading position). On the sign-in link's page, a script presses the button for the browser that asked for the link. Forms with a Turnstile check (sign-in, upload, `/remove`, the copyright notice at `/dmca`, and the wait list before launch) need JavaScript, because Turnstile can't produce a token without it; with JS off they say so in a `<noscript>` message |
+| JavaScript | Reading, browsing, search and reader settings work fully with JavaScript off, unless Cloudflare's bot protection challenges the reader; small scripts only enhance them (settings without a reload, saving reading position). On the sign-in link's page, a script presses the button for the browser that asked for the link. Forms with a Turnstile check (sign-in, upload, `/remove`, the copyright notice at `/dmca`, and the wait list before launch) need JavaScript, because Turnstile can't produce a token without it; with JS off they say so in a `<noscript>` message |
 | Pagination | Server-side pages with real URLs. No infinite scroll |
 | Branding | The logo is the pinwheel star ✯ (U+272F) before the site name in the header, hidden from assistive technology, and the same star drawn as our own SVG for the browser tab. No AO3 or OTW name, symbols or styling in the UI. Ratings and warnings are text badges, not symbol icons (ARCHITECTURE, opening) |
 | Author identity | No claims, no author accounts, no "my works". Removal and opt-out are a public request form that needs no sign-in (ARCHITECTURE, *Author requests & takedowns*) |
@@ -190,7 +190,7 @@ without it. Elsewhere the
 | Hidden work | `/works/:id`, every chapter URL and `/full` (451) | all | One line naming the cause: "Temporarily hidden after a removal request", "Temporarily hidden after reader reports" or "Temporarily hidden by a moderator", with no details. Left out of search, listings and the home page | — |
 | Removed work | `/works/:id`, every chapter URL and `/full` (410) | all | "This work has been removed", with no details | — |
 | Too many requests | any rate-limited or quota-limited action (429) | all | Plain page saying when to try again, matching `Retry-After` | — |
-| Automated access refused | every chapter URL and `/full`, for a declared automated client or a cross-site subresource request (403) | all | Plain page saying automated access to chapters isn't allowed and that a person seeing this can try another browser or turn off the tool that changed theirs, with no details of the work, and links to the home page and `/about` | — |
+| Automated access refused | every page but the exempt paths, for a declared automated client, and chapter URLs and `/full` for a cross-site subresource request (403) | all | Plain page saying automated access to this site isn't allowed and that a person seeing this can try another browser or turn off the tool that changed theirs, with no details of the work, and links to the home page and `/about` | — |
 | Not found | any (404), including `/admin` for non-moderators and held versions | all | Search box and home link | — |
 
 ## Where the frontend changes the architecture
@@ -260,7 +260,7 @@ decoration in a minimal design. They're bold text with labels spelled out.
   3. fandoms
   4. a summary clamped to 3 lines with CSS `line-clamp`, followed by a
      "more" link to the work page. The full text stays in the HTML for screen
-     readers and search engines
+     readers
   5. tags: relationships first, then characters, then a count of other tags
   6. a stats line: words, chapters (x/y), complete or in progress, last
      updated

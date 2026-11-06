@@ -138,6 +138,8 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - AND the page's content security policy lets it load, with no violation
 
 ### A work page has a card
+A link preview service that identifies itself is refused every page (spec 24, operator ruling 2026-11-06), so these cards reach only clients that aren't refused. They stay because they cost nothing.
+
 - GIVEN a live work with a title, one or more pseuds, a rating, archive warnings and fandoms
 - WHEN its work page is fetched
 - THEN it carries `og:title` (the work's title), `og:description`, `og:site_name` (rarepair), `og:type` (`article`), `og:url` and `twitter:card` (`summary`), and no `og:image`
