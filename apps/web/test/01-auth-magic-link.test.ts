@@ -98,13 +98,13 @@ async function expectTooManyRequests(res: Response): Promise<string> {
 
 const TODAY = sql<string>`(now() at time zone 'utc')::date`;
 
-/** Sets how many sign-in emails `email` has used today, as earlier requests would have. */
-async function setCountToday(email: string, count: number) {
+/** Sets how many sign-in emails `email` has used on a day, as earlier requests would have. */
+async function setCountToday(email: string, count: number, day = TODAY) {
   await db
     .insertInto("sign_in_email_counts")
     .values({
       address_hash: await signInEmailHash(env.IP_HASH_KEY, email),
-      day: TODAY,
+      day,
       count,
     })
     .execute();
@@ -456,15 +456,7 @@ describe("01-auth-magic-link", () => {
 
   it("The count starts again the next day", async () => {
     const email = `daily-${crypto.randomUUID()}@example.test`;
-    const hash = await signInEmailHash(env.IP_HASH_KEY, email);
-    await db
-      .insertInto("sign_in_email_counts")
-      .values({
-        address_hash: hash,
-        day: sql<string>`(now() at time zone 'utc')::date - 1`,
-        count: 5,
-      })
-      .execute();
+    await setCountToday(email, 5, sql<string>`(now() at time zone 'utc')::date - 1`);
 
     const res = await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN });
 
@@ -493,13 +485,8 @@ describe("01-auth-magic-link", () => {
     const res = await postLogin({ email, "cf-turnstile-response": LOGIN_TOKEN });
     expect(res.status).toBe(200);
 
+    // Found under the hash, which ip-hash.node.test.ts pins to a literal.
     expect(await countToday(email)).toBe(1);
-    const held = await db
-      .selectFrom("sign_in_email_counts")
-      .select("address_hash")
-      .where("address_hash", "like", `%${email}%`)
-      .execute();
-    expect(held).toEqual([]);
   });
 
   it("The privacy page says what the daily count keeps", async () => {

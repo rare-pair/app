@@ -26,6 +26,16 @@ const rowsOf = (hash: string) =>
     .where("address_hash", "=", hash)
     .execute();
 
+/** Six requests at once against a limit of 5, each on its own connection, as isolates would be. */
+async function sixAtOnce(hash: string) {
+  const clients = Array.from({ length: 6 }, () =>
+    createDb({ connectionString: t.connectionString, max: 1 }),
+  );
+  const results = await Promise.all(clients.map((db) => countSignInEmail(db, hash, 5)));
+  await Promise.all(clients.map((db) => db.destroy()));
+  return results;
+}
+
 describe("01-auth-magic-link: the daily count", () => {
   it("counts up to the limit, then refuses and changes nothing", async () => {
     const hash = randomUUID();
@@ -57,26 +67,13 @@ describe("01-auth-magic-link: the daily count", () => {
       .values({ address_hash: hash, day: TODAY, count: 4 })
       .execute();
 
-    // Each on its own connection, as separate isolates would be.
-    const clients = Array.from({ length: 6 }, () =>
-      createDb({ connectionString: t.connectionString, max: 1 }),
-    );
-    const results = await Promise.all(clients.map((db) => countSignInEmail(db, hash, 5)));
-    await Promise.all(clients.map((db) => db.destroy()));
-
-    expect(results.filter(Boolean)).toHaveLength(1);
+    expect((await sixAtOnce(hash)).filter(Boolean)).toHaveLength(1);
     expect(await rowsOf(hash)).toEqual([{ count: 5 }]);
   });
 
   it("parallel first requests of a day make one row and count each", async () => {
     const hash = randomUUID();
-    const clients = Array.from({ length: 6 }, () =>
-      createDb({ connectionString: t.connectionString, max: 1 }),
-    );
-    const results = await Promise.all(clients.map((db) => countSignInEmail(db, hash, 5)));
-    await Promise.all(clients.map((db) => db.destroy()));
-
-    expect(results.filter(Boolean)).toHaveLength(5);
+    expect((await sixAtOnce(hash)).filter(Boolean)).toHaveLength(5);
     expect(await rowsOf(hash)).toEqual([{ count: 5 }]);
   });
 

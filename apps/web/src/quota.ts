@@ -35,12 +35,12 @@ export function limitFor(
     : lower;
 }
 
-/**
- * The most sign-in emails one address may be sent in a UTC day (`countSignInEmail` in
- * @archive/db). A missing or misspelt `LOGIN_EMAIL_QUOTA` gives 5: a bad var never turns it off.
- */
+/** Used when `LOGIN_EMAIL_QUOTA` is missing or misspelt: a bad var never turns the cap off. */
+const DEFAULT_SIGN_IN_EMAIL_LIMIT = 5;
+
+/** The most sign-in emails one address may be sent in a UTC day (`countSignInEmail` in @archive/db). */
 export function signInEmailLimit(vars: { LOGIN_EMAIL_QUOTA?: string }): number {
-  return limitOf(vars.LOGIN_EMAIL_QUOTA, 5);
+  return limitOf(vars.LOGIN_EMAIL_QUOTA, DEFAULT_SIGN_IN_EMAIL_LIMIT);
 }
 
 /** Whole seconds to the next midnight UTC, rounded up: the quota's reset, and `Retry-After`. */
