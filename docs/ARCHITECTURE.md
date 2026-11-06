@@ -1003,8 +1003,16 @@ origin. Work pages, listings and search stay open, so people can still find work
   edge cache.
 - **Using the link.** The email links to our `GET /login/confirm?token=…`,
   which shows a "Sign in" button: a POST form that uses nothing up. Mail
-  scanners that open links in advance therefore can't burn it.
-  `POST /login/confirm` calls `auth.api.magicLinkVerify`, which redirects to
+  scanners that open links in advance therefore can't burn it. For an unused,
+  unexpired token the page also names the account, masked ("Sign in as
+  j***@example.com": the first character, three stars and the domain, all
+  lowercased), so someone sent a link for another person's account can see it
+  isn't theirs. The address comes from the token's own row, read directly with one
+  select: no write, no path through Better Auth's clean-up delete, and no read of
+  `user`, so the page doesn't say whether an account exists. An unknown, used or
+  expired token gets the same page with no address. Anyone holding the link sees
+  the masked form, and each open, a scanner's included, costs one database read;
+  the operator accepted both (#615, question 1 of #242). `POST /login/confirm` calls `auth.api.magicLinkVerify`, which redirects to
   `next` with the session cookie. A used, expired or unknown link is
   redirected to `/login` with a plain message. Every answer of the POST's route,
   a refusal or a fault included, clears the marker. Before launch sign-in is

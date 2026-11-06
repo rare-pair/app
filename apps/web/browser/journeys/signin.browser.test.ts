@@ -132,6 +132,7 @@ describe("sign-in journey", () => {
     site.dropRecording(other);
     await openLink(other, link);
     await other.getByRole("button", { name: "Sign in" }).waitFor();
+    await other.getByText("Sign in as p***@example.test").waitFor();
     expect(other.url()).toContain("/login/confirm");
     expect(await tokens()).toEqual(issued);
     await other.close();

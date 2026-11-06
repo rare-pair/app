@@ -256,10 +256,15 @@ const submitConfirmForm = (nonce: string) =>
  * is no script. Either way it works with JavaScript off. `next` is already reduced to
  * a same-site path.
  */
-export const confirmPage = (token: string, next: string, submitNonce?: string) =>
+export const confirmPage = (
+  token: string,
+  next: string,
+  maskedAddress: string | null,
+  submitNonce?: string,
+) =>
   layout(
     "Sign in",
-    `<form method="post" action="/login/confirm">
+    `${maskedAddress === null ? "" : `<p>Sign in as ${escapeHtml(maskedAddress)}</p>\n`}<form method="post" action="/login/confirm">
 <input type="hidden" name="token" value="${escapeHtml(token)}">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
 <button type="submit">Sign in</button>

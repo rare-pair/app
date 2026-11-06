@@ -86,6 +86,21 @@ Relates to: docs/ARCHITECTURE.md § Auth (magic link: Better Auth + Resend), § 
 - THEN the page shows a "Sign in" button in a POST form
 - AND the token is still unused and no session is created
 
+### The button page names the account, masked
+- GIVEN an unused token issued to `Jane.Doe@Example.com`
+- WHEN its link is opened in a browser with no sign-in marker
+- THEN the page says "Sign in as j***@example.com" above the button: the first character of the local part, three stars whatever the local part's length, then the domain, all lowercased
+- AND a one-character local part looks the same, so `j@example.com` also shows `j***@example.com`
+- AND the page says the same whether or not the address has an account
+- AND the full address isn't in the page, its attributes, the URL or any log
+- AND opening the page reads the token's row directly and writes nothing: no clean-up delete of expired rows
+
+### An unknown, used or expired token shows nothing about any account
+- GIVEN a token that was never issued, a malformed one, a used one or an expired one
+- WHEN its link is opened
+- THEN the page is the same in every case, apart from the token in its form, and names no address
+- AND pressing the button is refused as today: a redirect to `/login` with the plain message
+
 ### The browser that asked for the link signs in without a press
 - GIVEN a browser whose `POST /login` was accepted, which still holds the marker, and an unused token
 - WHEN it opens the emailed link with JavaScript on
