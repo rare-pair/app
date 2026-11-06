@@ -148,10 +148,12 @@
   ],
   // Invocation logs are off: a reading URL carries the AO3 work id and chapter number. Errors and
   // metrics stay on, and the console lines the code logs on purpose, each refusal's reason line included, are expected to be kept
-  // (not yet verified on the platform; ARCHITECTURE, Observability). Traces are not set here: whether they go on is the operator's call (#620).
+  // (not yet verified on the platform; ARCHITECTURE, Observability). Traces are off too: a handler span records the URL, which holds the work id and chapter.
+  // To trace a live fault, set traces.enabled to true and deploy, then set it back to false (ARCHITECTURE, Observability).
   "observability": {
     "enabled": true,
     "logs": { "enabled": true, "invocation_logs": false },
+    "traces": { "enabled": false },
   },
   "vars": {
     // "on" until the archive opens (ARCHITECTURE, Wait list): / is the coming-soon
