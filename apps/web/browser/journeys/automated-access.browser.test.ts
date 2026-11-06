@@ -57,7 +57,7 @@ describe("automated access journey", () => {
     // extensions run in the browser on this same text, and can't be driven from here.
     await expect.poll(() => text.isVisible()).toBe(true);
     expect(await page.getByRole("main").ariaSnapshot()).toContain(TEXT);
-    expect(await page.evaluate((word) => window.find(word), TEXT)).toBe(true);
+    expect(await page.evaluate(`window.find(${JSON.stringify(TEXT)})`)).toBe(true);
     await page.emulateMedia({ media: "print" });
     expect(await text.isVisible()).toBe(true);
   });
