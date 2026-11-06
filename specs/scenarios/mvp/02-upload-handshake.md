@@ -125,6 +125,7 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 - GIVEN an open upload whose file has arrived, not yet confirmed
 - WHEN another file is sent to it
 - THEN the response is 409, and the first file and the row are untouched
+- AND a second send that is refused for its headers, or fails, ends the upload like any failed send, its first file included: it can only come from the uploader, who is told to upload again
 
 ### A file sent to an upload that has ended stores nothing
 - GIVEN an upload that is `duplicate`, `too_large`, `over_quota`, `processing` or `live`, or that a confirm has counted
@@ -145,6 +146,11 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 - GIVEN a file just finishing on its way to an open upload
 - WHEN a confirm counts the upload before the Worker looks at the row again
 - THEN the object stays, for ingest to read
+
+### A slow file that arrives after ingest has finished its upload keeps no object
+- GIVEN two PUTs to one upload, one still arriving when the other has been stored, confirmed and ingested
+- WHEN the slow one finishes
+- THEN the response is 409 and no object is left, since nothing will read it
 
 ### Whether real R2 does all this is checked after deploy
 - GIVEN the web Worker deployed on real R2, none of which a local test can show

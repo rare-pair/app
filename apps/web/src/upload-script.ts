@@ -20,6 +20,7 @@ export const UPLOAD_SCRIPT = `"use strict";
   const MAX_FILES = ${MAX_BATCH_FILES};
   const AT_ONCE = 3;
   const STALL_MS = 120000;
+  const REPORT_MS = 10000;
   // Files already uploaded and confirmed, so a second click, to retry the rest, skips them.
   const finished = new Set();
   const input = document.getElementById("file");
@@ -73,20 +74,31 @@ export const UPLOAD_SCRIPT = `"use strict";
           row.bar.value = event.loaded;
         }
       };
-      const end = (ok) => {
+      const end = (ok, error) => {
         clearTimeout(watchdog);
-        resolve(ok);
+        resolve({ ok, error });
       };
-      xhr.onload = () => end(xhr.status >= 200 && xhr.status < 300);
+      const reason = () => {
+        try {
+          return JSON.parse(xhr.responseText).error;
+        } catch {
+          return undefined;
+        }
+      };
+      xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? end(true) : end(false, reason()));
       xhr.onerror = () => end(false);
       xhr.onabort = () => end(false);
       xhr.ontimeout = () => end(false);
       xhr.send(file);
     });
 
-  // Tells the server an upload failed, so its slot is free for the next click. If this fails
-  // too, the server's daily clean-up has it.
-  const report = (id) => fetch(pathOf(id), { method: "DELETE" }).catch(() => undefined);
+  // Tells the server an upload failed, so its slot is free for the next click. On a network that
+  // has just failed this may hang, so it isn't waited on for long. If it fails too, the server's
+  // daily clean-up has it.
+  const report = (id) =>
+    fetch(pathOf(id), { method: "DELETE", signal: AbortSignal.timeout(REPORT_MS) }).catch(
+      () => undefined,
+    );
 
   const confirm = async (file, id, row) => {
     row.note.textContent = "Checking the file.";
@@ -97,6 +109,8 @@ export const UPLOAD_SCRIPT = `"use strict";
       if (res.ok && body.status === "duplicate") row.note.textContent = "We already have this one.";
       else if (res.ok) row.note.textContent = "Uploaded. It will appear once it has been checked.";
       else row.note.textContent = body.error || "Something went wrong. Please try again.";
+      // A fault may have come from the edge, with the Worker's own clean-up never run.
+      if (res.status >= 500) await report(id);
     } catch {
       row.note.textContent = "Something went wrong. Please try again.";
       // The server may never have heard of this confirm. One it did count, it keeps.
@@ -169,8 +183,9 @@ export const UPLOAD_SCRIPT = `"use strict";
     await runAtOnce(
       toSend.map(({ file, row }, i) => async () => {
         row.note.textContent = "Uploading.";
-        if (!(await put(file, granted[i].id, row))) {
-          row.note.textContent = "The upload didn't finish. Please try again.";
+        const sent = await put(file, granted[i].id, row);
+        if (!sent.ok) {
+          row.note.textContent = sent.error || "The upload didn't finish. Please try again.";
           await report(granted[i].id);
           return;
         }

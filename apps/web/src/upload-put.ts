@@ -144,10 +144,11 @@ async function store(
       return "failed";
     }
     // The row was checked before the bytes arrived, and a ban, the reaper or a confirm finding
-    // no file can have ended it since. Then the object has no row to answer for it. A counted
-    // upload is different: a confirm has read this object, and it is ingest's.
+    // no file can have ended it since. Then the object has no row to answer for it, and nothing
+    // reads it. A `pending` or `processing` row is different: if a confirm has counted it, this
+    // object is ingest's.
     const now = await getUploadOf(db, upload.id, userId);
-    if (now === null || (now.status !== "pending" && now.quota_counted_at === null)) {
+    if (now === null || (now.status !== "pending" && now.status !== "processing")) {
       await deleteObject(bucket, upload.r2_key);
       return "ended";
     }

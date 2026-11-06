@@ -151,7 +151,7 @@ export async function completeUpload(c: CompleteContext) {
           await freeUpload(db, c.env.BUCKET, upload.id, user.id);
         } catch (refundError) {
           console.error(
-            "refunding the quota failed",
+            "giving back a failed send's upload failed",
             refundError instanceof Error ? refundError.name : "unknown",
           );
         }

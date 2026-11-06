@@ -411,6 +411,20 @@ describe("02-upload-handshake", () => {
     expect(res.status).toBe(200);
     expect((await env.BUCKET.head(up.key))?.size).toBe(10);
   });
+
+  it("A slow file that arrives after ingest has finished its upload keeps no object", async () => {
+    const { userId, cookie } = await signIn("upslot-after-ingest");
+    const up = await opened(userId, 10);
+    const res = await endingMidway(cookie, up.id, () =>
+      db
+        .updateTable("uploads")
+        .set({ status: "live", quota_counted_at: new Date() })
+        .where("id", "=", up.id)
+        .execute(),
+    );
+    await expectRefused(res, 409);
+    expect(await env.BUCKET.head(up.key)).toBeNull();
+  });
 });
 
 describe("19-surge-controls-and-quotas", () => {

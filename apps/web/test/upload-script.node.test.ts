@@ -47,6 +47,7 @@ class FakeXhr {
   headers: Record<string, string> = {};
   sent: Fake | null = null;
   status = 0;
+  responseText = "";
   upload = new FakeUpload();
   onload?: () => void;
   onerror?: () => void;
@@ -123,6 +124,7 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
     },
     XMLHttpRequest: FakeXhr,
     URLSearchParams,
+    AbortSignal,
     turnstile,
   };
   // The script reaches Turnstile as window.turnstile; the page's globals are the same object.
@@ -359,20 +361,53 @@ describe("02-upload-handshake", () => {
     expect(p.reported).toEqual(["/uploads/up-1"]);
   });
 
-  it("A confirm the server refuses isn't reported: the server has freed it already", async () => {
+  it("A confirm the server refuses isn't reported: the server has settled it", async () => {
     const p = page(
       [epub(1)],
       [
         () => ({ status: 200, body: { id: "up-1" } }),
-        () => ({ status: 503, body: { error: "We couldn't queue that file just now." } }),
+        () => ({ status: 400, body: { error: "That file didn't finish uploading." } }),
       ],
     );
     const clicked = p.click();
     await p.flush();
     done(FakeXhr.all[0]!);
     await clicked;
-    expect(note(p.rows()[0]!)).toMatch(/couldn't queue/);
+    expect(note(p.rows()[0]!)).toMatch(/didn't finish/);
     expect(p.reported).toEqual([]);
+  });
+
+  it("A confirm that ends in a server fault is reported: the Worker may never have freed it", async () => {
+    const p = page(
+      [epub(1)],
+      [() => ({ status: 200, body: { id: "up-1" } }), () => ({ status: 502, body: {} })],
+    );
+    const clicked = p.click();
+    await p.flush();
+    done(FakeXhr.all[0]!);
+    await clicked;
+    expect(note(p.rows()[0]!)).toMatch(/try again/);
+    expect(p.reported).toEqual(["/uploads/up-1"]);
+  });
+
+  it("A refused transfer shows the server's reason", async () => {
+    const p = page([epub(1)], [() => ({ status: 200, body: { id: "up-1" } })]);
+    const clicked = p.click();
+    await p.flush();
+    FakeXhr.all[0]!.responseText = JSON.stringify({ error: "This account can't upload." });
+    done(FakeXhr.all[0]!, 403);
+    await clicked;
+    expect(note(p.rows()[0]!)).toBe("This account can't upload.");
+  });
+
+  it("A transfer answered with no JSON still says to try again", async () => {
+    const p = page([epub(1)], [() => ({ status: 200, body: { id: "up-1" } })]);
+    const clicked = p.click();
+    await p.flush();
+    FakeXhr.all[0]!.responseText = "<html>Bad gateway</html>";
+    done(FakeXhr.all[0]!, 502);
+    await clicked;
+    expect(note(p.rows()[0]!)).toMatch(/try again/);
   });
 
   it("A transfer that stops moving is ended, and one that moves is not", async () => {
