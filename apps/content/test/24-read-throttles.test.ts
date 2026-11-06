@@ -19,8 +19,10 @@ const EPUB = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 9, 9, 9, 9]);
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9, 9, 9]);
 const IMAGE = `works/${W}/img/${"b".repeat(64)}`;
 // As wrangler.jsonc sets them, so a new period there can't leave Retry-After behind unseen.
-const [, ORIGINAL_LIMIT = 0, WINDOW_SECONDS = 0] =
-  wrangler.match(/"limit": (\d+), "period": (\d+)/)?.map(Number) ?? [];
+const configured = /"ORIGINAL_LIMIT"[^}]*"limit": (\d+), "period": (\d+)/.exec(wrangler);
+if (configured === null) throw new Error("wrangler.jsonc has no ORIGINAL_LIMIT");
+const ORIGINAL_LIMIT = Number(configured[1]);
+const WINDOW_SECONDS = Number(configured[2]);
 
 let original = "";
 let cachedOriginal = "";
