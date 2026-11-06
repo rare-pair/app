@@ -27,7 +27,7 @@ Defaults taken where the rulings left a detail open, which the operator can chan
 - The report link keeps its `next`, since `requireSignIn` runs before any work is read. A signed-out visitor who reports a gated work gets a sign-in link naming it. Reporting is their own choice, and it needs no gate.
 - Positions saved before the gate, or before a work became gated, aren't deleted. Nothing reads them while the work is gated, and they expire within a year or go with the account. If a rating is later lowered, the Continue link comes back.
 - An NSFW mark belongs to the work, not a version, so a new version or a rollback keeps it. Without that, an upload could undo a moderator's decision.
-- A moderator's "Not NSFW" stops further reports gating the work until a moderator changes it, so the same accounts can't gate it again. It can't open a work that its rating or warnings gate.
+- A moderator's "Not NSFW" can't open a work that its rating or warnings gate. It lifts only the mark, so 3 new reports can gate the work again. Making it stick is backlogged in specs/scenarios/later/10-nsfw-clear-sticks.md.
 
 Accepted unless the operator says otherwise, each a direct cost of using this sign-in:
 
@@ -61,7 +61,7 @@ Rejected: a signature in each image URL breaks the one fragment every reader sha
 
 - `NSFW_GATE` is a setting on the web and content Workers. The gate is on unless it says `off`, the same reading as `PRELAUNCH`, so a typo can't open it. Every case but those under "Turning it on" has it on, and `PRELAUNCH` off
 - A **gated work** is a work rated Mature or Explicit, after trimming and ignoring case, or carrying the archive warning Rape/Non-Con or Underage, compared in their normalized form, or holding an NSFW mark of `reported` or `confirmed`. AO3 has also spelled the second warning "Underage Sex", and the list holds both
-- A work's **NSFW mark** is a column on `works`: none, `reported` (3 accounts reported it), `confirmed` (a moderator marked it) or `cleared` (a moderator said it isn't NSFW)
+- A work's **NSFW mark** is a column on `works`: none, `reported` (3 accounts reported it) or `confirmed` (a moderator marked it)
 - Live works, each with 5 chapters and an image:
   - E rated Explicit
   - M rated Mature
@@ -563,13 +563,13 @@ The reason sits on the existing report form, with its account, ban, block and cl
 #### A moderator clears
 - GIVEN work G with a `reported` mark and open `nsfw` reports
 - WHEN a moderator uses "Not NSFW"
-- THEN the mark becomes `cleared`, every open `nsfw` report on G is closed, one moderation log row records it, and G is open again within the usual windows
+- THEN the mark is lifted, every open `nsfw` report on G is closed, one moderation log row records it, and G is open again within the usual windows
 - AND no purge is sent: a stored file marked gated is checked again for a request with no pass, as under "Images"
 
-#### A cleared work stays open whatever is reported
-- GIVEN work G with a `cleared` mark
-- WHEN three more accounts report it
-- THEN the reports are stored and listed for a moderator, and G's mark doesn't change
+#### New reports can gate a cleared work again
+- GIVEN work G whose mark a moderator lifted, so its earlier reports are closed and don't count
+- WHEN three accounts report it again
+- THEN it is gated again, as under "Reports from three accounts gate the work"
 
 #### A moderator can act without a report
 - GIVEN any live work, on its admin page
@@ -578,9 +578,9 @@ The reason sits on the existing report form, with its account, ban, block and cl
 - AND "Not NSFW" on a work rated Explicit changes the mark only, and the page says the work stays gated by its rating or warnings
 
 #### A mark outlives a version
-- GIVEN work G with a `confirmed` mark, and a work with a `cleared` mark
+- GIVEN work G with a `confirmed` mark
 - WHEN a new version goes live, or a moderator makes an older version current
-- THEN each mark stays as it was
+- THEN the mark stays as it was
 
 #### While the gate is off
 - GIVEN `NSFW_GATE` is `off`
