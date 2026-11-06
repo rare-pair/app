@@ -1,5 +1,9 @@
 import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import { SESSION_COOKIE } from "../src/auth";
+import { FLASH_COOKIE, SETTINGS_COOKIE } from "../src/reader-settings";
+import { LINK_LIFETIME_MINUTES } from "../src/signin";
+import { WARNED_COOKIE } from "../src/warnings";
 
 const BASE = "https://rarepair.fans";
 // SAFETY: the default export is the Worker under test, loaded from wrangler.jsonc's main.
@@ -97,6 +101,35 @@ describe("20-site-chrome-and-legal", () => {
     expect(privacy).toContain(
       "Asking for a sign-in link sets a short-lived cookie that holds nothing about you.",
     );
+  });
+
+  it("The privacy page lists every cookie and what it is for", async () => {
+    const privacy = await htmlOf("/privacy");
+    const section = privacy.slice(privacy.indexOf("<h2>Cookies</h2>"));
+    expect(privacy).toContain("<h2>Cookies</h2>");
+    expect(section).toMatch(/None is for advertising or analytics/);
+    for (const name of [
+      SESSION_COOKIE,
+      "__Host-signin-pending",
+      SETTINGS_COOKIE,
+      WARNED_COOKIE,
+      FLASH_COOKIE,
+      "__cf_bm",
+      "cf_clearance",
+    ]) {
+      expect(section).toContain(`<code>${name}</code>`);
+    }
+    expect(section).toMatch(/lasts 7 days/);
+    expect(section).toMatch(/lasts a year/);
+    expect(section).toMatch(/ends when you close your browser/);
+    expect(section).toContain(`at most ${LINK_LIFETIME_MINUTES} minutes`);
+  });
+
+  it("The terms apply to everyone who uses the site", async () => {
+    const terms = await htmlOf("/terms");
+    expect(terms).toContain("By using this site you agree to these terms.");
+    expect(terms).toContain("New accounts are also asked to accept them once.");
+    expect(terms).not.toContain("By creating an account you agree");
   });
 
   it("The privacy page says requester data is kept until the site closes", async () => {
