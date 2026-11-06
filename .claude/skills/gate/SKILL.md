@@ -101,7 +101,7 @@ The parser and sanitizer are the security boundary (ARCHITECTURE, *Sanitizing*).
 
 ### content — `apps/content` changed
 
-- It serves images and original downloads only. Its `robots.txt` comes with #570. It never serves `text/html`.
+- It serves images, original downloads and its `robots.txt` only. It never serves `text/html`.
 - No response sets a cookie. Every response sends `X-Content-Type-Options: nosniff`. Downloads send `Content-Disposition: attachment`.
 - No response is `Cache-Control: immutable`, because these files can go away (ARCHITECTURE, *Edge cache*). A removed work's paths return 404 after removal.
 

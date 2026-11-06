@@ -1,4 +1,5 @@
 import { createDb, getImageAccess, getOriginalAccess, type ContentAccess } from "@archive/db";
+import { declaredClient, isCrossSiteSubresource } from "@archive/traffic";
 
 export interface Env {
   BUCKET: R2Bucket;
@@ -36,17 +37,29 @@ const ORIGINAL = new RegExp(`^/originals/${SEGMENT}$`);
 // Ingest stores only these image types (ARCHITECTURE, EPUB processor step 6).
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
+// What every response says about indexing, archiving and use for AI (ARCHITECTURE, Signals). It
+// is set on the way out, so a cached entry stored without it goes out with it.
+const ROBOTS_TAG = "noindex, noarchive, noai, noimageai";
+
 /**
  * Every response this Worker returns, errors included, goes out through here with
- * `nosniff` (error pages the platform itself generates never reach this code). Its headers
+ * `nosniff` and the robots tag (error pages the platform itself generates never reach this code). Its headers
  * are only this module's literals, so none sets a cookie; cookies a zone feature adds
  * after the Worker are kept off this host by zone config (ARCHITECTURE, Hosts).
  */
 function respond(body: BodyInit | null, status: number, headers: Record<string, string> = {}) {
   const h = new Headers(headers);
   h.set("X-Content-Type-Options", "nosniff");
+  h.set("X-Robots-Tag", ROBOTS_TAG);
   return new Response(body, { status, headers: h });
 }
+
+// The same file the app serves (ARCHITECTURE, Crawlers and agents); a Worker can't reach another's
+// src, so it is written here too.
+const ROBOTS_TXT = `User-agent: *
+Disallow: /
+Content-Signal: search=no, ai-input=no, ai-train=no
+`;
 
 // Requests the cache would answer differently from the Worker (206, 304): they skip it.
 const BYPASS_HEADERS = [
@@ -143,14 +156,34 @@ async function readAccess(
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    if (request.method !== "GET" && request.method !== "HEAD") {
+    const path = new URL(request.url).pathname;
+    const isRead = request.method === "GET" || request.method === "HEAD";
+    // The one path open to a declared client, so it comes first, and only in this one spelling.
+    if (isRead && path === "/robots.txt" && !request.url.includes("?")) {
+      return respond(ROBOTS_TXT, 200, {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": BROWSER_CACHE_CONTROL,
+      });
+    }
+    // Ahead of everything that depends on the path or a file, so the 403 shows nothing of which
+    // files exist. Only originals have the cross-site check: images aren't throttled (spec 24).
+    const reason =
+      declaredClient(request.headers) ??
+      (ORIGINAL.test(path) && isCrossSiteSubresource(request.headers)
+        ? "cross-site subresource"
+        : null);
+    if (reason !== null) {
+      // The whole line: the reason and nothing else, since a URL or address has no place in it.
+      console.log(`refused: ${reason}`);
+      return respond(null, 403, { "Cache-Control": "no-store" });
+    }
+    if (!isRead) {
       return respond(null, 405, { Allow: "GET, HEAD", "Cache-Control": "no-store" });
     }
     // A query string, even an empty one (`search` is "" for a bare "?"), would make a
     // second cacheable URL for the same bytes, one that a purge of the bare URL on
     // removal would miss, so only bare paths are served.
     if (request.url.includes("?")) return notFound();
-    const path = new URL(request.url).pathname;
     const isImage = IMAGE.test(path);
     const isOriginal = ORIGINAL.test(path);
     if (!isImage && !isOriginal) return notFound();

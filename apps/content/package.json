@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@archive/db": "*",
+    "@archive/traffic": "*",
     "kysely": "^0.29.7"
   },
   "devDependencies": {
