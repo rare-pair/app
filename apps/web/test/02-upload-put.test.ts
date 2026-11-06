@@ -416,7 +416,7 @@ describe("02-upload-handshake", () => {
   async function endingMidway(
     cookie: string,
     id: string,
-    meanwhile: () => Promise<object | string>,
+    meanwhile: () => Promise<object | string | null>,
   ): Promise<Response> {
     const body = heldBody();
     const sent = putRaw(id, body.stream, { cookie, "content-length": "10" });
