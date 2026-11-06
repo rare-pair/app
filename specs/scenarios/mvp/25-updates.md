@@ -7,9 +7,9 @@ Updates are short posts from the operator: release notes first, and news later. 
 ## Setup
 - Updates are one list in the web Worker's code, with no database table, migration or admin page. Adding one is a code change and a deploy
 - Each update has a slug, a title, a summary, an author, a created date and a body. The title, summary and author are plain text, and the created date is a calendar date with no time
-- A post's address is `/updates/:slug`
+- A post's address is `/updates/:slug`. A slug is lowercase letters, digits and hyphens
 - Dates show as `YYYY-MM-DD`, as work cards and work pages show them
-- Updates A, B, C and D, created in that order on four different days, unless a case says otherwise
+- Updates A, B, C and D, created in that order on four different days, unless a case says otherwise. Those cases give the page code its list in a test, so A to D never join the real list
 - The first real update:
   - Slug: `release-0-1-0-chuhura`
   - Title: `rarepair v0.1.0 "Chuhura"`
@@ -19,6 +19,11 @@ Updates are short posts from the operator: release notes first, and news later. 
   - Body: docs/release-notes/v0.1.0.md, everything below its title line
 
 ## Cases
+
+### Every update in the real list is complete
+- GIVEN the real list of updates
+- WHEN the standing checks run
+- THEN they fail, naming the entry, if a field is empty, a slug is repeated or badly formed, or a created date isn't a real calendar date
 
 ### The home page shows the latest updates, newest first
 - GIVEN updates A, B, C and D
@@ -91,13 +96,14 @@ Updates are short posts from the operator: release notes first, and news later. 
 ### Posts are in the page inventory
 - GIVEN the browser suite's page inventory and its crawl
 - WHEN they run
-- THEN `release-0-1-0-chuhura` is in the inventory, and the crawl reaches it by the home page's card
+- THEN the newest update is in the inventory, and the crawl reaches it by the home page's card
 
 ### The first update's text is the operator's own
 - GIVEN the post `release-0-1-0-chuhura`
 - WHEN its text is compared with docs/release-notes/v0.1.0.md
 - THEN every word, emoji and link matches, including the spelling and punctuation in "The long of it", "Some promises" and the rest of the operator's copy
 - AND nobody corrects that copy in proofing, review or a follow-up, because the typos are part of the operator's voice
+- AND a change to the notes changes the post in the same PR, so that PR's gate runs the web protocol and this comparison
 - AND the page has no "Draft: this text has not been proofread yet" line
 
 ### Branding holds in the first update
@@ -107,7 +113,7 @@ Updates are short posts from the operator: release notes first, and news later. 
 
 ### An unknown slug is not found
 - GIVEN no update with the slug `nope`
-- WHEN a visitor opens `/updates/nope`
+- WHEN a visitor opens `/updates/nope`, `/updates/constructor` or `/updates/__proto__`
 - THEN the answer is the 404 not-found page
 
 ### No list page yet
@@ -139,3 +145,5 @@ Updates are short posts from the operator: release notes first, and news later. 
 
 ## Before launch
 The first update's "Bots and crawlers" section describes specs/scenarios/mvp/24-crawler-and-agent-blocking.md, and it says what those protections do as fact. As spec 24 says of the About section, this text must not go live before them. A post is closed until launch, so this holds if launch waits for them. If any of them won't make launch, the operator changes docs/release-notes/v0.1.0.md and the post with it.
+
+The first update's created date is set when this is built, and launch can move after that. If it does, the date changes and deploys before `PRELAUNCH` goes off.
