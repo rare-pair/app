@@ -31,7 +31,7 @@ an unofficial stopgap.
 | Wait list | Before launch, `/` is a coming-soon page with a double opt-in wait list. Each confirmed address is sent one launch email, from the same mail subdomain as sign-in, spread over hours on its own queue. The list is deleted after the launch send |
 | Sign-in emails per day | One address gets at most 5 sign-in emails a UTC day, counted in Postgres under a keyed hash, with no merging of `+tag` or dot spellings. The count fails open, and a failed send isn't given back. See Surge controls (operator ruling, 2026-11-05) |
 | Requester data | What a requester sends with a removal or opt-out request (email address, hashed network address, statement), and a requester block's email and hash, is kept until the site closes, then deleted by hand. It is not erased on request. There is no retention sweep job and no migration for it. The only delete of a request's row is the rollback when its confirmation email cannot be queued. A copyright notice, with its sender's contact details and signature, follows the same rule (operator ruling, 2026-11-05). Account data is not covered: see Account deletion. |
-| Account deletion | Someone asks at admin@rarepair.fans and the operator runs a script: no self-service button and no form (operator ruling, 2026-11-05). It removes the account, its sessions and its saved reading positions, bar one saved in the last moments, which expires within a year. Upload rows stay with no user attached, and works and versions stay public. The script refuses a banned account, because the ban would go with the row (pending the operator's ruling, wave 11). See Auth, Deleting an account |
+| Account deletion | Someone asks at admin@rarepair.fans and the operator runs a script: no self-service button and no form (operator ruling, 2026-11-05). It removes the account, its sessions and its saved reading positions, bar one saved in the last moments, which expires within a year. Upload rows stay with no user attached, and works and versions stay public. The script refuses a banned account, because the ban would go with the row (operator ruling, 2026-11-06). Before running it the operator replies from admin@rarepair.fans to the account's address and waits for an answer. The request email stays in the mailbox until the site closes, like requests and notices. See Auth, Deleting an account |
 
 ## System overview
 
@@ -1216,7 +1216,10 @@ content origin, also have the throttles and the cross-site check below.
 
 A request reaches the operator at admin@rarepair.fans, and the privacy page says
 so. There is no self-service button and no form. The operator checks the request
-came from the address, then runs `scripts/account-delete.mjs <address>` locally:
+came from the address, then replies from admin@rarepair.fans to the account's address
+and waits for an answer (operator ruling, 2026-11-06). Only then does the operator run
+`scripts/account-delete.mjs <address>` locally. The request email stays in the
+mailbox until the site closes, like requests and notices, and then is deleted.
 
 ```
 DATABASE_URL=... CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... \
