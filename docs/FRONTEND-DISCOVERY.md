@@ -190,7 +190,7 @@ without it. Elsewhere the
 | Hidden work | `/works/:id`, every chapter URL and `/full` (451) | all | One line naming the cause: "Temporarily hidden after a removal request", "Temporarily hidden after reader reports" or "Temporarily hidden by a moderator", with no details. Left out of search, listings and the home page | — |
 | Removed work | `/works/:id`, every chapter URL and `/full` (410) | all | "This work has been removed", with no details | — |
 | Too many requests | any rate-limited or quota-limited action (429) | all | Plain page saying when to try again, matching `Retry-After` | — |
-| Automated access refused | every chapter URL and `/full`, for a declared automated client or a cross-site subresource request (403) | all | Plain page saying automated access to chapters isn't allowed and that a person seeing this can try another browser or turn off the tool that changed theirs, with no details of the work, and links to the home page and `/about` | — |
+| Automated access refused | every page but the exempt paths, for a declared automated client, and chapter URLs and `/full` for a cross-site subresource request (403) | all | Plain page saying automated access to this site isn't allowed and that a person seeing this can try another browser or turn off the tool that changed theirs, with no details of the work, and links to the home page and `/about` | — |
 | Not found | any (404), including `/admin` for non-moderators and held versions | all | Search box and home link | — |
 
 ## Where the frontend changes the architecture
@@ -260,7 +260,7 @@ decoration in a minimal design. They're bold text with labels spelled out.
   3. fandoms
   4. a summary clamped to 3 lines with CSS `line-clamp`, followed by a
      "more" link to the work page. The full text stays in the HTML for screen
-     readers and search engines
+     readers
   5. tags: relationships first, then characters, then a count of other tags
   6. a stats line: words, chapters (x/y), complete or in progress, last
      updated

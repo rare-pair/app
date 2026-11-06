@@ -280,7 +280,7 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author ident
 ### Search engines are asked to leave the lists out
 - GIVEN any visitor
 - WHEN they open `/removed` or `/removed/pseuds`
-- THEN the response carries `X-Robots-Tag: noindex`
+- THEN the response carries an `X-Robots-Tag` that includes `noindex`, as every page does (spec 24)
 
 ### Removed work pages show no reason
 - GIVEN W removed and listed

@@ -17,7 +17,7 @@ Relates to: docs/ARCHITECTURE.md § System overview, § Why these pieces (Two la
 ### Content origin sets no cookies
 - GIVEN any request to `content.rarepair.fans` for an image or original download
 - WHEN the response is returned
-- THEN it has no `Set-Cookie` header
+- THEN it has no `Set-Cookie` header from the Worker. Bot Fight Mode, at the zone, may add its own (spec 24)
 
 ### App session cookie is not sent to the content origin
 - GIVEN a signed-in user whose session cookie is scoped to `rarepair.fans`
