@@ -176,6 +176,8 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 - WHEN M uses the ban uploader action
 - THEN Z's `banned_at` is set
 - AND Z can no longer upload or report
+- AND a file Z sends to an upload written after the ban is refused with 403, stores nothing and ends that upload `account_banned`, and a confirm of it does the same and deletes its file
+- AND a confirm of an upload the ban ended answers 409 and deletes its file
 - AND Z's live works and finished uploads stay as they are until a moderator acts on them
 - AND Z's pending uploads end `account_banned`, and so do processing ones ingest has not yet saved or refused for another reason
 

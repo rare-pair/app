@@ -9,14 +9,13 @@ import { CONTENT_HOST } from "../../src/content-host";
 import { SITE } from "../../src/signin";
 import { DUMMY_TOKEN } from "../../test/stand-ins";
 import { cleanCheck, type CleanOptions } from "./clean";
-import { R2_HOST } from "./r2-put";
 import { recorderFromEnv, slowMoFromEnv } from "./recording";
 import { startWorker } from "./worker";
 
 /** Where the browser visits: the real site's origin, mapped to the local Worker. */
 export { SITE };
-/** The hosts Chromium resolves to Miniflare: web, content, and the stand-in for R2's endpoint. */
-const LOCAL_HOSTS = [new URL(SITE).host, CONTENT_HOST, R2_HOST];
+/** The hosts Chromium resolves to Miniflare: web and content. */
+const LOCAL_HOSTS = [new URL(SITE).host, CONTENT_HOST];
 // Stood in for in the browser, never fetched.
 const TURNSTILE_SCRIPT = "https://challenges.cloudflare.com/turnstile/v0/api.js";
 const UPLOAD_WAIT_MS = 30_000;
@@ -86,10 +85,9 @@ export type Site = {
   /** The R2 bucket the Workers share, for seeding fragments and reading what they stored. */
   bucket: Awaited<ReturnType<Miniflare["getR2Bucket"]>>;
   /**
-   * A new browser context on the site. The content host is the real content Worker, a presigned
-   * PUT goes to the stand-in for R2's endpoint (r2-put.ts), and Turnstile's script is stood in
-   * for, solving every widget at once. Any other request off the site is refused and recorded
-   * in `offSite`.
+   * A new browser context on the site. The content host is the real content Worker, and
+   * Turnstile's script is stood in for, solving every widget at once. Any other request off the
+   * site is refused and recorded in `offSite`.
    */
   newContext: (options?: ContextOptions) => Promise<BrowserContext>;
   /** Every off-site URL a page asked for that has no stand-in. */

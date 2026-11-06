@@ -9,7 +9,6 @@ import { convertV4MiniflareOptions, Miniflare } from "miniflare";
 import { unstable_getMiniflareWorkerOptions, unstable_readConfig } from "wrangler";
 import { CONTENT_HOST } from "../../src/content-host";
 import { outbound, SECRETS, sink } from "../../test/stand-ins";
-import { r2PutWorker } from "./r2-put";
 
 /** apps/, where each Worker's folder is. */
 const APPS = join(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -171,7 +170,6 @@ export async function startWorker({
           hyperdrives: { HYPERDRIVE: databaseUrl },
           outboundService: noOutbound,
         },
-        r2PutWorker,
         sink("email-sink", "email"),
       ],
     }),

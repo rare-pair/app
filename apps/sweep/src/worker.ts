@@ -15,7 +15,7 @@ const MIN_AGE_MS = DAY_MS;
 
 /**
  * How old an unconfirmed upload must be before it is removed: the var's whole days, or one when
- * it is missing or misspelt. A bad var never takes a link still in use, nor turns this off. Seven
+ * it is missing or misspelt. A bad var never takes an upload still in use, nor turns this off. Seven
  * is the most: past the bucket's lifecycle rule, rows would outlive their files.
  */
 function unconfirmedMaxAgeMs(env: Env): number {

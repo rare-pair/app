@@ -1,7 +1,7 @@
 // What an upload may be. Kept apart from src/upload.ts so that pages.ts, which
 // upload.ts imports, can use it too.
 
-/** The one type a presigned URL accepts (ARCHITECTURE, Ingestion pipeline). */
+/** The one type `PUT /uploads/:id` accepts (ARCHITECTURE, Ingestion pipeline). */
 export const EPUB_TYPE = "application/epub+zip";
 
 /** The most files one `POST /uploads` may ask for; the page's script holds to it too. */
@@ -17,3 +17,10 @@ export const MAX_UPLOAD_MB = 25;
  * holds the two equal.
  */
 export const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+
+// Upload ids are random text bounded at 64 characters (apps/ingest/src/message.ts). Nothing
+// longer, or holding a NUL, which Postgres refuses, can name an upload.
+const MAX_ID = 64;
+
+/** Whether a path's id could name an upload at all. */
+export const isUploadId = (id: string) => id.length <= MAX_ID && !id.includes("\0");

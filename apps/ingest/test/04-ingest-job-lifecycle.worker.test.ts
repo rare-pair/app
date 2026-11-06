@@ -432,6 +432,16 @@ describe("04-ingest-job-lifecycle", () => {
     expect(result.explicitAcks).toEqual(["msg-0"]);
   });
 
+  it("A message for an upload whose slot was freed is acked, with nothing parsed", async () => {
+    const { handler, parsed } = watchedWorker();
+
+    const result = await deliver([{ upload_id: crypto.randomUUID() }], { handler });
+
+    expect(parsed).toEqual([]);
+    expect(result.explicitAcks).toEqual(["msg-0"]);
+    expect(result.retryMessages).toEqual([]);
+  });
+
   it("Duplicate delivery does not double-process", async () => {
     const id = await pendingUpload(ao3Epub({ workId: freshAo3WorkId() }));
     const leaseUntil = await setLease(id, "1 hour");

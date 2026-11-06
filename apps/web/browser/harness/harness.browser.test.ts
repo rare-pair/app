@@ -2,33 +2,14 @@ import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { presignPut } from "../../src/presign";
-import { EPUB_TYPE } from "../../src/upload-limit";
-import { SECRETS } from "../../test/stand-ins";
 import type { CleanOptions } from "./clean";
 import { useJourneySite } from "./journey";
-import { R2_HOST, signedKey } from "./r2-put";
 import { SLOW_MO_MS, slowMoFromEnv, startRecorder, videoName } from "./recording";
 import { signedIn } from "./sessions";
 import { launchChromium, SITE, startSite, type Site } from "./site";
 
 // The harness's own helpers: each must catch what it is there to catch, or a pass on a journey
 // shows nothing.
-
-const EPUB = EPUB_TYPE;
-const SIZE = 1;
-const presigned = (key: string, now = new Date(), expiresSeconds = 600) =>
-  presignPut({
-    accountId: SECRETS.R2_ACCOUNT_ID,
-    bucket: "rarepair",
-    accessKeyId: SECRETS.R2_ACCESS_KEY_ID,
-    secretAccessKey: SECRETS.R2_SECRET_ACCESS_KEY,
-    key,
-    contentType: EPUB,
-    contentLength: SIZE,
-    expiresSeconds,
-    now,
-  });
 
 describe("on a running site", () => {
   let site: Site;
@@ -132,35 +113,6 @@ describe("on a running site", () => {
       await site.assertClean();
     });
   });
-
-  describe("the presigned PUT stand-in", () => {
-    it("stores a PUT signed by the web Worker's method, and refuses a forged one", async () => {
-      const { context } = await signedIn(site, { email: "pw0-put@example.test" });
-      const page = await context.newPage();
-      // The upload page's CSP is the one that lets a script reach the endpoint.
-      await page.goto(`${SITE}/upload`);
-      const put = (url: string, body = "x") =>
-        page.evaluate(
-          async ([target, type, sent]) =>
-            (await fetch(target, { method: "PUT", headers: { "content-type": type }, body: sent }))
-              .status,
-          [url, EPUB, body],
-        );
-      const good = await presigned("uploads/pw0-good");
-      expect(await put(good)).toBe(200);
-      expect(await site.bucket.head("uploads/pw0-good")).not.toBeNull();
-
-      // Signed for one byte. This models R2 only if R2 enforces a signed size, which isn't known.
-      const longer = await presigned("uploads/pw0-longer");
-      expect(await put(longer, "xx")).toBe(403);
-      expect(await site.bucket.head("uploads/pw0-longer")).toBeNull();
-
-      const forged = good.replace("uploads/pw0-good", "uploads/pw0-forged");
-      expect(await put(forged)).toBe(403);
-      expect(await site.bucket.head("uploads/pw0-forged")).toBeNull();
-      await site.assertClean({ allow: [/status of 403/] });
-    });
-  });
 });
 
 describe("a journey", () => {
@@ -178,37 +130,6 @@ describe("a journey", () => {
   it("failed only in that check, and closed the context the test opened", () => {
     expect(bodyFinished).toBe(true);
     expect(running.site.contexts()).toEqual([]);
-  });
-});
-
-describe("the presigned PUT stand-in's signature check", () => {
-  const NOW = new Date("2026-11-04T04:00:00.000Z");
-  const key = "uploads/pw0-key";
-
-  it("names the key of a URL as presigned", async () => {
-    expect(await signedKey(await presigned(key, NOW), EPUB, SIZE, NOW)).toBe(key);
-  });
-
-  it("refuses a URL altered after signing", async () => {
-    const url = (await presigned(key, NOW)).replace(key, "uploads/pw0-other");
-    expect(await signedKey(url, EPUB, SIZE, NOW)).toBeNull();
-  });
-
-  it("refuses another content type", async () => {
-    expect(await signedKey(await presigned(key, NOW), "text/html", SIZE, NOW)).toBeNull();
-  });
-
-  it("refuses another size", async () => {
-    expect(await signedKey(await presigned(key, NOW), EPUB, SIZE + 1, NOW)).toBeNull();
-  });
-
-  it("refuses a URL past its expiry", async () => {
-    const late = new Date(NOW.getTime() + 601_000);
-    expect(await signedKey(await presigned(key, NOW), EPUB, SIZE, late)).toBeNull();
-  });
-
-  it("is on the host the Worker signs for", async () => {
-    expect(new URL(await presigned(key, NOW)).host).toBe(R2_HOST);
   });
 });
 
