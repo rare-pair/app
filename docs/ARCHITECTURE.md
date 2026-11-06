@@ -25,7 +25,7 @@ an unofficial stopgap.
 | New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. A consistent edit goes live with no hold: readers' reports and rollback are the check (operator ruling, 2026-11-05). The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) |
 | A file swapped after confirm | Ingest handles the file it read and records that file's hash. A mismatch with confirm's hash isn't refused, and no locked copy is made (operator ruling, 2026-11-05) |
 | Author identity | No work claims and no author verification while AO3 is down. Removal and opt-out are requests anyone can make, without proving who they are, and they take effect once the requester confirms control of the contact email |
-| Removal list | Removed works (title, byline, a link to the original with its ID, date, reason) are public at `/removed`, and pseuds with an approved opt-out at `/removed/pseuds`. Reasons come from a fixed list, never free text. Open requests and hidden works are never listed, and a moderator can withhold an entry |
+| Removal list | After launch, not built (operator ruling, 2026-11-06). Once built: removed works (title, byline, a link to the original with its ID, date, reason) are public at `/removed`, and pseuds with an approved opt-out at `/removed/pseuds`. Reasons come from a fixed list, never free text. Open requests and hidden works are never listed, and a moderator can withhold an entry |
 | Search scope | Metadata only: title, author, tags, summary |
 | Chapter rendering | Inline in app pages behind a strict CSP, with no iframe |
 | Wait list | Before launch, `/` is a coming-soon page with a double opt-in wait list. Each confirmed address is sent one launch email, from the same mail subdomain as sign-in, spread over hours on its own queue. The list is deleted after the launch send |
@@ -1431,7 +1431,8 @@ epub, under the normal versioning rules.
   sweep fails closed and deletes nothing it couldn't check. Recording each
   version's image keys in Postgres when it is saved waits until a sweep report
   shows `budget` skips.
-- **The removal list.** `/removed` lists removed works, newest first: title,
+- **The removal list (post-launch, not built).** Launch ships without it (operator ruling,
+  2026-11-06). `/removed` will list removed works, newest first: title,
   byline, "The original work" link with its ID and its note, as on the work page,
   date and reason. `/removed/pseuds` lists pseuds with an approved, active opt-out,
   in `requests.pseud_typed`'s cleaned form. Only a `removed` work is listed, so
@@ -1942,13 +1943,14 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
 5. Browse by fandom, tag or rating, sorted by updated date or word count
 6. Search: title, author, tags, summary (Postgres FTS plus trigram)
 7. Remove-my-work and opt-out requests, reports, DMCA form, minimal
-   moderation queue, public removal list
+   moderation queue
 8. Terms, a privacy notice and a clear "unofficial, temporary" banner
 9. Updates: up to three summary cards on the home page, each linking to a static
    post, held in the web Worker's code
 
 **Later**
 - NSFW works behind sign-in and an age statement, soon after launch (operator rulings, 2026-11-06)
+- The public removal list, `/removed` and `/removed/pseuds`, after launch (operator ruling, 2026-11-06; specs/scenarios/later/11-public-removal-list.md)
 - A moderator's "Not NSFW" that later reports can't undo (specs/scenarios/later/10-nsfw-clear-sticks.md)
 - Updates from a static JSON file, with a list page and paging between updates
 - Bookmarks, kudos and per-user reading history

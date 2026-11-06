@@ -1,5 +1,7 @@
 # Scenario: Public list of removed works and opted-out pseuds
 
+After launch (operator ruling, 2026-11-06): not built. Launch ships without the public removal list.
+
 Relates to: docs/ARCHITECTURE.md § Decisions so far (Removal list, Author identity), § Data model (works.removed_reason, works.removed_at, works.list_withheld, requests.pseud_typed, listed_pseuds), § Author requests & takedowns (The removal list, Moderation); docs/FRONTEND-DISCOVERY.md § Page inventory (Removal list, Listed pseuds, Work admin), § Copy and tone; specs/scenarios/mvp/16-removal-and-opt-out.md; specs/scenarios/mvp/17-reports-and-dmca.md; specs/scenarios/mvp/20-site-chrome-and-legal.md (Footer links to removal)
 
 ## Setup

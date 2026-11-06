@@ -62,7 +62,6 @@ Relates to: docs/ARCHITECTURE.md § Opening, § MVP vs later (8. Terms, privacy 
 - GIVEN any app page
 - WHEN it renders
 - THEN the footer has a "Remove my work" link to `/remove`
-- AND a "Removed works" link to `/removed`
 
 ### Footer links to the GitHub repository
 - GIVEN any app page, before launch and after
