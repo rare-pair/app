@@ -24,6 +24,10 @@ describe("24-crawler-and-agent-blocking", () => {
     expect(isCrossSiteSubresource(request("cross-site", "document"))).toBe(false);
   });
 
+  it("An empty Sec-Fetch-Dest is other than document, so it counts", () => {
+    expect(isCrossSiteSubresource(request("cross-site", ""))).toBe(true);
+  });
+
   it("A request from this site, or typed in, is no cross-site subresource", () => {
     for (const site of ["same-origin", "same-site", "none"]) {
       expect(isCrossSiteSubresource(request(site, "image")), site).toBe(false);

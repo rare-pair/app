@@ -36,6 +36,8 @@ const DECLARED = {
   "search engine": { "user-agent": "Mozilla/5.0 (compatible; Googlebot/2.1)" },
   "link preview": { "user-agent": "facebookexternalhit/1.1" },
   "AI crawler": { "user-agent": CRAWLER },
+  "AI agent": { "user-agent": "Mozilla/5.0 (compatible; ChatGPT-User/1.0)" },
+  "scraping tool": { "user-agent": "Scrapy/2.13 (+https://scrapy.org)" },
   "HTTP library": { "user-agent": "python-requests/2.32.3" },
   signature: { "user-agent": BROWSER, "signature-agent": '"https://agent.example"' },
   "signature, empty": { "user-agent": BROWSER, "signature-agent": "" },
@@ -134,10 +136,13 @@ describe("24-crawler-and-agent-blocking", () => {
   });
 
   it("Declared automated clients are refused the whole app: by any method", async () => {
-    const headers = { "user-agent": CRAWLER, origin: BASE, "sec-fetch-site": "same-origin" };
+    const sameOrigin = { origin: BASE, "sec-fetch-site": "same-origin" };
+    const headers = { "user-agent": CRAWLER, ...sameOrigin };
+    const signed = { "signature-agent": "x", ...sameOrigin };
     for (const method of ["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]) {
       for (const path of [`/works/${W}/chapters/1`, "/login", STYLESHEET_PATH]) {
         await expectRefusal(await fetchW(path, { method, headers }), `${method} ${path}`);
+        await expectRefusal(await fetchW(path, { method, headers: signed }), `signed ${path}`);
       }
     }
     // The upload routes, whose own same-origin guards come after the refusal.
@@ -163,6 +168,16 @@ describe("24-crawler-and-agent-blocking", () => {
     }
   });
 
+  it("Redirects still come first: www, with the archive open", async () => {
+    const url = `https://www.rarepair.fans/works/${W}/chapters/1`;
+    const browser = await fetchW(url);
+    const declared = await fetchW(url, crawler);
+    expect(declared.status).toBe(308);
+    expect(declared.status).toBe(browser.status);
+    expect(declared.headers.get("location")).toBe(browser.headers.get("location"));
+    expect(await declared.text()).not.toContain(TEXT);
+  });
+
   it("A word inside a browser's user agent is not a match", async () => {
     const res = await fetchW(`/works/${W}/chapters/1`, {
       headers: {
@@ -172,6 +187,11 @@ describe("24-crawler-and-agent-blocking", () => {
     });
     expect(res.status).toBe(200);
     expect(await res.text()).toContain(TEXT);
+  });
+
+  it("A missing or empty User-Agent is not a declaration", async () => {
+    expect((await fetchW(`/works/${W}/chapters/1`)).status).toBe(200);
+    expect((await chapterAs("")).status).toBe(200);
   });
 
   it("The crawler list ignores case", async () => {
@@ -217,7 +237,7 @@ describe("24-crawler-and-agent-blocking", () => {
     const email = `bw-lookups-${crypto.randomUUID().slice(0, 8)}@example.test`;
     const cookie = await signIn(email, { acceptTerms: true });
     // A database that refuses every connection and a bucket that throws on any use: with either
-    // touched, the request ends in the 500, as the reader's request below shows it does.
+    // touched, the request ends in an error, as the reader's requests below show for each.
     const refused = { connectionString: "postgresql://nobody:none@127.0.0.1:1/none" };
     const noBucket = new Proxy(
       {},
@@ -227,24 +247,26 @@ describe("24-crawler-and-agent-blocking", () => {
         },
       },
     );
-    const broken = {
+    const noDatabase = {
       // SAFETY: only connectionString is read from a Hyperdrive binding.
       HYPERDRIVE: refused as Hyperdrive,
       // SAFETY: only connectionString is read from a Hyperdrive binding.
       HYPERDRIVE_CACHED: refused as Hyperdrive,
-      // SAFETY: the Proxy throws on every property, which is the point.
-      BUCKET: noBucket as R2Bucket,
     };
+    // SAFETY: the Proxy throws on every property, which is the point.
+    const bucketTrap = { BUCKET: noBucket as R2Bucket };
     const path = `/works/${W}/chapters/2`;
-    let reader = 0;
-    let refusal = 0;
+    const statuses: number[] = [];
     await consoleDuring(async () => {
       const init = (userAgent: string) => ({ headers: { cookie, "user-agent": userAgent } });
-      reader = (await direct(path, init(BROWSER), broken)).status;
-      refusal = (await direct(path, init(CRAWLER), broken)).status;
+      const signedOut = { headers: { "user-agent": BROWSER } };
+      statuses.push((await direct(path, init(BROWSER), noDatabase)).status);
+      // Signed out, so the page is built from the bucket. Nothing reads this chapter earlier.
+      statuses.push((await direct(path, signedOut, bucketTrap)).status);
+      statuses.push((await direct(path, init(CRAWLER), { ...noDatabase, ...bucketTrap })).status);
     });
-    expect(reader).toBe(500);
-    expect(refusal).toBe(403);
+    // The database failing is a 500, and the bucket failing the reader's 503.
+    expect(statuses).toEqual([500, 503, 403]);
   });
 
   it("The refusal does not reveal a work's status", async () => {
@@ -268,8 +290,8 @@ describe("24-crawler-and-agent-blocking", () => {
   });
 
   it("Assistive and in-browser tools keep working", async () => {
-    // Nothing is added to the request by a screen reader, translation, an extension or print, so
-    // the browser's own user agent is what matters. The journeys in apps/web/browser show the rest.
+    // Those tools add nothing to the request, so the browser's own user agent is what matters here.
+    // The automated-access journey uses the chapter in a real browser.
     for (const userAgent of [
       BROWSER,
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/142.0.0.0 Safari/537.36",

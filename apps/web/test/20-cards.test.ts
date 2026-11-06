@@ -159,16 +159,19 @@ describe("20-site-chrome-and-legal: cards", () => {
   });
 
   it("Chapters have no card", async () => {
-    const headers = { "user-agent": "Mozilla/5.0" };
-    for (const path of [
-      `/works/${G}/chapters/1`,
-      `/works/${G}/full`,
-      `/works/${W}/chapters/1`,
-      `/works/${W}/warnings`,
-      `/works/${W}/full`,
-      `/works/${W}/chapters`,
-    ]) {
-      expect(hasCard(await first(path, { headers })), path).toBe(false);
+    // A link preview service gets the refusal here, which has no card either (spec 24).
+    for (const ua of ["Mozilla/5.0", PREVIEW_UA]) {
+      const headers = { "user-agent": ua };
+      for (const path of [
+        `/works/${G}/chapters/1`,
+        `/works/${G}/full`,
+        `/works/${W}/chapters/1`,
+        `/works/${W}/warnings`,
+        `/works/${W}/full`,
+        `/works/${W}/chapters`,
+      ]) {
+        expect(hasCard(await first(path, { headers })), `${path} ${ua}`).toBe(false);
+      }
     }
   });
 

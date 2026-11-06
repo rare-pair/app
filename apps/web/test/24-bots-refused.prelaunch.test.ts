@@ -13,7 +13,9 @@ afterAll(() => db.destroy());
 
 describe("24-crawler-and-agent-blocking", () => {
   it("Redirects still come first", async () => {
-    const www = await fetchW(`https://www.rarepair.fans/works/${W}/chapters/1?a=1`, { headers });
+    const wwwUrl = `https://www.rarepair.fans/works/${W}/chapters/1?a=1`;
+    const www = await fetchW(wwwUrl, { headers });
+    expect(www.headers.get("location")).toBe((await fetchW(wwwUrl)).headers.get("location"));
     expect(www.status).toBe(308);
     expect(www.headers.get("location")).toBe(`https://rarepair.fans/works/${W}/chapters/1?a=1`);
     expect(await www.text()).toBe("");
@@ -21,6 +23,9 @@ describe("24-crawler-and-agent-blocking", () => {
     const closed = await fetchW(`/works/${W}/chapters/1`, { headers });
     expect(closed.status).toBe(302);
     expect(closed.headers.get("location")).toBe("/");
+    const browser = await fetchW(`/works/${W}/chapters/1`);
+    expect(closed.status).toBe(browser.status);
+    expect(closed.headers.get("location")).toBe(browser.headers.get("location"));
     expect(await closed.text()).toBe("");
   });
 

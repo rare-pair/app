@@ -9,6 +9,7 @@ import { startAtHome } from "../harness/walk";
 // Worker answers to each kind of client is apps/web/test/24-bots-refused. AO3 work IDs 8812430 to
 // 8812439 are this file's. Text is synthetic.
 const WORK = 8812430;
+const TOOLS_WORK = 8812431;
 const TEXT = "BW-JOURNEY-MARKER";
 const OTHER_SITE = "https://other-site.example/";
 const REFUSAL = "Automated access to this site isn't allowed";
@@ -37,6 +38,28 @@ describe("automated access journey", () => {
     expect(new URL(about.url()).pathname).toBe("/about");
     expect(about.status()).toBe(403);
     await site.assertClean({ allow: [REFUSED_LOAD] });
+  });
+
+  it("Assistive and in-browser tools keep working", async () => {
+    const { site } = running;
+    await seedReadableWork(site, {
+      ao3WorkId: TOOLS_WORK,
+      rating: "General Audiences",
+      chapters: [{ html: `<p>${TEXT}</p>` }],
+    });
+    const context = await site.newContext();
+    const page = await context.newPage();
+    const res = await page.goto(`${SITE}/works/${TOOLS_WORK}/chapters/1`);
+    expect(res?.status()).toBe(200);
+    const text = page.locator("main").getByText(TEXT);
+
+    // What a screen reader is given, what Ctrl+F searches and what print shows. Translation and
+    // extensions run in the browser on this same text, and can't be driven from here.
+    await expect.poll(() => text.isVisible()).toBe(true);
+    expect(await page.getByRole("main").ariaSnapshot()).toContain(TEXT);
+    expect(await page.evaluate((word) => window.find(word), TEXT)).toBe(true);
+    await page.emulateMedia({ media: "print" });
+    expect(await text.isVisible()).toBe(true);
   });
 
   it("Another site can't spend a reader's limits: a link the reader follows is served", async () => {

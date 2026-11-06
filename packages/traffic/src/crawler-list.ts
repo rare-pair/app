@@ -87,6 +87,10 @@ export const CRAWLER_LIST: readonly string[] = [
   "diffbot",
   "webzio-extended",
   "tavilybot",
+  "grokbot",
+  "deepseekbot",
+  "tiktokspider",
+  "google-cloudvertexbot",
   // Scraping and archiving tools, and SEO crawlers
   "firecrawl",
   "crawl4ai",
