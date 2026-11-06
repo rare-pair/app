@@ -63,7 +63,11 @@ async function request(key: string, init: RequestInit = {}, bindings: Env = E) {
   const pending: Promise<unknown>[] = [];
   // SAFETY: the Worker calls only waitUntil on its context.
   const ctx = { waitUntil: (p: Promise<unknown>) => void pending.push(p) } as ExecutionContext;
-  const res = await handler.fetch(new Request(`${ORIGIN}/${key}`, asNewClient(init)), bindings, ctx);
+  const res = await handler.fetch(
+    new Request(`${ORIGIN}/${key}`, asNewClient(init)),
+    bindings,
+    ctx,
+  );
   const body = new Uint8Array(await res.arrayBuffer());
   await Promise.all(pending);
   return { res, body };

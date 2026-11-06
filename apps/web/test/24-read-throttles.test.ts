@@ -139,7 +139,7 @@ describe("24-crawler-and-agent-blocking", () => {
   });
 
   it("A throttled read costs no lookups, whoever is signed in", async () => {
-    const { cookie } = await signIn(`read-throttle-${freshIp()}@example.test`);
+    const cookie = await signIn(`read-throttle-${freshIp()}@example.test`);
     const over = { READ_CHAPTER_LIMIT: stubLimiter(false).limiter };
     const { res, body } = await read(
       `/works/${W}/chapters/1`,

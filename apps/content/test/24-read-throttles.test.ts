@@ -110,7 +110,9 @@ describe("24-crawler-and-agent-blocking", () => {
     // One in the data centre's cache, one not.
     await caches.default.delete(`${ORIGIN}/${original}`);
     await caches.default.delete(`${ORIGIN}/${cachedOriginal}`);
-    expect((await request(cachedOriginal, { headers: { "cf-connecting-ip": freshIp() } })).res.status).toBe(200);
+    expect(
+      (await request(cachedOriginal, { headers: { "cf-connecting-ip": freshIp() } })).res.status,
+    ).toBe(200);
     expect(await caches.default.match(`${ORIGIN}/${cachedOriginal}`)).toBeDefined();
 
     const cacheRead = vi.spyOn(caches.default, "match");

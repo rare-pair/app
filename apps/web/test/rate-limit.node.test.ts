@@ -132,7 +132,8 @@ describe("the rate limits in wrangler.jsonc", () => {
   it("each have their own namespace, so none shares another's counters", () => {
     // A namespace_id is account-wide, so the content Worker's can't repeat one of these.
     const content: Limit[] =
-      experimental_readRawConfig({ config: "../content/wrangler.jsonc" }).rawConfig.ratelimits ?? [];
+      experimental_readRawConfig({ config: "../content/wrangler.jsonc" }).rawConfig.ratelimits ??
+      [];
     expect(content.map((limit) => limit.name)).toEqual(["ORIGINAL_LIMIT"]);
     const namespaces = [...limits, ...content].map((limit) => limit.namespace_id);
     expect(new Set(namespaces).size).toBe(namespaces.length);
@@ -140,14 +141,17 @@ describe("the rate limits in wrangler.jsonc", () => {
 
   it("Entire-work reads have a lower limit", () => {
     const limitOf = (name: string) => limits.find((limit) => limit.name === name)?.simple.limit;
-    expect(limitOf("READ_CHAPTER_LIMIT")).toBe(120);
-    expect(limitOf("READ_FULL_LIMIT")).toBe(10);
-    expect(limitOf("READ_FULL_LIMIT")).toBeLessThan(limitOf("READ_CHAPTER_LIMIT") ?? 0);
+    const chapter = limitOf("READ_CHAPTER_LIMIT");
+    const full = limitOf("READ_FULL_LIMIT");
+    expect(chapter).toBe(120);
+    expect(full).toBe(10);
+    expect(full).toBeLessThan(chapter ?? 0);
   });
 
   it("Original downloads are throttled per IP: 10 a minute on the content Worker", () => {
     const content: Limit[] =
-      experimental_readRawConfig({ config: "../content/wrangler.jsonc" }).rawConfig.ratelimits ?? [];
+      experimental_readRawConfig({ config: "../content/wrangler.jsonc" }).rawConfig.ratelimits ??
+      [];
     expect(content[0]?.simple).toEqual({ limit: 10, period: 60 });
   });
 });
