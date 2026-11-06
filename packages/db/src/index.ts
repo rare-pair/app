@@ -22,7 +22,7 @@ export {
   deleteUnconfirmedUploads,
   getUploadOf,
   recordUploadHash,
-  rejectOversizedUpload,
+  deleteOpenUpload,
   rejectOverQuotaUpload,
   getUploadQuota,
   useUploadQuota,

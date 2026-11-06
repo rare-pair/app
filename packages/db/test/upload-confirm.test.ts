@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  deleteOpenUpload,
   getUploadOf,
   insertUpload,
   recordUploadHash,
-  rejectOversizedUpload,
   type UploadStatus,
 } from "../src/index";
 import { seedWork } from "../src/seed";
@@ -119,10 +119,56 @@ describe("02-upload-handshake: confirming an upload", () => {
     expect((await rowOf(up.id)).sha256).toBeNull();
   });
 
-  it("Marks a pending upload too_large, and only a pending one", async () => {
+});
+
+describe("02-upload-handshake: freeing an open upload's slot", () => {
+  const keyOf = async (id: string) =>
+    (await t.db.selectFrom("uploads").select("r2_key").where("id", "=", id).executeTakeFirst())
+      ?.r2_key;
+
+  it("deletes the owner's open upload and returns its key", async () => {
     const up = await pendingUpload();
-    expect(await rejectOversizedUpload(t.db, up.id)).toBe(true);
-    expect((await rowOf(up.id)).status).toBe("too_large");
-    expect(await rejectOversizedUpload(t.db, up.id)).toBe(false);
+    const key = await keyOf(up.id);
+    expect(await deleteOpenUpload(t.db, up.id, up.userId)).toBe(key);
+    expect(await getUploadOf(t.db, up.id, up.userId)).toBeNull();
+  });
+
+  it("leaves another user's upload alone", async () => {
+    const up = await pendingUpload();
+    const other = await seedWork(t.db, {});
+    expect(await deleteOpenUpload(t.db, up.id, other.userId)).toBeNull();
+    expect(await getUploadOf(t.db, up.id, up.userId)).not.toBeNull();
+  });
+
+  it("leaves an upload a confirm has counted alone", async () => {
+    const up = await pendingUpload();
+    await t.db
+      .updateTable("uploads")
+      .set({ quota_counted_at: new Date() })
+      .where("id", "=", up.id)
+      .execute();
+    expect(await deleteOpenUpload(t.db, up.id, up.userId)).toBeNull();
+    expect(await getUploadOf(t.db, up.id, up.userId)).not.toBeNull();
+  });
+
+  it.each(["processing", "duplicate", "over_quota", "account_banned"] as const)(
+    "leaves a %s upload alone",
+    async (status) => {
+      const up = await pendingUpload();
+      await t.db.updateTable("uploads").set({ status }).where("id", "=", up.id).execute();
+      expect(await deleteOpenUpload(t.db, up.id, up.userId)).toBeNull();
+      expect(await getUploadOf(t.db, up.id, up.userId)).not.toBeNull();
+    },
+  );
+
+  it("gives the key to only one of two deletes", async () => {
+    const up = await pendingUpload();
+    const key = await keyOf(up.id);
+    const results = await Promise.all([
+      deleteOpenUpload(t.db, up.id, up.userId),
+      deleteOpenUpload(t.db, up.id, up.userId),
+    ]);
+    expect(results.filter((r) => r === key)).toHaveLength(1);
+    expect(results.filter((r) => r === null)).toHaveLength(1);
   });
 });

@@ -473,6 +473,27 @@ export async function deleteUnconfirmedUploads(
   return rows.map((row) => row.r2_key);
 }
 
+/**
+ * Frees the slot of `userId`'s open upload at once, for an upload that failed: deletes the row and
+ * returns its R2 key, or null when it isn't their open upload any more. The same predicate as a
+ * confirm's claim, so a row is either claimed or deleted, and only the request given the key may
+ * remove the object.
+ */
+export async function deleteOpenUpload(
+  db: Kysely<Database>,
+  id: string,
+  userId: string,
+): Promise<string | null> {
+  const row = await db
+    .deleteFrom("uploads")
+    .where("id", "=", id)
+    .where("user_id", "=", userId)
+    .where(isOpenUpload)
+    .returning("r2_key")
+    .executeTakeFirst();
+  return row?.r2_key ?? null;
+}
+
 /** The upload `/complete` needs to act on: its R2 key, its declared size and where it stands. */
 export interface OwnUpload {
   id: string;
@@ -539,21 +560,6 @@ export async function recordUploadHash(
       .execute();
     return { duplicateOf: match.work_id };
   });
-}
-
-/**
- * Marks an open upload `too_large`. False when it wasn't `pending`, or when a confirm has counted
- * it: that upload is in the queue, and its object is ingest's to read and to refuse.
- */
-export async function rejectOversizedUpload(db: Kysely<Database>, id: string): Promise<boolean> {
-  const row = await db
-    .updateTable("uploads")
-    .set({ status: "too_large" })
-    .where("id", "=", id)
-    .where(isOpenUpload)
-    .returning("id")
-    .executeTakeFirst();
-  return row !== undefined;
 }
 
 /**
