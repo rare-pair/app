@@ -3,6 +3,7 @@ import type { Page } from "playwright";
 import { describe, expect, it } from "vitest";
 import { unstable_readConfig } from "wrangler";
 import { useJourneySite } from "../harness/journey";
+import { hasSidewaysScroll } from "../harness/layout";
 import { signedIn, signInLink } from "../harness/sessions";
 import { SITE, type Site } from "../harness/site";
 import { byAddress, startAtHome, viaHeader } from "../harness/walk";
@@ -108,6 +109,26 @@ describe("sign-in journey", () => {
     expect(user.terms_accepted_at).not.toBeNull();
   });
 
+  it("Someone sent a link for another person's account sees whose it is, masked, before pressing", async () => {
+    const { site } = running;
+    const domain = "a-subdomain-too-long-to-fit-on-one-line-of-a-narrow-phone.example.test";
+    const email = `pw1-named@${domain}`;
+    const asker = await startAtHome(await site.newContext());
+    site.dropRecording(asker);
+    await viaHeader(asker, "Sign in");
+    await requestLink(asker, email);
+    await asker.getByText("Check your email").waitFor();
+    const link = await signInLink(site, email);
+
+    // Another browser: the asker's own would go on by itself, past the line.
+    const page = await (await site.newContext()).newPage();
+    await openLink(page, link);
+    await page.getByText(`Sign in as p***@${domain}`).waitFor();
+    await page.getByRole("button", { name: "Sign in" }).waitFor();
+    expect(await page.content()).not.toContain("pw1-named");
+    expect(await hasSidewaysScroll(page)).toBe(false);
+  });
+
   it("The browser that asked for the link signs in without a press, and another browser sees the button", async () => {
     const { site } = running;
     const email = "pw1-no-press@example.test";
@@ -132,7 +153,6 @@ describe("sign-in journey", () => {
     site.dropRecording(other);
     await openLink(other, link);
     await other.getByRole("button", { name: "Sign in" }).waitFor();
-    await other.getByText("Sign in as p***@example.test").waitFor();
     expect(other.url()).toContain("/login/confirm");
     expect(await tokens()).toEqual(issued);
     await other.close();
