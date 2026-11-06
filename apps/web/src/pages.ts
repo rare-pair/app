@@ -256,15 +256,22 @@ const submitConfirmForm = (nonce: string) =>
  * is no script. Either way it works with JavaScript off. `next` is already reduced to
  * a same-site path.
  */
-export const confirmPage = (token: string, next: string, submitNonce?: string) =>
-  layout(
+export const confirmPage = (
+  token: string,
+  next: string,
+  maskedAddress: string | null,
+  submitNonce?: string,
+) => {
+  const account = maskedAddress === null ? "" : `<p>Sign in as ${escapeHtml(maskedAddress)}</p>\n`;
+  return layout(
     "Sign in",
-    `<form method="post" action="/login/confirm">
+    `${account}<form method="post" action="/login/confirm">
 <input type="hidden" name="token" value="${escapeHtml(token)}">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
 <button type="submit">Sign in</button>
 </form>${submitNonce === undefined ? "" : submitConfirmForm(submitNonce)}`,
   );
+};
 
 /**
  * Signing in failed on our side, not the link's. The link may already be spent
