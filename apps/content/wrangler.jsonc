@@ -1,5 +1,5 @@
 {
-  // Content Worker: epub images and original downloads, served as they are from R2.
+  // Content Worker: epub images and original downloads, served as they are from R2, and robots.txt.
   // It answers only on content.rarepair.fans (ARCHITECTURE, Why these pieces, Hosts).
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "rarepair-content",
@@ -24,7 +24,7 @@
     },
   ],
   // Invocation logs and traces are off: a content URL carries the AO3 work id (#124, #572).
-  // Errors and metrics stay. To trace a live fault, set traces.enabled to true and deploy, then
+  // Errors, metrics and each refusal's reason line stay. To trace a live fault, set traces.enabled to true and deploy, then
   // set it back to false (ARCHITECTURE, Why these pieces, Hosts).
   "observability": {
     "enabled": true,

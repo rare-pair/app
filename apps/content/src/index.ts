@@ -1,4 +1,5 @@
 import { createDb, getImageAccess, getOriginalAccess, type ContentAccess } from "@archive/db";
+import { declaredClient, isCrossSiteSubresource } from "@archive/traffic";
 
 export interface Env {
   BUCKET: R2Bucket;
@@ -36,17 +37,28 @@ const ORIGINAL = new RegExp(`^/originals/${SEGMENT}$`);
 // Ingest stores only these image types (ARCHITECTURE, EPUB processor step 6).
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
+// What every response says about indexing, archiving and use for AI (ARCHITECTURE, Signals). It
+// is set on the way out, so a cached entry stored without it goes out with it.
+const ROBOTS_TAG = "noindex, noarchive, noai, noimageai";
+
 /**
  * Every response this Worker returns, errors included, goes out through here with
- * `nosniff` (error pages the platform itself generates never reach this code). Its headers
- * are only this module's literals, so none sets a cookie; cookies a zone feature adds
- * after the Worker are kept off this host by zone config (ARCHITECTURE, Hosts).
+ * `nosniff` and the robots tag (error pages the platform itself generates never reach this
+ * code). Its headers are only this module's literals, so none sets a cookie; cookies a zone
+ * feature adds after the Worker are kept off this host by zone config (ARCHITECTURE, Hosts).
  */
 function respond(body: BodyInit | null, status: number, headers: Record<string, string> = {}) {
   const h = new Headers(headers);
   h.set("X-Content-Type-Options", "nosniff");
+  h.set("X-Robots-Tag", ROBOTS_TAG);
   return new Response(body, { status, headers: h });
 }
+
+// The one path served here besides images and originals (ARCHITECTURE, Signals). `Content-Signal`
+// is the app's file only.
+const ROBOTS_TXT = `User-agent: *
+Disallow: /
+`;
 
 // Requests the cache would answer differently from the Worker (206, 304): they skip it.
 const BYPASS_HEADERS = [
@@ -143,17 +155,36 @@ async function readAccess(
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    if (request.method !== "GET" && request.method !== "HEAD") {
+    const path = new URL(request.url).pathname;
+    const isRead = request.method === "GET" || request.method === "HEAD";
+    // The one path open to a declared client, so it comes first. It is never stored, so a query
+    // string makes no second cacheable URL here. Any other spelling of the path isn't exempt.
+    if (isRead && path === "/robots.txt") {
+      return respond(ROBOTS_TXT, 200, {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "public, max-age=3600",
+      });
+    }
+    // Ahead of the method and path checks, the cache, Postgres and R2, so the 403 shows nothing
+    // of which files exist. Only originals have the cross-site check: images aren't throttled
+    // (spec 24).
+    const isOriginal = ORIGINAL.test(path);
+    const reason =
+      declaredClient(request.headers) ??
+      (isOriginal && isCrossSiteSubresource(request.headers) ? "cross-site subresource" : null);
+    if (reason !== null) {
+      // The whole line: the reason and nothing else, since a URL or address has no place in it.
+      console.log(`refused: ${reason}`);
+      return respond(null, 403, { "Cache-Control": "no-store" });
+    }
+    if (!isRead) {
       return respond(null, 405, { Allow: "GET, HEAD", "Cache-Control": "no-store" });
     }
     // A query string, even an empty one (`search` is "" for a bare "?"), would make a
     // second cacheable URL for the same bytes, one that a purge of the bare URL on
-    // removal would miss, so only bare paths are served.
+    // removal would miss, so only bare paths are served as files.
     if (request.url.includes("?")) return notFound();
-    const path = new URL(request.url).pathname;
-    const isImage = IMAGE.test(path);
-    const isOriginal = ORIGINAL.test(path);
-    if (!isImage && !isOriginal) return notFound();
+    if (!isOriginal && !IMAGE.test(path)) return notFound();
 
     // Only a plain GET reads or fills the cache. The key is the bare URL string, not the
     // Request, so no request header can pick a different entry, and the purge removal

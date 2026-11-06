@@ -101,9 +101,10 @@ The parser and sanitizer are the security boundary (ARCHITECTURE, *Sanitizing*).
 
 ### content — `apps/content` changed
 
-- It serves images and original downloads only. Its `robots.txt` comes with #570. It never serves `text/html`.
-- No response sets a cookie. Every response sends `X-Content-Type-Options: nosniff`. Downloads send `Content-Disposition: attachment`.
-- No response is `Cache-Control: immutable`, because these files can go away (ARCHITECTURE, *Edge cache*). A removed work's paths return 404 after removal.
+- It serves images, original downloads and its `robots.txt` only. It never serves `text/html`.
+- No response sets a cookie. Every response sends `X-Content-Type-Options: nosniff` and `X-Robots-Tag`. Downloads send `Content-Disposition: attachment`.
+- A declared automated client gets an empty 403 ahead of the cache and R2, on every path but `/robots.txt`, and so does a cross-site subresource request to an original. Each refusal's log line holds only its reason.
+- No response is `Cache-Control: immutable`, because these files can go away (ARCHITECTURE, *Edge cache*). A removed work's paths return 404 after removal to a client that isn't refused.
 
 ### mailer — `apps/mailer` changed
 

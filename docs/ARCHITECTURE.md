@@ -111,9 +111,9 @@ an unofficial stopgap.
     also applies to `content.rarepair.fans` and may set a cookie there, and inject a
     script into the app's HTML (operator ruling, 2026-11-06). The content Worker itself still
     sets no cookie. Browser Integrity Check stays off (Crawlers and agents).
-  - The content Worker keeps no per-request log (invocation logs are off), so its
-    logs hold no reader address next to a work id. Errors and metrics are kept;
-    traces are off too, so no reading data reaches them (the URL carries the work
+  - The content Worker keeps no log of the requests it serves (invocation logs are off), so
+    its logs hold no reader address next to a work id. Errors, metrics and a line with the
+    reason for each refusal, which can be a reader's cross-site embed, are kept; traces are off too, so no reading data reaches them (the URL carries the work
     id). An operator may turn them on to chase a live fault, which records request
     URLs until they are turned off again, so only for as long as the fault needs.
     `apps/content/test/wrangler.test.ts` holds traces off, so that change edits it too.
@@ -121,7 +121,7 @@ an unofficial stopgap.
     `GET` for an image or an original is answered from the data centre's cache
     (`caches.default`, keyed by the bare URL) without an R2 read once the first
     response is stored, and a miss reads R2 and stores the 200 (a failed cache read
-    counts as a miss, and requests that arrive before the store completes also miss). `HEAD`, errors (404, 405, 451, 503), `Range` and conditional
+    counts as a miss, and requests that arrive before the store completes also miss). `HEAD`, errors (403, 404, 405, 451, 503), `Range` and conditional
     requests never read or fill it. See *Surge controls*, Edge cache.
   - The content Worker reads Postgres, on the uncached Hyperdrive config (see
     *Connections*), for every request that does not hit its cache: a miss, `HEAD`,
@@ -1960,7 +1960,7 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
 
 ```
 apps/web/          Hono Worker: pages, auth, upload handshake, search, admin
-apps/content/      Worker serving epub images and original downloads from R2
+apps/content/      Worker serving epub images and original downloads from R2, and its robots.txt
 apps/ingest/       Queue consumer: epub processing
 apps/mailer/       Queue consumer: sends email (Resend)
 apps/sweep/        Daily cron: deletes unreferenced images, orphaned upload prefixes and removed works' leftovers from R2, and uploads left unconfirmed
