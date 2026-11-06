@@ -56,7 +56,7 @@ async function putRaw(
   id: string,
   body: ReadableStream<Uint8Array> | null,
   headers: Record<string, string>,
-  bindings: { BUCKET?: { put: () => Promise<never>; delete: (key: string) => Promise<void> } } = {},
+  bindings: { BUCKET?: Pick<R2Bucket, "head" | "delete"> & { put: () => Promise<never> } } = {},
 ) {
   const ctx = createExecutionContext();
   const res = await app.fetch(
@@ -315,6 +315,7 @@ describe("02-upload-handshake", () => {
         throw new TypeError("R2 is down");
       },
       delete: (key: string) => env.BUCKET.delete(key),
+      head: (key: string) => env.BUCKET.head(key),
     };
     await expectRefused(
       await putRaw(up.id, bodyOf(10), { cookie, "content-length": "10" }, { BUCKET: bucket }),
