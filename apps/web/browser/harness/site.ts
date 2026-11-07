@@ -60,7 +60,7 @@ export function viewportFromEnv(value = process.env.BROWSER_VIEWPORT): Viewport 
 }
 
 export type SiteOptions = {
-  /** PRELAUNCH as wrangler.jsonc deploys it (true), or the archive open (false, the default). */
+  /** PRELAUNCH turned on, the site before launch (true), or the archive open as deployed (false, the default). */
   prelaunch?: boolean;
   /** Default: `viewportFromEnv()`. */
   viewport?: Viewport;

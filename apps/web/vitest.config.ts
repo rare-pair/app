@@ -34,8 +34,8 @@ const workerd = {
 
 // Three projects. Pure logic, such as the Turnstile verifier and the `next`
 // reduction, runs in Node (/tdd, Rules of the loop). The Worker's HTTP surface
-// runs in workerd, through exports.default.fetch: `open` with PRELAUNCH off, and
-// `prelaunch` exactly as wrangler.jsonc deploys it.
+// runs in workerd, through exports.default.fetch: `open` with PRELAUNCH off (as
+// wrangler.jsonc deploys), and `prelaunch` with it turned on.
 export default defineConfig({
   // The plugin resolves a module workerd asks it for through this root config's
   // SSR environment, not a project's: pg's require of pg-cloudflare needs the
@@ -56,7 +56,8 @@ export default defineConfig({
         },
       },
       {
-        // The archive open: wrangler.jsonc with PRELAUNCH turned off. Other vars are kept.
+        // The archive open: wrangler.jsonc as it deploys (PRELAUNCH off), set here too so
+        // this project doesn't follow a change to the file. Other vars are kept.
         plugins: [worker({ PRELAUNCH: "off" })],
         test: {
           name: "open",
@@ -66,11 +67,12 @@ export default defineConfig({
         },
       },
       {
-        // Before launch: wrangler.jsonc as it deploys, PRELAUNCH on. As in `open`, the
-        // database, secrets, outbound network and email sink are the test stand-ins.
-        // The wait list's response-time floor is shortened, so each join doesn't wait out the
-        // deployed one; the floor tests set their own, and a Node test checks the deployed value.
-        plugins: [worker({ WAITLIST_FLOOR_MS: "50" })],
+        // Before launch: wrangler.jsonc with PRELAUNCH turned on, which it no longer is as
+        // deployed. As in `open`, the database, secrets, outbound network and email sink are
+        // the test stand-ins. The wait list's response-time floor is shortened, so each join
+        // doesn't wait out the deployed one; the floor tests set their own, and a Node test
+        // checks the deployed value.
+        plugins: [worker({ PRELAUNCH: "on", WAITLIST_FLOOR_MS: "50" })],
         test: {
           name: "prelaunch",
           include: ["test/**/*.prelaunch.test.ts"],

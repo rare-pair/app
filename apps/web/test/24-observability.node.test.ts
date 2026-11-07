@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 interface WebConfig {
+  vars?: { PRELAUNCH?: string };
   observability?: {
     enabled?: boolean;
     redact_query_string?: boolean;
@@ -41,5 +42,12 @@ describe("24-crawler-and-agent-blocking", () => {
     const { observability } = readConfig();
     expect(observability?.enabled).toBe(true);
     expect(observability?.logs?.enabled).toBe(true);
+  });
+});
+
+// The archive opened on 2026-11-07. A deploy without a --var flag must not close it again.
+describe("22-waitlist", () => {
+  it("The deployed config says the archive is open: PRELAUNCH is off", () => {
+    expect(readConfig().vars?.PRELAUNCH).toBe("off");
   });
 });

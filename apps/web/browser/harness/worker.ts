@@ -113,7 +113,7 @@ type RunningWorker = {
  * a batch, and a retry after a second rather than two minutes, with the deployed retry count.
  * (That is under the job's 60 s lease, so a job that dies holding its lease isn't retried: the
  * retry finds the lease taken and acks, and `site.waitForUpload` times out on `processing`.)
- * PRELAUNCH is wrangler.jsonc's ("on") when `prelaunch` is true, "off" otherwise. The database,
+ * PRELAUNCH is "on" when `prelaunch` is true, "off" otherwise (as wrangler.jsonc deploys). The database,
  * secrets, web's outbound network and email's consumer are the workerd tests' stand-ins
  * (test/stand-ins.ts); the database is the one at `databaseUrl`, reached through each
  * Hyperdrive binding. `mf.dispose()` stops it.
