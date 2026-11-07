@@ -186,7 +186,7 @@ describe("02-upload-handshake", () => {
     // 20-site-header.test.ts, which allows that one action only.)
     expect(withoutHeader(html)).not.toMatch(/<form\b[^>]*\baction=/i);
     expect(html).toMatch(
-      /<input[^>]*type="file"[^>]*accept="\.epub,application\/epub\+zip,\.zip,application\/zip"/,
+      /<input[^>]*type="file"[^>]*accept="\.epub,application\/epub\+zip,\.pdf,application\/pdf,\.zip,application\/zip"/,
     );
     // A zip of epubs is picked there too, and the page says what it takes.
     expect(html).toContain("or a zip of them (100 MB at most)");
