@@ -93,11 +93,12 @@ async function bucketKeys(keys: string[]) {
 /** vitest.config.ts's made-up zone id, which the purge requests name. */
 const ZONE = "0123456789abcdef0123456789abcdef";
 
-/** Both forms of each upload's download URL, sorted: `.epub` (the R2 key) and bare (the link). */
+/** Each form of each upload's download URL, sorted: `.epub` and `.pdf` (the R2 keys) and bare. */
 const downloadUrls = (uploadIds: string[]) =>
   uploadIds
     .flatMap((u) => [
       `https://content.rarepair.fans/originals/${u}.epub`,
+      `https://content.rarepair.fans/originals/${u}.pdf`,
       `https://content.rarepair.fans/originals/${u}`,
     ])
     .sort();

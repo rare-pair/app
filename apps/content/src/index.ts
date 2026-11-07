@@ -1,4 +1,10 @@
-import { createDb, getImageAccess, getOriginalAccess, type ContentAccess } from "@archive/db";
+import {
+  createDb,
+  getImageAccess,
+  getOriginalAccess,
+  ORIGINAL_MEDIA_TYPES,
+  type ContentAccess,
+} from "@archive/db";
 import { declaredClient, ipKey, isCrossSiteSubresource, isLimited } from "@archive/traffic";
 
 export interface Env {
@@ -106,11 +112,15 @@ async function putEntry(url: string, response: Response) {
  * that ingest writes. Nothing else of a stored entry (an `Age`, a validator that would make a
  * reload conditional and so skip the cache, a cookie) reaches the browser.
  */
-function fileHeaders(isOriginal: boolean, storedType: string, cacheControl: string) {
+function fileHeaders(path: string, storedType: string, cacheControl: string) {
   return {
     "Cache-Control": cacheControl,
-    ...(isOriginal
-      ? { "Content-Type": "application/epub+zip", "Content-Disposition": "attachment" }
+    ...(ORIGINAL.test(path)
+      ? {
+          // By the key, never what's stored: this origin must never serve a type a browser opens.
+          "Content-Type": ORIGINAL_MEDIA_TYPES[path.endsWith(".pdf") ? "pdf" : "epub"],
+          "Content-Disposition": "attachment",
+        }
       : { "Content-Type": IMAGE_TYPES.has(storedType) ? storedType : "application/octet-stream" }),
   };
 }
@@ -127,11 +137,8 @@ type Subject = { kind: "image"; ao3WorkId: number } | { kind: "original"; upload
 function subjectOf(path: string): Subject {
   if (IMAGE.test(path)) return { kind: "image", ao3WorkId: Number(path.split("/")[2]) };
   const segment = path.slice("/originals/".length);
-  // Ingest stores `originals/<upload id>.epub`; a bare id is checked the same way (#119).
-  return {
-    kind: "original",
-    uploadId: segment.endsWith(".epub") ? segment.slice(0, -".epub".length) : segment,
-  };
+  // Ingest stores `originals/<upload id>.epub` or `.pdf`; a bare id is checked the same way (#119).
+  return { kind: "original", uploadId: segment.replace(/\.(?:epub|pdf)$/, "") };
 }
 
 /**
@@ -215,7 +222,7 @@ export default {
       const hit = await matchEntry(request.url);
       if (hit) {
         const type = hit.headers.get("content-type") ?? "";
-        return respond(hit.body, 200, fileHeaders(isOriginal, type, BROWSER_CACHE_CONTROL));
+        return respond(hit.body, 200, fileHeaders(path, type, BROWSER_CACHE_CONTROL));
       }
     }
 
@@ -257,11 +264,11 @@ export default {
       ctx.waitUntil(
         putEntry(
           request.url,
-          respond(forEntry, 200, fileHeaders(isOriginal, stored, EDGE_CACHE_CONTROL)),
+          respond(forEntry, 200, fileHeaders(path, stored, EDGE_CACHE_CONTROL)),
         ),
       );
-      return respond(forReader, 200, fileHeaders(isOriginal, stored, BROWSER_CACHE_CONTROL));
+      return respond(forReader, 200, fileHeaders(path, stored, BROWSER_CACHE_CONTROL));
     }
-    return respond(object.body, 200, fileHeaders(isOriginal, stored, BROWSER_CACHE_CONTROL));
+    return respond(object.body, 200, fileHeaders(path, stored, BROWSER_CACHE_CONTROL));
   },
 } satisfies ExportedHandler<Env>;

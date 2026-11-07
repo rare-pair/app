@@ -90,7 +90,7 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 
 ### A sent file with another content type is refused and frees its slot
 - GIVEN an open upload
-- WHEN a file is sent to it with a `Content-Type` other than exactly `application/epub+zip`
+- WHEN a file is sent to it with a `Content-Type` other than exactly `application/epub+zip` or `application/pdf` (specs/scenarios/mvp/12-pdf-upload.md)
 - THEN the response is 415, nothing is stored, and the upload's row is deleted
 
 ### A sent file with no Content-Length is refused and frees its slot

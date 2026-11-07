@@ -1,3 +1,4 @@
+import { originalKeys } from "@archive/db";
 // Deleting a removed work's objects from R2 (ARCHITECTURE, "Removal really removes"):
 // everything under `works/<ao3_work_id>/` (every version's fragments and the shared
 // images), and each upload's raw file, kept by ingest under `originals/` and, until it
@@ -33,7 +34,7 @@ export async function deleteWorkObjects(
   // A stored raw-file key is trusted only under uploads/, so a bad row can't reach
   // another work's objects.
   const keys = uploads.flatMap((u) => [
-    `originals/${u.id}.epub`,
+    ...originalKeys(u.id),
     ...(u.r2_key.startsWith("uploads/") ? [u.r2_key] : []),
   ]);
   let cursor: string | undefined;

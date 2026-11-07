@@ -93,6 +93,53 @@ async function seeded(status: "live" | "hidden" | "removed", hiddenCause?: Hidde
   return { ...work, image, original };
 }
 
+describe("12-pdf-upload", () => {
+  const seededPdf = async (status: "live" | "hidden" | "removed", hiddenCause?: HiddenCause) => {
+    const work = await withDb((db) =>
+      seedWork(db, { ao3WorkId: freshAo3Id(), status, hiddenCause, format: "pdf" }),
+    );
+    const original = `originals/${work.uploadId}.pdf`;
+    await E.BUCKET.put(original, EPUB, { httpMetadata: { contentType: "text/html" } });
+    return { ...work, original };
+  };
+
+  it("The original stays a download", async () => {
+    const live = await seededPdf("live");
+    for (const attempt of ["from R2", "from the cache"]) {
+      const { res, body } = await request(live.original);
+      expect(res.status, attempt).toBe(200);
+      expect(res.headers.get("content-type"), attempt).toBe("application/pdf");
+      expect(res.headers.get("content-disposition"), attempt).toBe("attachment");
+      expect(body, attempt).toEqual(EPUB);
+    }
+    await caches.default.delete(`${ORIGIN}/${live.original}`);
+  });
+
+  it("Everything that handles an original handles a PDF: a hidden work's file is refused", async () => {
+    const hidden = await seededPdf("hidden", "moderator");
+    await expectRefused(hidden.original, 451, "a hidden work's PDF");
+    const removed = await seededPdf("removed");
+    await expectRefused(removed.original, 404, "a removed work's PDF");
+  });
+
+  it("Everything that handles an original handles a PDF: a held version's file is refused", async () => {
+    const live = await seededPdf("live");
+    const held = await withDb((db) => seedVersion(db, live, { current: false, format: "pdf" }));
+    await E.BUCKET.put(`originals/${held.uploadId}.pdf`, EPUB);
+    await expectRefused(`originals/${held.uploadId}.pdf`, 404, "a held version's PDF");
+  });
+
+  it("Everything that handles an original handles a PDF: other spellings aren't served", async () => {
+    const live = await seededPdf("live");
+    for (const key of [`originals/${live.uploadId}.PDF`, `originals/${live.uploadId}.pdf.pdf`]) {
+      await E.BUCKET.put(key, EPUB);
+      const { res, body } = await request(key);
+      expect(res.status, key).not.toBe(200);
+      expect(body.byteLength, key).toBe(0);
+    }
+  });
+});
+
 describe("09-content-origin", () => {
   it("A hidden work's image is refused, whatever the request", async () => {
     for (const cause of ["moderator", "reports", "removal_request"] as const) {

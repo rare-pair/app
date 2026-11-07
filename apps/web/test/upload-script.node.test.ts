@@ -383,6 +383,28 @@ describe("02-upload-handshake", () => {
     ]);
   });
 
+  it("12-pdf-upload: a PDF joins the list and goes with its own type", async () => {
+    const file = { name: "work.PDF", size: 4000 };
+    const p = page(
+      [file],
+      [
+        () => ({ status: 200, body: { id: "up-1" } }),
+        () => ({ status: 200, body: { status: "queued" } }),
+      ],
+    );
+    expect(p.rows().map(note)).toEqual([""]);
+    void p.click();
+    await p.flush();
+
+    expect(p.calls[0]!.body?.getAll("type")).toEqual(["application/pdf"]);
+    expect(FakeXhr.all[0]!.headers).toEqual({ "Content-Type": "application/pdf" });
+  });
+
+  it("12-pdf-upload: a PDF over 10 MB is refused before anything is asked", async () => {
+    const p = page([{ name: "big.pdf", size: 10485761 }, { name: "ok.pdf", size: 10485760 }], []);
+    expect(p.rows().map(note)).toEqual([expect.stringMatching(/over the 10 MB limit for a PDF/i), ""]);
+  });
+
   it("Only the files that pass are asked for", async () => {
     const p = page(
       [{ name: "notes.txt", size: 10 }, epub(2, 77)],
@@ -1037,6 +1059,17 @@ describe("26-bulk-zip-upload", () => {
     void p.click();
     await p.flush();
     expect(sizesOf(p.calls[0]!.body)).toEqual(["100", "200"]);
+  });
+
+  it("12-pdf-upload: A zip doesn't hold PDFs yet", async () => {
+    const p = page([], []);
+    p.pick([zipOf([book("a.epub", 100), book("b.pdf", 50)])]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(2));
+    expect(p.rows().map(name)).toEqual(["a.epub", "b.pdf"]);
+    expect(p.rows().map(note)).toEqual(["", expect.stringMatching(/Skipped.*PDF/)]);
+    void p.click();
+    await p.flush();
+    expect(sizesOf(p.calls[0]!.body)).toEqual(["100"]);
   });
 
   it("A macOS resource-fork file beside an epub is left out, not listed as an epub", async () => {

@@ -2,8 +2,10 @@ import { env } from "cloudflare:workers";
 import { makeVersionCurrent } from "@archive/db";
 import { inject, describe, expect, it } from "vitest";
 import {
+  addOptOut,
   bucketKeys,
   bucketText,
+  deactivateOptOut,
   deliver,
   hideWork,
   liveWork,
@@ -375,6 +377,71 @@ describe("12-pdf-upload", () => {
       expect(rewritten.row.status).toBe("held_for_review");
       const held = (await versionsOf(workId)).versions.find((v) => v.upload_id === rewritten.id);
       expect(held?.hold_reason).toBe("chapters_changed");
+    });
+  });
+
+  describe("Everything that handles an original handles a PDF", () => {
+    it("The re-sanitize backfill knows a PDF", async () => {
+      const workId = 8813750;
+      const { id } = await ingestPdf(ao3Pdf({ workId }));
+      const before = await versionsOf(workId);
+      let opened = 0;
+      const handler = ingestWorker({
+        loadPdfParser: async () => {
+          opened++;
+          const { pdfParser } = await import("../src/pdf/parser");
+          return pdfParser();
+        },
+      });
+
+      const result = await deliver(
+        [{ work_id: before.workId, version_id: before.current }],
+        { queue: "ingest-backfill", handler },
+      );
+
+      expect(result.explicitAcks).toEqual(["msg-0"]);
+      expect(opened).toBe(1);
+      const after = await versionsOf(workId);
+      expect(after.current).not.toBe(before.current);
+      const live = await liveWork(workId);
+      expect(live?.version.original_upload_id).toBe(id);
+      expect(live?.version.original_format).toBe("pdf");
+      expect(live?.version.review_reasons).toEqual(["from_pdf"]);
+    });
+
+    it("A refused PDF's original doesn't stay behind, whichever key it reached", async () => {
+      const pseud = "Opted Out 8813751";
+      const id = await pendingUpload(
+        ao3Pdf({ workId: 8813751, authors: [{ pseud, user: "optedout8813751" }] }),
+      );
+      await env.BUCKET.put(`originals/${id}.pdf`, "left by an earlier attempt");
+      const optOut = await addOptOut(pseud.toLowerCase());
+
+      await deliver([{ upload_id: id }]);
+
+      expect((await uploadRow(id)).status).toBe("opted_out");
+      expect(await bucketKeys(`originals/${id}`)).toEqual([]);
+      await deactivateOptOut(optOut);
+    });
+  });
+
+  describe("Nothing else changes", () => {
+    it("Epubs behave as they did: unpdf isn't loaded for one", async () => {
+      const workId = 8813752;
+      const id = await pendingUpload(ao3Epub({ workId }));
+      let loaded = 0;
+      const handler = ingestWorker({
+        loadPdfParser: async () => {
+          loaded++;
+          throw new Error("an epub must not load the PDF parser");
+        },
+      });
+
+      await deliver([{ upload_id: id }], { handler });
+
+      expect(loaded).toBe(0);
+      expect((await uploadRow(id)).status).toBe("live");
+      expect(await bucketKeys(`originals/${id}`)).toEqual([`originals/${id}.epub`]);
     });
   });
 

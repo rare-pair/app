@@ -42,6 +42,19 @@ describe("deleteWorkObjects", () => {
     expect([...held].sort()).toEqual(["originals/up-other.epub", "uploads/up-other.epub"]);
   });
 
+  it("12-pdf-upload: deletes an upload's original whichever format it is", async () => {
+    const { bucket, held } = fakeBucket([
+      "originals/up-1.pdf",
+      "originals/up-2.epub",
+      "originals/up-other.pdf",
+    ]);
+    await deleteWorkObjects(bucket, 143, [
+      { id: "up-1", r2_key: "uploads/up-1.epub" },
+      { id: "up-2", r2_key: "uploads/up-2.epub" },
+    ]);
+    expect([...held]).toEqual(["originals/up-other.pdf"]);
+  });
+
   it("Never deletes a stored raw-file key outside uploads/", async () => {
     const { bucket, held } = fakeBucket(["works/999/up-9/00000.html", "originals/up-9.epub"]);
     await deleteWorkObjects(bucket, 143, [

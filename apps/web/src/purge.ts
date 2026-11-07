@@ -2,7 +2,8 @@
 // "Removal really removes"), through the zone's purge_cache API: the Cache API's own
 // `delete` clears one data centre only.
 // https://developers.cloudflare.com/api/resources/cache/methods/purge/
-import { CONTENT_HOST, originalUrl } from "./content-host";
+import { UPLOAD_FORMATS } from "@archive/db";
+import { CONTENT_HOST, originalFileUrl, originalUrl } from "./content-host";
 import { workCacheTag } from "./edge-cache";
 
 /** The most URLs one purge-by-URL request takes below Enterprise. */
@@ -35,7 +36,7 @@ export interface PurgeOptions {
  * Asks Cloudflare to purge the work from the zone's cache: its web pages and fragments
  * by tag, its images by prefix, and its original downloads by URL. The API takes one
  * kind per request: one tag request, one prefix request, and one download request per
- * 100 URLs (two URLs an upload; none for a work with no uploads). Whether the zone
+ * 100 URLs (three URLs an upload; none for a work with no uploads). Whether the zone
  * cache holds the content host's responses at all is the operator's to settle: no
  * purge reaches a browser's cache. apps/content keeps its own Cache API entries under
  * these same URLs; that a purge clears them is unverified on the live zone (ARCHITECTURE,
@@ -53,10 +54,13 @@ export async function purgeWorkCaches(
     throw new PurgeError("cache purge failed: no zone id");
   }
   const url = `https://api.cloudflare.com/client/v4/zones/${credentials.zoneId}/purge_cache`;
-  // Both forms of each download URL: ingest stores originals/<id>.epub, and the
+  // Each form of each download URL: ingest stores originals/<id>.epub or .pdf, and the
   // work page links that form. The bare originals/<id> stays purged until #119
   // settles the key.
-  const files = target.uploadIds.flatMap((id) => [`${originalUrl(id)}.epub`, originalUrl(id)]);
+  const files = target.uploadIds.flatMap((id) => [
+    ...UPLOAD_FORMATS.map((format) => originalFileUrl(id, format)),
+    originalUrl(id),
+  ]);
   /** Sends one request: nothing when it was accepted, or what failed. */
   const send = async (step: string, body: PurgeBody) => {
     const why = await request(url, credentials.token, body, options);

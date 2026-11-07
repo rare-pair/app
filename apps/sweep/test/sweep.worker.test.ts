@@ -380,6 +380,17 @@ describe("sweep of a removed work", () => {
     expect(await bucketKeys(`works/${NEIGHBOUR}/`)).toEqual([`works/${NEIGHBOUR}/1.html`]);
   });
 
+  it("12-pdf-upload: a removed work's leftover PDF is deleted by the next run", async () => {
+    await seededWork({ ao3WorkId: REMOVED, status: "removed" });
+    const refused = await upload(null, "parse_failed");
+    await putPrefix(REMOVED, refused, 1);
+    await env.BUCKET.put(`originals/${refused}.pdf`, "synthetic");
+
+    await runSweep(0);
+
+    expect(await bucketKeys(`originals/${refused}`)).toEqual([]);
+  });
+
   it("A live or hidden work's files are never touched", async () => {
     const live = await seededWork({ ao3WorkId: 43_002 });
     const hidden = await seededWork({

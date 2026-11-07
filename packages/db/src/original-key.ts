@@ -1,6 +1,6 @@
 import type { UploadFormat } from "./schema";
 
-const FORMATS: readonly UploadFormat[] = ["epub", "pdf"];
+export const UPLOAD_FORMATS: readonly UploadFormat[] = ["epub", "pdf"];
 
 /** Where the raw file of an upload is kept: every reader of an original goes through this. */
 export const originalKey = (uploadId: string, format: UploadFormat): string =>
@@ -11,7 +11,7 @@ export const originalKey = (uploadId: string, format: UploadFormat): string =>
  * there is no error, and it finds the file even if the job died before recording its format.
  */
 export const originalKeys = (uploadId: string): string[] =>
-  FORMATS.map((format) => originalKey(uploadId, format));
+  UPLOAD_FORMATS.map((format) => originalKey(uploadId, format));
 
 /** The type an original is stored and served with. */
 export const ORIGINAL_MEDIA_TYPES: Record<UploadFormat, string> = {

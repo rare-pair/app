@@ -6,7 +6,7 @@ import { createDb, getLiveWork, getWorkAvailability, type LiveWork } from "@arch
 import type { Context } from "hono";
 import { ADULT_MARK_LINE } from "./adult-mark";
 import { workCard } from "./cards";
-import { originalUrl } from "./content-host";
+import { originalFileUrl } from "./content-host";
 import type { Bindings } from "./env";
 import { escapeHtml, layout } from "./pages";
 import { continueHref, loadPosition, type Position } from "./position";
@@ -85,7 +85,7 @@ export function workPage(live: LiveWork, position: Position | null = null): stri
 ${work.adult_marked ? `<p class="adult-mark">${ADULT_MARK_LINE}</p>\n` : ""}${block("p", "fandoms", fandoms.map(tagLink).join(", "))}${block("section", "summary", tidySummary(work.summary_html ?? ""))}${block("p", "tags", listed.map(tagLink).join(", "))}<p class="stats">${stats.join(" · ")}</p>
 ${needsCheck ? `<p class="review-notice">Chapters may be imperfect; a moderator will check.</p>\n` : ""}${continueLink(live, position)}<ol class="chapters">${chapters.map((ch) => `<li><a href="${base}/chapters/${ch.n}">${escapeHtml(ch.title)}</a></li>`).join("")}</ol>
 <p class="full"><a href="${base}/full">Read the entire work on one page</a></p>
-<p class="download"><a href="${originalUrl(version.original_upload_id)}.epub">Download original epub</a></p>
+${version.original_format === "pdf" ? `<p class="converted">Converted from a PDF</p>\n` : ""}<p class="download"><a href="${originalFileUrl(version.original_upload_id, version.original_format)}">Download original ${version.original_format === "pdf" ? "PDF" : "epub"}</a></p>
 <p class="report"><a href="${base}/report">Report</a></p>
 <p class="remove"><a href="/remove?work=${work.ao3_work_id}">Ask for this to be removed</a></p>
 <p class="unofficial">rarepair is an unofficial stopgap, not the original archive: this copy is here while the original is offline.</p>

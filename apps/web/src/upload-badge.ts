@@ -1,5 +1,5 @@
 import type { UploadStatus } from "@archive/db";
-import { MAX_UPLOAD_MB } from "./upload-limit";
+import { MAX_PDF_MB, MAX_UPLOAD_MB } from "./upload-limit";
 
 // What the My uploads page says about an upload's status. The server renders it and the
 // page's script (my-uploads-script.ts) repeats it, so both read these tables. All of the
@@ -18,7 +18,7 @@ export const LABELS: Record<UploadStatus, string> = {
   held_for_review: "Held for review",
   duplicate: "Already in the archive",
   not_ao3: "Rejected: not an AO3 export",
-  not_epub: "Rejected: not an EPUB",
+  not_epub: "Rejected: not an EPUB or PDF",
   zip_bomb: "Rejected: file can't be opened safely",
   too_large: "Rejected: too large",
   // opted_out stands for an opt-out and a takedown alike, so the badge says neither.
@@ -27,6 +27,7 @@ export const LABELS: Record<UploadStatus, string> = {
   over_quota: "Daily limit reached",
   work_removed: "Rejected",
   account_banned: "Rejected: account can't upload",
+  pdf_unreadable: "Rejected: couldn't read this PDF",
 };
 // The badge for a status the script doesn't know (one added after the page was served).
 export const REJECTED = "Rejected";
@@ -42,15 +43,17 @@ export const MESSAGES: Record<UploadStatus, string> = {
   not_ao3:
     "This file isn't an AO3 download, so we can't accept it here. Download the work from AO3 as an EPUB and upload that.",
   not_epub:
-    "This file isn't a valid EPUB, so we couldn't read it. Download a fresh copy and try again.",
+    "This file isn't a valid EPUB or PDF, so we couldn't read it. Download a fresh copy and try again.",
   zip_bomb: "This file is built in a way we won't open. Download a fresh EPUB and try again.",
-  too_large: `This file is too large. We accept EPUBs up to ${MAX_UPLOAD_MB} MB.`,
+  too_large: `This file is too large. We accept EPUBs up to ${MAX_UPLOAD_MB} MB and PDFs up to ${MAX_PDF_MB} MB.`,
   opted_out: "This work can't be added to the archive.",
   parse_failed:
     "We couldn't process this file. Try uploading it again; if it keeps failing, the file may be damaged.",
   over_quota: "You've reached today's daily limit for uploads. Try again later.",
   work_removed: "This work was removed from the archive.",
   account_banned: "This account can no longer upload.",
+  pdf_unreadable:
+    "We couldn't read this PDF: it may be protected or damaged, or its chapters couldn't be told apart. An EPUB of the work would work.",
 };
 // For a status the script doesn't know (one added after the page was served).
 export const FALLBACK_MESSAGE = "Reload this page to see the latest on this upload.";

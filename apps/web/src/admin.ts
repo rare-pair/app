@@ -2,6 +2,7 @@
 // every /admin URL goes through, and the four queues, read only. Actions and detail
 // pages come with later tickets (MOD2 on).
 
+import { reasonWording } from "./review-wording";
 import {
   createDb,
   isModeratorRole,
@@ -222,6 +223,7 @@ export async function showWorksToCheck(c: AdminContext) {
     .innerJoin("works", "works.id", "work_versions.work_id")
     .select(["works.id", "works.title", "works.ao3_work_id"])
     .select((eb) => eb.fn.min("work_versions.created_at").as("created_at"))
+    .select(sql<(string | null)[]>`array_agg(distinct work_versions.hold_reason)`.as("hold_reasons"))
     .where("uploads.status", "=", "held_for_review")
     .where("works.status", "<>", "removed")
     // One row per work, so a work with many held versions can't use up the cap.
@@ -318,8 +320,17 @@ export async function showWorksToCheck(c: AdminContext) {
       if (!have.reasons.includes(reason)) have.reasons.push(reason);
     }
   };
-  for (const r of held) add(r, "Held version");
-  for (const r of flagged) add(r, `Review reasons: ${r.review_reasons.join(", ")}`);
+  for (const r of held) {
+    add(
+      r,
+      r.hold_reasons.includes("pdf_more_chapters")
+        ? `Held version: ${reasonWording("pdf_more_chapters")}`
+        : "Held version",
+    );
+  }
+  for (const r of flagged) {
+    add(r, `Review reasons: ${r.review_reasons.map(reasonWording).join(", ")}`);
+  }
   for (const r of wrong) add(r, "Reported: this version is wrong");
   for (const r of hiddenByReports) add(r, "Hidden by reports, none open: restore or remove");
 

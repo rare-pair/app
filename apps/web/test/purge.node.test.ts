@@ -50,8 +50,10 @@ describe("purgeWorkCaches", () => {
       {
         files: [
           "https://content.rarepair.fans/originals/up-1.epub",
+          "https://content.rarepair.fans/originals/up-1.pdf",
           "https://content.rarepair.fans/originals/up-1",
           "https://content.rarepair.fans/originals/up-2.epub",
+          "https://content.rarepair.fans/originals/up-2.pdf",
           "https://content.rarepair.fans/originals/up-2",
         ],
       },
@@ -72,8 +74,8 @@ describe("purgeWorkCaches", () => {
     await purgeWorkCaches(credentials, { ao3WorkId: 12, uploadIds }, { fetch: many.fetch });
     const files = many.sent.flatMap((s) => s.body.files ?? []);
     const sizes = many.sent.flatMap((s) => (s.body.files ? [s.body.files.length] : []));
-    expect(sizes).toEqual([100, 100, 40]);
-    expect(new Set(files).size).toBe(240);
+    expect(sizes).toEqual([100, 100, 100, 60]);
+    expect(new Set(files).size).toBe(360);
     expect(files).toContain("https://content.rarepair.fans/originals/up-119.epub");
     expect(files).toContain("https://content.rarepair.fans/originals/up-119");
 
@@ -85,10 +87,10 @@ describe("purgeWorkCaches", () => {
     ]);
   });
 
-  it("Sends exactly 100 URLs for 50 uploads and 100 then 2 for 51", async () => {
+  it("Sends 99 URLs for 33 uploads and 100 then 2 for 34", async () => {
     for (const [n, sizes] of [
-      [50, [100]],
-      [51, [100, 2]],
+      [34, [100, 2]],
+      [33, [99]],
     ] as const) {
       const uploadIds = Array.from({ length: n }, (_, i) => `up-${i}`);
       const { sent, fetch } = stubFetch();

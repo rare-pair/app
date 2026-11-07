@@ -1,4 +1,4 @@
-import type { Database } from "@archive/db";
+import { originalKey, type Database } from "@archive/db";
 import { EpubError, LIMITS, type ParsedWork } from "@archive/epub";
 import { sql, type Kysely } from "kysely";
 import type { JobDeps } from "./job";
@@ -61,7 +61,12 @@ export async function runBackfill(deps: BackfillDeps, message: BackfillMessage):
   // A backfill version names the upload it was re-made from; the schema gives every version one.
   const originalUploadId = row.upload_id ?? row.source_upload_id;
   if (originalUploadId === null) throw new Error("a version names no original");
-  const object = await deps.bucket.get(`originals/${originalUploadId}.epub`);
+  const source = await deps.db
+    .selectFrom("uploads")
+    .select("format")
+    .where("id", "=", originalUploadId)
+    .executeTakeFirstOrThrow();
+  const object = await deps.bucket.get(originalKey(originalUploadId, source.format));
   if (object === null) return "original_missing";
   // As for an upload: by the object's size, before its body is read.
   if (object.size > LIMITS.maxInputBytes) {
