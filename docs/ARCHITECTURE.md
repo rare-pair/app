@@ -311,7 +311,11 @@ database doesn't check that a `pseud_norm` isn't made only of invisibles:
    `{ uploads: [{ id }, ...] }` for several. Transfer and confirm stay two requests after it, so
    a confirm can be refused without a file on the wire.
 2. **Upload.** The browser PUTs each file to `PUT /uploads/:id` on the web Worker and shows each
-   file's progress, three at a time, and another click sends the files not yet uploaded. The
+   file's progress, three at a time, and another click sends the files not yet uploaded. Files
+   picked or dropped wait in a list the uploader edits, and a list of more than 10 goes in groups
+   of 10: the page asks step 1 once per group, with a fresh Turnstile token for each, and asks for
+   the next only when the one before has finished confirming. A refusal of a group (a spent
+   quota, say) leaves it and the rest in the list, and what was sent stays sent. The
    page's script sends with `XMLHttpRequest`, since `fetch` reports no upload progress.
    Each finished PUT is confirmed with `POST /uploads/:id/complete`.
    Uploading needs JavaScript, as every form with a Turnstile check does

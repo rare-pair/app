@@ -329,7 +329,12 @@ describe("02-upload-handshake", () => {
   it("An error reply is shown and nothing is sent", async () => {
     const p = page(
       [epub(1), epub(2)],
-      [() => ({ status: 429, body: { error: "You have 1 upload left today.", retryAfter: 60 } })],
+      [
+        () => ({
+          status: 429,
+          body: { error: "You have 1 upload left today.", retryAfter: 40000 },
+        }),
+      ],
     );
     await p.click();
     expect(p.message.textContent).toBe("You have 1 upload left today.");
@@ -752,6 +757,39 @@ describe("02-upload-handshake", () => {
     expect(p.message.textContent).toMatch(/didn't finish/);
     expect(note(p.rows()[10]!)).toMatch(/Not uploaded.*stays in the list/);
     expect(p.calls.filter((c) => c.url === "/uploads")).toHaveLength(1);
+  });
+
+  it("A rate limit that clears within a minute is waited out", async () => {
+    const files = Array.from({ length: 11 }, (_, i) => epub(i));
+    const p = page(files, [
+      () => ({
+        status: 200,
+        body: { uploads: Array.from({ length: 10 }, (_, i) => ({ id: `u${i}` })) },
+      }),
+      ...Array.from({ length: 10 }, () => () => ({ status: 200, body: { status: "queued" } })),
+      () => ({ status: 429, body: { error: "Too fast.", retryAfter: 60 } }),
+      () => ({ status: 200, body: { id: "last" } }),
+      () => ({ status: 200, body: { status: "queued" } }),
+    ]);
+    const clicked = p.click();
+    for (let i = 0; i < 10; i++) {
+      while (FakeXhr.all.length <= i) await p.flush();
+      done(FakeXhr.all[i]!);
+      await p.flush();
+    }
+    for (let i = 0; i < 10; i++) await p.flush();
+    expect(p.message.textContent).toMatch(/Pausing 60 seconds/);
+    // Nothing more is asked until the wait is over.
+    expect(p.calls.filter((c) => c.url === "/uploads")).toHaveLength(2);
+    p.timers.find((t) => t.ms === 61000)!.fire();
+    while (FakeXhr.all.length < 11) await p.flush();
+    done(FakeXhr.all[10]!);
+    await clicked;
+    // The same group is asked again, with a fresh token.
+    const asks = p.calls.filter((c) => c.url === "/uploads");
+    expect(asks).toHaveLength(3);
+    expect(asks[2]!.body?.get("cf-turnstile-response")).toBe("token-3");
+    expect(note(p.rows()[10]!)).toMatch(/Uploaded/);
   });
 
   it("The summary doesn't say everything was sent when a file failed", async () => {

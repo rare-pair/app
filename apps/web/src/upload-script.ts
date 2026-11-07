@@ -23,6 +23,8 @@ export const UPLOAD_SCRIPT = `"use strict";
   const STALL_MS = 120000;
   const REPORT_MS = 10000;
   const POLL_MS = 250;
+  // The longest a refused ask is waited out: the rate limit's window is 60 seconds.
+  const MAX_PAUSE_SECONDS = 120;
   // A fresh check still running after this many polls is probably waiting for the person.
   const SLOW_POLLS = 32;
   const GIVE_UP_POLLS = 1200;
@@ -99,6 +101,7 @@ export const UPLOAD_SCRIPT = `"use strict";
   const addFiles = (files) => {
     if (busy) return say("Wait for the upload to finish before changing the list.");
     const picked = Array.from(files);
+    if (picked.length === 0) return say("No files were found. Pick or drop epub files.");
     const added = picked.filter(addFile).length;
     const repeats = picked.length - added;
     const text = [];
@@ -229,7 +232,6 @@ export const UPLOAD_SCRIPT = `"use strict";
 
   // The next group's token. The check is reset after each ask and takes a moment, or the person.
   const freshToken = async () => {
-    challenged = false;
     for (let polls = 0; polls < GIVE_UP_POLLS; polls++) {
       const token = window.turnstile.getResponse();
       if (token) return token;
@@ -241,7 +243,8 @@ export const UPLOAD_SCRIPT = `"use strict";
     return "";
   };
 
-  // Asks for one group and sends it. False when the ask was refused, so nothing in it went.
+  // Asks for one group and sends it. True when it went; false when the ask was refused, so
+  // nothing in it went; or the seconds to wait, when the rate limit refused it.
   const sendGroup = async (group, token) => {
     const body = new URLSearchParams();
     for (const { file } of group) body.append("size", String(file.size));
@@ -254,8 +257,9 @@ export const UPLOAD_SCRIPT = `"use strict";
     } catch {
       res = null;
     }
-    // A token works once, however the ask went.
+    // A token works once, however the ask went. A check that needs the person is a new one's.
     window.turnstile.reset();
+    challenged = false;
 
     const granted = res && res.ok ? (Array.isArray(reply.uploads) ? reply.uploads : [reply]) : [];
     if (
@@ -263,7 +267,9 @@ export const UPLOAD_SCRIPT = `"use strict";
       granted.some((one) => !one || typeof one.id !== "string")
     ) {
       say((res && !res.ok && reply.error) || "We couldn't start the upload. Please try again.");
-      return false;
+      // A 429 that clears within the rate-limit window is a pause to wait out, not a spent quota.
+      const wait = res && res.status === 429 ? Number(reply.retryAfter) : 0;
+      return wait > 0 && wait <= MAX_PAUSE_SECONDS ? wait : false;
     }
 
     await runAtOnce(
@@ -288,7 +294,13 @@ export const UPLOAD_SCRIPT = `"use strict";
     say("");
     if (entries.length === 0) return say("Pick one or more epub files first.");
     const waiting = entries.filter((entry) => !entry.done && !entry.problem);
-    if (waiting.length === 0) return say("Nothing in the list can be sent.");
+    if (waiting.length === 0) {
+      return say(
+        entries.every((entry) => entry.done)
+          ? "Everything in the list is already uploaded."
+          : "Nothing in the list can be sent.",
+      );
+    }
     let token = window.turnstile ? window.turnstile.getResponse() : "";
     if (!token) return say("Please wait for the anti-spam check to finish, then try again.");
 
@@ -304,7 +316,14 @@ export const UPLOAD_SCRIPT = `"use strict";
         else say("The anti-spam check didn't finish. Press Upload to send the rest.");
       }
       // A group is sent once the one before has finished confirming.
-      if (token && (await sendGroup(groups[g], token))) continue;
+      let outcome = token ? await sendGroup(groups[g], token) : false;
+      if (typeof outcome === "number") {
+        say("Too many uploads at once. Pausing " + outcome + " seconds, then it goes on.");
+        await new Promise((resolve) => setTimeout(resolve, (outcome + 1) * 1000));
+        token = await freshToken();
+        outcome = token ? await sendGroup(groups[g], token) : false;
+      }
+      if (outcome === true) continue;
       for (const entry of groups.slice(g).flat()) {
         entry.row.note.textContent = "Not uploaded. It stays in the list, and Upload will send it.";
       }
@@ -325,6 +344,8 @@ export const UPLOAD_SCRIPT = `"use strict";
       await start();
     } finally {
       setBusy(false);
+      // Disabling the button dropped focus; the person is back where they pressed.
+      button.focus();
     }
   });
 })();

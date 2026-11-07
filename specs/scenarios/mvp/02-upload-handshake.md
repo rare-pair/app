@@ -241,7 +241,14 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 - WHEN the second group is refused for the quota
 - THEN the first 10 stay sent, and show as uploaded
 - AND the rows of the refused group say they were not uploaded and stay in the list
-- AND pressing Upload again sends only those
+- AND pressing Upload again, once the quota allows, sends only those
+- AND a group refused whole stays whole: the server counts the group's files against the quota together
+
+### A rate limit that clears within a minute is waited out
+- GIVEN a long list, and a group's ask refused 429 with a `retryAfter` of the rate-limit window
+- WHEN the page gets that answer
+- THEN it says it is pausing, waits, gets a fresh Turnstile token and asks for the same group again
+- AND a 429 that clears much later, such as a spent quota, isn't waited out
 
 ### A transfer answered 409 goes on to the confirm and isn't reported
 - GIVEN a PUT answered 409, such as a stored file's PUT sent again by the browser after its answer was lost
