@@ -144,6 +144,7 @@ describe("25-updates", () => {
     expect(main.match(/<h1>/g)).toHaveLength(1);
     expect(html).toContain("<h1>rarepair v0.1.0 &quot;Chuhura&quot;</h1>");
     const at = (text: string) => main.indexOf(text);
+    expect(main).not.toContain(first.summary);
     expect(at("<h1>")).toBeLessThan(at("admin and 🤖"));
     expect(at("admin and 🤖")).toBeLessThan(at('<time datetime="2026-11-06">2026-11-06</time>'));
     expect(at('<time datetime="2026-11-06">')).toBeLessThan(at("TLDR; ⚡"));
