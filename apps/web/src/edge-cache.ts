@@ -191,7 +191,7 @@ export interface ChapterPage {
  * The page entry's shape, raised whenever `ChapterPage` changes, so an entry an earlier
  * deploy left is a miss rather than a page built from the wrong fields.
  */
-const PAGE_FORMAT = 1;
+const PAGE_FORMAT = 2;
 
 /** What a page entry holds. Only this Worker writes it. */
 interface StoredPage {

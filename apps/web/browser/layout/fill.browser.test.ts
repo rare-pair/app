@@ -141,9 +141,11 @@ for (const win of WINDOWS) {
         };
         const paragraph = await widthOf("not found", "main > p");
         const chapter = await widthOf("chapter", "article.chapter");
+        const post = await widthOf("update post", ".update-body");
         if (win.width === 1280) {
           expect(paragraph).toBeLessThan(800);
           expect(chapter).toBeLessThan(800);
+          expect(post).toBeLessThan(800);
           expect(chapter).toBeGreaterThan(500);
         } else {
           expect(paragraph).toBeLessThanOrEqual(360);

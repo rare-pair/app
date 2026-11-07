@@ -707,6 +707,7 @@ html[data-face="sans"] {
 }
 
 .update-body {
+  max-width: ${MEASURE};
   overflow-wrap: anywhere;
 }
 
