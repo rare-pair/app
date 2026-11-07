@@ -84,7 +84,7 @@ Only 2 of the 8 could be checked against an epub, and both are single-chapter. S
 - THEN it is stored as an epub's anonymous work is
 - AND a `/users/` link outside the byline isn't taken for an author
 - AND only the marker alone is anonymous: "by Anonymous, A Name" names both, with `byline_ambiguous`, for the opt-out check to read
-- AND a byline can wrap, inside a name too, and every linked author on it is read. A link names who it covers; a printed name no link covers is named as well, with `byline_ambiguous`. None of the 8 samples has more than one author, so this is shown only on synthetic files
+- AND a byline can wrap, inside a name too, and every linked author on it is read. A link names who it covers, by the pseud in it or, with none, the name printed under it; a printed name no link covers is named as well, with `byline_ambiguous`. None of the 8 samples has more than one author, so this is shown only on synthetic files
 - AND a PDF's document metadata isn't read for authors, since a browser or word processor can set it to anything, so a file with no byline has `byline_missing`
 
 #### The chapter count must match
@@ -151,6 +151,7 @@ These checks don't bound everything the parser can do, and that's accepted (oper
 - WHEN a reader opens a chapter or `/full`
 - THEN it uses the same pages, cache, warnings screen, settings and position as any work
 - AND chapter summaries and notes go where an epub's do, by their printed labels
+- AND the afterword is known by its heading with End Notes or the closing line under it, or else by an `End Notes` line before the closing line, which is the one case a line in the text can be taken for it
 
 #### A reader is told it was converted
 - GIVEN a work whose current version is a PDF version
