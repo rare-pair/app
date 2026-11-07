@@ -23,6 +23,7 @@ export const UPLOAD_SCRIPT = `"use strict";
   const STALL_MS = 120000;
   const REPORT_MS = 10000;
   const POLL_MS = 250;
+  const NEEDS_YOU = "The anti-spam check needs you. Please finish it above and the upload will go on.";
   // The longest a refused ask is waited out: the rate limit's window is 60 seconds.
   const MAX_PAUSE_SECONDS = 120;
   // A fresh check still running after this many polls is probably waiting for the person.
@@ -41,6 +42,8 @@ export const UPLOAD_SCRIPT = `"use strict";
   // Turnstile calls this when it needs the person to do something (data-before-interactive-callback).
   window.onTurnstileInteractive = () => {
     challenged = true;
+    // Said as it happens, not when the group in flight ends, so it is heard in time.
+    if (busy) say(NEEDS_YOU);
   };
 
   const say = (text) => {
@@ -236,7 +239,7 @@ export const UPLOAD_SCRIPT = `"use strict";
       const token = window.turnstile.getResponse();
       if (token) return token;
       if (challenged || polls >= SLOW_POLLS) {
-        say("The anti-spam check needs you. Please finish it above and the upload will go on.");
+        say(NEEDS_YOU);
       }
       await new Promise((resolve) => setTimeout(resolve, POLL_MS));
     }
@@ -310,6 +313,11 @@ export const UPLOAD_SCRIPT = `"use strict";
     for (let at = 0; at < waiting.length; at += MAX_FILES) {
       groups.push(waiting.slice(at, at + MAX_FILES));
     }
+    say(
+      groups.length > 1
+        ? "Sending group 1 of " + groups.length + "."
+        : "Sending " + plural(waiting.length, "file") + ".",
+    );
     for (let g = 0; g < groups.length; g++) {
       if (g > 0) {
         token = await freshToken();

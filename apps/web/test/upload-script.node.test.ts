@@ -655,6 +655,25 @@ describe("02-upload-handshake", () => {
     expect(p.rows().every((r) => /Uploaded/.test(note(r)))).toBe(true);
   });
 
+  it("The first group is announced as it starts, and a challenge as it appears", async () => {
+    const p = page(
+      [epub(1)],
+      [
+        () => ({ status: 200, body: { id: "up-1" } }),
+        () => ({ status: 200, body: { status: "queued" } }),
+      ],
+    );
+    const clicked = p.click();
+    await p.flush();
+    // Transfers are under way, and the live status already says so.
+    expect(p.message.textContent).toBe("Sending 1 file.");
+    // Turnstile asks for the person while the transfer is still running.
+    p.interact();
+    expect(p.message.textContent).toMatch(/needs you/);
+    done(FakeXhr.all[0]!);
+    await clicked;
+  });
+
   it("A Turnstile check that needs the person is said aloud", async () => {
     const files = Array.from({ length: 11 }, (_, i) => epub(i));
     const p = page(files, [
