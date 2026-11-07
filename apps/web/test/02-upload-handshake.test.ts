@@ -187,8 +187,10 @@ describe("02-upload-handshake", () => {
     expect(withoutHeader(html)).not.toMatch(/<form\b[^>]*\baction=/i);
     expect(html).toMatch(/<input[^>]*type="file"[^>]*accept="\.epub,application\/epub\+zip"/);
     expect(html).toContain(
-      `<div class="cf-turnstile" data-sitekey="${env.TURNSTILE_SITE_KEY}" data-action="upload">`,
+      `<div class="cf-turnstile" data-sitekey="${env.TURNSTILE_SITE_KEY}" data-action="upload" data-before-interactive-callback="onTurnstileInteractive">`,
     );
+    // A marked drop area holds the file picker, so keyboard and phone users still have it.
+    expect(html).toMatch(/<div id="drop" class="drop-area">[\s\S]*<input id="file"/);
     const scripts = html.match(/<script\b[^>]*>/g) ?? [];
     expect(scripts.length).toBeGreaterThan(0);
     for (const tag of scripts) expect(tag).toContain(`nonce="${nonceOf(csp)}"`);
