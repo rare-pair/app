@@ -338,6 +338,16 @@ describe("21-accessibility-and-no-js", () => {
     expect(css).toMatch(/\.sign-in \.cf-turnstile[^{]*\{[^}]*margin-top:/);
   });
 
+  it("The sign-in page points to Firefox Relay as help, not a warning (#726)", async () => {
+    const html = await htmlOf("/login");
+    expect(html).toContain(
+      '<p class="sign-in-help">Prefer not to share your real address? You can use a mask from <a href="https://relay.firefox.com/">Firefox Relay</a>, which forwards our email to your inbox.</p>',
+    );
+    const css = await stylesheetOf();
+    expect(css).toMatch(/\.sign-in-help\s*\{[^}]*border-left:\s*3px solid var\(--rule\)/);
+    expect(css.match(/\.sign-in-help\s*\{[^}]*\}/)?.[0]).not.toMatch(/2px solid currentColor/);
+  });
+
   it("The stylesheet is served from the page's own origin, cached for good", async () => {
     const href = stylesheetHref(await htmlOf("/about"));
     expect(href).toMatch(/^\/assets\/site\.[0-9a-f]+\.css$/);
