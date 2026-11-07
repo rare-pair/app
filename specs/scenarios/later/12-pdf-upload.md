@@ -42,7 +42,7 @@ Only 2 of the 8 could be checked against an epub, and both are single-chapter. S
 - AND a file that starts `%PDF-` goes to the PDF processor. Anything else goes to the epub processor, so random bytes named `.pdf` end `not_epub`, whose message says it isn't a valid EPUB or PDF
 
 #### A zip doesn't hold PDFs yet
-- GIVEN a zip of epubs and PDFs on the upload page
+- GIVEN a zip of epubs and PDFs on the upload page (specs/scenarios/mvp/26-bulk-zip-upload.md)
 - WHEN it is added to the list
 - THEN the epubs are added, and each PDF is shown as skipped
 

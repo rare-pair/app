@@ -1,5 +1,7 @@
 import { createContext, runInContext, Script } from "node:vm";
-import { describe, expect, it } from "vitest";
+import { randomBytes } from "node:crypto";
+import { deflateRawSync } from "node:zlib";
+import { describe, expect, it, vi } from "vitest";
 import { UPLOAD_SCRIPT } from "../src/upload-script";
 
 // U3's browser half, run as text over hand-written fakes for the page's DOM, `fetch`,
@@ -105,7 +107,12 @@ class FakeTimer {
 type Call = { url: string; method: string; body: URLSearchParams | undefined };
 
 /** Loads the script into a fresh page with `files` picked, and returns the handles to drive it. */
-function page(files: Fake[], replies: ((call: Call) => { status: number; body: object })[]) {
+function page(
+  files: Fake[],
+  replies: ((call: Call) => { status: number; body: object })[],
+  // Browser features the zip reader uses; `{ DecompressionStream: undefined }` is a browser without it.
+  browser: { DecompressionStream?: unknown } = {},
+) {
   FakeXhr.all = [];
   const elements = Object.fromEntries(
     ["file", "send", "message", "files", "drop"].map((id) => [id, new FakeElement()]),
@@ -161,6 +168,11 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
       timers[id]!.cleared = true;
     },
     XMLHttpRequest: FakeXhr,
+    File,
+    Blob,
+    TextDecoder,
+    DecompressionStream,
+    ...browser,
     URLSearchParams,
     AbortSignal,
     turnstile,
@@ -825,5 +837,366 @@ describe("02-upload-handshake", () => {
     FakeXhr.all[1]!.onerror!();
     await clicked;
     expect(p.message.textContent).toBe("1 of 2 files sent. Press Upload to try the rest.");
+  });
+});
+
+// A zip built by hand: entries stored or deflated, with the size the directory claims for each.
+type ZipEntry = {
+  name: string;
+  data: Buffer;
+  method?: 0 | 8;
+  claims?: number;
+  /** Where the directory says the entry starts, when not where it really does. */
+  at?: number;
+};
+type ZipExtras = {
+  /** A zip64 end-record locator before the end record. */
+  locator?: boolean;
+  /** An extra-field length the last directory entry claims but the directory doesn't hold. */
+  lastExtra?: number;
+};
+const zipOf = (entries: ZipEntry[], zipName = "books.zip", extras: ZipExtras = {}) => {
+  const parts: Buffer[] = [];
+  const directory: Buffer[] = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const method = entry.method ?? 8;
+    const entryName = Buffer.from(entry.name);
+    const body = method === 8 ? deflateRawSync(entry.data) : entry.data;
+    const claims = entry.claims ?? entry.data.length;
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(method, 8);
+    local.writeUInt32LE(body.length, 18);
+    local.writeUInt32LE(claims, 22);
+    local.writeUInt16LE(entryName.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(method, 10);
+    central.writeUInt32LE(body.length, 20);
+    central.writeUInt32LE(claims, 24);
+    central.writeUInt16LE(entryName.length, 28);
+    if (entry === entries[entries.length - 1]) central.writeUInt16LE(extras.lastExtra ?? 0, 30);
+    central.writeUInt32LE(entry.at ?? offset, 42);
+    parts.push(local, entryName, body);
+    directory.push(central, entryName);
+    offset += local.length + entryName.length + body.length;
+  }
+  const dir = Buffer.concat(directory);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(dir.length, 12);
+  end.writeUInt32LE(offset, 16);
+  const locator = Buffer.alloc(extras.locator ? 20 : 0);
+  if (extras.locator) locator.writeUInt32LE(0x07064b50, 0);
+  return new File([Buffer.concat([...parts, dir, locator, end])], zipName);
+};
+const book = (bookName: string, bytes: number): ZipEntry => ({
+  name: bookName,
+  data: Buffer.alloc(bytes, 7),
+});
+const MB = 1024 * 1024;
+
+describe("26-bulk-zip-upload", () => {
+  it("Zip of epubs adds each epub to the list", async () => {
+    const p = page(
+      [],
+      [
+        () => ({ status: 200, body: { uploads: [{ id: "a" }, { id: "b" }] } }),
+        () => ({ status: 200, body: { status: "queued" } }),
+        () => ({ status: 200, body: { status: "queued" } }),
+      ],
+    );
+    p.pick([zipOf([book("one.epub", 300), book("two.epub", 5000)])]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(2));
+    expect(p.rows().map(name)).toEqual(["one.epub", "two.epub"]);
+    expect(p.rows().map(size)).toEqual(["(300 B) ", "(5 KB) "]);
+    expect(p.message.textContent).toMatch(/2 epubs added from books\.zip/);
+    // Nothing is sent until Upload; then each goes through the normal ask, as its own file.
+    expect(p.calls).toHaveLength(0);
+    const clicked = p.click();
+    await p.flush();
+    expect(sizesOf(p.calls[0]!.body)).toEqual(["300", "5000"]);
+    expect(FakeXhr.all.map((x) => [x.url, x.sent?.name, x.sent?.size])).toEqual([
+      ["/uploads/a", "one.epub", 300],
+      ["/uploads/b", "two.epub", 5000],
+    ]);
+    expect(FakeXhr.all[0]!.headers).toEqual({ "Content-Type": "application/epub+zip" });
+    for (const xhr of FakeXhr.all) done(xhr);
+    await clicked;
+  });
+
+  it("A zip dropped on the area is read like a picked one", async () => {
+    const p = page([], []);
+    void p.drop.listeners["drop"]!({
+      preventDefault: () => undefined,
+      dataTransfer: { files: [zipOf([book("dropped.epub", 10)])] },
+    });
+    await vi.waitFor(() => expect(p.rows().map(name)).toEqual(["dropped.epub"]));
+  });
+
+  it("Each epub in the zip gets its own status", async () => {
+    const p = page(
+      [],
+      [
+        () => ({ status: 200, body: { uploads: [{ id: "a" }, { id: "b" }] } }),
+        () => ({ status: 200, body: { status: "queued" } }),
+        () => ({ status: 200, body: { status: "duplicate" } }),
+      ],
+    );
+    p.pick([zipOf([book("one.epub", 300), book("two.epub", 400)])]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(2));
+    const clicked = p.click();
+    await p.flush();
+    for (const xhr of FakeXhr.all) done(xhr);
+    await clicked;
+    expect(p.rows().map(note)).toEqual([
+      expect.stringMatching(/Uploaded/),
+      expect.stringMatching(/already/),
+    ]);
+  });
+
+  it("Zip over 100 MB is refused before it is read", async () => {
+    const huge = {
+      name: "huge.zip",
+      size: 100 * MB + 1,
+      slice: () => {
+        throw new Error("read");
+      },
+    };
+    const p = page([huge], []);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/100 MB/));
+    expect(p.message.textContent).toContain("huge.zip");
+    expect(p.rows()).toHaveLength(0);
+  });
+
+  it("The 25 MB limit applies to each epub inside", async () => {
+    const p = page([], []);
+    p.pick([
+      zipOf([
+        { name: "large.epub", data: Buffer.from("x"), claims: 26 * MB },
+        book("fine.epub", 100),
+      ]),
+    ]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(2));
+    expect(p.rows().map(name)).toEqual(["large.epub", "fine.epub"]);
+    expect(p.rows().map(note)).toEqual([expect.stringMatching(/Over the 25 MB limit/), ""]);
+  });
+
+  it("An entry that expands past the limit stops being read", async () => {
+    // Says 100 bytes, holds 120 MB of the same byte, which deflates to a tiny entry.
+    let seen = 0;
+    class Counting {
+      readable: ReadableStream;
+      writable: WritableStream;
+      constructor(format: "deflate-raw") {
+        const inflate = new DecompressionStream(format);
+        const count = new TransformStream({
+          transform(chunk: Uint8Array, out) {
+            seen += chunk.length;
+            out.enqueue(chunk);
+          },
+        });
+        this.writable = inflate.writable;
+        this.readable = inflate.readable.pipeThrough(count);
+      }
+    }
+    const p = page([], [], { DecompressionStream: Counting });
+    p.pick([zipOf([{ name: "bomb.epub", data: Buffer.alloc(120 * MB, 7), claims: 100 }])]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(1), { timeout: 10000 });
+    expect(note(p.rows()[0]!)).toMatch(/Over the 25 MB limit/);
+    expect(seen).toBeLessThan(60 * MB);
+  });
+
+  it("Folders are searched and other files are shown as skipped", async () => {
+    const p = page([], []);
+    p.pick([
+      zipOf([
+        { name: "stories/", data: Buffer.alloc(0), method: 0 },
+        book("stories/deep/a.epub", 100),
+        book("notes.txt", 50),
+        { name: "more.zip", data: Buffer.from("not opened"), method: 0 },
+        book("b.EPUB", 200),
+      ]),
+    ]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(4));
+    expect(p.rows().map(name)).toEqual(["a.epub", "notes.txt", "more.zip", "b.EPUB"]);
+    expect(p.rows().map(note)).toEqual([
+      "",
+      expect.stringMatching(/Skipped.*not an epub/),
+      expect.stringMatching(/Skipped.*zip inside a zip/),
+      "",
+    ]);
+    expect(p.message.textContent).toMatch(/2 epubs added.*2 skipped/);
+    // Skipped rows are never sent.
+    void p.click();
+    await p.flush();
+    expect(sizesOf(p.calls[0]!.body)).toEqual(["100", "200"]);
+  });
+
+  it("A macOS resource-fork file beside an epub is left out, not listed as an epub", async () => {
+    const p = page([], []);
+    p.pick([zipOf([book("Book.epub", 100), book("__MACOSX/._Book.epub", 20)])]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(1));
+    expect(p.rows().map(name)).toEqual(["Book.epub"]);
+    expect(p.message.textContent).toBe("1 epub added from books.zip.");
+  });
+
+  it("An epub already in the list is counted as a repeat, not added again", async () => {
+    const p = page([], []);
+    p.pick([zipOf([book("one.epub", 100)])]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(1));
+    p.pick([zipOf([book("one.epub", 100)], "again.zip")]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/0 epubs added from again\.zip/));
+    expect(p.message.textContent).toMatch(/1 was already in the list/);
+    expect(p.rows()).toHaveLength(1);
+  });
+
+  it("An epub taken out of the list can be added again from the zip", async () => {
+    const p = page([], []);
+    p.pick([zipOf([book("one.epub", 100)])]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(1));
+    await remove(p.rows()[0]!).listeners["click"]!();
+    expect(p.rows()).toHaveLength(0);
+    p.pick([zipOf([book("one.epub", 100)])]);
+    await vi.waitFor(() => expect(p.rows().map(name)).toEqual(["one.epub"]));
+  });
+
+  it("An epub over the limit is listed but the page says it can't be sent", async () => {
+    const p = page([], []);
+    p.pick([zipOf([{ name: "huge.epub", data: Buffer.from("x"), claims: 26 * MB }])]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/1 can't be sent/));
+  });
+
+  it("A zip in a format the page can't open says to upload the epubs directly", async () => {
+    // An end record that says 65535 entries: the sign of zip64.
+    const end = Buffer.alloc(22);
+    end.writeUInt32LE(0x06054b50, 0);
+    end.writeUInt16LE(0xffff, 10);
+    const p = page([], []);
+    p.pick([new File([end], "big.zip")]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/upload the epubs directly/));
+    expect(p.rows()).toHaveLength(0);
+  });
+
+  it("A browser whose decompression lacks the zip format is told the same", async () => {
+    class NoRaw {
+      constructor() {
+        throw new TypeError("unsupported format");
+      }
+    }
+    const p = page([], [], { DecompressionStream: NoRaw });
+    p.pick([zipOf([book("one.epub", 100)])]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/upload the epubs directly/));
+    expect(p.rows()).toHaveLength(0);
+  });
+
+  it("An entry whose bytes don't match its claimed size is listed as unreadable", async () => {
+    const p = page([], []);
+    p.pick([zipOf([{ name: "short.epub", data: Buffer.alloc(500, 7), claims: 900 }])]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(1));
+    expect(note(p.rows()[0]!)).toMatch(/Could not be read/);
+  });
+
+  it("Focus returns to the picker once a zip has been read", async () => {
+    const p = page([], []);
+    p.pick([zipOf([book("one.epub", 100)])]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(1));
+    expect(remove(p.rows()[0]!).disabled).toBe(false);
+    expect(p.focused()).toBe(p.input);
+  });
+
+  it("A zip whose entries share the same bytes is refused, so one stream is not inflated many times", async () => {
+    const p = page([], []);
+    const first = book("a.epub", 100);
+    p.pick([zipOf([first, { ...book("b.epub", 101), at: 0 }])]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/isn't a valid zip/));
+    expect(p.rows()).toHaveLength(0);
+  });
+
+  it("A directory entry whose fields run past the directory adds nothing", async () => {
+    const p = page([], []);
+    p.pick([zipOf([book("one.epub", 100)], "books.zip", { lastExtra: 500 })]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/isn't a valid zip/));
+    expect(p.rows()).toHaveLength(0);
+  });
+
+  it("A zip64 marker is refused before any row is added", async () => {
+    const p = page([], []);
+    p.pick([zipOf([book("one.epub", 100)], "located.zip", { locator: true })]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/upload the epubs directly/));
+    p.pick([zipOf([{ name: "two.epub", data: Buffer.from("x"), claims: 0xffffffff }])]);
+    await vi.waitFor(() =>
+      expect(p.message.textContent).toMatch(/books\.zip uses a zip format this page can't open/),
+    );
+    expect(p.rows()).toHaveLength(0);
+  });
+
+  it("An epub of exactly 25 MB that doesn't compress is accepted", async () => {
+    // Deflate stores incompressible bytes with a little overhead, so it packs to more than 25 MB.
+    const p = page([], []);
+    p.pick([zipOf([{ name: "full.epub", data: randomBytes(25 * MB) }])]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(1), { timeout: 10000 });
+    expect(note(p.rows()[0]!)).toBe("");
+  });
+
+  it("A zip with no epubs adds nothing", async () => {
+    const p = page([], []);
+    p.pick([zipOf([book("notes.txt", 50)])]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/no epub/));
+    expect(p.rows()).toHaveLength(0);
+  });
+
+  it("A file that isn't a valid zip adds nothing", async () => {
+    const p = page([], []);
+    p.pick([new File([Buffer.alloc(400, 9)], "broken.zip")]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/isn't a valid zip/));
+    expect(p.rows()).toHaveLength(0);
+  });
+
+  it("Epubs past the remaining daily quota stay listed", async () => {
+    const entries = Array.from({ length: 12 }, (_, i) => book(`book-${i}.epub`, 100 + i));
+    const p = page(
+      [],
+      [
+        () => ({
+          status: 200,
+          body: { uploads: Array.from({ length: 10 }, (_, i) => ({ id: `u${i}` })) },
+        }),
+        ...Array.from({ length: 10 }, () => () => ({ status: 200, body: { status: "queued" } })),
+        () => ({ status: 429, body: { error: "You have no uploads left today." } }),
+      ],
+    );
+    p.pick([zipOf(entries)]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(12));
+    const clicked = p.click();
+    for (let i = 0; i < 10; i++) {
+      while (FakeXhr.all.length <= i) await p.flush();
+      done(FakeXhr.all[i]!);
+      await p.flush();
+    }
+    await clicked;
+    expect(
+      p
+        .rows()
+        .slice(0, 10)
+        .every((r) => /Uploaded/.test(note(r))),
+    ).toBe(true);
+    expect(p.rows().slice(10).map(note)).toEqual([
+      expect.stringMatching(/Not uploaded.*stays in the list/),
+      expect.stringMatching(/Not uploaded.*stays in the list/),
+    ]);
+  });
+
+  it("A browser without built-in decompression is told to upload the epubs directly", async () => {
+    const p = page([], [], { DecompressionStream: undefined });
+    p.pick([zipOf([book("one.epub", 100)])]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/upload the epubs directly/));
+    expect(p.rows()).toHaveLength(0);
   });
 });

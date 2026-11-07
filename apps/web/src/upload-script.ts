@@ -1,5 +1,12 @@
 import { fnv1a } from "./styles";
-import { EPUB_TYPE, MAX_BATCH_FILES, MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./upload-limit";
+import {
+  EPUB_TYPE,
+  MAX_BATCH_FILES,
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_MB,
+  MAX_ZIP_BYTES,
+  MAX_ZIP_MB,
+} from "./upload-limit";
 
 /**
  * The upload page's script, served from UPLOAD_SCRIPT_PATH and loaded with the page's
@@ -12,6 +19,11 @@ import { EPUB_TYPE, MAX_BATCH_FILES, MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./u
  * `DELETE /uploads/:id`, so its slot is free for the next click. The server stays the authority:
  * what the script checks first (type, size) only saves a round trip. Built with textContent
  * only, never innerHTML, so a file name is never read as markup.
+ *
+ * A zip picked or dropped is opened here, with the browser's own DecompressionStream and no
+ * library: its central directory is read, then each entry named like an epub is inflated and
+ * joins the list as a File, as if it had been picked. A zip over MAX_ZIP_MB isn't read. An
+ * entry is read only up to MAX_BYTES of what it actually holds, whatever size it claims.
  */
 export const UPLOAD_SCRIPT = `"use strict";
 (() => {
@@ -19,6 +31,12 @@ export const UPLOAD_SCRIPT = `"use strict";
   const MAX_BYTES = ${MAX_UPLOAD_BYTES};
   const MAX_MB = ${MAX_UPLOAD_MB};
   const MAX_FILES = ${MAX_BATCH_FILES};
+  const ZIP_MB = ${MAX_ZIP_MB};
+  const ZIP_BYTES = ${MAX_ZIP_BYTES};
+  // A zip's end record is 22 bytes, then a comment of up to 65535.
+  const END_SEARCH = 65557;
+  // A directory larger than this is no zip of epubs, and would be a lot to hold.
+  const MAX_DIRECTORY = 8388608;
   const AT_ONCE = 3;
   const STALL_MS = 120000;
   const REPORT_MS = 10000;
@@ -56,13 +74,19 @@ export const UPLOAD_SCRIPT = `"use strict";
       : bytes < 1048576
         ? Math.round(bytes / 1024) + " KB"
         : (bytes / 1048576).toFixed(1) + " MB";
+  const isZip = (name) => /\\.zip$/i.test(name);
+  const isEpub = (name) => /\\.epub$/i.test(name);
+  const OVER_LIMIT = "Over the " + MAX_MB + " MB limit, so it was not uploaded.";
   const problemOf = (file) => {
-    if (!/\\.epub$/i.test(file.name)) return "Not an epub file, so it was not uploaded.";
+    if (!isEpub(file.name)) return "Not an epub file, so it was not uploaded.";
     if (file.size === 0) return "This file is empty, so it was not uploaded.";
-    if (file.size > MAX_BYTES) return "Over the " + MAX_MB + " MB limit, so it was not uploaded.";
+    if (file.size > MAX_BYTES) return OVER_LIMIT;
     return "";
   };
-  const sameFile = (a, b) => a.name === b.name && a.size === b.size;
+  // A file is the same as one in the list by name and size. Kept as a set of keys, so a zip of
+  // thousands of entries isn't compared against the whole list for each.
+  const known = new Set();
+  const keyOf = (file) => file.size + ":" + file.name;
   const setBusy = (on) => {
     busy = on;
     button.disabled = on;
@@ -79,6 +103,8 @@ export const UPLOAD_SCRIPT = `"use strict";
     const remove = document.createElement("button");
     remove.type = "button";
     remove.textContent = "Remove";
+    // A row added while a zip is read waits with the others.
+    remove.disabled = busy;
     remove.setAttribute("aria-label", "Remove " + file.name);
     const bar = document.createElement("progress");
     bar.setAttribute("aria-label", file.name);
@@ -91,31 +117,202 @@ export const UPLOAD_SCRIPT = `"use strict";
     return { item, remove, bar, note };
   };
   // Adds one file to the list, with its problem if it has one. False when it is there already.
-  const addFile = (file) => {
-    if (entries.some((entry) => sameFile(entry.file, file))) return false;
+  const addFile = (file, problem = problemOf(file)) => {
+    if (known.has(keyOf(file))) return false;
+    known.add(keyOf(file));
     const row = addRow(file);
-    const problem = problemOf(file);
     row.note.textContent = problem;
     const entry = { file, row, problem, done: false };
     row.remove.addEventListener("click", () => removeEntry(entry));
     entries.push(entry);
     return true;
   };
-  const addFiles = (files) => {
-    if (busy) return say("Wait for the upload to finish before changing the list.");
+  const repeatsText = (repeats) =>
+    repeats + (repeats === 1 ? " was" : " were") + " already in the list.";
+  // The resource-fork copy (__MACOSX/, ._name) a Mac adds beside each file: not listed at all.
+  const isJunk = (path) => /(^|\\/)(__MACOSX\\/|\\._)/.test(path);
+  const readBytes = async (file, from, to) =>
+    new Uint8Array(await file.slice(from, to).arrayBuffer());
+  // The entries in a zip's central directory: { path, method, flags, packed, size, offset }.
+  // Throws when the file is no zip. Zip64 is refused: nothing within ZIP_MB needs it.
+  const readEntries = async (zip) => {
+    const tail = await readBytes(zip, Math.max(0, zip.size - END_SEARCH), zip.size);
+    const tailView = new DataView(tail.buffer);
+    // The last end record, as zip tools take it.
+    let end = tail.length - 22;
+    while (end >= 0 && tailView.getUint32(end, true) !== 0x06054b50) end--;
+    if (end < 0) throw new Error("no end record");
+    if (end >= 20 && tailView.getUint32(end - 20, true) === 0x07064b50) throw new Error("zip64");
+    const count = tailView.getUint16(end + 10, true);
+    const length = tailView.getUint32(end + 12, true);
+    const start = tailView.getUint32(end + 16, true);
+    if (count === 0xffff || length === 0xffffffff || start === 0xffffffff) throw new Error("zip64");
+    if (start + length > zip.size || length > MAX_DIRECTORY) throw new Error("bad directory");
+    const dir = await readBytes(zip, start, start + length);
+    const view = new DataView(dir.buffer);
+    const found = [];
+    const decoder = new TextDecoder();
+    let at = 0;
+    for (let i = 0; i < count; i++) {
+      if (at + 46 > dir.length || view.getUint32(at, true) !== 0x02014b50) throw new Error("bad entry");
+      const nameLength = view.getUint16(at + 28, true);
+      const next = at + 46 + nameLength + view.getUint16(at + 30, true) + view.getUint16(at + 32, true);
+      if (next > dir.length) throw new Error("bad entry");
+      found.push({
+        flags: view.getUint16(at + 8, true),
+        method: view.getUint16(at + 10, true),
+        packed: view.getUint32(at + 20, true),
+        size: view.getUint32(at + 24, true),
+        offset: view.getUint32(at + 42, true),
+        path: decoder.decode(dir.subarray(at + 46, at + 46 + nameLength)).replace(/\\\\/g, "/"),
+      });
+      at = next;
+    }
+    const sentinel = 0xffffffff;
+    if (found.some((e) => e.packed === sentinel || e.size === sentinel || e.offset === sentinel)) {
+      throw new Error("zip64");
+    }
+    return found;
+  };
+  // Where an entry's bytes start, from its local header; null when the header isn't there.
+  const locate = async (zip, entry) => {
+    const head = await readBytes(zip, entry.offset, entry.offset + 30);
+    const view = new DataView(head.buffer);
+    if (head.length < 30 || view.getUint32(0, true) !== 0x04034b50) return null;
+    const from = entry.offset + 30 + view.getUint16(26, true) + view.getUint16(28, true);
+    return from + entry.packed > zip.size ? null : from;
+  };
+  const TOO_BIG = "too big";
+  // One entry's bytes as a Blob; TOO_BIG when it holds more than MAX_BYTES, counted as it is
+  // inflated, whatever size the directory claims; null when it can't be read.
+  const inflate = async (zip, entry) => {
+    if (entry.size > MAX_BYTES) return TOO_BIG;
+    if ((entry.flags & 1) !== 0 || (entry.method !== 0 && entry.method !== 8)) return null;
+    if (entry.from === null) return null;
+    const packed = zip.slice(entry.from, entry.from + entry.packed);
+    if (entry.method === 0) return entry.packed === entry.size ? packed : null;
+    const reader = packed.stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
+    const chunks = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > MAX_BYTES) {
+        await reader.cancel();
+        return TOO_BIG;
+      }
+      chunks.push(value);
+    }
+    // What the directory says it holds is what it held, or the entry is damaged.
+    return total === entry.size ? new Blob(chunks) : null;
+  };
+  // Adds the epubs in a zip, and the rest of its files as skipped rows. Returns what to say.
+  const addZip = async (zip) => {
+    if (zip.size > ZIP_BYTES) {
+      return zip.name + " is over the " + ZIP_MB + " MB limit for a zip, so it was not opened.";
+    }
+    // Some browsers have DecompressionStream without the raw deflate format zips use.
+    try {
+      new DecompressionStream("deflate-raw");
+    } catch {
+      return "This browser can't open zip files. Please upload the epubs directly.";
+    }
+    let found;
+    try {
+      found = (await readEntries(zip)).filter(
+        (entry) => !entry.path.endsWith("/") && !isJunk(entry.path),
+      );
+    } catch (error) {
+      return error.message === "zip64"
+        ? zip.name + " uses a zip format this page can't open. Please upload the epubs directly."
+        : zip.name + " isn't a valid zip file, so nothing was added.";
+    }
+    if (!found.some((entry) => isEpub(entry.path))) {
+      return zip.name + " has no epub files in it, so nothing was added.";
+    }
+    // Where each epub's bytes are. Two that share bytes would each cost a full inflate of the
+    // same stream, so a zip laid out so is no valid zip.
+    const books = found.filter((entry) => isEpub(entry.path));
+    for (const entry of books) {
+      entry.from = await locate(zip, entry).catch(() => null);
+    }
+    const placed = books
+      .filter((entry) => entry.from !== null && entry.packed > 0)
+      .sort((a, b) => a.from - b.from);
+    for (let i = 1; i < placed.length; i++) {
+      if (placed[i].from < placed[i - 1].from + placed[i - 1].packed) {
+        return zip.name + " isn't a valid zip file, so nothing was added.";
+      }
+    }
+    let added = 0;
+    let skipped = 0;
+    let repeats = 0;
+    let blocked = 0;
+    for (const entry of found) {
+      if (!isEpub(entry.path)) {
+        const why = isZip(entry.path)
+          ? "Skipped: a zip inside a zip is not opened."
+          : "Skipped: not an epub file.";
+        if (addFile({ name: entry.path, size: entry.size }, why)) skipped++;
+        continue;
+      }
+      const name = entry.path.split("/").pop();
+      let blob = null;
+      try {
+        blob = await inflate(zip, entry);
+      } catch {
+        blob = null;
+      }
+      let ok;
+      if (blob === TOO_BIG) ok = addFile({ name, size: entry.size }, OVER_LIMIT);
+      else if (blob === null) {
+        ok = addFile({ name, size: entry.size }, "Could not be read from the zip, so it was not uploaded.");
+      } else ok = addFile(new File([blob], name, { type: TYPE }));
+      if (!ok) repeats++;
+      else {
+        added++;
+        if (entries[entries.length - 1].problem) blocked++;
+      }
+    }
+    const text = [plural(added, "epub") + " added from " + zip.name + "."];
+    if (blocked > 0) text.push(blocked + " can't be sent.");
+    if (skipped > 0) text.push(skipped + " skipped.");
+    if (repeats > 0) text.push(repeatsText(repeats));
+    return text.join(" ");
+  };
+  const addFiles = async (files) => {
+    if (busy) return say("Wait for the upload or the zip being read to finish before changing the list.");
     const picked = Array.from(files);
     if (picked.length === 0) return say("No files were found. Pick or drop epub files.");
-    const added = picked.filter(addFile).length;
-    const repeats = picked.length - added;
     const text = [];
+    const plain = picked.filter((file) => !isZip(file.name));
+    const added = plain.filter((file) => addFile(file)).length;
+    const repeats = plain.length - added;
     if (added > 0) text.push(plural(added, "file") + " added.");
-    if (repeats > 0) text.push(repeats + (repeats === 1 ? " was" : " were") + " already in the list.");
+    if (repeats > 0) text.push(repeatsText(repeats));
+    const zips = picked.filter((file) => isZip(file.name));
+    if (zips.length > 0) {
+      // The list is held still while a zip is read.
+      setBusy(true);
+      try {
+        for (const zip of zips) {
+          say("Reading " + zip.name + ".");
+          text.push(await addZip(zip));
+        }
+      } finally {
+        setBusy(false);
+        // Disabling the picker dropped focus, unless the person moved it, so put it back.
+        if (!document.activeElement || document.activeElement === document.body) input.focus();
+      }
+    }
     if (text.length > 0) say(text.join(" "));
   };
   const removeEntry = (entry) => {
     if (busy) return;
     const at = entries.indexOf(entry);
     entries.splice(at, 1);
+    known.delete(keyOf(entry.file));
     list.removeChild(entry.row.item);
     say("Removed " + entry.file.name + ". " + plural(entries.length, "file") + " in the list.");
     const next = entries[at] || entries[at - 1];

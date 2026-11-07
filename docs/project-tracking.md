@@ -96,7 +96,7 @@ The breakdown was cut on 2026-10-30, from `main` at `ee0b9c7`: 72 items covering
 | Wait list | WL6 | Open the archive and delete the wait list | WL5, S1 | [#136](https://github.com/rare-pair/app/issues/136) |
 | Tooling | OXC | Adopt Oxc (oxlint + oxfmt) with the ai-deslop rules | — | [#11](https://github.com/rare-pair/app/issues/11) |
 | Later | L1 | FanFicFare epubs of AO3 works (later) | I4, I5 | [#77](https://github.com/rare-pair/app/issues/77) |
-| Later | L2 | Bulk upload from a zip of epubs (later) | U3, U4, U6 | [#78](https://github.com/rare-pair/app/issues/78) |
+| Upload & ingest | L2 | Bulk upload from a zip of epubs | U3, U4, U6 | [#78](https://github.com/rare-pair/app/issues/78) |
 | Later | L3 | Tag synonym merging (later) | B2, MOD1 | [#79](https://github.com/rare-pair/app/issues/79) |
 | Later | L4 | Exclude tags in listing filters (later) | B2 | [#80](https://github.com/rare-pair/app/issues/80) |
 | Later | L5 | Operator wind-down: redirect works to AO3 (later) | R1, R4 | [#81](https://github.com/rare-pair/app/issues/81) |
