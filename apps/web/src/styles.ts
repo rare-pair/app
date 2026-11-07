@@ -322,15 +322,15 @@ article.chapter > div:last-child > p + blockquote:last-child {
   margin: calc(var(--space) * 4) 0;
 }
 
-/* The reading column is centred in the site's width. Its wrapper has the reading face and
-   size, so its 66ch is the chapter's own and the heading, the chapter navigation and the
-   link back, which keep the interface's face and size, share the chapter's edges (the
-   chapter's padding is one space). The reader bar above it keeps the site's full width. */
+/* The reading column is centred in the site's width, at the width the page's column had
+   before the site widened (66ch of the interface font), so a chapter's line length is
+   unchanged; the chapter's own 66ch, in the reading face and size, can only narrow it. The
+   chapter's heading, the chapter navigation and the link back sit in the same column and
+   share the chapter's edges (its padding is one space). The reader bar above it keeps the
+   site's full width. */
 .reading {
   max-width: ${MEASURE};
   margin: 0 auto;
-  font-family: var(--reading);
-  font-size: var(--reading-size);
 }
 
 .reading > .chapter-title,
@@ -338,12 +338,6 @@ article.chapter > div:last-child > p + blockquote:last-child {
 .reading > p.back {
   padding-left: var(--space);
   padding-right: var(--space);
-  font-family: var(--ui);
-}
-
-.reading > .chapter-nav,
-.reading > p.back {
-  font-size: var(--text-2);
 }
 
 /* The form is a flex item and the select is as wide as its longest option (a long chapter

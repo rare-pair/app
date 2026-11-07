@@ -148,7 +148,9 @@ for (const win of WINDOWS) {
           expect(chapter).toBeLessThan(800);
           expect(post).toBeLessThan(800);
           expect(summary).toBeLessThan(800);
-          expect(chapter).toBeGreaterThan(500);
+          // The chapter keeps the line length it had before the site widened: the old column,
+          // 66ch of the interface font, 569.25 px here.
+          expect(chapter).toBeCloseTo(569.25, 0);
         } else {
           for (const width of [paragraph, chapter, post, summary]) {
             expect(width).toBeGreaterThan(0);
