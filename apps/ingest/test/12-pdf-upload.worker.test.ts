@@ -10,6 +10,7 @@ import {
   hideWork,
   liveWork,
   pendingUpload,
+  setLease,
   uploadRow,
   versionsOf,
   withDb,
@@ -18,7 +19,16 @@ import { ao3Epub } from "../../../packages/epub/test/helpers";
 import { LIMITS } from "@archive/epub";
 import { PDF_LIMITS } from "../src/pdf/limits";
 import { ingestWorker } from "../src/worker";
-import { ao3Pdf, flate, layoutPdf, onePage, pagesPdf, type PdfLine } from "./pdf-builder";
+import {
+  ao3Pdf,
+  buildPdf,
+  flate,
+  layoutPdf,
+  onePage,
+  pagesPdf,
+  stream,
+  type PdfLine,
+} from "./pdf-builder";
 
 const base64Bytes = (text: string) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 
@@ -790,11 +800,20 @@ describe("12-pdf-upload", () => {
 
     it("Italics and images are left out", async () => {
       const workId = 8813727;
-      const { row } = await ingestPdf(ao3Pdf({ workId }));
+      const lines: PdfLine[] = [
+        {
+          text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.`,
+        },
+        { text: "Stats: Published: 2020-01-01 Chapters: 1/1" },
+        { text: "A title", size: 18, gap: 10 },
+        { text: "by Someone", url: "https://archiveofourown.org/users/someone" },
+        { text: "The text beside a photo.", gap: 10 },
+      ];
+      const { row } = await ingestPdf(layoutPdf(lines, { image: true }));
       expect(row.status).toBe("live");
       const live = await liveWork(workId);
       expect(await bucketKeys(`works/${workId}/img/`)).toEqual([]);
-      expect(await bucketText(live!.chapters[0]!.r2_key)).not.toContain("<img");
+      expect(await bucketText(live!.chapters[0]!.r2_key)).toBe("<p>The text beside a photo.</p>");
     });
   });
 
@@ -843,6 +862,67 @@ describe("12-pdf-upload", () => {
       expect(result.explicitAcks).toEqual(["msg-0"]);
     });
 
+    describe("The limits a parse holds to", () => {
+      const pageOf = (content: string) =>
+        buildPdf([
+          "<< /Type /Catalog /Pages 2 0 R >>",
+          "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+          "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+          stream("", content),
+          "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        ]);
+      it("Too many objects or pages are refused: exactly 5,000 pages opens", async () => {
+        const { row } = await ingestPdf(pagesPdf(PDF_LIMITS.maxPages));
+        // Past the checks and the page limit: it's refused for having no text at all.
+        expect(row.status).toBe("not_ao3");
+      });
+
+      it("a PDF of exactly 10 MB isn't too large", async () => {
+        const padded = new Uint8Array(LIMITS.maxPdfBytes);
+        const file = onePage(flate("x"));
+        padded.set(file);
+        // Trailing zeros push the trailer out of the tail: read as corrupt, not as too large.
+        const { row } = await ingestPdf(padded);
+        expect(row.status).toBe("pdf_unreadable");
+      });
+
+      it("more text items than a file may hold are refused", async () => {
+        const items = "1 0 0 1 1 1 Tm(x)Tj\n".repeat(PDF_LIMITS.maxTextItems + 1000);
+        const { row } = await ingestPdf(pageOf(`BT /F1 9 Tf\n${items}ET`));
+        expect(row.status).toBe("pdf_unreadable");
+      }, 120_000);
+
+      it("more text than a file may hold is refused", async () => {
+        // Short enough to fit the page: pdf.js leaves out what's printed past its edge.
+        const line = `1 0 0 1 1 1 Tm (${"x".repeat(130)})Tj\n`;
+        const count = Math.ceil(PDF_LIMITS.maxTextChars / 130) + 3000;
+        const { row } = await ingestPdf(pageOf(`BT /F1 9 Tf\n${line.repeat(count)}ET`));
+        expect(row.status).toBe("pdf_unreadable");
+      }, 120_000);
+
+      it("text that passes the limit at the very end of a stream is refused too", async () => {
+        const line = `1 0 0 1 1 1 Tm (${"x".repeat(100)})Tj\n`;
+        const count = Math.ceil(PDF_LIMITS.maxTextChars / 100) + 1;
+        const { row } = await ingestPdf(pageOf(`BT /F1 9 Tf\n${line.repeat(count)}ET`));
+        expect(row.status).toBe("pdf_unreadable");
+      }, 60_000);
+
+      it("more links than a file may hold are refused", async () => {
+        const annots = Array.from(
+          { length: PDF_LIMITS.maxLinks + 1 },
+          () =>
+            "<</Subtype/Link/Rect[0 0 1 1]/A<</S/URI/URI(https://archiveofourown.org/works/1)>>>>",
+        );
+        const file = buildPdf([
+          "<< /Type /Catalog /Pages 2 0 R >>",
+          "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+          `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [${annots.join("")}] >>`,
+        ]);
+        const { row } = await ingestPdf(file);
+        expect(row.status).toBe("pdf_unreadable");
+      }, 120_000);
+    });
+
     it("A long parse keeps its lease", async () => {
       const workId = 8813728;
       const pages = Array.from({ length: 200 }, (_, i) => `Page ${i} of filler.`);
@@ -872,6 +952,18 @@ describe("12-pdf-upload", () => {
       await deliver([{ upload_id: id }], { handler });
 
       expect(claimed[1]!.getTime()).toBeGreaterThan(claimed[0]!.getTime());
+      expect((await uploadRow(id)).status).toBe("live");
+    });
+
+    it("A long parse keeps its lease: a job that died holding it is taken up once it runs out", async () => {
+      const workId = 8813737;
+      const id = await pendingUpload(ao3Pdf({ workId }));
+      // As a Worker killed mid-parse leaves it: no ending write, and a lease nobody renews.
+      await setLease(id, "-1 minute");
+
+      const result = await deliver([{ upload_id: id }], { attempts: 2 });
+
+      expect(result.explicitAcks).toEqual(["msg-0"]);
       expect((await uploadRow(id)).status).toBe("live");
     });
 

@@ -104,7 +104,8 @@ async function readText(bytes: Uint8Array): Promise<PdfText> {
           }
         }
         if (items > PDF_LIMITS.maxTextItems || chars > PDF_LIMITS.maxTextChars) {
-          await reader.cancel(new Error("over the limit"));
+          // Not waited for: pdf.js may never settle it, once a page's text has all been sent.
+          reader.cancel(new Error("over the limit")).catch(() => undefined);
           throw new EpubError("pdf_unreadable", "More text than a file may hold");
         }
       }

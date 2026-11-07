@@ -350,6 +350,67 @@ describe("12-pdf-upload: the checks before the parser opens a file", () => {
     });
   });
 
+  describe("Review round 3", () => {
+    const pdfWith = (contents: string, ...more: PdfBody[]) =>
+      buildPdf([
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contents} >>`,
+        flate("BT ET"),
+        ...more,
+      ]);
+
+    it("takes a long print of many small streams: each costs what it reads", () => {
+      const bodies = Array.from({ length: 5_000 }, (_, i) =>
+        flate(`BT (${"words ".repeat(50)}${i}) Tj ET`),
+      );
+      expect(refusal(pdfWith("4 0 R", ...bodies))).toBeNull();
+    });
+
+    it("refuses a stream in an object stream behind a comment", () => {
+      const inner = "5 0 <</Type/Metadata/Length 1>>%c\nstream\nx\nendstream";
+      const body = flate(inner, "/Type /ObjStm /N 1 /First 4");
+      expect(refusal(pdfWith("4 0 R", body))).toBe("pdf_unreadable");
+    });
+
+    it("isn't quadratic on unfiltered object streams with no end", () => {
+      const parts = Array.from(
+        { length: 20_000 },
+        (_, i) => `${i + 5} 0 obj<</N 0/First 0>>%\nstream\n`,
+      );
+      const head = latin1(`%PDF-1.7\n${parts.join("")}`);
+      const tail = latin1(`xref\n0 0\ntrailer\n<<>>\nstartxref\n${head.length}\n%%EOF\n`);
+      const whole = new Uint8Array(head.length + tail.length);
+      whole.set(head);
+      whole.set(tail, head.length);
+      const started = Date.now();
+      refusal(whole);
+      expect(Date.now() - started).toBeLessThan(8_000);
+    });
+
+    it("takes an annotation whose /Contents names a string or a dictionary", () => {
+      const file = pdfWith("4 0 R", "<< /Subtype /Text /Contents 6 0 R >>", "(a note)");
+      expect(refusal(file)).toBeNull();
+    });
+
+    it("takes a /Contents array of exactly the most entries", () => {
+      const entries = Array.from(
+        { length: PDF_LIMITS.maxContentsEntries },
+        (_, i) => `${i + 5} 0 R`,
+      );
+      const streams = entries.map(() => flate("BT ET"));
+      expect(refusal(pdfWith(`[${entries.join(" ")}]`, ...streams))).toBeNull();
+    });
+
+    it("takes streams inflating to exactly the file's budget", () => {
+      const part = flate(new Uint8Array(PDF_LIMITS.maxStreamInflatedBytes));
+      const count = PDF_LIMITS.maxInflatedBytes / PDF_LIMITS.maxStreamInflatedBytes;
+      const bodies = Array.from({ length: count - 1 }, () => part);
+      const rest = flate(new Uint8Array(PDF_LIMITS.maxStreamInflatedBytes - 5));
+      expect(refusal(pdfWith("4 0 R", ...bodies, rest))).toBeNull();
+    });
+  });
+
   describe("The budgets", () => {
     it("refuses one stream past the per-stream cap", () => {
       const body = flate(new Uint8Array(PDF_LIMITS.maxStreamInflatedBytes + 1024));

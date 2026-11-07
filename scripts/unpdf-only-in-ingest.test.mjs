@@ -1,6 +1,6 @@
 // Spec 12, "The web and content Workers stay small": unpdf is only in the ingest Worker. Reads
-// package manifests and sources; the built bundles get the same check in /gate's build step when
-// a `dist` folder is there.
+// package manifests and sources, and the built bundles when a `dist` folder is there, as after
+// `npm run build`, which /gate runs before this.
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -48,4 +48,18 @@ await test("12-pdf-upload: one ingest module imports it, by import()", () => {
   const worker = readFileSync(join(ROOT, "apps", "ingest", "src", "worker.ts"), "utf8");
   assert.match(worker, /await import\("\.\/pdf\/parser"\)/);
   assert.doesNotMatch(worker, /from "\.\/pdf\/parser"/);
+});
+
+await test("12-pdf-upload: a built bundle holds unpdf only for the ingest Worker", () => {
+  for (const [workspace, bundle] of [
+    ["web", "index.js"],
+    ["content", "index.js"],
+    ["sweep", "worker.js"],
+    ["mailer", "worker.js"],
+  ]) {
+    const path = join(ROOT, "apps", workspace, "dist", bundle);
+    if (existsSync(path)) {
+      assert.doesNotMatch(readFileSync(path, "utf8"), /resolvePDFJSImports/, workspace);
+    }
+  }
 });

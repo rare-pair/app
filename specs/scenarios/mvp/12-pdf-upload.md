@@ -111,7 +111,8 @@ These checks don't bound everything the parser can do, and that's accepted (oper
 - GIVEN a PDF whose trailer `/Size` is over 100,000, or with over 5,000 pages
 - WHEN it is ingested
 - THEN it ends `pdf_unreadable`, read from the trailer where it can be
-- AND the largest real sample has 8,561 objects, and 5,000 pages holds about 1M words
+- AND the largest real sample has 8,561 objects, and at the samples' 230 to 554 words a page, 5,000 pages holds 1.2M to 2.8M words
+- AND a parse reads at most 500,000 text items, 8 MiB of text (about 1.4M words, so a very dense file can end this way before 5,000 pages) and 50,000 links to the original archive, and past any of them it ends `pdf_unreadable`, whose message says it may be very long
 
 #### A stream that inflates too far is refused
 - GIVEN a small PDF with a stream that inflates to hundreds of MB

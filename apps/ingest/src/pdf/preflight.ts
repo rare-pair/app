@@ -409,23 +409,25 @@ function inflateStream(
   });
   // fflate has no public "finished" flag. A finished stream has its last-block flag set and no
   // block in progress. `pdf-preflight.node.test.ts` fails if a later fflate moves them.
-  // SAFETY: the two fields of fflate's inflate state read here.
+  // SAFETY: the fields of fflate's inflate state read here, and the input it has yet to read.
   // oxlint-disable-next-line deslop/no-chained-type-assertions, deslop/no-known-value-widening -- private to fflate, and a test holds it
-  const state = (inflater as unknown as { s: { f?: number; l?: unknown } }).s;
+  const open = inflater as unknown as { s: { f?: number; l?: unknown }; p: Uint8Array };
   for (let at = start + 2; at < bytes.length; at += PUSH_BYTES) {
-    // Real streams don't overlap, so they feed each byte once. Overlapping ones are refused
-    // rather than read over and over.
-    budget.fed += PUSH_BYTES;
-    if (budget.fed > 2 * bytes.length + 2 * MiB) throw unreadable("Overlapping streams");
+    const chunk = bytes.subarray(at, at + PUSH_BYTES);
     try {
-      inflater.push(bytes.subarray(at, at + PUSH_BYTES), false);
+      inflater.push(chunk, false);
     } catch (cause) {
       throw new EpubError("pdf_unreadable", "Corrupt deflate data", { cause });
     }
     if (made > PDF_LIMITS.maxStreamInflatedBytes || budget.inflated > PDF_LIMITS.maxInflatedBytes) {
       throw new EpubError("zip_bomb", "Streams inflate too far");
     }
-    if (state.f && !state.l) break;
+    // Real streams don't overlap, so they feed each byte once: what this push read, whatever
+    // follows a stream's end. Overlapping ones are refused rather than read over and over.
+    const finished = Boolean(open.s.f && !open.s.l);
+    budget.fed += finished ? chunk.length - open.p.length : chunk.length;
+    if (budget.fed > 2 * bytes.length + 2 * MiB) throw unreadable("Overlapping streams");
+    if (finished) break;
   }
   return made;
 }
@@ -498,8 +500,8 @@ interface ContentsSeen {
   refs: Set<number>;
   /** Inflated bytes of each stream object. */
   streamBytes: Map<number, number>;
-  /** Objects that aren't streams, or aren't only streams: an array could be one of them. */
-  others: Set<number>;
+  /** Objects that are arrays, which `/Contents` may only name directly, or in full. */
+  arrays: Set<number>;
   /** Stream objects with an image filter, whose decoders have no budget. */
   images: Set<number>;
 }
@@ -599,12 +601,14 @@ function objectNumberBefore(bytes: Uint8Array, keyword: number): number | null {
 }
 
 /** Whether object-stream data holds a stream: `>>`, whitespace, then the keyword. */
-function holdsStream(data: Uint8Array): boolean {
-  for (let at = 0; at + STREAM.length <= data.length; at++) {
-    if (data[at] !== STREAM[0] || !matches(data, at, STREAM)) continue;
-    let before = at - 1;
-    while (isSpace(data[before])) before--;
-    if (data[before] === 0x3e && data[before - 1] === 0x3e) return true;
+function holdsStream(data: Uint8Array, work: { left: number }): boolean {
+  const reader = new Reader(data, work);
+  for (let at = 0; at + 1 < data.length; at++) {
+    if (data[at] !== 0x3e || data[at + 1] !== 0x3e) continue;
+    reader.at = at + 2;
+    // Comments too, as pdf.js's lexer skips them.
+    reader.skipSpace();
+    if (matches(data, reader.at, STREAM)) return true;
   }
   return false;
 }
@@ -615,19 +619,28 @@ function holdsStream(data: Uint8Array): boolean {
  * refused. In order from the first object: a file whose header gives other offsets can hide a page
  * from this, which the rulings on #741 accept.
  */
-function readObjectStream(data: Uint8Array, count: number, seen: ContentsSeen): void {
-  if (holdsStream(data)) throw unreadable("A stream inside an object stream");
-  const reader = new Reader(data, { left: 4 * data.length + 2 * MiB });
+function readObjectStream(
+  data: Uint8Array,
+  count: number,
+  seen: ContentsSeen,
+  work: { left: number },
+): void {
+  work.left -= data.length;
+  if (holdsStream(data, work)) throw unreadable("A stream inside an object stream");
+  const reader = new Reader(data, work);
+  const numbers: Value[] = [];
   for (let i = 0; i < count; i++) {
-    const number = reader.value();
+    const number = reader.value(false);
     if (number === null) return;
-    if (number.kind === "number") seen.others.add(number.value);
-    if ((reader.value() ?? { kind: "other" }).kind !== "number") return;
+    numbers.push(number);
+    if ((reader.value(false) ?? { kind: "other" }).kind !== "number") return;
   }
   for (let i = 0; i < count; i++) {
     const value = reader.value();
     if (value === null) return;
+    const number = numbers[i];
     if (value.kind === "dict") noteContents(value.dict, seen);
+    else if (value.kind === "list" && number?.kind === "number") seen.arrays.add(number.value);
     reader.skipSpace();
   }
 }
@@ -643,19 +656,23 @@ const joined = (parts: Uint8Array[]): Uint8Array => {
 };
 
 /** An object stream with no filter: its raw bytes, to its first `endstream` or the file's end. */
-function rawStreamData(bytes: Uint8Array, start: number): Uint8Array {
-  for (let at = start; at < bytes.length; at++) {
-    if (bytes[at] === 0x65 && matches(bytes, at, END) && matches(bytes, at + END.length, STREAM)) {
-      return bytes.subarray(start, at);
-    }
+function rawStreamData(bytes: Uint8Array, start: number, work: { left: number }): Uint8Array {
+  let at = start;
+  while (
+    at < bytes.length &&
+    !(bytes[at] === 0x65 && matches(bytes, at, END) && matches(bytes, at + END.length, STREAM))
+  ) {
+    at++;
   }
-  return bytes.subarray(start);
+  work.left -= at - start;
+  if (work.left < 0) throw unreadable("Too much to read in object streams");
+  return bytes.subarray(start, at);
 }
 
 /** What the scan could only check once it had seen every object. */
 function checkContents(seen: ContentsSeen): void {
   const check = (ref: number) => {
-    if (seen.others.has(ref)) throw unreadable("/Contents that may be an array");
+    if (seen.arrays.has(ref)) throw unreadable("/Contents that names an array");
     if (seen.images.has(ref)) throw unreadable("/Contents that names an image");
   };
   for (const ref of seen.refs) check(ref);
@@ -689,12 +706,13 @@ export function preflightPdf(bytes: Uint8Array): void {
     lists: [],
     refs: new Set(),
     streamBytes: new Map(),
-    others: new Set(),
+    arrays: new Set(),
     images: new Set(),
   };
   const streams = new Map<number, StreamInfo>();
   // Each number reads the two tokens after it twice, looking for a reference.
   const work = { left: 4 * bytes.length + 2 * MiB };
+  const objectWork = { left: PDF_LIMITS.maxObjectStreamWork };
   const reader = new Reader(bytes, work);
   for (let at = 0; at < bytes.length; at++) {
     const b = bytes[at];
@@ -706,9 +724,9 @@ export function preflightPdf(bytes: Uint8Array): void {
       if (zlibHeaderAt(bytes, start)) {
         const made = inflateStream(bytes, start, budget, count === null ? null : parts);
         if (info && info.objectNumber !== null) seen.streamBytes.set(info.objectNumber, made);
-        if (count !== null) readObjectStream(joined(parts), count, seen);
+        if (count !== null) readObjectStream(joined(parts), count, seen, objectWork);
       } else if (count !== null) {
-        readObjectStream(rawStreamData(bytes, start), count, seen);
+        readObjectStream(rawStreamData(bytes, start, objectWork), count, seen, objectWork);
       }
       at += STREAM.length - 1;
     } else if (b === 0x6f /* o */ && matches(bytes, at, OBJ) && !matches(bytes, at - 3, END)) {
@@ -727,8 +745,8 @@ export function preflightPdf(bytes: Uint8Array): void {
         const earlier = streams.get(reader.at)?.objectCount ?? null;
         streams.set(reader.at, { objectNumber, objectCount: objectCount ?? earlier });
         if (image && objectNumber !== null) seen.images.add(objectNumber);
-      } else if (objectNumber !== null) {
-        seen.others.add(objectNumber);
+      } else if (objectNumber !== null && bytes[reader.at] === 0x5b && dict === null) {
+        seen.arrays.add(objectNumber);
       }
     } else if (b === 0x74 /* t */ && matches(bytes, at, TRAILER)) {
       reader.at = at + TRAILER.length;

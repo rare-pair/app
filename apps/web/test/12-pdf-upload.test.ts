@@ -84,6 +84,12 @@ describe("12-pdf-upload", () => {
       await stored?.body.cancel();
     });
 
+    it("PUT takes a PDF of exactly 10 MB", async () => {
+      const { userId, cookie } = await signIn();
+      const { id } = await opened(userId, MB10);
+      expect((await put(id, cookie, new Uint8Array(MB10), PDF)).status).toBe(200);
+    });
+
     it("PUT still refuses any other type with a 415", async () => {
       const { userId, cookie } = await signIn();
       const { id } = await opened(userId, 8);
@@ -226,7 +232,7 @@ describe("12-pdf-upload", () => {
         current: false,
         format: "pdf",
         holdReason: "pdf_more_chapters",
-        reviewReasons: ["from_pdf"],
+        reviewReasons: ["from_pdf", "tags_from_print"],
         chapters: 2,
       });
       await putFragments(env.BUCKET, held.fragments);
@@ -238,6 +244,7 @@ describe("12-pdf-upload", () => {
       const page = await get("/admin/works/8813771", cookie);
       expect(page.html).toContain("A PDF with more chapters than the current epub");
       expect(page.html).toContain("Converted from a PDF");
+      expect(page.html).toContain("Tags read from print");
       expect(page.html).toContain("Make current");
     });
   });

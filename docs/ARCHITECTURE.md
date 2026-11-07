@@ -22,7 +22,7 @@ an unofficial stopgap.
 | Upload transfer | Each file goes through the web Worker, which checks the session and the upload's row and streams it to R2 through the bucket binding. There is no presigned link. A size refusal, a failed confirm or a failed upload frees its slot at once, and the reaper stays for what the server never hears about or a fault stops it freeing (operator rulings, 2026-11-06) |
 | Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend alone. There is no failover provider at launch, and while Resend is down sign-in stops until it returns (operator ruling, 2026-11-05) |
 | Accepted files | AO3-native epub exports, and PDFs of AO3 works, converted to text and limited to 10 MB, with an epub winning (### PDF processor). FanFicFare support comes later |
-| New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. A consistent edit goes live with no hold: readers' reports and rollback are the check (operator ruling, 2026-11-05). The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) |
+| New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. A consistent edit goes live with no hold: readers' reports and rollback are the check (operator ruling, 2026-11-05). The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) A PDF is the exception: an epub replaces it unless the epub is older, with nothing compared, and a PDF of an epub-current work is a duplicate, or held if it has more chapters (### PDF processor) |
 | A file swapped after confirm | Ingest handles the file it read and records that file's hash. A mismatch with confirm's hash isn't refused, and no locked copy is made (operator ruling, 2026-11-05) |
 | Author identity | No work claims and no author verification while AO3 is down. Removal and opt-out are requests anyone can make, without proving who they are, and they take effect once the requester confirms control of the contact email |
 | Removal list | After launch, not built (operator ruling, 2026-11-06). Once built: removed works (title, byline, a link to the original with its ID, date, reason) are public at `/removed`, and pseuds with an approved opt-out at `/removed/pseuds`. Reasons come from a fixed list, never free text. Open requests and hidden works are never listed, and a moderator can withhold an entry |
@@ -188,7 +188,7 @@ uploads      (id,
               user_id NULL,  -- set null when the account is deleted; the row and its work stay
               r2_key, sha256, bytes, status, lease_until,
               error_stage, error, work_id NULL, created_at,
-              format,  -- epub | pdf, by the file's bytes, set when ingested; says which originals/ key holds it
+              format,  -- epub until a job reads the file, then epub | pdf by its bytes; says which originals/ key holds it
               quota_counted_at NULL)  -- set when confirm counted it against the daily quota, once;
                                       -- `pending` with this NULL is an open upload (Orphaned uploads)
 reports      (id, work_id, reporter_id, kind, body, status, created_at)  -- reporting needs an account;
@@ -336,8 +336,8 @@ database doesn't check that a `pseud_norm` isn't made only of invisibles:
    one, and an upload that isn't open any more (`pending` and uncounted) 409. A banned account,
    read from the database, gets 403 on an upload still open, which ends `account_banned`. An upload
    whose file is already stored gets 409 and keeps it. A `Content-Type` other than exactly
-   `application/epub+zip` or `application/pdf` gets 415, one over its type's limit 413, a `Content-Length` that is missing or no whole number 411, one
-   over 25 MB 413 and any other size than was declared 400, before a byte is read, and each of
+   `application/epub+zip` or `application/pdf` gets 415, a `Content-Length` that is missing or no whole number 411, one
+   over its type's limit 413 and any other size than was declared 400, before a byte is read, and each of
    those frees the upload's slot (Orphaned uploads). Then the database connection is closed, so a slow upload holds
    none and no lock a ban would wait on, and the body is streamed, never buffered, through a
    `FixedLengthStream` of the declared size into the bucket binding. So the Worker holds the size
@@ -680,7 +680,7 @@ Chapter text isn't indexed.
    failed for good; not `work_removed`, whose save already deleted it), it
    deletes the upload's key in each format, `originals/<upload_id>.epub` and `.pdf`, so the content host no
    longer serves it from R2. The content host serves an upload's original only
-   when the upload is `live` or a `duplicate` (a refused upload gets 404 whatever its
+   when the upload is `live` or an epub's `duplicate` (a refused upload gets 404 whatever its
    work's status), so a refused upload's original, which never went live,
    is not served, and no edge copy is expected to exist for it. The delete comes
    after the fenced write that ends the upload, and only when that write
@@ -843,7 +843,7 @@ takedown checks, and the save are the same; only the processor differs. Text onl
 out. `unpdf` (pdf.js) is loaded by `import()` from `apps/ingest/src/pdf/parser.ts`, so an epub's
 job never loads it, and no other Worker bundles it.
 
-1. **Size.** Over 10 MB by its bytes is `too_large`, at the read stage.
+1. **Size.** Over 10 MB by its bytes is `too_large`.
 2. **Checks before the parser opens it** (`preflight.ts`), on the raw bytes, every keyword counted
    whether it sits inside another stream or not, since a cross-reference table can point anywhere.
    `pdf_unreadable`: a tail `startxref` that lands on neither `xref` nor an object; `/Encrypt`; a
@@ -856,7 +856,7 @@ job never loads it, and no other Worker bundles it.
    discarded. Deflate data `fflate` calls corrupt is `pdf_unreadable`, not skipped, because pdf.js is
    looser and would read on.
 3. **Text and links** (`parser.ts`), page by page, yielding every 16 pages so the lease's timer can
-   fire. Over 5,000 pages, 500,000 text items or 8 MiB of text is `pdf_unreadable`. So is anything pdf.js throws: the same bytes throw the same way.
+   fire. Over 5,000 pages, 500,000 text items, 8 MiB of text or 50,000 links to the original archive is `pdf_unreadable`. So is anything pdf.js throws: the same bytes throw the same way.
 4. **The work** (`structure.ts`). A printed "Posted originally" line with a work URL, or `not_ao3`; a
    link that names another work adds `work_id_mismatch`. Tags come from `/tags/` links, deduped by
    URL, each under the last label before it in reading order; with no links, from the printed fields,
@@ -2016,7 +2016,7 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
 9. Updates: up to three summary cards on the home page, each linking to a static
    post, held in the web Worker's code
 10. Upload a zip of epubs, unzipped in the browser (specs/scenarios/mvp/26-bulk-zip-upload.md)
-11. PDFs of AO3 works, converted to text, with an epub always winning (specs/scenarios/mvp/12-pdf-upload.md)
+11. PDFs of AO3 works, converted to text, with an epub winning unless it's older (specs/scenarios/mvp/12-pdf-upload.md)
 
 **Later**
 - The public removal list, `/removed` and `/removed/pseuds`, after launch (operator ruling, 2026-11-06; specs/scenarios/later/11-public-removal-list.md)

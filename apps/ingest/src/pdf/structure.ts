@@ -68,6 +68,7 @@ const POSTED = /postedoriginallyonthe.{0,80}?archiveofourown\.org\/works\/(\d+)/
 const CHAPTER_HEADING = /^Chapter \d+\b/;
 const SERIES_PART = /Part\s+(\d+)\s+of\s+(.+?)(?=\s+Part\s+\d+\s+of\s|$)/g;
 const MAX_FIELD_CHARS = 64 * 1024;
+const MAX_MARKS = 256;
 const MAX_STATS_CHARS = 2 * 1024;
 /** Lines from the top of the file the preface's checks read. */
 const PREFACE_LINES = 200;
@@ -247,6 +248,8 @@ function readFields(lines: TextLine[], ranges: [number, number][]): PrintedField
       const value = trimmed(line);
       let last = 0;
       for (const match of value.matchAll(LABELS)) {
+        // A preface has a dozen. Bounded, since each tag's link looks through them.
+        if (marks.length >= MAX_MARKS) break;
         if (open !== null) add(open, value.slice(last, match.index));
         open = match[1]!.toLowerCase();
         last = match.index + match[0].length;

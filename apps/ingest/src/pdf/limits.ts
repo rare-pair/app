@@ -10,11 +10,13 @@ export const PDF_LIMITS = {
   maxStreamInflatedBytes: 16 * MiB,
   /** Objects a file may hold, by its trailer and by what it really has. The largest sample has 8,561. */
   maxObjects: 100_000,
-  /** Pages a file may have: at the samples' 230 to 554 words a page, about 1M words. */
+  /** Pages a file may have. The samples run 230 to 554 words a page, so 1.2M to 2.8M words. */
   maxPages: 5_000,
   /** Text items and characters one parse may read: a limit on what it holds, by count. */
   maxTextItems: 500_000,
   maxTextChars: 8 * MiB,
   /** Links to the original archive one parse may keep. A real file has a few hundred. */
   maxLinks: 50_000,
+  /** Bytes one file's object streams may cost to read. A real file has a few MB of them. */
+  maxObjectStreamWork: 64 * MiB,
 } as const;

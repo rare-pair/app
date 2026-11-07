@@ -53,7 +53,7 @@ export const MESSAGES: Record<UploadStatus, string> = {
   work_removed: "This work was removed from the archive.",
   account_banned: "This account can no longer upload.",
   pdf_unreadable:
-    "We couldn't read this PDF: it may be protected or damaged, or its chapters couldn't be told apart. An EPUB of the work would work.",
+    "We couldn't read this PDF: it may be protected, damaged or very long, or its chapters couldn't be told apart. An EPUB of the work would work.",
 };
 // For a status the script doesn't know (one added after the page was served).
 export const FALLBACK_MESSAGE = "Reload this page to see the latest on this upload.";

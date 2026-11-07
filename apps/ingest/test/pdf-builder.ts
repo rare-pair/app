@@ -97,6 +97,8 @@ const escapePdf = (text: string) => text.replace(/[\\()]/g, (c) => `\\${c}`);
 export function layoutPdf(
   lines: PdfLine[],
   options: {
+    /** Each page draws a photo: an image XObject beside the text. */
+    image?: boolean;
     outline?: { title: string; line: number }[];
     /** The outline's destinations name a page that isn't there. */
     brokenOutline?: boolean;
@@ -140,6 +142,16 @@ export function layoutPdf(
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     options.info === undefined ? "null" : `<< /Title (${escapePdf(options.info)}) >>`,
   ];
+  const imageAt = bodies.length + 1;
+  if (options.image) {
+    bodies.push(
+      stream(
+        "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /DCTDecode",
+        Uint8Array.of(0xff, 0xd8, 0xff, 0xd9),
+      ),
+    );
+  }
+  const resources = options.image ? `/XObject << /Im ${imageAt} 0 R >>` : "";
   const kids: string[] = [];
   const pageRefs: number[] = [];
   for (const page of pages) {
@@ -148,10 +160,10 @@ export function layoutPdf(
     pageRefs.push(pageNumber);
     bodies.push(
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ` +
-        `/Resources << /Font << /F1 3 0 R >> >> /Contents ${pageNumber + 1} 0 R ` +
+        `/Resources << /Font << /F1 3 0 R >> ${resources} >> /Contents ${pageNumber + 1} 0 R ` +
         `/Annots [${page.links.join(" ")}] >>`,
     );
-    bodies.push(flate(page.content.join("\n")));
+    bodies.push(flate(`${options.image ? "q /Im Do Q\n" : ""}${page.content.join("\n")}`));
   }
   bodies[1] = `<< /Type /Pages /Count ${pages.length} /Kids [${kids.join(" ")}] >>`;
   let outlines = "";
