@@ -13,6 +13,7 @@ import {
 } from "@archive/db";
 import type { LiveWork } from "@archive/db";
 import { getCookie } from "hono/cookie";
+import { ADULT_MARK_LINE } from "./adult-mark";
 import { readForm } from "./login";
 import { escapeHtml, layout } from "./pages";
 import { positiveInt, type ReaderContext } from "./reader";
@@ -38,16 +39,17 @@ const NO_WARNINGS = normalizeTagName("warning", "No Archive Warnings Apply");
 const MILD_RATINGS = ["general audiences", "teen and up audiences"];
 
 /**
- * Whether a work gets the screen: rated Mature or Explicit, not rated, or carrying any
- * archive warning other than "No Archive Warnings Apply".
+ * Whether a work gets the screen: rated Mature or Explicit, not rated, carrying any
+ * archive warning other than "No Archive Warnings Apply", or marked adult by a moderator.
  */
 export function needsWarnings({
   work,
   tags,
 }: {
-  work: { rating: string | null };
+  work: { rating: string | null; adult_marked: boolean };
   tags: { type: string; name_norm: string }[];
 }) {
+  if (work.adult_marked) return true;
   // Only the two mild ratings skip the screen; anything else, an unknown or oddly
   // spelled rating included, shows it.
   const rating = work.rating?.trim().toLowerCase() ?? "";
@@ -124,6 +126,13 @@ export async function showWarnings(c: ReaderContext) {
   // Nothing to warn about, or the reader turned the screen off: on to the page asked for.
   const user = c.var.session?.user;
   if (!screenApplies(c, live)) {
+    // A work that no longer needs the screen (a mark lifted) can still have an edge-cached chapter page
+    // that sends its reader here for up to a minute: remembering the work lets that page through.
+    if (!needsWarnings(live)) {
+      c.header("Set-Cookie", warnedCookie([...warnedIds(c).filter((seen) => seen !== id), id]), {
+        append: true,
+      });
+    }
     c.header("Cache-Control", "private, no-store");
     return c.redirect(next, 302);
   }
@@ -136,7 +145,7 @@ export async function showWarnings(c: ReaderContext) {
       "Rating and warnings",
       `<p class="work-title">${escapeHtml(title)}</p>
 <p class="rating">Rating: ${rating}</p>
-${warnings.length === 0 ? "" : `<ul class="warnings">${warnings.map((tag) => `<li>${escapeHtml(tag.name)}</li>`).join("")}</ul>\n`}<form method="post" action="/works/${id}/warnings">
+${live.work.adult_marked ? `<p class="adult-mark">${ADULT_MARK_LINE}</p>\n` : ""}${warnings.length === 0 ? "" : `<ul class="warnings">${warnings.map((tag) => `<li>${escapeHtml(tag.name)}</li>`).join("")}</ul>\n`}<form method="post" action="/works/${id}/warnings">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
 ${user ? `<p><label><input type="checkbox" name="${TURN_OFF_FIELD}"> Don't show this screen again</label></p>\n<p class="note">You can turn it back on in <a href="/settings/reader">reader settings</a>.</p>\n` : ""}<button type="submit">Continue</button>
 <p class="note">Continue remembers this choice for the work in a session cookie, so cookies need to be on.</p>

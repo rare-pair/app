@@ -156,6 +156,7 @@ works        (id, ao3_work_id UNIQUE NOT NULL, title, summary_html, rating, lang
               complete, published_at, updated_at,
               status,            -- processing | live | hidden | removed
               hidden_cause NULL, -- removal_request | reports | moderator, while hidden
+              adult_marked,      -- boolean, default false: a moderator's mark that gives the work the warnings screen whatever its rating says; on the work, so a new version or a rollback keeps it
               removed_reason NULL, -- dmca | removal_request | wrong_file | site_safety; the schema's check, like hidden_cause's, allows it only while removed and requires it then
               removed_at NULL,   -- set with removed_reason, under the same check; a partial index on it, where status is removed, serves the removal list
               list_withheld,     -- the removal list shows no title, byline or AO3 ID
@@ -190,7 +191,8 @@ uploads      (id,
               quota_counted_at NULL)  -- set when confirm counted it against the daily quota, once;
                                       -- `pending` with this NULL is an open upload (Orphaned uploads)
 reports      (id, work_id, reporter_id, kind, body, status, created_at)  -- reporting needs an account;
-                                                  -- kind includes wrong_version ("This version is wrong");
+                                                  -- kind includes wrong_version ("This version is wrong")
+                                                  -- and higher_rating ("This needs a higher rating");
                                                   -- no FK on reporter_id: a deleted account's report still counts
 takedowns    (id, work_id, requester, basis, status,
               resolved_by,  -- no FK: who resolved it stays after the account is deleted
@@ -955,6 +957,13 @@ can be snapshotted.
   sign-in gate, age statement, age cookie or reader pass, and a work's images and originals
   are never locked. Reading needs no account and no JavaScript, for every work. Reports
   don't change a work by themselves; a moderator decides. Nothing here checks anyone's age.
+  A moderator can mark a work as adult (`works.adult_marked`, set on the work's admin page with
+  "Mark as adult", lifted with "Remove the adult mark"): it then shows the screen whatever its
+  rating says, and its rating still reads as the file gave it. The work page, its card and the
+  screen each carry one plain line saying a moderator marked it. The mark is read with the work's
+  other columns, so a card needs no query of its own, and a new version or a rollback leaves it
+  alone. It takes effect as the usual cache windows end, with no purge: the edge-cached chapter
+  page keeps its screen decision, which includes the mark, for its 60 s.
 - **"May be imperfect" notice.** When the current version has review reasons
   that no moderator has cleared (EPUB processor, step 5), the work page and
   every reader page show one line: "Chapters may be imperfect; a moderator will
@@ -1499,8 +1508,10 @@ epub, under the normal versioning rules.
   open report on the work still counts). One reason is "This version is wrong"
   (`wrong_version`), which only queues the work in *Works to check*: those
   reports never count toward the 3-account auto-hide. (Authors asking for
-  removal use `/remove`, which needs no account.) There is no NSFW report reason: reports
-  don't change a work's rating or warnings screen by themselves (Reading, No NSFW gate).
+  removal use `/remove`, which needs no account.) Another is "This needs a higher rating"
+  (`higher_rating`): it is listed in the Reports queue, never counts toward the auto-hide, and
+  changes nothing by itself; a moderator decides, by marking the work as adult (Reading, No NSFW
+  gate), which closes the work's open reports of that kind, or by dismissing the report.
 - **Moderation.** A small admin area has four queues, each a table, oldest
   first:
   - reports
@@ -1511,8 +1522,8 @@ epub, under the normal versioning rules.
     with no open report left (so a dismissed report can't strand one); the work leaves the
     list when a moderator restores or removes it, and is dated by its earliest report
 
-  Actions are hide, remove, restore, approve, reject, dismiss a report, block a requester, ban
-  an uploader and, once the removal list is built, withhold an entry. Block a requester is on removal
+  Actions are hide, remove, restore, approve, reject, dismiss a report, mark or unmark a work as
+  adult (each logged once on the work), block a requester, ban an uploader and, once the removal list is built, withhold an entry. Block a requester is on removal
   and opt-out request pages only: a takedown's requester is free text, so
   takedown pages don't offer it. "Dismiss report", on an open report's page,
   sets it `closed` and logs `dismiss` on the report. It hides and restores nothing, so a work the

@@ -122,6 +122,8 @@ export interface WorkTable {
   published_at: Timestamp | null;
   updated_at: Timestamp | null;
   status: ColumnType<WorkStatus, WorkStatus | undefined, WorkStatus>;
+  /** A moderator's mark: the work gets the warnings screen whatever its rating says. Kept across versions. */
+  adult_marked: ColumnType<boolean, boolean | undefined, boolean>;
   /** Set while, and only while, the work is hidden. */
   hidden_cause: HiddenCause | null;
   /** NULL only while the first version is being written. */
@@ -251,7 +253,7 @@ export interface ReportTable {
   work_id: string;
   /** Reporting needs an account. */
   reporter_id: string;
-  /** `wrong_version` ("This version is wrong") is the only value the docs name. */
+  /** `wrong_version` ("This version is wrong") and `higher_rating` ("This needs a higher rating") are the values the docs name. */
   kind: string;
   /** The optional details. */
   body: string | null;

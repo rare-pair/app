@@ -266,11 +266,23 @@ function wrongVersionReports(ao3WorkId: number, open: number) {
 }
 
 /**
+ * The adult mark's state and its two forms, both always offered (the state is on the page, and
+ * a repeat press says nothing changed). Marking also closes the work's open rating reports.
+ */
+function adultMarkForms(ao3WorkId: number, marked: boolean, openRatingReports: number) {
+  const form = (action: string, label: string) =>
+    `<form method="post" action="/admin/works/${ao3WorkId}/adult${action}"><button type="submit">${label}</button></form>`;
+  return `<p>${marked ? "Marked as adult by a moderator." : "Not marked as adult."}${openRatingReports === 0 ? "" : ` Open reports that it needs a higher rating: ${openRatingReports}.`}</p>
+${form("", "Mark as adult")}
+${form("/remove", "Remove the adult mark")}`;
+}
+
+/**
  * A work's admin page, the detail page of Works to check: its status and every version,
  * oldest first, each with its hold reason and review reasons, a "Make current" form unless it
  * is held for review, and an "Approve" form where there is something to approve; the current
  * one is marked. With open "This version is wrong" reports, their count and a form that
- * closes them. The uploader is the
+ * closes them, and the adult mark's state with "Mark as adult" and "Remove the adult mark". The uploader is the
  * account's email: moderators only, on admin pages only, with a "Ban uploader" form, or
  * "Banned" once it is (neither for a moderator or an admin), or "Deleted account" with neither
  * once the account is gone. `actions` is `workActions`.
@@ -282,6 +294,7 @@ export function workAdminPage(
   versions: VersionRow[],
   actions: string,
   openWrongVersionReports: number,
+  adult: { marked: boolean; openRatingReports: number } | null,
 ) {
   const approve = (v: VersionRow) =>
     needsApproval(v)
@@ -315,6 +328,7 @@ ${rows}
 </tbody>
 </table>
 ${wrongVersionReports(ao3WorkId, openWrongVersionReports)}
+${adult === null ? "" : adultMarkForms(ao3WorkId, adult.marked, adult.openRatingReports)}
 ${actions}`,
   );
 }

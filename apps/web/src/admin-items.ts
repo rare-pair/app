@@ -137,7 +137,8 @@ adminItems.get("/reports/:id{[A-Za-z0-9_-]+}", async (c) => {
         ["Work", `${row.title} (${row.ao3_work_id})`],
         ["Work status", workStatusText(row.work_status, row.hidden_cause)],
       ],
-      `${workActions(row.ao3_work_id, self)}\n${row.status === "open" ? dismissForm(id) : ""}`,
+      // The work's admin page is where a rating report is decided: "Mark as adult".
+      `<p><a href="/admin/works/${row.ao3_work_id}">The work's admin page</a></p>\n${workActions(row.ao3_work_id, self)}\n${row.status === "open" ? dismissForm(id) : ""}`,
     ),
   );
 });

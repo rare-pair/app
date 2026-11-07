@@ -15,6 +15,7 @@ import {
 } from "@archive/db";
 import type { Context } from "hono";
 import type { Bindings } from "./env";
+import { ADULT_MARK_LINE } from "./adult-mark";
 import { siteCard } from "./cards";
 import { escapeHtml, layout } from "./pages";
 import { tidySummary, withoutLinks } from "./summary";
@@ -323,7 +324,7 @@ export function workCard({ work, authors, tags }: ListedWork): string {
 <h2 class="card-title"><a href="${href}">${escapeHtml(work.title)}</a></h2>
 <p class="card-byline">by ${escapeHtml(byline)}</p>
 <p class="card-rating"><strong>${escapeHtml(rating.join(" · "))}</strong></p>
-${line("card-fandoms", tagLinks(ofType("fandom")))}
+${work.adult_marked ? `<p class="card-adult">${ADULT_MARK_LINE}</p>\n` : ""}${line("card-fandoms", tagLinks(ofType("fandom")))}
 ${summary(work.summary_html, href, work.title)}
 ${line("card-tags", cardTags(ofType("relationship"), ofType("character"), ofType("freeform").length))}
 <p class="card-stats">${stats(work)}</p>

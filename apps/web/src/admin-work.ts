@@ -6,6 +6,8 @@ import {
   approveVersion,
   closeWrongVersionReports,
   makeVersionCurrent,
+  markAdult,
+  unmarkAdult,
   type UploadStatus,
   type VersionSource,
 } from "@archive/db";
@@ -61,8 +63,15 @@ adminWork.get("/works/:id", async (c) => {
   if (!found) return c.notFound();
   const work = await c.var.db
     .selectFrom("works")
-    .select(["title", "ao3_work_id", "status", "hidden_cause", "current_version_id"])
-    .select((eb) =>
+    .select([
+      "title",
+      "ao3_work_id",
+      "status",
+      "hidden_cause",
+      "current_version_id",
+      "adult_marked",
+    ])
+    .select((eb) => [
       eb
         .selectFrom("reports")
         .select(eb.fn.countAll<string>().as("n"))
@@ -70,7 +79,14 @@ adminWork.get("/works/:id", async (c) => {
         .where("reports.kind", "=", "wrong_version")
         .where("reports.status", "=", "open")
         .as("open_wrong_version"),
-    )
+      eb
+        .selectFrom("reports")
+        .select(eb.fn.countAll<string>().as("n"))
+        .where("reports.work_id", "=", found.id)
+        .where("reports.kind", "=", "higher_rating")
+        .where("reports.status", "=", "open")
+        .as("open_higher_rating"),
+    ])
     .where("id", "=", found.id)
     .executeTakeFirstOrThrow();
   const versions = await c.var.db
@@ -118,6 +134,10 @@ adminWork.get("/works/:id", async (c) => {
       workActions(work.ao3_work_id, `/admin/works/${work.ao3_work_id}`),
       // A removed work's reports can't be closed here, so the form isn't offered.
       work.status === "removed" ? 0 : Number(work.open_wrong_version),
+      // A removed work can be neither marked nor have its reports closed here.
+      work.status === "removed"
+        ? null
+        : { marked: work.adult_marked, openRatingReports: Number(work.open_higher_rating) },
     ),
   );
 });
@@ -166,6 +186,47 @@ adminWork.post("/works/:id/approve", async (c) => {
     unavailable: "Nothing changed: the work is removed or not finished processing.",
   }[outcome];
   return c.html(resultPage(message, back));
+});
+
+// Mark and unmark: a moderator's decision that a work gets the warnings screen whatever its
+// rating says. Worded from what the write returned, not a re-read, which may come from a cache.
+adminWork.post("/works/:id/adult", async (c) => {
+  const found = await workByAo3Id(c, c.req.param("id"));
+  if (!found) return c.notFound();
+  const back = `/admin/works/${Number(c.req.param("id"))}`;
+  const { outcome, closed } = await markAdult(c.var.db, found.id, { actor: c.var.userId });
+  const closedText =
+    closed === 0 ? "" : ` ${closed} ${closed === 1 ? "report" : "reports"} closed.`;
+  return c.html(
+    resultPage(
+      {
+        changed: `Marked as adult.${closedText}`,
+        unchanged:
+          closed === 0
+            ? "Nothing changed: it was marked already."
+            : `It was marked already.${closedText}`,
+        unavailable: "Nothing changed: the work is removed.",
+      }[outcome],
+      back,
+    ),
+  );
+});
+
+adminWork.post("/works/:id/adult/remove", async (c) => {
+  const found = await workByAo3Id(c, c.req.param("id"));
+  if (!found) return c.notFound();
+  const back = `/admin/works/${Number(c.req.param("id"))}`;
+  const outcome = await unmarkAdult(c.var.db, found.id, { actor: c.var.userId });
+  return c.html(
+    resultPage(
+      {
+        changed: "The adult mark is removed.",
+        unchanged: "Nothing changed: it was not marked.",
+        unavailable: "Nothing changed: the work is removed.",
+      }[outcome],
+      back,
+    ),
+  );
 });
 
 // Closes the work's open "This version is wrong" reports, which nothing else closes.
