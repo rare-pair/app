@@ -164,6 +164,9 @@ export const UPLOAD_SCRIPT = `"use strict";
       });
       at += 46 + nameLength + view.getUint16(at + 30, true) + view.getUint16(at + 32, true);
     }
+    if (found.some((entry) => entry.packed === 0xffffffff || entry.offset === 0xffffffff)) {
+      throw new Error("zip64");
+    }
     // Entries that share bytes would make each one cost a full inflate for the same stream.
     const spans = found
       .filter((entry) => entry.packed > 0)
@@ -240,11 +243,6 @@ export const UPLOAD_SCRIPT = `"use strict";
         continue;
       }
       const name = entry.path.split("/").pop();
-      // Already in the list, by the size the directory gives: not worth inflating again.
-      if (known.has(keyOf({ name, size: entry.size }))) {
-        repeats++;
-        continue;
-      }
       let blob = null;
       try {
         blob = await inflate(zip, entry);

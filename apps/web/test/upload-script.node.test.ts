@@ -1047,6 +1047,16 @@ describe("26-bulk-zip-upload", () => {
     expect(p.rows()).toHaveLength(1);
   });
 
+  it("An epub taken out of the list can be added again from the zip", async () => {
+    const p = page([], []);
+    p.pick([zipOf([book("one.epub", 100)])]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(1));
+    await remove(p.rows()[0]!).listeners["click"]!();
+    expect(p.rows()).toHaveLength(0);
+    p.pick([zipOf([book("one.epub", 100)])]);
+    await vi.waitFor(() => expect(p.rows().map(name)).toEqual(["one.epub"]));
+  });
+
   it("An epub over the limit is listed but the page says it can't be sent", async () => {
     const p = page([], []);
     p.pick([zipOf([{ name: "huge.epub", data: Buffer.from("x"), claims: 26 * MB }])]);
