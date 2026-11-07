@@ -31,6 +31,7 @@ async function readOutline(
       walk(item.items ?? []);
     }
   };
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- null for no outline, whatever its type says
   walk((await pdf.getOutline()) ?? []);
   if (entries.length > PDF_LIMITS.maxPages) return [];
   const outline: PdfText["outline"] = [];

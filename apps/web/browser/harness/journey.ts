@@ -53,13 +53,15 @@ export const syntheticEpub = (name: string) =>
 export type EpubFile = string | { name: string; bytes: Uint8Array };
 
 const EPUB_MIME = "application/epub+zip";
+const PDF_MIME = "application/pdf";
 
 /** What `setInputFiles` takes for `file`; a path on disk is read, named for its last segment. */
 const payload = (file: EpubFile) => {
   const { name, bytes } =
     // oxlint-disable-next-line deslop/no-runtime-typeof -- tells the string | object union apart
     typeof file === "string" ? { name: basename(file), bytes: readFileSync(file) } : file;
-  return { name, mimeType: EPUB_MIME, buffer: Buffer.from(bytes) };
+  const mimeType = name.toLowerCase().endsWith(".pdf") ? PDF_MIME : EPUB_MIME;
+  return { name, mimeType, buffer: Buffer.from(bytes) };
 };
 
 /**
