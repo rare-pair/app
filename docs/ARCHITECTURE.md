@@ -111,10 +111,12 @@ an unofficial stopgap.
     also applies to `content.rarepair.fans` and may set a cookie there, and inject a
     script into the app's HTML (operator ruling, 2026-11-06). The content Worker itself still
     sets no cookie. Browser Integrity Check stays off (Crawlers and agents).
-  - The content Worker keeps no log of the requests it serves (invocation logs are off), so
-    its logs hold no reader address next to a work id. Errors, metrics and a line with the
-    reason for each refusal, which can be a reader's cross-site embed, are kept; traces are off too, so no reading data reaches them (the URL carries the work
-    id). An operator may turn them on to chase a live fault, which records request
+  - The content Worker keeps no log of every request it serves (invocation logs are off).
+    Errors, metrics and a line with the reason for each refusal, which can be a reader's
+    cross-site embed, are kept. The platform stores the path of the request a logged line ran
+    in, which carries the work id, with no address or user agent, for 7 days (measured on the
+    web Worker, 2026-11-07; assumed the same here), and `redact_query_string` is on to keep
+    the query out (see Observability). Traces are off too, so no span records the URL. An operator may turn them on to chase a live fault, which records request
     URLs until they are turned off again, so only for as long as the fault needs.
     `apps/content/test/wrangler.test.ts` holds traces off, so that change edits it too.
   - The content Worker sits in front of the CDN cache, so it keeps its own: a plain
@@ -1842,7 +1844,14 @@ markup: its inline `style` attributes become stylesheet rules, because
   web and content Workers' per-request invocation logs are off (their URLs carry
   the AO3 work id, and the web Worker's the chapter too); their errors and metrics
   stay on, and both the web and content Workers' traces are off too (turned on only
-  for a live fault). Track queue depth, ingest failure
+  for a live fault). A console line the code logs on purpose still stores the path of
+  the request it ran in, so a reading page's work id and chapter, with no address or
+  user agent, for 7 days (measured on the web Worker, 2026-11-07; operator ruling: accepted).
+  Query strings were stored too, and sign-in, confirmation and unsubscribe tokens travel in
+  them, so both Workers set `observability.redact_query_string`. It is documented to remove
+  query strings from request URLs in logs and traces; whether it clears a custom line's
+  `request.url` and `request.search` is unconfirmed until the live check on the deployed
+  Workers. What the code writes into a line holds no URL. Track queue depth, ingest failure
   rate and search p95 on a dashboard, with crawler refusals by reason and throttled
   reads, each counted from a log line holding only the reason.
 

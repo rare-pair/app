@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 interface ContentConfig {
   observability: {
     enabled?: boolean;
+    redact_query_string?: boolean;
     logs?: { enabled?: boolean; invocation_logs?: boolean };
     traces?: { enabled?: boolean };
   };
@@ -26,6 +27,10 @@ describe("24-crawler-and-agent-blocking", () => {
 
   it("Content origin refusals log no URL: invocation logs are off", () => {
     expect(readConfig().observability.logs?.invocation_logs).toBe(false);
+  });
+
+  it("A logged line stores no query string: redact_query_string is on", () => {
+    expect(readConfig().observability.redact_query_string).toBe(true);
   });
 
   it("Content origin errors and metrics are kept", () => {

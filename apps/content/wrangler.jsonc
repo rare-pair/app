@@ -29,11 +29,16 @@
   "ratelimits": [
     { "name": "ORIGINAL_LIMIT", "namespace_id": "1052", "simple": { "limit": 10, "period": 60 } },
   ],
-  // Invocation logs and traces are off: a content URL carries the AO3 work id (#124, #572).
-  // Errors, metrics and each refusal's reason line stay. To trace a live fault, set traces.enabled to true and deploy, then
-  // set it back to false (ARCHITECTURE, Why these pieces, Hosts).
+  // Invocation logs and traces are off, so no line is kept for every request and no span records a
+  // URL (#124, #572). Errors, metrics and each refusal's reason line stay, and a reason line
+  // stores the path of its request, which carries the AO3 work id, with no address or user agent,
+  // for 7 days (measured on the web Worker 2026-11-07; assumed the same here). redact_query_string
+  // is on to keep query strings out; it is documented to remove them from request URLs in logs
+  // and traces, and the live check confirms it for a custom line. To trace a live fault, set
+  // traces.enabled to true and deploy, then set it back to false (ARCHITECTURE, Why these pieces, Hosts).
   "observability": {
     "enabled": true,
+    "redact_query_string": true,
     "logs": { "enabled": true, "invocation_logs": false },
     "traces": { "enabled": false },
   },
