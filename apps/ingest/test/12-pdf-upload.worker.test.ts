@@ -218,7 +218,7 @@ describe("12-pdf-upload", () => {
 
       const live = await liveWork(workId);
       expect(live?.work.title).toBe("by the sea");
-      expect(live?.authors).toEqual([{ pseud: "someone", ao3_user: "someone" }]);
+      expect(live?.authors).toEqual([{ pseud: "Someone", ao3_user: "someone" }]);
     });
 
     it("An anonymous work has no author link", async () => {
@@ -509,7 +509,7 @@ describe("12-pdf-upload", () => {
           { text: "Thanks to a friend.", url: "https://archiveofourown.org/users/friend", gap: 10 },
           para("The text."),
         ]);
-        expect(live?.authors.map((a) => a.pseud)).toEqual(["someone"]);
+        expect(live?.authors.map((a) => a.pseud)).toEqual(["Someone"]);
         expect(text).toContain("Thanks to a friend.");
       });
 
@@ -670,7 +670,7 @@ describe("12-pdf-upload", () => {
               ],
             },
           ]);
-          expect(names).toEqual(["r1", "r2"]);
+          expect(names).toEqual(["Real One", "Real Two"]);
           expect(reasons).not.toContain("byline_ambiguous");
         });
 
@@ -679,7 +679,7 @@ describe("12-pdf-upload", () => {
             { text: "by Someone", url: user("someone") },
             { text: "Thanks to a friend.", url: user("friend") },
           ]);
-          expect(names).toEqual(["someone"]);
+          expect(names).toEqual(["Someone"]);
           expect(text).toContain("Thanks to a friend.");
         });
 

@@ -327,42 +327,72 @@ const onLine = (link: PageLink, line: TextLine): boolean => {
   return above >= -0.25 * line.size && above <= 0.75 * line.size;
 };
 
-/** Each character of a line: whether a link covers it, placed in proportion across the line. */
+/**
+ * About how wide a character prints, in ems, as Helvetica and Times set it: enough to tell a run of
+ * narrow letters from capitals, which spacing every character alike gets wrong by whole letters.
+ */
+function charWidth(code: number): number {
+  const c = String.fromCharCode(code);
+  if (code === 0x20) return 0.28;
+  if ("ijlI.,:;'!|".includes(c)) return 0.25;
+  if ("frt()-".includes(c)) return 0.33;
+  if ("mwMW@".includes(c)) return 0.85;
+  if (c >= "A" && c <= "Z") return 0.68;
+  return 0.52;
+}
+
+/** A byline line's characters looked at, at most: enough for any real one. */
+const MAX_BYLINE_LINE = 1024;
+
+/**
+ * Each UTF-16 unit of a line's text, up to `MAX_BYLINE_LINE`: whether a link covers it, placed by
+ * its estimated width across the line.
+ */
 function coveredChars(line: TextLine, lineLinks: PageLink[]): boolean[] {
-  const text = trimmed(line);
-  const width = line.right - line.x;
-  return Array.from(text, (_, i) => {
-    const x = line.x + (width * (i + 0.5)) / Math.max(1, text.length);
-    return lineLinks.some((l) => x >= (l.rect[0] ?? 0) - 1 && x <= (l.rect[2] ?? 0) + 1);
+  const text = trimmed(line).slice(0, MAX_BYLINE_LINE);
+  const widths = Array.from({ length: text.length }, (_, i) => charWidth(text.charCodeAt(i)));
+  const total = widths.reduce((a, b) => a + b, 0) || 1;
+  const scale = (line.right - line.x) / total;
+  const spans = lineLinks.slice(0, 64).map((l) => [(l.rect[0] ?? 0) - 1, (l.rect[2] ?? 0) + 1]);
+  let at = line.x;
+  return widths.map((width) => {
+    const middle = at + (width * scale) / 2;
+    at += width * scale;
+    return spans.some(([from, to]) => middle >= from! && middle <= to!);
   });
 }
 
 /** Whether a line's last word is mostly outside its links. */
 function endsUnlinked(line: TextLine, lineLinks: PageLink[]): boolean {
+  const text = trimmed(line).slice(0, MAX_BYLINE_LINE);
   const covered = coveredChars(line, lineLinks);
-  const word = trimmed(line).length - (/\S+$/.exec(trimmed(line))?.[0].length ?? 0);
-  const inWord = covered.slice(word);
+  const inWord = covered.slice(text.length - (/\S+$/.exec(text)?.[0].length ?? 0));
   return inWord.filter(Boolean).length * 2 < inWord.length;
 }
 
 const BYLINE_SEPARATOR = /\s*,\s*(?:and\s+)?|\s+and\s+/g;
-/** More than any byline: past this, a name goes unread sooner than a pattern runs long. */
-const MAX_BYLINE_CHARS = 4 * 1024;
+
+/** A name in the byline, where it is, and whether links cover most of it. */
+interface BylineName {
+  name: string;
+  from: number;
+  to: number;
+  linked: boolean;
+}
 
 /**
- * The names printed in a byline with no link over them. A name counts as linked when a link covers
- * it, not when it spells the link: a link can name a user where the print has a pseud, and
- * `Salt and Pepper` under one link is one name, though it splits as a list.
+ * The names printed in a byline, split where AO3 lists them. A name counts as linked when links
+ * cover most of it, not when it spells a link: a link can name a user where the print has a pseud,
+ * and `Salt and Pepper` under one link is one name, though it splits as a list.
  */
-function unlinkedNames(text: string, covered: boolean[]): string[] {
-  const names: string[] = [];
+function bylineNames(text: string, covered: boolean[]): BylineName[] {
+  const names: BylineName[] = [];
   const add = (from: number, to: number) => {
     const name = text.slice(from, to).trim();
     if (name === "") return;
     let linked = 0;
     for (let i = from; i < to; i++) if (covered[i]) linked++;
-    // Part of a name under a link is that name wrapping: its other part can be on the line above.
-    if (linked < 3 && linked * 2 < to - from) names.push(name);
+    names.push({ name, from, to, linked: linked * 2 >= to - from });
   };
   let from = /^by\s+/.exec(text)?.[0].length ?? 0;
   for (const match of text.matchAll(BYLINE_SEPARATOR)) {
@@ -373,12 +403,15 @@ function unlinkedNames(text: string, covered: boolean[]): string[] {
   return names;
 }
 
+/** Whether two names are the same, whatever their case. */
+const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
 /**
- * The byline: its first line and each one it wraps on to. It goes on when a line ends on a separator
- * or fills the width, when one link runs across the two lines, or when a line with links ends on
- * words without one and the next has a link. Links name its authors. A name printed with no link
- * is named too, so the opt-out check reads it, and flagged, since nothing says it isn't part of
- * a name.
+ * The byline: its first line and each one it wraps on to, close under it. It goes on when a line
+ * ends on a separator, when one link runs across the two lines, or when a line with links ends on a
+ * word without one and the next has a link. Links name its authors: by the pseud in the link, or the
+ * name printed under it. A name printed with no link is named too, so the opt-out check reads it,
+ * and flagged, since nothing says it isn't part of a name.
  */
 function readByline(
   lines: TextLine[],
@@ -396,41 +429,67 @@ function readByline(
   const userLinks = links.filter((l) => USER_URL.test(l.url));
   const linksOn = (line: TextLine) => userLinks.filter((l) => onLine(l, line));
   const wraps = (above: TextLine, below: TextLine): boolean => {
+    // A wrapped line sits as close under as any line of the text.
+    if (above.page !== below.page || above.y - below.y > layout.pitch * 1.5) return false;
     if (/(?:,|\sand)$/i.test(trimmed(above))) return true;
-    if (above.page !== below.page) return false;
     const fromAbove = linksOn(above);
     const fromBelow = linksOn(below);
+    if (fromBelow.length === 0) return false;
     if (fromBelow.some((l) => fromAbove.some((a) => a.url === l.url))) return true;
-    if (fromAbove.length > 0 && fromBelow.length > 0) {
-      if (endsUnlinked(above, fromAbove)) return true;
-    }
-    return above.right >= layout.right - 30 && above.y - below.y <= layout.pitch * 1.5;
+    return fromAbove.length > 0 && endsUnlinked(above, fromAbove);
   };
   let end = bylineAt + 1;
-  while (end < prefaceEnd && wraps(lines[end - 1]!, lines[end]!)) end++;
+  // No byline runs this long; a run that does is the text.
+  while (end < prefaceEnd && end - bylineAt < 8 && wraps(lines[end - 1]!, lines[end]!)) end++;
 
-  const authors: Author[] = [];
   let byline = "";
   let covered: boolean[] = [];
+  const placed: { link: PageLink; from: number; to: number }[] = [];
   for (let i = bylineAt; i < end; i++) {
     const line = lines[i]!;
     const lineLinks = linksOn(line);
-    for (const link of lineLinks) {
-      const user = decodeName(USER_URL.exec(link.url)![1]!);
-      const pseud = /\/pseuds\/([^/?#]+)/.exec(link.url)?.[1];
-      const author = { pseud: pseud === undefined ? user : decodeName(pseud), user };
-      if (!authors.some((a) => a.pseud === author.pseud && a.user === user)) authors.push(author);
-    }
     if (byline !== "") {
       byline += " ";
       covered.push(false);
     }
-    byline += trimmed(line);
-    covered = covered.concat(coveredChars(line, lineLinks));
+    const offset = byline.length;
+    const lineCovered = coveredChars(line, lineLinks);
+    byline += trimmed(line).slice(0, MAX_BYLINE_LINE);
+    covered = covered.concat(lineCovered);
+    // Where each link sits in the byline's text: what it covers on this line.
+    for (const link of lineLinks.slice(0, 64)) {
+      const only = coveredChars(line, [link]);
+      const first = only.indexOf(true);
+      if (first >= 0)
+        placed.push({ link, from: offset + first, to: offset + only.lastIndexOf(true) + 1 });
+    }
   }
-  const unlinked = unlinkedNames(byline.slice(0, MAX_BYLINE_CHARS), covered);
+  const names = bylineNames(byline, covered);
+  const authors: Author[] = [];
+  const add = (author: Author) => {
+    if (!authors.some((a) => sameName(a.pseud, author.pseud) && a.user === author.user)) {
+      authors.push(author);
+    }
+  };
+  for (const { link, from, to } of placed) {
+    const user = decodeName(USER_URL.exec(link.url)![1]!);
+    const pseud = /\/pseuds\/([^/?#]+)/.exec(link.url)?.[1];
+    if (pseud !== undefined) {
+      add({ pseud: decodeName(pseud), user });
+      continue;
+    }
+    // No pseud in the link: the name printed under it, which the opt-out check reads.
+    const under = names.find((n) => n.linked && n.from < to && n.to > from);
+    add({ pseud: under?.name ?? user, user });
+  }
+  // A name under a link that wrapped on to the next line is that link's, though split by a space.
+  const unlinked = names.filter(
+    (n) =>
+      !n.linked &&
+      !authors.some((a) => sameName(n.name, a.pseud) || sameName(n.name, `${a.pseud} (${a.user})`)),
+  );
   return {
-    authors: [...authors, ...unlinked.map((pseud): Author => ({ pseud, user: null }))],
+    authors: [...authors, ...unlinked.map((n): Author => ({ pseud: n.name, user: null }))],
     // Names with no links at all split as a list; beside links, one is a guess too.
     ambiguous: authors.length > 0 ? unlinked.length > 0 : unlinked.length > 1,
     end,
@@ -464,14 +523,23 @@ function readEnd(lines: TextLine[], from: number, layout: Layout) {
   };
   const closing = last((text) => text.toLowerCase().startsWith(CLOSING_LINE));
   const stop = closing < 0 ? lines.length : closing;
-  // The heading says so only with what comes under it: a chapter can have the word as its text.
-  const lastAfterword = last((text) => text === "Afterword");
-  const under = lastAfterword < 0 ? "" : trimmed(lines[lastAfterword + 1] ?? lines[lastAfterword]!);
-  const afterword = closing > lastAfterword || under === "End Notes" ? lastAfterword : -1;
+  // The heading says so only by what's under it: End Notes, or the closing line at most a line on. A
+  // chapter can have the word as its text, and the notes under the heading can too, so the first
+  // that passes is the heading.
+  let afterword = -1;
+  for (let i = from; i < lines.length && afterword < 0; i++) {
+    if (trimmed(lines[i]!) !== "Afterword") continue;
+    const under = lines[i + 1] === undefined ? "" : trimmed(lines[i + 1]!);
+    if (under === "End Notes" || (closing > i && closing - i <= 2)) afterword = i;
+  }
   // A label in the text stays in the text. The real one is under the heading when there is one, and
   // otherwise before the closing line, which can't be told from one in the text just above it.
   const lastNotes = last((text) => text === "End Notes");
-  const notesAt = (afterword >= 0 ? lastNotes > afterword : closing > lastNotes) ? lastNotes : -1;
+  const firstNotes =
+    afterword >= 0
+      ? indexFrom(lines, afterword + 1, lines.length, (l) => trimmed(l) === "End Notes")
+      : -1;
+  const notesAt = afterword >= 0 ? firstNotes : closing > lastNotes ? lastNotes : -1;
   const starts = [afterword, notesAt, closing].filter((at) => at >= 0);
   const bodyEnd = starts.length > 0 ? Math.min(...starts) : lines.length;
   const endNotes = notesAt < 0 ? [] : paragraphsOf(lines.slice(notesAt + 1, stop), layout);
@@ -593,8 +661,17 @@ export function readWork(text: PdfText): PdfWork {
     (link.page === fieldsStop.page && linkMark(link).y > fieldsStop.y + 0.75 * fieldsStop.size);
   // The printed line wraps, and a work's URL is on it or the next two.
   const postedAt = indexFrom(lines, 0, reach, (l) => /posted\s*originally/i.test(trimmed(l)));
+  // The line, and the lines it wraps on to before its sentence ends.
+  let postedEnd = postedAt + 1;
+  while (
+    postedAt >= 0 &&
+    postedEnd < postedAt + 3 &&
+    !trimmed(lines[postedEnd - 1]!).endsWith(".")
+  ) {
+    postedEnd++;
+  }
   const onPosted = (link: PageLink): boolean =>
-    postedAt >= 0 && lines.slice(postedAt, postedAt + 3).some((l) => onLine(link, l));
+    postedAt >= 0 && lines.slice(postedAt, postedEnd).some((l) => onLine(link, l));
   // Any link in the fields or on the printed line: one in the text can name any work.
   const linkedWork = links
     .filter((l) => inFields(l) || onPosted(l))
