@@ -72,6 +72,10 @@ describe("the upload quotas in wrangler.jsonc", () => {
     expect(limitFor(null, vars)).toBe(100);
   });
 
+  it("leave the code's fallback for a bad value lower than the configured one", () => {
+    expect(DEFAULT_NEW_LIMIT).toBeLessThan(Number(vars.UPLOAD_QUOTA_NEW));
+  });
+
   it("leave moderators no lower than new accounts", () => {
     expect(limitFor("admin", vars)).toBeGreaterThanOrEqual(limitFor(null, vars));
   });
