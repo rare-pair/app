@@ -552,6 +552,7 @@ describe("19-surge-controls-and-quotas", () => {
   it("Trusted users get the higher quota", async () => {
     const { userId, cookie } = await signIn("u4-trusted-tier@example.test");
     await db.updateTable("user").set({ role: "moderator" }).where("id", "=", userId).execute();
+    expect(TRUSTED_LIMIT).toBeGreaterThan(LOWER_NEW_LIMIT);
     const confirm = (id: string) =>
       postLoginWithVars(TIERS, {}, { url: `/uploads/${id}/complete`, headers: { cookie } });
     // Past the new-account limit, within the trusted one.

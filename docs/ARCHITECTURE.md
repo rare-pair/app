@@ -1795,8 +1795,11 @@ markup: its inline `style` attributes become stylesheet rules, because
   until the 7-day rule, so a day's quota for 8 days adds about 20 GB on either tier. A ban ends an
   account's pending uploads, which takes them out of
   the reaper's reach, so a file stored and never confirmed before a ban waits for the 7-day rule
-  (#685). Since the cap is the daily quota, raising
-  `UPLOAD_QUOTA_NEW` raises these bounds with it, and a quota under 10 can't take a full batch of 10.
+  (#685). Since the cap is the daily quota, raising either quota raises these bounds for the
+  accounts it covers (the trusted quota covers moderators and admins), and a quota under 10
+  can't take a full batch of 10. The ingest backlog grows with it too: at 100 a day, 350
+  accounts each uploading a full day's quota would put 35,000 uploads on the queue, the low end
+  of the retention bound in *EPUB processor*.
   Raw files the archive keeps are copied to `originals/` during ingest.
 - Queue backpressure: set a maximum consumer concurrency so Neon connections
   stay bounded. Hyperdrive pools connections, and Neon autoscales compute. Each Hyperdrive

@@ -318,7 +318,7 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 - THEN each file gets its own `uploads` row
 
 ### The cap is the account's daily quota for its tier
-- GIVEN trusted user T with open uploads past the new-account limit, and under the trusted one
+- GIVEN trusted user T with open uploads past the new-account limit, and under the trusted one (the tiers are both 100 in wrangler.jsonc for now, so the test sets a lower new-account tier)
 - WHEN T asks for one more
 - THEN T gets an upload, and once T is at the trusted limit T is refused
 
