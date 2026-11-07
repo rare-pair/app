@@ -14,9 +14,9 @@ an unofficial stopgap.
 | Question | Decision |
 | --- | --- |
 | Name and domain | rarepair, always written lowercase as one word. The site is served at `rarepair.fans`, and `www.rarepair.fans` redirects there. Epub images and original downloads are served from `content.rarepair.fans` |
-| Who can read uploads | Shared public archive. Every upload is readable by everyone, with takedowns and author removal requests from day one. The one exception is below, in Crawlers and agents. After launch, NSFW works will need a sign-in too (next row) |
-| NSFW works | No gate at launch: every work can be read without an account. One follows soon after, using the existing email magic-link sign-in plus an age statement kept in a cookie. It covers works rated Mature or Explicit or carrying the warning Rape/Non-Con or Underage, and their text, images and originals (operator rulings, 2026-11-06). **Post-launch, not built:** specs/scenarios/later/09-nsfw-sign-in-gate.md. See Reading, NSFW gate |
-| Crawlers and agents | Clients that declare themselves automated are refused the whole site, search engines and link previews included. The Workers and the custom rule except `robots.txt` and one-click unsubscribe. Bot Fight Mode is on and the AI Crawler and Agent access policies are on block. Reading needs no sign-in at launch (NSFW works will, post-launch), and the app adds no challenge, but Cloudflare's bot protection can challenge a reader it flags (operator ruling, 2026-11-06, replacing 2026-11-04) |
+| Who can read uploads | Shared public archive. Every upload is readable by everyone, with takedowns and author removal requests from day one. The one exception is below, in Crawlers and agents. Adult works get a click-through warning, not a sign-in (next row) |
+| NSFW works | A click-through warning, no gate: every work can be read without an account, an age statement or JavaScript. A work rated Mature or Explicit, or Not Rated (a missing or unknown rating included), or carrying an archive warning, shows the warnings screen first. No sign-in, age cookie or reader pass, and no lock on images or originals. Reports don't change a work by themselves; a moderator decides (operator rulings, 2026-11-07, replacing those of 2026-11-06). See Reading, Warnings screen |
+| Crawlers and agents | Clients that declare themselves automated are refused the whole site, search engines and link previews included. The Workers and the custom rule except `robots.txt` and one-click unsubscribe. Bot Fight Mode is on and the AI Crawler and Agent access policies are on block. Reading needs no sign-in, and the app adds no challenge, but Cloudflare's bot protection can challenge a reader it flags (operator ruling, 2026-11-06, replacing 2026-11-04) |
 | Hosting | Cloudflare on the Workers Paid plan: Workers, R2 (one bucket for every prefix), Queues, KV, plus Neon Postgres through Hyperdrive: a config with caching off for every read that decides something, and one with caching on for public pages only (see Connections). Workers Paid is an operator ruling, 2026-11-05 |
 | Load target | Surge-ready: assume tens of thousands of signups in the first days |
 | Upload transfer | Each file goes through the web Worker, which checks the session and the upload's row and streams it to R2 through the bucket binding. There is no presigned link. A size refusal, a failed confirm or a failed upload frees its slot at once, and the reaper stays for what the server never hears about or a fault stops it freeing (operator rulings, 2026-11-06) |
@@ -137,10 +137,8 @@ an unofficial stopgap.
     within 2 s each (two client-side timeouts, one on the connection and one on the query, each shown by its own test: one against a server that never answers (the connection timeout) and one against a server that accepts the connection and stalls the query (the query timeout); there is no server-side `statement_timeout`, which pg sends as a startup parameter that Hyperdrive may not pass on; the cost is that Postgres keeps running a query the client gave up on until it finishes, and with a database that has stopped answering, those queries pile up with the request rate, each holding a pooled Hyperdrive connection), the request fails closed (a request can hold its connection for up to about 4 s before it does): 503, empty, `no-store`, nothing stored and no bytes sent.
     An image is judged by its work alone: images are shared by every version of a work and keyed by their content hash, so a held version's image is served once the work is live, as an unguessable URL (only its original is refused). A refusal never names the hide cause. The connection is per request and the
     logs hold an error's class name only.
-  - **Post-launch, not built:** a gated work's images and originals need a reader pass (Reading,
-    NSFW gate). It is a cookie the web Worker sets on `Domain=rarepair.fans`, holding an expiry and
-    a signature and nothing about the reader, which the content Worker checks with no database
-    read. The session cookie still never reaches this host, and this Worker still sets no cookie.
+  - No work's images or originals are locked, whatever its rating (Reading, Warnings
+    screen). The session cookie never reaches this host, and this Worker sets no cookie.
 
 ## Data model (first cut)
 
@@ -929,7 +927,7 @@ can be snapshotted.
   stale-while-revalidate=60` adds up to 120 s in the same browser, so about 195 s.
 - **Warnings screen.** A work rated Mature or Explicit, or carrying archive
   warnings, or marked "Choose Not To Use Archive Warnings", or with no rating
-  at all, shows an interstitial with its rating and warnings the first time a
+  at all or one the archive doesn't use, shows an interstitial with its rating and warnings the first time a
   reader enters its reading pages, from any entry point: chapter 1, a direct
   link to a later chapter, or `/full`. "Continue" goes on to the page they asked for. Having
   seen it is then remembered for that work in a session cookie, so other
@@ -941,24 +939,13 @@ can be snapshotted.
   `/settings/reader`; the choice is stored on their account (`user.warnings_off`), not
   in the settings cookie, and skips the screen for every work that would show it, a
   work with no rating included. Signed-out readers can't turn them off.
-- **NSFW gate (post-launch, not built).** At launch no work needs an account. Soon after
-  (operator rulings, 2026-11-06), a work rated Mature or Explicit, or carrying the warning
-  Rape/Non-Con or Underage on any rating, is gated. A visitor to a chapter or `/full` is sent
-  to the work's warnings screen, which offers sign-in in place of Continue, then asks a
-  signed-in reader to tick an age statement. A cookie in that browser remembers the tick, and
-  nothing about age goes on the account. The gate runs before the warnings check, and the
-  warned cookie doesn't pass it. The work's card, work page, listings and search stay public,
-  and Not Rated works stay open. Reports from 3 accounts, or a moderator, can also mark any work
-  NSFW; the mark is on the work, so a new version keeps it, and a moderator can clear it. The
-  page cache entry keeps whether the work is gated, so a
-  hit redirects with no read, and a signed-out miss stores the entry without reading a
-  fragment. Signed-in readers still never use the entry, so every read of a gated work costs a
-  session read and a work read, which is to be measured first. Images and originals are gated
-  too, by a reader pass (Why these pieces, Hosts). Reading position isn't saved on a gated
-  work, and a sign-in link asked for from one goes to the home page, so the email holds no work
-  ID. Sign-in is what needs JavaScript, for Turnstile; the screen and the box don't. The
-  operator turns the gate on by hand. Nothing here checks anyone's age. See
-  specs/scenarios/later/09-nsfw-sign-in-gate.md.
+- **No NSFW gate.** The warnings screen above is the only protection adult works get
+  (operator rulings, 2026-11-07, replacing those of 2026-11-06): a work rated Mature or
+  Explicit, or Not Rated (a missing or unknown rating included), or carrying an archive
+  warning on any rating, Rape/Non-Con and Underage among them, shows it. There is no
+  sign-in gate, age statement, age cookie or reader pass, and a work's images and originals
+  are never locked. Reading needs no account and no JavaScript, for every work. Reports
+  don't change a work by themselves; a moderator decides. Nothing here checks anyone's age.
 - **"May be imperfect" notice.** When the current version has review reasons
   that no moderator has cleared (EPUB processor, step 5), the work page and
   every reader page show one line: "Chapters may be imperfect; a moderator will
@@ -990,8 +977,7 @@ can be snapshotted.
   backfill version the upload it was re-made from (`source_upload_id`). The
   download never meets the warnings screen: the content origin has no session and
   the link isn't gated, so a Mature, Explicit or warned work can be downloaded
-  without seeing it. We accept that. (Post-launch, a gated work's original needs a reader
-  pass, whatever the URL, and the work page offers sign-in in place of the link: NSFW gate, above.)
+  without seeing it. We accept that.
 
 ### Crawlers and agents
 
@@ -1057,9 +1043,8 @@ content origin. All of them but images also have the cross-site check below, and
 - **What this doesn't stop.** A scraper posing as a browser across many addresses is
   slowed, and challenged only if Bot Fight Mode flags it, and an agent driving a person's real
   browser looks like that person. Stopping those would take a sign-in to read, which the
-  operator ruled out on 2026-11-04 to keep the archive readable by everyone. The ruling of
-  2026-11-06 narrows that for NSFW works, post-launch (Reading, NSFW gate); it asks
-  for an email address, so it adds a step for a scraper and doesn't stop one.
+  operator ruled out on 2026-11-04 to keep the archive readable by everyone, and the
+  ruling of 2026-11-07 keeps it so for adult works too (Reading, No NSFW gate).
 
 ## Auth (magic link: Better Auth + Resend)
 
@@ -1215,8 +1200,8 @@ content origin. All of them but images also have the cross-site check below, and
   - The login page tells people that links can take a minute to arrive during
     busy periods.
 - Accounts are needed only to upload, report, save reading position or turn
-  the warnings screen off. At launch, reading never needs an account. Post-launch,
-  reading an NSFW work will (Reading, NSFW gate).
+  the warnings screen off. Reading never needs an account, for any work (Reading, No
+  NSFW gate).
 
 ### Deleting an account
 
@@ -1505,10 +1490,8 @@ epub, under the normal versioning rules.
   open report on the work still counts). One reason is "This version is wrong"
   (`wrong_version`), which only queues the work in *Works to check*: those
   reports never count toward the 3-account auto-hide. (Authors asking for
-  removal use `/remove`, which needs no account.) Post-launch, with the NSFW gate, a reason
-  "This should be marked NSFW" (`nsfw`) gates a work once 3 distinct accounts have sent it,
-  until a moderator confirms or clears that. Those reports never count toward the hide either
-  (Reading, NSFW gate).
+  removal use `/remove`, which needs no account.) There is no NSFW report reason: reports
+  don't change a work's rating or warnings screen by themselves (Reading, No NSFW gate).
 - **Moderation.** A small admin area has four queues, each a table, oldest
   first:
   - reports
@@ -1966,9 +1949,7 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
    post, held in the web Worker's code
 
 **Later**
-- NSFW works behind sign-in and an age statement, soon after launch (operator rulings, 2026-11-06)
 - The public removal list, `/removed` and `/removed/pseuds`, after launch (operator ruling, 2026-11-06; specs/scenarios/later/11-public-removal-list.md)
-- A moderator's "Not NSFW" that later reports can't undo (specs/scenarios/later/10-nsfw-clear-sticks.md)
 - Updates from a static JSON file, with a list page and paging between updates
 - Bookmarks, kudos and per-user reading history
 - Series pages and collections

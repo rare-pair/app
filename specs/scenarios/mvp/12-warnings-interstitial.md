@@ -41,6 +41,16 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.warnings_off), § Reading (
 - THEN they first see the warnings screen showing the rating "Not Rated"
 - AND "Continue" takes them to chapter 1
 
+### An unknown rating shows the interstitial
+- GIVEN a live work whose stored rating is none of the archive's five, such as a misspelt or new one
+- WHEN a reader goes to read chapter 1
+- THEN they first see the warnings screen, as for a Not Rated work
+
+### A mild rating with the Rape/Non-Con or Underage warning shows the interstitial
+- GIVEN a live work rated General Audiences or Teen And Up Audiences with the archive warning "Rape/Non-Con" or "Underage"
+- WHEN a reader goes to read chapter 1
+- THEN they first see the warnings screen showing that warning
+
 ### Unwarned general work skips the interstitial
 - GIVEN live work G
 - WHEN a reader goes to read chapter 1
