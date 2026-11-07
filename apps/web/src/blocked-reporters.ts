@@ -38,7 +38,7 @@ export async function blockedReporterIds(
     .distinct()
     .where("work_id", "=", workId)
     .where("status", "=", "open")
-    .where("kind", "<>", "wrong_version")
+    .where("kind", "not in", ["wrong_version", "higher_rating"])
     .execute();
   const candidates = [...new Set([selfId, ...reporters.map((r) => r.reporter_id)])];
   const sessions = await db

@@ -11,7 +11,9 @@ export type ModerationAction =
   | "make_current"
   | "ban"
   | "block"
-  | "dismiss";
+  | "dismiss"
+  | "mark_adult"
+  | "unmark_adult";
 
 export type ModerationTargetKind = "work" | "request" | "takedown" | "report" | "version" | "user";
 

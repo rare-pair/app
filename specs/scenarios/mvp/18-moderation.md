@@ -197,6 +197,31 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 - WHEN a newer upload replaces BV's current version
 - THEN the report is still `open`, so BV stays in *Works to check*
 
+### A moderator marks a work as adult
+- GIVEN a live work W rated General Audiences, with an open "This needs a higher rating" report and an open report of another kind
+- WHEN M uses "Mark as adult" on W's admin page
+- THEN W gets the warnings screen before its chapters, and its rating still reads General Audiences
+- AND the screen, W's work page and W's card each carry the plain line "A moderator marked this work as adult."
+- AND the "This needs a higher rating" report is `closed` and the other stays `open`
+- AND one moderation log row records `mark_adult` on W, with M's user id and the time
+
+### A moderator removes the adult mark
+- GIVEN a work W marked as adult, rated General Audiences
+- WHEN M uses "Remove the adult mark" on W's admin page
+- THEN W opens without the warnings screen and no page carries the line
+- AND one moderation log row records `unmark_adult` on W
+- AND using either action when it would change nothing logs nothing
+
+### A new version or a rollback keeps the adult mark
+- GIVEN a work W marked as adult
+- WHEN a newer upload replaces its current version, or M makes an earlier version current
+- THEN W is still marked as adult
+
+### The adult mark takes effect with the usual cache windows
+- GIVEN a work W marked as adult and a signed-out reader whose request is answered from the edge-cached chapter page
+- WHEN they open chapter 1 without having continued past the screen
+- THEN they are sent to the warnings screen, and no purge was needed
+
 ### Related requests are listed together
 - GIVEN one of the five requests from the same email and IP
 - WHEN M opens its detail page

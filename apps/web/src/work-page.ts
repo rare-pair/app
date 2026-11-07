@@ -4,6 +4,7 @@
 
 import { createDb, getLiveWork, getWorkAvailability, type LiveWork } from "@archive/db";
 import type { Context } from "hono";
+import { ADULT_MARK_LINE } from "./adult-mark";
 import { workCard } from "./cards";
 import { originalUrl } from "./content-host";
 import type { Bindings } from "./env";
@@ -81,7 +82,7 @@ export function workPage(live: LiveWork, position: Position | null = null): stri
     work.title,
     `<p class="authors">by ${byline}</p>
 <p class="rating-warnings">${ratingLine}</p>
-${block("p", "fandoms", fandoms.map(tagLink).join(", "))}${block("section", "summary", tidySummary(work.summary_html ?? ""))}${block("p", "tags", listed.map(tagLink).join(", "))}<p class="stats">${stats.join(" · ")}</p>
+${work.adult_marked ? `<p class="adult-mark">${ADULT_MARK_LINE}</p>\n` : ""}${block("p", "fandoms", fandoms.map(tagLink).join(", "))}${block("section", "summary", tidySummary(work.summary_html ?? ""))}${block("p", "tags", listed.map(tagLink).join(", "))}<p class="stats">${stats.join(" · ")}</p>
 ${needsCheck ? `<p class="review-notice">Chapters may be imperfect; a moderator will check.</p>\n` : ""}${continueLink(live, position)}<ol class="chapters">${chapters.map((ch) => `<li><a href="${base}/chapters/${ch.n}">${escapeHtml(ch.title)}</a></li>`).join("")}</ol>
 <p class="full"><a href="${base}/full">Read the entire work on one page</a></p>
 <p class="download"><a href="${originalUrl(version.original_upload_id)}.epub">Download original epub</a></p>

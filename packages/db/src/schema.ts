@@ -122,6 +122,8 @@ export interface WorkTable {
   published_at: Timestamp | null;
   updated_at: Timestamp | null;
   status: ColumnType<WorkStatus, WorkStatus | undefined, WorkStatus>;
+  /** A moderator's mark: the work gets the warnings screen whatever its rating says. Kept across versions. */
+  adult_marked: ColumnType<boolean, boolean | undefined, boolean>;
   /** Set while, and only while, the work is hidden. */
   hidden_cause: HiddenCause | null;
   /** NULL only while the first version is being written. */

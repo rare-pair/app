@@ -62,6 +62,18 @@ Relates to: docs/ARCHITECTURE.md § Data model (reports.reporter_id, reports.kin
 - THEN the `wrong_version` report is stored and W is listed in *Works to check*
 - AND W stays live, because `wrong_version` reports never count toward the 3-account auto-hide
 
+### A reader reports that a work needs a higher rating
+- GIVEN signed-in reader U on live work W's report form, W rated General Audiences
+- WHEN U submits the reason "This needs a higher rating"
+- THEN a `higher_rating` report is stored for W and listed in `/admin/reports`
+- AND W's rating, status and warnings screen are unchanged, because a moderator decides
+
+### Needs-a-higher-rating reports never count toward hiding
+- GIVEN work W with open reports from U and U2
+- WHEN U3 submits a report for W with the reason "This needs a higher rating"
+- THEN the `higher_rating` report is stored
+- AND W stays live, because `higher_rating` reports never count toward the 3-account auto-hide
+
 ### Reports from two accounts keep the work live
 - GIVEN work W with open reports from U and U2
 - WHEN a moderator has not yet acted

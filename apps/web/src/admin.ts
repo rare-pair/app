@@ -285,7 +285,7 @@ export async function showWorksToCheck(c: AdminContext) {
             .select("reports.id")
             .whereRef("reports.work_id", "=", "works.id")
             .where("reports.status", "=", "open")
-            .where("reports.kind", "<>", "wrong_version"),
+            .where("reports.kind", "not in", ["wrong_version", "higher_rating"]),
         ),
       ),
     )
