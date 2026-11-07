@@ -192,20 +192,14 @@ export async function postLoginOpen(
   fields: Record<string, string>,
   { url = "/login" }: { url?: string } = {},
 ) {
-  const ctx = createExecutionContext();
-  const res = await app.fetch(
-    new Request(new URL(url, BASE), {
-      method: "POST",
-      redirect: "manual",
-      headers: { ...LOGIN_HEADERS, "cf-connecting-ip": freshIp() },
-      body: new URLSearchParams(fields).toString(),
-    }),
-    { ...env, PRELAUNCH: "off" },
-    ctx,
-  );
-  await waitOnExecutionContext(ctx);
-  return res;
+  return postLoginWithVars({ PRELAUNCH: "off" }, fields, { url });
 }
+
+/**
+ * The upload quota's two tiers as the cases about the trusted tier run them. Wrangler.jsonc has
+ * both at 100 for now, so the trusted tier is only higher on these.
+ */
+export const TIERS = { UPLOAD_QUOTA_NEW: "20", UPLOAD_QUOTA_TRUSTED: "100" };
 
 /**
  * `postLogin` to the Worker on the same bindings but with these vars set, for a case that

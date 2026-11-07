@@ -11,6 +11,7 @@ import {
   fetchW,
   postLogin,
   postLoginWithVars,
+  TIERS,
   signIn as signInAs,
 } from "./helpers";
 
@@ -451,9 +452,6 @@ describe("02-upload-confirm refusals", () => {
 // U4: the daily quota counts the uploads that reach confirm, and the hard cap is enforced here.
 // The tiers' numbers are wrangler.jsonc's vars, so the tests follow them.
 const NEW_LIMIT = Number(env.UPLOAD_QUOTA_NEW);
-// The deployed tiers are both 100 for now, so the case about the trusted tier being higher runs
-// on a lower new-account tier.
-const TIERS = { UPLOAD_QUOTA_NEW: "20", UPLOAD_QUOTA_TRUSTED: "100" };
 const LOWER_NEW_LIMIT = Number(TIERS.UPLOAD_QUOTA_NEW);
 const TRUSTED_LIMIT = Number(TIERS.UPLOAD_QUOTA_TRUSTED);
 // The database's UTC day, the clock the quota itself uses: never the JS clock, which can

@@ -10,6 +10,7 @@ import {
   UPLOAD_TOKEN,
   postLogin,
   postLoginWithVars,
+  TIERS,
   signIn as signInAs,
   withoutHeader,
   withoutNonce,
@@ -242,9 +243,6 @@ describe("19-surge-controls-and-quotas", () => {
 // U4: today's confirmed uploads are counted at `/complete` (02-upload-confirm.test.ts), so
 // `POST /uploads` only refuses early, when the quota is already spent.
 const NEW_LIMIT = Number(env.UPLOAD_QUOTA_NEW);
-// The deployed tiers are both 100 for now, so the cases about the trusted tier being higher run
-// on a lower new-account tier.
-const TIERS = { UPLOAD_QUOTA_NEW: "20", UPLOAD_QUOTA_TRUSTED: "100" };
 const LOWER_NEW_LIMIT = Number(TIERS.UPLOAD_QUOTA_NEW);
 const TRUSTED_LIMIT = Number(TIERS.UPLOAD_QUOTA_TRUSTED);
 // The database's UTC day, the clock the quota itself uses, not the JS clock.
