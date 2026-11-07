@@ -73,12 +73,15 @@ describe("crawl: the open archive", () => {
     });
   });
 
-  it("A moderator has no link to the admin page of a work that is not in Works to check", () => {
+  it("A moderator has no link to the admin page of a work that is neither in Works to check nor reported", () => {
     // SAFETY: if a link appears, KNOWN_GAPS is out of date: remove its entry.
     expect(KNOWN_GAPS.map(({ what }) => what)).toHaveLength(1);
     const { seen } = first.moderator;
     const workAdmin = [...seen].filter((key) => key.startsWith("/admin/works/"));
-    expect(workAdmin).toEqual([`/admin/works/${running.seeded.toCheck}`]);
+    // A report's page links to its work's admin page, where "Mark as adult" is.
+    expect(workAdmin.sort()).toEqual(
+      [`/admin/works/${running.seeded.toCheck}`, `/admin/works/${running.seeded.work}`].sort(),
+    );
   });
 
   // The proof that the crawl fails when a link goes: the real Worker's pages with one link

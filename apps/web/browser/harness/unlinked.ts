@@ -38,9 +38,9 @@ export const UNLINKED: Unlinked[] = [
  */
 export const KNOWN_GAPS = [
   {
-    what: "work admin (/admin/works/:id) for a work that is not in Works to check",
+    what: "work admin (/admin/works/:id) for a work that is neither in Works to check nor reported",
     reason:
-      "a moderator reaches a work's admin page only from its row in Works to check; a work they " +
-      "found by reading has no link to it. The operator wants a moderator dashboard, not yet scoped",
+      "a moderator reaches a work's admin page only from its row in Works to check or a report on it; " +
+      "a work they found by reading has no link to it. The operator wants a moderator dashboard, not yet scoped",
   },
 ];
