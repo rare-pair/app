@@ -1846,8 +1846,10 @@ markup: its inline `style` attributes become stylesheet rules, because
   stay on, and both the web and content Workers' traces are off too (turned on only
   for a live fault). A console line the code logs on purpose still stores the path of
   the request it ran in, so a reading page's work id and chapter, with no address or
-  user agent, for 7 days (measured on the web Worker, 2026-11-07; operator ruling: accepted).
-  Query strings were stored too, and sign-in, confirmation and unsubscribe tokens travel in
+  user agent, for 7 days (measured on the web Worker, 2026-11-07; the content Worker is
+  assumed the same; operator ruling, 2026-11-07: accepted).
+  Query strings were stored too, until the setting is deployed, and any already stored age
+  out with the 7 days (no purge). Sign-in, confirmation and unsubscribe tokens travel in
   them, so both Workers set `observability.redact_query_string`. It is documented to remove
   query strings from request URLs in logs and traces; whether it clears a custom line's
   `request.url` and `request.search` is unconfirmed until the live check on the deployed

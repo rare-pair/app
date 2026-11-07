@@ -29,7 +29,7 @@ describe("24-crawler-and-agent-blocking", () => {
     expect(readConfig().observability?.logs?.invocation_logs).toBe(false);
   });
 
-  it("A logged line stores no query string: redact_query_string is on", () => {
+  it("Query strings are redacted from stored logs: redact_query_string is on", () => {
     expect(readConfig().observability?.redact_query_string).toBe(true);
   });
 
