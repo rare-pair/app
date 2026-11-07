@@ -184,6 +184,20 @@ describe("18-moderation", () => {
     expect(log.map((row) => row.action)).toEqual(["mark_adult", "unmark_adult"]);
   });
 
+  it("A cross-site post can't mark a work", async () => {
+    const moderator = await moderatorCookie("adultmark-mod-xsite@example.test");
+    const res = await fetchW(`/admin/works/${G}/adult`, {
+      method: "POST",
+      headers: {
+        cookie: moderator,
+        origin: "https://evil.example",
+        "sec-fetch-site": "cross-site",
+      },
+    });
+    expect(res.status).toBe(404);
+    expect((await stateOf(G)).adult_marked).toBe(false);
+  });
+
   it("Only a moderator can mark a work", async () => {
     const plain = await signIn("adultmark-plain@example.test", { acceptTerms: true });
     expect((await post(`/admin/works/${G}/adult`, plain)).status).toBe(404);
