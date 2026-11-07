@@ -90,6 +90,12 @@ class Reader {
   at = 0;
   private depth = 0;
 
+  /** Moves to `at`, for a read from the top: one the file ended inside leaves nothing behind. */
+  startAt(at: number): void {
+    this.at = at;
+    this.depth = 0;
+  }
+
   /**
    * `onContents` gets each dictionary's `/Contents`, however deep: pdf.js takes a page written
    * directly in `/Kids`, or a page tree directly in the catalog.
@@ -233,10 +239,6 @@ class Reader {
     } else {
       while (!endsToken(bytes[this.at])) this.at++;
     }
-    // In a value, pdf.js reads an inline image from here, and its raw bytes as anything at all.
-    if (this.depth > 0 && this.at === from + 2 && first === 0x42 && next === 0x49) {
-      throw unreadable("An inline image in a dictionary");
-    }
     this.spend(from);
     return { kind: "other" };
   }
@@ -311,6 +313,15 @@ class Reader {
       return { kind: "other" };
     }
     if (b === 0x5b) return this.list(keep);
+    // As a value, pdf.js reads an inline image from here, and its raw bytes as anything at all.
+    if (
+      this.depth > 0 &&
+      b === 0x42 &&
+      bytes[this.at + 1] === 0x49 &&
+      endsToken(bytes[this.at + 2])
+    ) {
+      throw unreadable("An inline image in a dictionary");
+    }
     return this.word();
   }
 
@@ -763,7 +774,7 @@ export function preflightPdf(bytes: Uint8Array): void {
       counts.objects++;
       checkCounts(counts);
       const objectNumber = objectNumberBefore(bytes, at);
-      reader.at = at + OBJ.length;
+      reader.startAt(at + OBJ.length);
       reader.skipSpace();
       const array = bytes[reader.at] === 0x5b;
       const dict =
@@ -782,7 +793,7 @@ export function preflightPdf(bytes: Uint8Array): void {
         seen.arrays.add(objectNumber);
       }
     } else if (b === 0x74 /* t */ && matches(bytes, at, TRAILER)) {
-      reader.at = at + TRAILER.length;
+      reader.startAt(at + TRAILER.length);
       reader.skipSpace();
       if (bytes[reader.at] !== 0x3c || bytes[reader.at + 1] !== 0x3c) continue;
       const dict = reader.dict();

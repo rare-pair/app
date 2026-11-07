@@ -398,9 +398,12 @@ function withoutRunningLines(lines: TextLine[]): TextLine[] {
     if (lines[i - 1]?.page !== line.page || lines[i + 1]?.page !== line.page) edge.add(line);
   });
   for (const line of edge) seen.set(keyOf(line), (seen.get(keyOf(line)) ?? 0) + 1);
+  // A chapter that starts each page isn't one, however many there are.
   const running = (line: TextLine) =>
     /^file:\/\//i.test(trimmed(line)) ||
-    (pages >= 3 && (seen.get(keyOf(line)) ?? 0) >= Math.max(3, pages * 0.3));
+    (!CHAPTER_HEADING.test(trimmed(line)) &&
+      pages >= 3 &&
+      (seen.get(keyOf(line)) ?? 0) >= Math.max(3, pages * 0.3));
   return lines.filter((line) => !edge.has(line) || !running(line));
 }
 

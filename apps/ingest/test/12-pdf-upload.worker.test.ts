@@ -445,6 +445,21 @@ describe("12-pdf-upload", () => {
         expect(text).toContain("Text of page 4.");
       });
 
+      it("chapter headings at the top of each page aren't running lines", async () => {
+        const id = 8813775;
+        await ingestPdf(
+          ao3Pdf({
+            workId: id,
+            chapters: [
+              { heading: "Chapter 1", paragraphs: ["One."] },
+              { heading: "Chapter 2", paragraphs: ["Two."] },
+              { heading: "Chapter 3", paragraphs: ["Three."] },
+            ],
+          }),
+        );
+        expect((await liveWork(id))?.work.chapters_count).toBe(3);
+      });
+
       it("a blank line isn't a paragraph", async () => {
         const id = 8813789;
         const { text } = await chapterText(id, [

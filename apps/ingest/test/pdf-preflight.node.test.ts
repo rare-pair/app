@@ -591,6 +591,25 @@ describe("12-pdf-upload: the checks before the parser opens a file", () => {
     });
   });
 
+  describe("Review round 6", () => {
+    it("reads each object from the top, after one the file ends inside", () => {
+      const stray = stream("", "1 0 obj <<(");
+      const file = buildPdf([
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 5 0 R >>",
+        stray,
+        flate("BT ET"),
+      ]);
+      expect(refusal(file)).toBeNull();
+    });
+
+    it("refuses BI as a value only: as a key, pdf.js skips it", () => {
+      expect(refusal(besidePage("<< BI /Note (x) >>"))).toBeNull();
+      expect(refusal(besidePage("<< /Note BI >>"))).toBe("pdf_unreadable");
+    });
+  });
+
   describe("The budgets", () => {
     it("refuses one stream past the per-stream cap", () => {
       const body = flate(new Uint8Array(PDF_LIMITS.maxStreamInflatedBytes + 1024));
