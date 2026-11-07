@@ -411,6 +411,135 @@ describe("12-pdf-upload: the checks before the parser opens a file", () => {
     });
   });
 
+  describe("Review round 4", () => {
+    const pdfWith = (contents: string, ...more: PdfBody[]) =>
+      buildPdf([
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contents} >>`,
+        flate("BT ET"),
+        ...more,
+      ]);
+
+    /** Bits least-significant first, as deflate packs them. */
+    class Bits {
+      out: number[] = [];
+      private current = 0;
+      private count = 0;
+      bit(b: number) {
+        this.current |= b << this.count;
+        if (++this.count === 8) {
+          this.out.push(this.current);
+          this.current = 0;
+          this.count = 0;
+        }
+      }
+      value(v: number, n: number) {
+        for (let i = 0; i < n; i++) this.bit((v >> i) & 1);
+      }
+      code(s: string) {
+        for (const c of s) this.bit(c === "1" ? 1 : 0);
+      }
+    }
+
+    it("reads a stream's code table as pdf.js does, over-subscribed or not", () => {
+      // Symbols 256 and 285 of length 1 and symbol 0 of length 3: fflate reads the first 0 bit as
+      // the end of the block, and pdf.js reads each `10` as a copy of 258 bytes.
+      const w = new Bits();
+      w.value(1, 1);
+      w.value(2, 2);
+      w.value(286 - 257, 5);
+      w.value(0, 5);
+      w.value(18 - 4, 4);
+      const order = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1];
+      const lengths = new Map([
+        [18, 1],
+        [1, 2],
+        [3, 2],
+      ]);
+      for (const s of order) w.value(lengths.get(s) ?? 0, 3);
+      w.code("11");
+      w.code("0");
+      w.value(138 - 11, 7);
+      w.code("0");
+      w.value(117 - 11, 7);
+      w.code("10");
+      w.code("0");
+      w.value(28 - 11, 7);
+      w.code("10");
+      w.code("10");
+      w.code("000");
+      for (let i = 0; i < 500_000; i++) w.code("10");
+      w.code("010");
+      const data = Uint8Array.from([0x78, 0x01, ...w.out, 0, 0]);
+      expect(refusal(onePage(stream("/Filter /FlateDecode", data)))).toBe("zip_bomb");
+    });
+
+    it("takes an ICC profile's /N, with no /First", () => {
+      expect(refusal(besidePage(flate("x", "/N 3 /Alternate /DeviceRGB")))).toBeNull();
+    });
+
+    it("refuses an array or stream under an object header it can't read plainly", () => {
+      for (const header of ["5 0 %c\nobj", "5 %c\n0 obj", "5.0 0 obj", "5e0 0 obj"]) {
+        const file = latin1(
+          `%PDF-1.7\n${header} [6 0 R 6 0 R]\nendobj\nxref\n0 0\ntrailer\n<<>>\nstartxref\n`,
+        );
+        const tail = latin1(`${file.length - 30}\n%%EOF\n`);
+        const whole = new Uint8Array(file.length + tail.length);
+        whole.set(file);
+        whole.set(tail, file.length);
+        expect(refusal(whole), header).toBe("pdf_unreadable");
+      }
+    });
+
+    it("reads every number and keyword pdf.js would in a reference", () => {
+      for (const list of ["[4e0 0 R 4e0 0 R]", "[\x014 0 R \x014 0 R]"]) {
+        expect(refusal(pdfWith(list)), list).toBe("pdf_unreadable");
+      }
+    });
+
+    it("reads /Contents on a page written directly in /Kids", () => {
+      const page = "<< /Type /Page /MediaBox [0 0 9 9] /Contents [4 0 R 4 0 R] >>";
+      const file = buildPdf([
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        `<< /Type /Pages /Count 1 /Kids [${page}] >>`,
+        "null",
+        flate("BT ET"),
+      ]);
+      expect(refusal(file)).toBe("pdf_unreadable");
+    });
+
+    it("counts an object written twice at the most either copy makes", () => {
+      const big = flate(new Uint8Array(PDF_LIMITS.maxStreamInflatedBytes - 1024));
+      const obj = (n: number, body: Uint8Array) => {
+        const head = latin1(`${n} 0 obj\n`);
+        const tail = latin1("\nendobj\n");
+        const out = new Uint8Array(head.length + body.length + tail.length);
+        out.set(head);
+        out.set(body, head.length);
+        out.set(tail, head.length + body.length);
+        return out;
+      };
+      const twice = [10, 11].map((n) => [obj(n, big), obj(n, flate("x"))]).flat();
+      const page = `<< /Contents [10 0 R 11 0 R] >>`;
+      const parts = [latin1("%PDF-1.7\n"), ...twice, latin1(`1 0 obj\n${page}\nendobj\n`)];
+      const size = parts.reduce((n, p) => n + p.length, 0);
+      const tail = latin1(`2 0 obj\nnull\nendobj\nstartxref\n${size}\n%%EOF\n`);
+      const whole = new Uint8Array(size + tail.length);
+      let at = 0;
+      for (const part of [...parts, tail]) {
+        whole.set(part, at);
+        at += part.length;
+      }
+      expect(refusal(whole)).toBe("pdf_unreadable");
+    });
+
+    it("isn't refused for prose that happens to look like flate after the word stream", () => {
+      const content = "(down by the stream) '\n(Still there) '";
+      expect(refusal(onePage(stream("", content)))).toBeNull();
+    });
+  });
+
   describe("The budgets", () => {
     it("refuses one stream past the per-stream cap", () => {
       const body = flate(new Uint8Array(PDF_LIMITS.maxStreamInflatedBytes + 1024));

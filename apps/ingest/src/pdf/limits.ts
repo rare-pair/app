@@ -19,4 +19,6 @@ export const PDF_LIMITS = {
   maxLinks: 50_000,
   /** Bytes one file's object streams may cost to read. A real file has a few MB of them. */
   maxObjectStreamWork: 64 * MiB,
+  /** Code table entries one file may build. A real one builds a few a stream, each under 32 KB. */
+  maxCodeTableEntries: 1024 * MiB,
 } as const;

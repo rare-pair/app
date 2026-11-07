@@ -852,9 +852,9 @@ job never loads it, and no other Worker bundles it.
    a reference; a form XObject; a stream inside an object stream; `/Contents` naming an image; a
    `/Contents` array over 8 entries, repeating a reference or inflating past 16 MiB together;
    `/Contents` naming an object that isn't a stream, object streams read too. `zip_bomb`: a stream that
-   inflates past 16 MiB, or a file's past 128 MiB, inflated with `fflate` 4 KB at a time and
-   discarded. Deflate data `fflate` calls corrupt is `pdf_unreadable`, not skipped, because pdf.js is
-   looser and would read on.
+   inflates past 16 MiB, or a file's past 128 MiB, counted by a port of pdf.js's own flate decoder (`flate.ts`), since another decoder can
+   disagree with it on a crafted code table, keeping nothing but an object stream. Flate data pdf.js would
+   throw on is `pdf_unreadable`.
 3. **Text and links** (`parser.ts`), page by page, yielding every 16 pages so the lease's timer can
    fire. Over 5,000 pages, 500,000 text items, 8 MiB of text or 50,000 links to the original archive is `pdf_unreadable`. So is anything pdf.js throws: the same bytes throw the same way.
 4. **The work** (`structure.ts`). A printed "Posted originally" line with a work URL, or `not_ao3`; a
