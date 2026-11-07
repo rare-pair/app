@@ -15,7 +15,14 @@ import {
 } from "./rate-limit";
 import { isSameOrigin } from "./signin";
 import { TURNSTILE_ACTIONS, verifyTurnstile } from "./turnstile";
-import { MAX_BATCH_FILES, MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./upload-limit";
+import {
+  EPUB_TYPE,
+  isUploadType,
+  MAX_BATCH_FILES,
+  maxBytesFor,
+  overLimit,
+  WRONG_TYPE,
+} from "./upload-limit";
 
 // ARCHITECTURE, Ingestion pipeline, step 1. The upload page's script calls
 // `POST /uploads` once for all the files picked, with one Turnstile token and a
@@ -81,10 +88,11 @@ export const sameOriginUpload: MiddlewareHandler = async (c, next) => {
 /**
  * `POST /uploads`: an `uploads` row for each file, as JSON `{ id }` for one file or
  * `{ uploads: [{ id }, ...] }` for several, or `{ error }` for the page to show. The body
- * is a plain form: `size`, the declared bytes, once per file, and `cf-turnstile-response`.
+ * is a plain form: `size`, the declared bytes, once per file, `type`, each file's type in the same
+ * order (an epub's when left out), and `cf-turnstile-response`.
  */
 export async function requestUpload(c: UploadContext) {
-  const refuse = (status: 400 | 401 | 403 | 413 | 503, error: string) =>
+  const refuse = (status: 400 | 401 | 403 | 413 | 415 | 503, error: string) =>
     c.json({ error }, status, NO_STORE);
 
   // A script can't follow a sign-in redirect, so it gets a 401 to act on.
@@ -118,11 +126,13 @@ export async function requestUpload(c: UploadContext) {
     }
     declared.push(Number(size));
   }
-  if (declared.some((bytes) => bytes > MAX_UPLOAD_BYTES)) {
-    return refuse(
-      413,
-      `${declared.length === 1 ? "That file is" : "A file is"} over the ${MAX_UPLOAD_MB} MB limit, so it can't be uploaded.`,
-    );
+  const types = form.getAll("type");
+  for (const [i, bytes] of declared.entries()) {
+    const type = types[i] ?? EPUB_TYPE;
+    if (!isUploadType(type)) return refuse(415, WRONG_TYPE);
+    if (bytes > maxBytesFor(type)) {
+      return refuse(413, overLimit(type, declared.length === 1 ? "That file" : "A file"));
+    }
   }
 
   // Each file counts once against both limits. The first of each was spent above, so a

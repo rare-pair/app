@@ -50,7 +50,7 @@ export function workIdFromUrl(url: string): string | null {
   return WORK_URL.exec(url.trim())?.[1] ?? null;
 }
 
-type TagField =
+export type TagField =
   | "rating"
   | "warnings"
   | "categories"
@@ -60,7 +60,7 @@ type TagField =
   | "freeforms";
 
 // A Map, so a label such as "Constructor:" is not found on Object.prototype.
-const TAG_LABELS = new Map<string, TagField>([
+export const TAG_LABELS = new Map<string, TagField>([
   ["rating", "rating"],
   ["ratings", "rating"],
   ["archive warning", "warnings"],
@@ -123,7 +123,7 @@ function parseSeries(dd: ElementNode): SeriesRef[] {
   return out;
 }
 
-function parseStats(text: string, rawMeta: Record<string, string>): Stats {
+export function parseStats(text: string, rawMeta: Record<string, string>): Stats {
   const stats: Stats = {
     published: null,
     updated: null,

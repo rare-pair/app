@@ -5,6 +5,8 @@ const MiB = 1024 * 1024;
 
 export const LIMITS = {
   maxInputBytes: 25 * MiB,
+  /** A PDF's largest size (operator's ruling on #741). The file is parsed whole in memory. */
+  maxPdfBytes: 10 * MiB,
   maxEntries: 2_000,
   maxTotalBytes: 40 * MiB,
   maxEntryBytes: 20 * MiB,

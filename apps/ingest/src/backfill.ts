@@ -1,4 +1,4 @@
-import type { Database } from "@archive/db";
+import { originalKey, versionOriginalFormat, type Database } from "@archive/db";
 import { EpubError, LIMITS, type ParsedWork } from "@archive/epub";
 import { sql, type Kysely } from "kysely";
 import type { JobDeps } from "./job";
@@ -41,6 +41,7 @@ export async function runBackfill(deps: BackfillDeps, message: BackfillMessage):
       "work_versions.upload_id",
       "work_versions.source_upload_id",
       "work_versions.review_reasons",
+      versionOriginalFormat.as("original_format"),
       // Keeps Hyperdrive from answering from its cache: a stale pointer or status would re-make
       // a work already done, or miss a removal.
       sql<Date>`now()`.as("read_at"),
@@ -61,7 +62,7 @@ export async function runBackfill(deps: BackfillDeps, message: BackfillMessage):
   // A backfill version names the upload it was re-made from; the schema gives every version one.
   const originalUploadId = row.upload_id ?? row.source_upload_id;
   if (originalUploadId === null) throw new Error("a version names no original");
-  const object = await deps.bucket.get(`originals/${originalUploadId}.epub`);
+  const object = await deps.bucket.get(originalKey(originalUploadId, row.original_format));
   if (object === null) return "original_missing";
   // As for an upload: by the object's size, before its body is read.
   if (object.size > LIMITS.maxInputBytes) {

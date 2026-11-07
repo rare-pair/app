@@ -116,7 +116,7 @@ describe("03-upload-status: My uploads", () => {
   it("Every rejection code gets a Rejected badge", async () => {
     const { userId, cookie } = await signIn();
     const badges: Array<[UploadStatus, string]> = [
-      ["not_epub", "Rejected: not an EPUB"],
+      ["not_epub", "Rejected: not an EPUB or PDF"],
       ["zip_bomb", "Rejected: file can't be opened safely"],
       ["too_large", "Rejected: too large"],
       ["not_ao3", "Rejected: not an AO3 export"],

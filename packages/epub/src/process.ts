@@ -1,6 +1,13 @@
 import { resolveByline } from "./byline";
 import { splitChapters, type SpineDoc } from "./chapters";
-import { hasClass, nodeBudget, numberTree, parseHtml, type ElementNode } from "./dom";
+import {
+  hasClass,
+  nodeBudget,
+  numberTree,
+  parseHtml,
+  type ElementNode,
+  type NodeBudget,
+} from "./dom";
 import { collapseWhitespace } from "./entities";
 import { EpubError } from "./errors";
 import { collectImages, type ImageCandidate } from "./images";
@@ -36,6 +43,15 @@ export async function processEpub(
   // Outside the try: an error from the caller's callback is theirs, not a parse failure.
   for (const image of result.images) await options.onImage?.(image.ref, image.bytes);
   return result.work;
+}
+
+/**
+ * Markup a processor wrote itself, through the sanitizer an epub's goes through. It has no images
+ * or chapter links to resolve. `budget` is shared across one work's fragments.
+ */
+export async function sanitizeFragment(html: string, budget: NodeBudget): Promise<string> {
+  const root = await parseHtml(html, "", budget);
+  return serializeChildren(root.children, { resolveImage: () => null });
 }
 
 async function run(

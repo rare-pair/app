@@ -2,12 +2,14 @@
 // caller's Kysely, so a Worker passes the one it made for the request.
 import { sql, type ExpressionBuilder, type Kysely, type Selectable } from "kysely";
 import { jsonArrayFrom } from "kysely/helpers/postgres";
+import { versionOriginalFormat } from "./original-key";
 import type {
   ChapterTable,
   Database,
   HiddenCause,
   TagTable,
   TagType,
+  UploadFormat,
   UploadStatus,
   WorkTable,
   WorkVersionTable,
@@ -52,10 +54,12 @@ export interface LiveWork {
     | "checked_at"
   > & {
     /**
-     * The upload whose original, originals/<id>.epub, the version was made from: its own, or
-     * for a backfill version the one it was re-made from.
+     * The upload whose original (`originalKey`) the version was made from: its own, or for a
+     * backfill version the one it was re-made from.
      */
     original_upload_id: string;
+    /** That upload's format: what the download link and "Converted from a PDF" go by. */
+    original_format: UploadFormat;
   };
   /** The current version's chapters, by number. */
   chapters: Pick<Selectable<ChapterTable>, "n" | "title" | "words" | "r2_key">[];
@@ -141,6 +145,7 @@ export async function getLiveWork(
         .$notNull()
         .as("original_upload_id"),
     )
+    .select(versionOriginalFormat.as("original_format"))
     .select((eb) => [
       jsonArrayFrom(
         eb
@@ -175,6 +180,7 @@ export async function getLiveWork(
     review_reasons,
     checked_at,
     original_upload_id,
+    original_format,
     authors,
     tags,
     chapters,
@@ -197,6 +203,7 @@ export async function getLiveWork(
       review_reasons,
       checked_at,
       original_upload_id,
+      original_format,
     },
     chapters: chapters.sort((a, b) => a.n - b.n),
   };

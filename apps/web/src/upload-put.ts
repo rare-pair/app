@@ -15,7 +15,14 @@ import { NO_STORE } from "./login";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
 import { BANNED_UPLOADER } from "./upload";
-import { EPUB_TYPE, isUploadId, MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "./upload-limit";
+import {
+  EPUB_TYPE,
+  isUploadId,
+  isUploadType,
+  maxBytesFor,
+  overLimit,
+  WRONG_TYPE,
+} from "./upload-limit";
 
 // ARCHITECTURE, Ingestion pipeline, step 2. The upload page's script sends each file to
 // `PUT /uploads/:id`, and this Worker streams it to R2 through the bucket binding. Only an open
@@ -92,18 +99,14 @@ export async function endIfBanned(
 
 /** Why this request's headers can't carry this upload's file, or null when they can. */
 function headerRefusal(request: Request, bytes: number) {
-  if (request.headers.get("content-type") !== EPUB_TYPE) {
-    return { status: 415, error: "Only epub files can be uploaded." } as const;
-  }
+  const type = request.headers.get("content-type");
+  if (type === null || !isUploadType(type)) return { status: 415, error: WRONG_TYPE } as const;
   const length = request.headers.get("content-length");
   if (request.body === null || length === null || !/^[0-9]+$/.test(length)) {
     return { status: 411, error: DIDNT_FINISH } as const;
   }
-  if (Number(length) > MAX_UPLOAD_BYTES) {
-    return {
-      status: 413,
-      error: `That file is over the ${MAX_UPLOAD_MB} MB limit, so it can't be uploaded.`,
-    } as const;
+  if (Number(length) > maxBytesFor(type)) {
+    return { status: 413, error: overLimit(type) } as const;
   }
   if (Number(length) !== bytes) {
     return { status: 400, error: WRONG_SIZE } as const;
@@ -122,6 +125,7 @@ async function store(
   upload: OwnUpload,
   userId: string,
   body: ReadableStream,
+  type: string,
 ): Promise<"stored" | "ended" | "failed"> {
   const bucket = c.env.BUCKET;
   let written = true;
@@ -129,7 +133,7 @@ async function store(
     const object = await bucket.put(
       upload.r2_key,
       body.pipeThrough(new FixedLengthStream(upload.bytes)),
-      { onlyIf: CREATE_ONLY, httpMetadata: { contentType: EPUB_TYPE } },
+      { onlyIf: CREATE_ONLY, httpMetadata: { contentType: type } },
     );
     // A file is there already, and it stays.
     if (object === null) return "ended";
@@ -207,7 +211,7 @@ export async function putUpload(c: UploadIdContext) {
   // SAFETY: headerRefusal refuses a request with no body.
   const body = c.req.raw.body as ReadableStream;
   // Kept alive past a client that goes away, whose failed read is what starts the clean-up.
-  const stored = store(c, upload, user.id, body);
+  const stored = store(c, upload, user.id, body, c.req.header("content-type") ?? EPUB_TYPE);
   c.executionCtx.waitUntil(stored);
   const outcome = await stored;
   if (outcome === "ended") return refuse(409, ALREADY_HANDLED);

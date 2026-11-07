@@ -103,7 +103,11 @@ export type UploadStatus =
   | "parse_failed"
   | "over_quota"
   | "work_removed"
-  | "account_banned";
+  | "account_banned"
+  | "pdf_unreadable";
+
+/** What an upload's file is, by its bytes: set when it's ingested. */
+export type UploadFormat = "epub" | "pdf";
 
 export interface WorkTable {
   id: Generated<string>;
@@ -190,7 +194,11 @@ export interface WorkVersionTable {
 export type VersionSource = "upload" | "backfill";
 
 /** `decideVersion`'s reasons for holding a newer version (ARCHITECTURE, EPUB processor step 7). */
-export type HoldReason = "chapters_changed" | "tags_changed" | "authors_changed";
+export type HoldReason =
+  | "chapters_changed"
+  | "tags_changed"
+  | "authors_changed"
+  | "pdf_more_chapters";
 
 export interface VersionTag {
   type: TagType;
@@ -243,6 +251,8 @@ export interface UploadTable {
   error_stage: string | null;
   error: string | null;
   work_id: string | null;
+  /** `epub` until ingest reads the file's bytes. Says which `originals/` key holds it. */
+  format: ColumnType<UploadFormat, UploadFormat | undefined, UploadFormat>;
   created_at: CreatedTimestamp;
 }
 

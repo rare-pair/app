@@ -2,10 +2,13 @@ import { fnv1a } from "./styles";
 import {
   EPUB_TYPE,
   MAX_BATCH_FILES,
+  MAX_PDF_BYTES,
+  MAX_PDF_MB,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_MB,
   MAX_ZIP_BYTES,
   MAX_ZIP_MB,
+  PDF_TYPE,
 } from "./upload-limit";
 
 /**
@@ -23,11 +26,15 @@ import {
  * A zip picked or dropped is opened here, with the browser's own DecompressionStream and no
  * library: its central directory is read, then each entry named like an epub is inflated and
  * joins the list as a File, as if it had been picked. A zip over MAX_ZIP_MB isn't read. An
- * entry is read only up to MAX_BYTES of what it actually holds, whatever size it claims.
+ * entry is read only up to MAX_BYTES of what it actually holds, whatever size it claims. A PDF
+ * inside a zip isn't read: it's shown as skipped.
  */
 export const UPLOAD_SCRIPT = `"use strict";
 (() => {
   const TYPE = "${EPUB_TYPE}";
+  const PDF = "${PDF_TYPE}";
+  const MAX_PDF = ${MAX_PDF_BYTES};
+  const MAX_PDF_MB = ${MAX_PDF_MB};
   const MAX_BYTES = ${MAX_UPLOAD_BYTES};
   const MAX_MB = ${MAX_UPLOAD_MB};
   const MAX_FILES = ${MAX_BATCH_FILES};
@@ -76,10 +83,14 @@ export const UPLOAD_SCRIPT = `"use strict";
         : (bytes / 1048576).toFixed(1) + " MB";
   const isZip = (name) => /\\.zip$/i.test(name);
   const isEpub = (name) => /\\.epub$/i.test(name);
+  const isPdf = (name) => /\\.pdf$/i.test(name);
+  const typeOf = (file) => (isPdf(file.name) ? PDF : TYPE);
   const OVER_LIMIT = "Over the " + MAX_MB + " MB limit, so it was not uploaded.";
+  const OVER_PDF = "Over the " + MAX_PDF_MB + " MB limit for a PDF, so it was not uploaded.";
   const problemOf = (file) => {
-    if (!isEpub(file.name)) return "Not an epub file, so it was not uploaded.";
+    if (!isEpub(file.name) && !isPdf(file.name)) return "Not an epub or PDF file, so it was not uploaded.";
     if (file.size === 0) return "This file is empty, so it was not uploaded.";
+    if (isPdf(file.name)) return file.size > MAX_PDF ? OVER_PDF : "";
     if (file.size > MAX_BYTES) return OVER_LIMIT;
     return "";
   };
@@ -253,7 +264,9 @@ export const UPLOAD_SCRIPT = `"use strict";
       if (!isEpub(entry.path)) {
         const why = isZip(entry.path)
           ? "Skipped: a zip inside a zip is not opened."
-          : "Skipped: not an epub file.";
+          : isPdf(entry.path)
+            ? "Skipped: a PDF in a zip isn't read. Upload it on its own."
+            : "Skipped: not an epub file.";
         if (addFile({ name: entry.path, size: entry.size }, why)) skipped++;
         continue;
       }
@@ -284,7 +297,7 @@ export const UPLOAD_SCRIPT = `"use strict";
   const addFiles = async (files) => {
     if (busy) return say("Wait for the upload or the zip being read to finish before changing the list.");
     const picked = Array.from(files);
-    if (picked.length === 0) return say("No files were found. Pick or drop epub files.");
+    if (picked.length === 0) return say("No files were found. Pick or drop epub or PDF files.");
     const text = [];
     const plain = picked.filter((file) => !isZip(file.name));
     const added = plain.filter((file) => addFile(file)).length;
@@ -358,7 +371,7 @@ export const UPLOAD_SCRIPT = `"use strict";
     new Promise((resolve) => {
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", pathOf(id));
-      xhr.setRequestHeader("Content-Type", TYPE);
+      xhr.setRequestHeader("Content-Type", typeOf(file));
       // A transfer that stops moving is ended, rather than holding the button and the
       // other files for ever.
       let watchdog = setTimeout(() => xhr.abort(), STALL_MS);
@@ -447,7 +460,10 @@ export const UPLOAD_SCRIPT = `"use strict";
   // nothing in it went; or the seconds to wait, when the rate limit refused it.
   const sendGroup = async (group, token) => {
     const body = new URLSearchParams();
-    for (const { file } of group) body.append("size", String(file.size));
+    for (const { file } of group) {
+      body.append("size", String(file.size));
+      body.append("type", typeOf(file));
+    }
     body.set("cf-turnstile-response", token);
     let res = null;
     let reply = {};
@@ -493,7 +509,7 @@ export const UPLOAD_SCRIPT = `"use strict";
   const start = async () => {
     say("");
     challenged = false;
-    if (entries.length === 0) return say("Pick one or more epub files first.");
+    if (entries.length === 0) return say("Pick one or more epub or PDF files first.");
     const waiting = entries.filter((entry) => !entry.done && !entry.problem);
     if (waiting.length === 0) {
       return say(

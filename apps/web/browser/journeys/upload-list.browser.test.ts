@@ -48,7 +48,7 @@ describe("upload list journey", () => {
     ]);
     await expect.poll(() => rows.count()).toBe(4);
     await expect.poll(() => page.locator("#message").innerText()).toContain("already in the list");
-    await expect.poll(() => rows.nth(3).innerText()).toContain("Not an epub file");
+    await expect.poll(() => rows.nth(3).innerText()).toContain("Not an epub or PDF file");
 
     // Remove takes the row, announces it and moves focus to the row before it.
     await rows.nth(3).getByRole("button", { name: "Remove notes.txt" }).click();
