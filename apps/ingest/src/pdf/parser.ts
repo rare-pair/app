@@ -58,7 +58,6 @@ async function readOutline(
  * given, so it gets a copy, and it's released before the chapters are built.
  */
 async function readText(bytes: Uint8Array): Promise<PdfText> {
-  await resolvePDFJSImports(() => import("unpdf/pdfjs"));
   // SAFETY: pdf.js takes these options; unpdf's type names only some of them.
   const options = { useSystemFonts: false, disableFontFace: true, verbosity: 0 } as Parameters<
     typeof getDocumentProxy
@@ -132,6 +131,8 @@ async function readText(bytes: Uint8Array): Promise<PdfText> {
 /** The parser. Anything pdf.js throws on these bytes it throws every time, so it's final. */
 export const pdfParser = (): PdfParser => ({
   read: async (bytes) => {
+    // Outside the try: failing to load is no verdict on the file, and is worth a retry.
+    await resolvePDFJSImports(() => import("unpdf/pdfjs"));
     try {
       return await readText(bytes);
     } catch (cause) {

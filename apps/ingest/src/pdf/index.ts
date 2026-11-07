@@ -51,10 +51,8 @@ export async function processPdf(bytes: Uint8Array, load: LoadPdfParser): Promis
   if (bytes.length > LIMITS.maxPdfBytes) {
     throw new EpubError("too_large", `File is larger than ${LIMITS.maxPdfBytes} bytes`);
   }
-  const parser = await final(async () => {
-    preflightPdf(bytes);
-    return load();
-  });
+  await final(async () => preflightPdf(bytes));
+  const parser = await load();
   const text = await parser.read(bytes);
   const work = await final(async () => readWork(text));
   // One budget for the work, as an epub has: the HTML is written here and sanitized the same way.

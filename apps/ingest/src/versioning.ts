@@ -87,7 +87,8 @@ function isNotOlder(current: VersionFacts, upload: VersionFacts): boolean {
   }
   const from = validDate(current.date);
   const to = validDate(upload.date);
-  return from !== null && to !== null && to >= from;
+  // A PDF with no date has nothing to be newer than, and an epub with none can't say it isn't older.
+  return to !== null && (from === null || to >= from);
 }
 
 function validDate(date: string | null): string | null {

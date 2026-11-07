@@ -162,7 +162,7 @@ function paragraphsOf(lines: TextLine[], layout: Layout): string[] {
   let previous: TextLine | undefined;
   for (const line of lines) {
     const text = trimmed(line);
-    if (NOTES_POINTER.test(text)) continue;
+    if (text === "" || NOTES_POINTER.test(text)) continue;
     if (previous) {
       const samePage = previous.page === line.page;
       const wideGap = samePage && previous.y - line.y > layout.pitch * 1.5;
@@ -209,8 +209,7 @@ function startsFromOutline(text: PdfText, posted: number): ChapterStart[] | null
   return starts;
 }
 
-const DECLARED_CHAPTERS = /Chapters:\s*(\d+)\//;
-const AFTERWORD = /^(?:Afterword|End Notes|Please drop by the)/;
+const CLOSING_LINE = "Please drop by the Archive";
 
 /** The first line in `from` to `to` that passes `test`, or -1. */
 function indexFrom(
@@ -232,37 +231,31 @@ interface PrintedFields {
   printed: Map<string, string>;
 }
 
-/**
- * The labels of the preface and what follows each. The title and byline may come before them or
- * after. After them they end the fields: in a work with no summary, what follows is the text.
- */
-function readFields(lines: TextLine[], prefaceEnd: number, bylineAt: number): PrintedFields {
+/** The labels in each range of lines, and what follows each up to the next or the range's end. */
+function readFields(lines: TextLine[], ranges: [number, number][]): PrintedFields {
   const marks: PrintedFields["marks"] = [];
   const printed = new Map<string, string>();
-  let open: string | null = null;
   const add = (label: string, value: string) => {
     const so = printed.get(label) ?? "";
     // Bounded, so the patterns run on these later can't be made slow by a file of one long field.
     if (so.length < MAX_FIELD_CHARS) printed.set(label, `${so} ${value}`.slice(0, MAX_FIELD_CHARS));
   };
-  for (let i = 0; i < prefaceEnd; i++) {
-    if (i === bylineAt - 1 || i === bylineAt) {
-      if (marks.length > 0) break;
-      open = null;
-      continue;
+  for (const [from, to] of ranges) {
+    let open: string | null = null;
+    for (let i = from; i < to; i++) {
+      const line = lines[i]!;
+      const value = trimmed(line);
+      let last = 0;
+      for (const match of value.matchAll(LABELS)) {
+        if (open !== null) add(open, value.slice(last, match.index));
+        open = match[1]!.toLowerCase();
+        last = match.index + match[0].length;
+        // Several labels can share a line: each one's place on it, in proportion to its characters.
+        const x = line.x + ((line.right - line.x) * match.index) / Math.max(1, value.length);
+        marks.push({ mark: { page: line.page, y: line.y, x }, label: open });
+      }
+      if (open !== null) add(open, value.slice(last));
     }
-    const line = lines[i]!;
-    const value = trimmed(line);
-    let last = 0;
-    for (const match of value.matchAll(LABELS)) {
-      if (open !== null) add(open, value.slice(last, match.index));
-      open = match[1]!.toLowerCase();
-      last = match.index + match[0].length;
-      // Several labels can share a line: each one's place on it, in proportion to its characters.
-      const x = line.x + ((line.right - line.x) * match.index) / Math.max(1, value.length);
-      marks.push({ mark: { page: line.page, y: line.y, x }, label: open });
-    }
-    if (open !== null) add(open, value.slice(last));
   }
   return { marks, printed };
 }
@@ -340,7 +333,13 @@ function readByline(lines: TextLine[], links: PageLink[], bylineAt: number, pref
     }
   }
   if (authors.length > 0) return { authors, ambiguous: false, end };
-  const names = splitNames(first.replace(/^by\s+/, ""));
+  // With no links, a line that ends on a separator goes on under it.
+  let byline = first;
+  while (end < prefaceEnd && /(?:,|\sand)$/i.test(byline)) {
+    byline = `${byline} ${trimmed(lines[end]!)}`;
+    end++;
+  }
+  const names = splitNames(byline.replace(/^by\s+/, ""));
   return {
     authors: names.map((pseud) => ({ pseud, user: null })),
     ambiguous: names.length > 1,
@@ -364,63 +363,80 @@ function readSeries(text: string, links: PageLink[], prefaceMark: Mark): SeriesR
   }));
 }
 
-/** The end of the chapters' text, and the end notes after it. */
+/**
+ * The end of the chapters' text, and the end notes after it. Each mark is an exact line, and the
+ * last of its kind, since a work's text can hold any of them and the afterword comes after it all.
+ */
 function readEnd(lines: TextLine[], from: number, layout: Layout) {
-  const found = indexFrom(lines, from, lines.length, (l) => AFTERWORD.test(trimmed(l)));
-  const bodyEnd = found < 0 ? lines.length : found;
-  const notesAt = labelAt(lines, "End Notes", bodyEnd, lines.length);
-  if (notesAt < 0) return { bodyEnd, endNotes: [] };
-  const closing = indexFrom(lines, notesAt + 1, lines.length, (l) =>
-    trimmed(l).startsWith("Please drop by the"),
-  );
+  const last = (test: (text: string) => boolean): number => {
+    for (let i = lines.length - 1; i >= from; i--) if (test(trimmed(lines[i]!))) return i;
+    return -1;
+  };
+  const closing = last((text) => text.startsWith(CLOSING_LINE));
   const stop = closing < 0 ? lines.length : closing;
-  return { bodyEnd, endNotes: paragraphsOf(lines.slice(notesAt + 1, stop), layout) };
+  const notesAt = last((text) => text === "End Notes");
+  // The heading says so only with its contents under it: a chapter can have the word as its text.
+  const lastAfterword = last((text) => text === "Afterword");
+  const under = lastAfterword < 0 ? "" : trimmed(lines[lastAfterword + 1] ?? lines[lastAfterword]!);
+  const afterword = under === "End Notes" || under.startsWith(CLOSING_LINE) ? lastAfterword : -1;
+  const starts = [afterword, notesAt, closing].filter((at) => at >= 0);
+  const bodyEnd = starts.length > 0 ? Math.min(...starts) : lines.length;
+  const endNotes = notesAt < 0 ? [] : paragraphsOf(lines.slice(notesAt + 1, stop), layout);
+  return { bodyEnd, endNotes };
 }
 
-/** Reads the work's fields and chapters, or refuses the file with a rejection code. */
-export function readWork(text: PdfText): PdfWork {
-  const { lines, links } = text;
-  const top = lines.slice(0, PREFACE_LINES).map(trimmed);
-  const posted = POSTED.exec(top.join("").replace(/\s+/g, ""));
-  if (posted === null) throw new EpubError("not_ao3", "No printed Posted originally line");
-  const ao3WorkId = posted[1]!;
-  const reviewReasons = ["from_pdf"];
-  const linkedWork = links.map((l) => WORK_URL.exec(l.url)?.[1]).find((id) => id !== undefined);
-  if (linkedWork !== undefined && linkedWork !== ao3WorkId) {
-    reviewReasons.push(`work_id_mismatch: printed ${ao3WorkId}, link ${linkedWork}`);
+/** Lines a browser's print repeats on most pages, with their page numbers and dates aside. */
+function withoutRunningLines(lines: TextLine[]): TextLine[] {
+  const pages = lines.at(-1)?.page ?? 0;
+  const keyOf = (line: TextLine) => trimmed(line).replace(/[\d/:,]+/g, "#");
+  const seen = new Map<string, number>();
+  const edge = new Set<TextLine>();
+  lines.forEach((line, i) => {
+    if (lines[i - 1]?.page !== line.page || lines[i + 1]?.page !== line.page) edge.add(line);
+  });
+  for (const line of edge) seen.set(keyOf(line), (seen.get(keyOf(line)) ?? 0) + 1);
+  const running = (line: TextLine) =>
+    /^file:\/\//i.test(trimmed(line)) ||
+    (pages >= 3 && (seen.get(keyOf(line)) ?? 0) >= Math.max(3, pages * 0.3));
+  return lines.filter((line) => !edge.has(line) || !running(line));
+}
+
+/** The first line of the title that ends just before the byline: large print wraps. */
+function titleStart(lines: TextLine[], bylineAt: number, layout: Layout): number {
+  let at = bylineAt - 1;
+  const size = lines[at]!.size;
+  if (size <= layout.bodySize * 1.1) return at;
+  while (at > 0 && Math.abs(lines[at - 1]!.size - size) < 0.5) at--;
+  return at;
+}
+
+/** Where a run of field lines ends: the last line with a label or a tag's link, a gap of 2 allowed. */
+function fieldsEnd(lines: TextLine[], links: PageLink[], from: number, to: number): number {
+  const tagged = (l: TextLine) =>
+    links.some(
+      (link) =>
+        link.page === l.page &&
+        TAG_URL.test(link.url) &&
+        Math.abs(linkMark(link).y - l.y) <= l.size,
+    );
+  let end = from;
+  for (let i = from; i < to && i - end <= 2; i++) {
+    LABELS.lastIndex = 0;
+    if (LABELS.test(trimmed(lines[i]!)) || tagged(lines[i]!)) end = i + 1;
   }
-  const layout = layoutOf(lines);
+  return end;
+}
 
-  // Where the preface's fields stop, whichever comes first, within the lines it can run to.
-  const firstLabel = (to: number) => {
-    const end = Math.min(to, PREFACE_LINES);
-    const summary = labelAt(lines, "Summary", 0, end);
-    const notes = labelAt(lines, "Notes", 0, end);
-    return summary >= 0 && (notes < 0 || summary < notes) ? summary : notes >= 0 ? notes : end;
-  };
-  const declared = Number(
-    DECLARED_CHAPTERS.exec(top.slice(0, firstLabel(top.length)).join(" "))?.[1] ?? 1,
-  );
-  const headings = lines.flatMap((l, i) =>
-    CHAPTER_HEADING.test(trimmed(l)) && l.size > layout.bodySize * 1.1 ? [i] : [],
-  );
-  // In a one-chapter work a heading in the text is the text's, unless it's the only one.
-  const single = declared <= 1 && headings.length !== 1;
-  const starts: ChapterStart[] | null = single
-    ? null
-    : headings.length === declared
-      ? headings.map((at) => ({ at, title: trimmed(lines[at]!), skip: 1 }))
-      : startsFromOutline(text, declared);
-  const firstBody = starts?.[0]?.at ?? (single ? lines.length : (headings[0] ?? lines.length));
-  const prefaceEnd = firstLabel(firstBody);
-
-  // A title can start "by" too: the byline is the first such line with an author's link, or the
-  // marker, or else the last, since a title comes before it.
+/**
+ * The byline among the lines up to `to`: the first with an author's link, or the marker alone; else
+ * the first that follows large print, as a title is set; else the first. A title can start "by" too.
+ */
+function findByline(lines: TextLine[], links: PageLink[], to: number, layout: Layout): number {
   const isByline = (l: TextLine) => /^by\s/.test(trimmed(l));
   const linked = indexFrom(
     lines,
     0,
-    prefaceEnd,
+    to,
     (l) =>
       isByline(l) &&
       (/^by\s+Anonymous$/i.test(trimmed(l)) ||
@@ -431,64 +447,138 @@ export function readWork(text: PdfText): PdfWork {
             Math.abs(linkMark(link).y - l.y) <= l.size,
         )),
   );
-  let bylineAt = linked;
-  if (bylineAt < 0) {
-    for (let i = indexFrom(lines, 0, prefaceEnd, isByline); i >= 0 && i < prefaceEnd; i++) {
-      if (isByline(lines[i]!)) bylineAt = i;
-    }
+  if (linked >= 0) return linked;
+  for (let i = 1; i < to; i++) {
+    if (isByline(lines[i]!) && lines[i - 1]!.size > layout.bodySize * 1.1) return i;
   }
-  const title = bylineAt > 0 ? trimmed(lines[bylineAt - 1]!) : (text.infoTitle ?? "");
-  if (title === "") reviewReasons.push("missing_title");
+  return indexFrom(lines, 0, to, isByline);
+}
 
-  const fields = readFields(lines, prefaceEnd, bylineAt);
+/** Reads the work's fields and chapters, or refuses the file with a rejection code. */
+export function readWork(text: PdfText): PdfWork {
+  const { links } = text;
+  const posted = POSTED.exec(
+    text.lines.slice(0, PREFACE_LINES).map(trimmed).join("").replace(/\s+/g, ""),
+  );
+  if (posted === null) throw new EpubError("not_ao3", "No printed Posted originally line");
+  const ao3WorkId = posted[1]!;
+  const reviewReasons = ["from_pdf"];
+  const linkedWork = links.map((l) => WORK_URL.exec(l.url)?.[1]).find((id) => id !== undefined);
+  if (linkedWork !== undefined && linkedWork !== ao3WorkId) {
+    reviewReasons.push(`work_id_mismatch: printed ${ao3WorkId}, link ${linkedWork}`);
+  }
+  const lines = withoutRunningLines(text.lines);
+  const layout = layoutOf(lines);
+  const headings = lines.flatMap((l, i) =>
+    CHAPTER_HEADING.test(trimmed(l)) && l.size > layout.bodySize * 1.1 ? [i] : [],
+  );
+
+  // How far the preface can run: its labels, or the first heading, or a fixed number of lines.
+  const reach = Math.min(headings[0] ?? lines.length, PREFACE_LINES);
+  const summaryLabel = labelAt(lines, "Summary", 0, reach);
+  const notesLabel = labelAt(lines, "Notes", 0, reach);
+  const labelled = [summaryLabel, notesLabel].filter((at) => at >= 0);
+  const prefaceEnd = labelled.length > 0 ? Math.min(...labelled) : reach;
+
+  const bylineAt = findByline(lines, links, prefaceEnd, layout);
+  const titleAt = bylineAt > 0 ? titleStart(lines, bylineAt, layout) : -1;
+  const title =
+    titleAt >= 0 ? lines.slice(titleAt, bylineAt).map(trimmed).join(" ") : (text.infoTitle ?? "");
+  if (title === "") reviewReasons.push("missing_title");
+  const named = readByline(lines, links, bylineAt, prefaceEnd);
+  const bylineEnd = bylineAt < 0 ? 0 : named.end;
+
+  // The fields come before the title or after the byline.
+  const before =
+    titleAt >= 0 ? titleAt : bylineAt >= 0 ? 0 : fieldsEnd(lines, links, 0, prefaceEnd);
+  const beforeFields = readFields(lines, [[0, before]]);
+  const after =
+    beforeFields.marks.length > 0
+      ? bylineEnd
+      : labelled.length > 0
+        ? prefaceEnd
+        : fieldsEnd(lines, links, bylineEnd, prefaceEnd);
+  const fields = readFields(lines, [
+    [0, before],
+    [bylineEnd, after],
+  ]);
   const printedOf = (label: string) => fields.printed.get(label)?.trim() ?? null;
-  const endLine = lines[prefaceEnd];
-  const prefaceMark: Mark = endLine
-    ? { page: endLine.page, y: endLine.y, x: endLine.x }
+  const fieldsStop = lines[Math.max(before, after)];
+  const prefaceMark: Mark = fieldsStop
+    ? { page: fieldsStop.page, y: fieldsStop.y, x: fieldsStop.x }
     : { page: Number.MAX_SAFE_INTEGER, y: 0, x: 0 };
   const { tags, fromPrint } = readTags(links, fields, prefaceMark);
   if (fromPrint) reviewReasons.push("tags_from_print");
   if (tags.rating.length === 0) reviewReasons.push("missing_rating");
 
-  const named = readByline(lines, links, bylineAt, prefaceEnd);
   const byline = resolveByline(named.authors, named.ambiguous, []);
   reviewReasons.push(...byline.reviewReasons);
 
   const statsRaw: Record<string, string> = Object.create(null);
   const stats = parseStats((printedOf("stats") ?? "").slice(0, MAX_STATS_CHARS), statsRaw);
+  const declared = stats.chapters.posted;
 
-  const blocksEnd = Math.min(firstBody, lines.length);
-  const summaryAt = labelAt(lines, "Summary", 0, Math.min(blocksEnd, PREFACE_LINES));
-  const notesAt = labelAt(
-    lines,
-    "Notes",
-    summaryAt < 0 ? 0 : summaryAt,
-    Math.min(blocksEnd, PREFACE_LINES),
-  );
+  // In a one-chapter work a heading in the text is the text's.
+  const single = declared <= 1;
+  const starts: ChapterStart[] | null = single
+    ? null
+    : headings.length === declared
+      ? headings.map((at) => ({ at, title: trimmed(lines[at]!), skip: 1 }))
+      : startsFromOutline(text, declared);
+  const firstBody = starts?.[0]?.at ?? lines.length;
+
+  const indented = (l: TextLine | undefined) => l !== undefined && l.x > layout.left + 2;
   /**
-   * Where a Summary or Notes block ends: at the next label, then the first chapter. A one-chapter
-   * work has neither, so it ends where the block's indent does, or else at a page break.
+   * Where a Summary or Notes block ends. With a chapter to come, at the next label or that chapter.
+   * In a one-chapter work nothing marks it, so it ends where its indent does, or at a page break.
    */
   const blockEnd = (from: number, next: number): number => {
-    const limit = next > from ? next : blocksEnd;
-    if (!single || next > from) return limit;
-    const indented = (l: TextLine) => l.x > layout.left + 2;
-    const unindented = indented(lines[from + 1] ?? lines[from]!)
-      ? indexFrom(lines, from + 1, limit, (l) => !indented(l))
-      : -1;
-    if (unindented >= 0) return unindented;
-    if (lines[from + 1] && indented(lines[from + 1]!)) return limit;
+    if (!single) return next > from ? next : firstBody;
+    const to = next > from ? next : lines.length;
+    if (indented(lines[from + 1])) {
+      const out = indexFrom(lines, from + 1, to, (l) => !indented(l));
+      return out < 0 ? to : out;
+    }
     const page = lines[from]!.page;
-    const broken = indexFrom(lines, from + 1, limit, (l) => l.page !== page);
-    return broken < 0 ? limit : broken;
+    const broken = indexFrom(lines, from + 1, to, (l) => l.page !== page);
+    return broken < 0 ? to : broken;
   };
-  const summaryEnd = summaryAt >= 0 ? blockEnd(summaryAt, notesAt) : -1;
-  const notesEnd = notesAt >= 0 ? blockEnd(notesAt, -1) : -1;
+  // In a one-chapter work a label counts only where the preface still is: right after what came
+  // before it, not somewhere in the text.
+  let body = Math.max(before, after, bylineEnd);
+  let summaryAt = -1;
+  let notesAt = -1;
+  let summaryEnd = -1;
+  let notesEnd = -1;
+  if (single) {
+    for (;;) {
+      const line = lines[body];
+      const label = line === undefined ? "" : trimmed(line);
+      if (label === "Summary" && summaryAt < 0) {
+        summaryAt = body;
+        summaryEnd = blockEnd(body, labelAt(lines, "Notes", body, Math.min(lines.length, reach)));
+        body = summaryEnd;
+      } else if (label === "Notes" && notesAt < 0) {
+        notesAt = body;
+        notesEnd = blockEnd(body, -1);
+        body = notesEnd;
+      } else if (line !== undefined && NOTES_POINTER.test(label)) {
+        body++;
+      } else {
+        break;
+      }
+    }
+  } else {
+    summaryAt = labelAt(lines, "Summary", 0, Math.min(firstBody, PREFACE_LINES));
+    notesAt = labelAt(lines, "Notes", Math.max(summaryAt, 0), Math.min(firstBody, PREFACE_LINES));
+    summaryEnd = summaryAt >= 0 ? blockEnd(summaryAt, notesAt) : -1;
+    notesEnd = notesAt >= 0 ? blockEnd(notesAt, -1) : -1;
+  }
   const summary =
     summaryAt >= 0 ? paragraphsOf(lines.slice(summaryAt + 1, summaryEnd), layout) : [];
   const notes = notesAt >= 0 ? paragraphsOf(lines.slice(notesAt + 1, notesEnd), layout) : [];
 
-  const lastStart = starts?.at(-1)?.at ?? Math.max(named.end, summaryEnd, notesEnd);
+  const lastStart = starts?.at(-1)?.at ?? body;
   const { bodyEnd, endNotes } = readEnd(lines, lastStart, layout);
 
   let chapters: PdfWork["chapters"];
@@ -498,7 +588,14 @@ export function readWork(text: PdfText): PdfWork {
       paragraphs: paragraphsOf(lines.slice(at + skip, starts[k + 1]?.at ?? bodyEnd), layout),
     }));
   } else if (single) {
-    chapters = [{ title, paragraphs: paragraphsOf(lines.slice(lastStart, bodyEnd), layout) }];
+    // A heading right where the text starts names the chapter, and isn't its text.
+    const heading = headings[0] === body;
+    chapters = [
+      {
+        title: heading ? trimmed(lines[body]!) : title,
+        paragraphs: paragraphsOf(lines.slice(heading ? body + 1 : body, bodyEnd), layout),
+      },
+    ];
   } else {
     throw new EpubError("pdf_unreadable", "Chapters couldn't be told apart");
   }

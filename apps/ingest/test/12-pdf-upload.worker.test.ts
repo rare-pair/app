@@ -284,6 +284,172 @@ describe("12-pdf-upload", () => {
       expect(live?.work.published_at?.toISOString().slice(0, 4)).toBe("2020");
     });
 
+    describe("Review round 2: real prose isn't taken for structure", () => {
+      const posted = (id: number): PdfLine => ({
+        text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${id}.`,
+      });
+      const stats: PdfLine = { text: "Stats: Published: 2020-01-01 Chapters: 1/1" };
+      const title: PdfLine = { text: "A title", size: 18, gap: 10 };
+      const by: PdfLine = { text: "by Someone", url: "https://archiveofourown.org/users/someone" };
+      const para = (text: string): PdfLine => ({ text, gap: 10 });
+      const chapterText = async (id: number, lines: PdfLine[]) => {
+        await ingestPdf(layoutPdf(lines));
+        const live = await liveWork(id);
+        return { live, text: await bucketText(live!.chapters[0]!.r2_key) };
+      };
+
+      it("words like the afterword's in the text don't end the chapter", async () => {
+        const id = 8813780;
+        const { text } = await chapterText(id, [
+          posted(id),
+          stats,
+          title,
+          by,
+          para("Please drop by the office tomorrow, she wrote."),
+          para("End Notes were on her mind."),
+          para("Afterword"),
+          para("The last of the text."),
+        ]);
+        expect(text).toContain("The last of the text.");
+      });
+
+      it("a line starting by in the text isn't the byline", async () => {
+        const id = 8813781;
+        const { live, text } = await chapterText(id, [
+          posted(id),
+          stats,
+          title,
+          { text: "by Someone" },
+          para("The first of the text."),
+          para("by the door she waited"),
+        ]);
+        expect(live?.authors.map((a) => a.pseud)).toEqual(["Someone"]);
+        expect(live?.work.title).toBe("A title");
+        expect(text).toContain("The first of the text.");
+      });
+
+      it("a Notes line in a one-chapter text is the text's", async () => {
+        const id = 8813782;
+        const { live, text } = await chapterText(id, [
+          posted(id),
+          stats,
+          title,
+          by,
+          para("Before."),
+          para("Notes"),
+          para("After."),
+        ]);
+        expect(text).toBe("<p>Before.</p>\n<p>Notes</p>\n<p>After.</p>");
+        expect(live?.work.chapters_count).toBe(1);
+      });
+
+      it("a work with no byline keeps its text", async () => {
+        const id = 8813783;
+        const { live, text } = await chapterText(id, [posted(id), stats, para("All the text.")]);
+        expect(text).toBe("<p>All the text.</p>");
+        expect(live?.version.review_reasons).toContain("byline_missing");
+      });
+
+      it("a large Chapter 1 inside a one-chapter text doesn't drop what's before it", async () => {
+        const id = 8813784;
+        const { text } = await chapterText(id, [
+          posted(id),
+          stats,
+          title,
+          by,
+          para("The prologue."),
+          { text: "Chapter 1", size: 16, gap: 10 },
+          para("The rest."),
+        ]);
+        expect(text).toContain("The prologue.");
+        expect(text).toContain("The rest.");
+      });
+
+      it("a title that wraps keeps both its lines", async () => {
+        const id = 8813785;
+        const { live } = await chapterText(id, [
+          posted(id),
+          stats,
+          { text: "A long title that wraps over", size: 18, gap: 10 },
+          { text: "onto a second line", size: 18 },
+          by,
+          para("The text."),
+        ]);
+        expect(live?.work.title).toBe("A long title that wraps over onto a second line");
+        expect(live?.work.published_at).not.toBeNull();
+      });
+
+      it("fields after the byline, with no summary, aren't chapter text", async () => {
+        const id = 8813786;
+        const { live, text } = await chapterText(id, [
+          posted(id),
+          title,
+          by,
+          { text: "Rating: Mature" },
+          stats,
+          para("Just the text."),
+        ]);
+        expect(text).toBe("<p>Just the text.</p>");
+        expect(live?.work.rating).toBe("Mature");
+      });
+
+      it("a link-less byline that wraps keeps every name", async () => {
+        const id = 8813787;
+        const { live } = await chapterText(id, [
+          posted(id),
+          stats,
+          title,
+          { text: "by A Very Long Pseud Name," },
+          { text: "Second Author" },
+          para("The text."),
+        ]);
+        expect(live?.authors.map((a) => a.pseud)).toEqual([
+          "A Very Long Pseud Name",
+          "Second Author",
+        ]);
+        expect(live?.version.review_reasons).toContain("byline_ambiguous");
+      });
+
+      it("a browser's running header and footer aren't chapter text", async () => {
+        const id = 8813788;
+        const page = (n: number): PdfLine[] => [
+          { text: "11/7/26, 9:00 AM A title", newPage: n > 1, size: 8 },
+          para(`Text of page ${n}.`),
+          { text: `file:///C:/Users/someone/Downloads/work.html ${n}/4`, size: 8, gap: 400 },
+        ];
+        const [first, second, third, fourth] = [page(1), page(2), page(3), page(4)];
+        const { text } = await chapterText(id, [
+          first![0]!,
+          posted(id),
+          stats,
+          title,
+          by,
+          first![1]!,
+          first![2]!,
+          ...second!,
+          ...third!,
+          ...fourth!,
+        ]);
+        expect(text).not.toContain("file:///");
+        expect(text).not.toContain("9:00 AM");
+        expect(text).toContain("Text of page 4.");
+      });
+
+      it("a blank line isn't a paragraph", async () => {
+        const id = 8813789;
+        const { text } = await chapterText(id, [
+          posted(id),
+          stats,
+          title,
+          by,
+          para("One."),
+          para(" "),
+          para("Two."),
+        ]);
+        expect(text).toBe("<p>One.</p>\n<p>Two.</p>");
+      });
+    });
+
     it("A broken outline doesn't refuse a file that needs no outline", async () => {
       const workId = 8813733;
       const lines: PdfLine[] = [

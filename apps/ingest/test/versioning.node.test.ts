@@ -56,6 +56,10 @@ describe("08 versioning and dedupe: decideVersion", () => {
       expect(decideVersion(fromPdf(), facts({ chapters: 4, date: "2020-01-01" }))).toEqual(REPLACE);
     });
 
+    it("An epub replaces a PDF with no date to be older than", () => {
+      expect(decideVersion(fromPdf({ date: null }), facts())).toEqual(REPLACE);
+    });
+
     it("An older epub doesn't replace a newer PDF", () => {
       expect(decideVersion(fromPdf(), facts({ date: "2026-01-09" }))).toEqual(duplicate);
       expect(decideVersion(fromPdf(), facts({ chapters: 2, date: "2026-02-01" }))).toEqual(
