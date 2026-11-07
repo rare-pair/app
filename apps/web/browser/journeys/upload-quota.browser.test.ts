@@ -1,4 +1,3 @@
-import { insertUpload } from "@archive/db";
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
 import { sendFiles, uploadFilesThroughPage, useJourneySite } from "../harness/journey";
@@ -15,12 +14,12 @@ describe("quota journey", () => {
       email: "pw2-quota@example.test",
       role: "uploader",
     });
-    // The quota is a counter on the user row, so start 18 of 20 in: two uploads left today. The
+    // The quota is a counter on the user row, so start 98 of 100 in: two uploads left today. The
     // day is the database's UTC date, as the app reads it; a run that straddles midnight UTC
     // could see the counter reset, a rare flake we accept.
     await site.db
       .updateTable("user")
-      .set({ upload_quota_used: 18, upload_quota_day: sql`(now() at time zone 'utc')::date` })
+      .set({ upload_quota_used: 98, upload_quota_day: sql`(now() at time zone 'utc')::date` })
       .where("id", "=", userId)
       .execute();
     const page = await context.newPage();
@@ -75,11 +74,16 @@ describe("quota journey", () => {
       email: "uploadcap-open@example.test",
       role: "uploader",
     });
-    // Links asked for and never finished: 19 of the 20 the account may hold open.
-    for (let n = 0; n < 19; n++) {
-      const id = crypto.randomUUID();
-      await insertUpload(site.db, { id, userId, r2Key: `uploads/${id}`, bytes: 1000 });
-    }
+    // Links asked for and never finished: 99 of the 100 the account may hold open, seeded in one insert.
+    await site.db
+      .insertInto("uploads")
+      .values(
+        Array.from({ length: 99 }, () => {
+          const id = crypto.randomUUID();
+          return { id, user_id: userId, r2_key: `uploads/${id}`, bytes: 1000 };
+        }),
+      )
+      .execute();
     const page = await context.newPage();
     const file = (workId: number) => ({
       name: `work-${workId}.epub`,

@@ -1788,10 +1788,9 @@ markup: its inline `style` attributes become stylesheet rules, because
   takes an object whose delete failed.
   **What an account can store.** The Worker stores a file only for an open upload, and only of its
   declared size, at most 25 MB, once. So an account holds at most its cap times 25 MB through
-  unfinished uploads: 500 MB on the new-account quota of 20, 2.5 GB on the trusted 100, for the day
+  unfinished uploads: 2.5 GB on the quota of 100 that new accounts and the trusted tier both have, for the day
   or two until the reaper runs. A confirmed upload's file also stays under `uploads/` until the
-  7-day rule, so a day's quota for 8 days adds about 4 GB on the new-account quota and 20 GB on the
-  trusted one. A ban ends an account's pending uploads, which takes them out of
+  7-day rule, so a day's quota for 8 days adds about 20 GB on either tier. A ban ends an account's pending uploads, which takes them out of
   the reaper's reach, so a file stored and never confirmed before a ban waits for the 7-day rule
   (#685). Since the cap is the daily quota, raising
   `UPLOAD_QUOTA_NEW` raises these bounds with it, and a quota under 10 can't take a full batch of 10.

@@ -5,7 +5,14 @@ import { env } from "cloudflare:workers";
 import { sql } from "kysely";
 import { afterAll, describe, expect, it } from "vitest";
 import app from "../src/index";
-import { BASE, deliveredIngest, fetchW, postLogin, signIn as signInAs } from "./helpers";
+import {
+  BASE,
+  deliveredIngest,
+  fetchW,
+  postLogin,
+  postLoginWithVars,
+  signIn as signInAs,
+} from "./helpers";
 
 // U2's cases: `POST /uploads/:id/complete`, which checks the object `PUT /uploads/:id` stored,
 // hashes it, and either marks it a duplicate or enqueues it. The test puts the object in
@@ -444,7 +451,11 @@ describe("02-upload-confirm refusals", () => {
 // U4: the daily quota counts the uploads that reach confirm, and the hard cap is enforced here.
 // The tiers' numbers are wrangler.jsonc's vars, so the tests follow them.
 const NEW_LIMIT = Number(env.UPLOAD_QUOTA_NEW);
-const TRUSTED_LIMIT = Number(env.UPLOAD_QUOTA_TRUSTED);
+// The deployed tiers are both 100 for now, so the case about the trusted tier being higher runs
+// on a lower new-account tier.
+const TIERS = { UPLOAD_QUOTA_NEW: "20", UPLOAD_QUOTA_TRUSTED: "100" };
+const LOWER_NEW_LIMIT = Number(TIERS.UPLOAD_QUOTA_NEW);
+const TRUSTED_LIMIT = Number(TIERS.UPLOAD_QUOTA_TRUSTED);
 // The database's UTC day, the clock the quota itself uses: never the JS clock, which can
 // disagree with it for a moment around 00:00 UTC.
 const today = sql<string>`(now() at time zone 'utc')::date`;
@@ -543,13 +554,15 @@ describe("19-surge-controls-and-quotas", () => {
   it("Trusted users get the higher quota", async () => {
     const { userId, cookie } = await signIn("u4-trusted-tier@example.test");
     await db.updateTable("user").set({ role: "moderator" }).where("id", "=", userId).execute();
-    expect(TRUSTED_LIMIT).toBeGreaterThan(NEW_LIMIT);
+    expect(TRUSTED_LIMIT).toBeGreaterThan(LOWER_NEW_LIMIT);
+    const confirm = (id: string) =>
+      postLoginWithVars(TIERS, {}, { url: `/uploads/${id}/complete`, headers: { cookie } });
     // Past the new-account limit, within the trusted one.
-    await setUsedToday(userId, NEW_LIMIT);
+    await setUsedToday(userId, LOWER_NEW_LIMIT);
     const up = await uploaded(userId, randomBytes());
-    expect((await complete(up.id, { cookie })).status).toBe(200);
+    expect((await confirm(up.id)).status).toBe(200);
     await setUsedToday(userId, TRUSTED_LIMIT);
-    await expectSpent(await complete((await uploaded(userId, randomBytes())).id, { cookie }));
+    await expectSpent(await confirm((await uploaded(userId, randomBytes())).id));
   });
 
   it("A new UTC day starts the count again", async () => {

@@ -208,6 +208,34 @@ export async function postLoginOpen(
 }
 
 /**
+ * `postLogin` to the Worker on the same bindings but with these vars set, for a case that
+ * needs a value other than wrangler.jsonc's, such as the upload quota's two tiers.
+ */
+export async function postLoginWithVars(
+  vars: Record<string, string>,
+  fields: Record<string, string>,
+  {
+    url = "/login",
+    headers = {},
+    body = new URLSearchParams(fields).toString(),
+  }: { url?: string; headers?: Record<string, string>; body?: BodyInit } = {},
+) {
+  const ctx = createExecutionContext();
+  const res = await app.fetch(
+    new Request(new URL(url, BASE), {
+      method: "POST",
+      redirect: "manual",
+      headers: { ...LOGIN_HEADERS, "cf-connecting-ip": freshIp(), ...headers },
+      body,
+    }),
+    { ...env, ...vars },
+    ctx,
+  );
+  await waitOnExecutionContext(ctx);
+  return res;
+}
+
+/**
  * Signs `email` in through the Worker, as a browser follows the newest emailed link to
  * the confirm page and presses its button, and returns the `name=value` of its session
  * cookie. A new account hasn't accepted the terms, so every page but a few redirects it
