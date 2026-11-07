@@ -123,7 +123,7 @@ function parseSeries(dd: ElementNode): SeriesRef[] {
   return out;
 }
 
-function parseStats(text: string, rawMeta: Record<string, string>): Stats {
+export function parseStats(text: string, rawMeta: Record<string, string>): Stats {
   const stats: Stats = {
     published: null,
     updated: null,

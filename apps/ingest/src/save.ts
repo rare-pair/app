@@ -1,6 +1,9 @@
 import {
   copyVersionToWork,
   isUploaderBanned,
+  ORIGINAL_MEDIA_TYPES,
+  originalKey,
+  originalKeys,
   type Database,
   type HoldReason,
   type TagType,
@@ -51,9 +54,6 @@ async function clearPrefix(bucket: SaveBucket, prefix: string): Promise<number> 
   return keys.length;
 }
 
-/** Where the raw file of upload `uploadId` is kept. */
-const originalKey = (uploadId: string) => `originals/${uploadId}.epub`;
-
 /**
  * Deletes the raw file of upload `uploadId` and returns how many keys it found. Deleting a key
  * already gone is no error, so a repeat is safe. The caller must still own the upload: after a
@@ -63,9 +63,8 @@ export async function deleteOriginal(
   bucket: Pick<SaveBucket, "list" | "delete">,
   uploadId: string,
 ): Promise<number> {
-  const key = originalKey(uploadId);
-  const found = await bucket.list({ prefix: key, limit: 1 });
-  await bucket.delete([key]);
+  const found = await bucket.list({ prefix: `originals/${uploadId}.`, limit: 2 });
+  await bucket.delete(originalKeys(uploadId));
   return found.objects.length;
 }
 
@@ -233,8 +232,9 @@ async function saveFiles(
   const held = () => lease.keeper?.check() ?? Promise.resolve();
   const chapters = await putFiles(deps.bucket, ao3WorkId, prefix, work, images, held);
   await held();
-  await deps.bucket.put(originalKey(lease.id), bytes, {
-    httpMetadata: { contentType: "application/epub+zip" },
+  const format = lease.format ?? "epub";
+  await deps.bucket.put(originalKey(lease.id, format), bytes, {
+    httpMetadata: { contentType: ORIGINAL_MEDIA_TYPES[format] },
   });
   // Stop renewing before the transaction: a renewal would change the token under its fence.
   await lease.keeper?.stop();
@@ -732,6 +732,7 @@ async function endUpload(
       error_stage: null,
       error: null,
       sha256: lease.sha256,
+      format: lease.format,
     })
     .where("id", "=", lease.id)
     .where("status", "=", "processing")

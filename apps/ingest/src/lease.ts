@@ -1,4 +1,4 @@
-import type { Database, UploadStatus } from "@archive/db";
+import type { Database, UploadFormat, UploadStatus } from "@archive/db";
 import type { EpubErrorCode } from "@archive/epub";
 import { sql, type ExpressionBuilder, type Kysely } from "kysely";
 import { LEASE_RENEW_SECONDS, LEASE_SECONDS } from "./config";
@@ -31,6 +31,8 @@ export interface Lease {
    * confirm stored; absent until the job has read one, and then they leave that hash alone.
    */
   sha256?: string;
+  /** What the file's bytes say it is, and the ending writes record; absent until it's read. */
+  format?: UploadFormat;
   /** Renews the lease while the job runs; absent for a lease nobody keeps (a test's). */
   keeper?: LeaseKeeper;
 }
@@ -98,6 +100,7 @@ export async function endLease(
       error_stage: outcome.failure?.stage ?? null,
       error: outcome.failure?.error ?? null,
       sha256: lease.sha256,
+      format: lease.format,
     })
     .where("id", "=", lease.id)
     .where("status", "=", "processing")

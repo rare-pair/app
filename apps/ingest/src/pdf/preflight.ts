@@ -14,6 +14,9 @@ export const PDF_LIMITS = {
   maxObjects: 100_000,
   /** Pages a file may have: at the samples' 230 to 554 words a page, about 1M words. */
   maxPages: 5_000,
+  /** Text items and characters one parse may read: a limit on what it holds, by count. */
+  maxTextItems: 500_000,
+  maxTextChars: 8 * MiB,
 } as const;
 
 // Compressed bytes fed to the inflater at a time. Deflate expands at most about 1032:1, so one
