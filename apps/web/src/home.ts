@@ -6,7 +6,7 @@ import { createDb, listPopularFandoms, listRecentLiveWorks } from "@archive/db";
 import type { Bindings } from "./env";
 import { workList } from "./listing";
 import { siteCard } from "./cards";
-import { DRAFT, escapeHtml, layout, SEARCH_FORM } from "./pages";
+import { escapeHtml, layout, SEARCH_FORM } from "./pages";
 import { tagHref } from "./tag-links";
 import { updatesSection } from "./updates";
 import { type Update, UPDATES } from "./updates-data";
@@ -35,7 +35,7 @@ ${fandoms.map((f) => `<li><a href="${tagHref("fandom", f.name_norm)}">${escapeHt
   // Nothing live: one plain line. Draft copy, for the operator to proof.
   const lists =
     works.length === 0
-      ? `<p>There are no works here yet.</p>\n${DRAFT}`
+      ? `<p>There are no works here yet.</p>`
       : `${popular}
 <h2>Recently added</h2>
 ${workList(works)}`;

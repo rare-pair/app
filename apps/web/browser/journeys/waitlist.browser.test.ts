@@ -174,7 +174,7 @@ describe("wait list journey", () => {
       "a typed address: the closed route a no-JavaScript visitor could still reach",
     );
     expect(response?.status()).toBe(404);
-    await page.getByText("Search the archive").waitFor();
+    await page.getByRole("searchbox", { name: "Search the archive" }).waitFor();
     expect(await page.locator("#q").isDisabled()).toBe(true);
     expect(await page.getByRole("button", { name: "Search" }).isDisabled()).toBe(true);
     expect(await page.locator("#q").evaluate((el) => getComputedStyle(el).cursor)).toBe(

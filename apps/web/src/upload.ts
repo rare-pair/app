@@ -2,7 +2,7 @@ import { createDb, getUploadQuota, insertUploadsWithinCap, isBanned } from "@arc
 import type { Context, MiddlewareHandler } from "hono";
 import type { Bindings } from "./env";
 import { readForm } from "./login";
-import { DRAFT, layout, uploadPage } from "./pages";
+import { layout, uploadPage } from "./pages";
 import { limitFor, quotaShort, quotaSpent, tooManyOpen } from "./quota";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
@@ -39,7 +39,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
 export const BANNED_UPLOADER = "This account can't upload.";
 
 /** In place of the upload form for a banned account. Draft copy. */
-const bannedPage = () => layout("Uploading is closed", `${DRAFT}\n<p>${BANNED_UPLOADER}</p>`);
+const bannedPage = () => layout("Uploading is closed", `<p>${BANNED_UPLOADER}</p>`);
 
 /** Spends `extra` more of a limit, one by one; true as soon as one is refused. */
 async function spendMore(limiter: RateLimit, key: string, extra: number) {
