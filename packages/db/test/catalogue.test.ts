@@ -37,6 +37,7 @@ const expected = {
     updated_at: { type: "timestamptz", nullable: true },
     status: { type: "text", nullable: false },
     hidden_cause: { type: "text", nullable: true },
+    adult_marked: { type: "bool", nullable: false },
     current_version_id: { type: "text", nullable: true },
     raw_meta: { type: "jsonb", nullable: false },
     search: { type: "tsvector", nullable: true },

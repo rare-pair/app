@@ -251,7 +251,8 @@ describe("search backfill", () => {
         values ('w1', 't1', 0)`.execute(old.db);
       await sql`update works set current_version_id = 'v1', status = 'live'
         where id = 'w1'`.execute(old.db);
-      await sql.raw(migrations[at]!.sql).execute(old.db);
+      // Every later migration too: the search reads columns they added.
+      for (const m of migrations.slice(at)) await sql.raw(m.sql).execute(old.db);
       for (const q of ["backfilled beacon", "tidewrack", "slow burn", "wheel", "backfilld"]) {
         const r = await searchLiveWorks(old.db, q);
         expect(
