@@ -15,7 +15,14 @@ import { NO_STORE } from "./login";
 import type { SecurityVariables } from "./security";
 import type { SessionVariables } from "./session";
 import { BANNED_UPLOADER } from "./upload";
-import { EPUB_TYPE, isUploadId, maxBytesFor, overLimit, PDF_TYPE } from "./upload-limit";
+import {
+  EPUB_TYPE,
+  isUploadId,
+  isUploadType,
+  maxBytesFor,
+  overLimit,
+  WRONG_TYPE,
+} from "./upload-limit";
 
 // ARCHITECTURE, Ingestion pipeline, step 2. The upload page's script sends each file to
 // `PUT /uploads/:id`, and this Worker streams it to R2 through the bucket binding. Only an open
@@ -93,9 +100,7 @@ export async function endIfBanned(
 /** Why this request's headers can't carry this upload's file, or null when they can. */
 function headerRefusal(request: Request, bytes: number) {
   const type = request.headers.get("content-type");
-  if (type !== EPUB_TYPE && type !== PDF_TYPE) {
-    return { status: 415, error: "Only epub and PDF files can be uploaded." } as const;
-  }
+  if (type === null || !isUploadType(type)) return { status: 415, error: WRONG_TYPE } as const;
   const length = request.headers.get("content-length");
   if (request.body === null || length === null || !/^[0-9]+$/.test(length)) {
     return { status: 411, error: DIDNT_FINISH } as const;

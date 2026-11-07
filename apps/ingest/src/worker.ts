@@ -94,9 +94,7 @@ export function ingestWorker(steps: Partial<Steps> = {}) {
       const deps: JobDeps = {
         db,
         bucket,
-        process:
-          steps.process ??
-          (steps.loadPdfParser ? storageProcessor(steps.loadPdfParser) : processForStorage),
+        process: steps.process ?? storageProcessor(steps.loadPdfParser ?? loadPdfParser),
         timing: steps.timing,
         save:
           steps.save ??

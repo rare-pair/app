@@ -1,7 +1,8 @@
 import { EpubError } from "@archive/epub";
 import { zlibSync } from "fflate";
 import { describe, expect, it } from "vitest";
-import { PDF_LIMITS, preflightPdf } from "../src/pdf/preflight";
+import { PDF_LIMITS } from "../src/pdf/limits";
+import { preflightPdf } from "../src/pdf/preflight";
 import { buildPdf, flate, onePage, stream, type PdfBody } from "./pdf-builder";
 
 /** The code `preflightPdf` refuses `bytes` with, or null when it lets the file through. */

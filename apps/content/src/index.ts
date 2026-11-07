@@ -3,6 +3,7 @@ import {
   getImageAccess,
   getOriginalAccess,
   ORIGINAL_MEDIA_TYPES,
+  parseOriginalSegment,
   type ContentAccess,
 } from "@archive/db";
 import { declaredClient, ipKey, isCrossSiteSubresource, isLimited } from "@archive/traffic";
@@ -118,7 +119,7 @@ function fileHeaders(path: string, storedType: string, cacheControl: string) {
     ...(ORIGINAL.test(path)
       ? {
           // By the key, never what's stored: this origin must never serve a type a browser opens.
-          "Content-Type": ORIGINAL_MEDIA_TYPES[path.endsWith(".pdf") ? "pdf" : "epub"],
+          "Content-Type": ORIGINAL_MEDIA_TYPES[parseOriginalSegment(path).format],
           "Content-Disposition": "attachment",
         }
       : { "Content-Type": IMAGE_TYPES.has(storedType) ? storedType : "application/octet-stream" }),
@@ -137,8 +138,7 @@ type Subject = { kind: "image"; ao3WorkId: number } | { kind: "original"; upload
 function subjectOf(path: string): Subject {
   if (IMAGE.test(path)) return { kind: "image", ao3WorkId: Number(path.split("/")[2]) };
   const segment = path.slice("/originals/".length);
-  // Ingest stores `originals/<upload id>.epub` or `.pdf`; a bare id is checked the same way (#119).
-  return { kind: "original", uploadId: segment.replace(/\.(?:epub|pdf)$/, "") };
+  return { kind: "original", uploadId: parseOriginalSegment(segment).uploadId };
 }
 
 /**

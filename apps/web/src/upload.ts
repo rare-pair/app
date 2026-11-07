@@ -15,7 +15,14 @@ import {
 } from "./rate-limit";
 import { isSameOrigin } from "./signin";
 import { TURNSTILE_ACTIONS, verifyTurnstile } from "./turnstile";
-import { EPUB_TYPE, MAX_BATCH_FILES, maxBytesFor, overLimit, PDF_TYPE } from "./upload-limit";
+import {
+  EPUB_TYPE,
+  isUploadType,
+  MAX_BATCH_FILES,
+  maxBytesFor,
+  overLimit,
+  WRONG_TYPE,
+} from "./upload-limit";
 
 // ARCHITECTURE, Ingestion pipeline, step 1. The upload page's script calls
 // `POST /uploads` once for all the files picked, with one Turnstile token and a
@@ -122,9 +129,7 @@ export async function requestUpload(c: UploadContext) {
   const types = form.getAll("type");
   for (const [i, bytes] of declared.entries()) {
     const type = types[i] ?? EPUB_TYPE;
-    if (type !== EPUB_TYPE && type !== PDF_TYPE) {
-      return refuse(415, "Only epub and PDF files can be uploaded.");
-    }
+    if (!isUploadType(type)) return refuse(415, WRONG_TYPE);
     if (bytes > maxBytesFor(type)) {
       return refuse(413, overLimit(type, declared.length === 1 ? "That file" : "A file"));
     }

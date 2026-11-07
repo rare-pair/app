@@ -4,6 +4,7 @@ import {
   ORIGINAL_MEDIA_TYPES,
   originalKey,
   originalKeys,
+  versionOriginalFormat,
   type Database,
   type HoldReason,
   type TagType,
@@ -477,13 +478,8 @@ async function readCurrent(
     // The upload the version was made from: a backfill version's is the one it was re-made from.
     deps.db
       .selectFrom("work_versions")
-      .innerJoin("uploads", (join) =>
-        join.on(
-          sql<boolean>`uploads.id = coalesce(work_versions.upload_id, work_versions.source_upload_id)`,
-        ),
-      )
-      .select("uploads.format")
-      .where("work_versions.id", "=", versionId)
+      .select(versionOriginalFormat.as("format"))
+      .where("id", "=", versionId)
       .executeTakeFirst(),
   ]);
   const texts: { n: number; text: string }[] = [];

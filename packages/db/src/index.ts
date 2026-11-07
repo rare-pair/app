@@ -3,7 +3,14 @@ export { migrate } from "./migrate";
 export { authSchema } from "./auth-schema";
 export { normalizeTagName, compareTagKeys, compareCodeUnits, isTagType } from "./tags";
 export { normalizePseud } from "./pseud";
-export { originalKey, originalKeys, ORIGINAL_MEDIA_TYPES, UPLOAD_FORMATS } from "./original-key";
+export {
+  originalKey,
+  originalKeys,
+  ORIGINAL_MEDIA_TYPES,
+  parseOriginalSegment,
+  UPLOAD_FORMATS,
+  versionOriginalFormat,
+} from "./original-key";
 export {
   getLiveWork,
   getWorkAvailability,

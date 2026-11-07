@@ -1,7 +1,7 @@
 export { processEpub, sanitizeFragment } from "./process";
 export { nodeBudget } from "./dom";
 export { countWords } from "./words";
-export { parseStats } from "./preface";
+export { parseStats, TAG_LABELS, type TagField } from "./preface";
 export { EpubError, type EpubErrorCode } from "./errors";
 export { LIMITS } from "./unzip";
 export type {

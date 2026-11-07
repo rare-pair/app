@@ -2,12 +2,14 @@
 import { EpubError } from "@archive/epub";
 import { getDocumentProxy, resolvePDFJSImports } from "unpdf";
 import type { PdfParser } from "./index";
-import { PDF_LIMITS } from "./preflight";
+import { PDF_LIMITS } from "./limits";
 import type { PageLink, PdfText, TextLine } from "./structure";
 
 // Pages between yields: enough for the lease's timer to fire, without a timer per page, which
 // costs far more wall time than the parse (65 s against 11 s on a 4,252-page file).
 const YIELD_PAGES = 16;
+
+const AO3_LINK = /^https?:\/\/(?:www\.|download\.)?archiveofourown\.org\//i;
 
 const yieldToTimers = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -71,9 +73,13 @@ async function readText(bytes: Uint8Array): Promise<PdfText> {
     for (let n = 1; n <= pdf.numPages; n++) {
       const page = await pdf.getPage(n);
       for (const annotation of await page.getAnnotations()) {
-        if (annotation.subtype === "Link" && annotation.url) {
+        // Only links to the original archive are read, so only those are kept.
+        if (annotation.subtype === "Link" && AO3_LINK.test(annotation.url ?? "")) {
           links.push({ page: n, url: annotation.url, rect: annotation.rect });
         }
+      }
+      if (links.length > PDF_LIMITS.maxLinks) {
+        throw new EpubError("pdf_unreadable", "More links than a file may hold");
       }
       const reader = page.streamTextContent().getReader();
       for (;;) {

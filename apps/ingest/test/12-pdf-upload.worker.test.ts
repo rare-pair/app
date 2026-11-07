@@ -15,8 +15,8 @@ import {
   withDb,
 } from "./helpers";
 import { ao3Epub } from "../../../packages/epub/test/helpers";
-import { PDF_MAX_BYTES } from "../src/pdf";
-import { PDF_LIMITS } from "../src/pdf/preflight";
+import { LIMITS } from "@archive/epub";
+import { PDF_LIMITS } from "../src/pdf/limits";
 import { ingestWorker } from "../src/worker";
 import { ao3Pdf, flate, layoutPdf, onePage, pagesPdf, type PdfLine } from "./pdf-builder";
 
@@ -226,6 +226,26 @@ describe("12-pdf-upload", () => {
       const live = await liveWork(workId);
       expect(live?.chapters.map((c) => c.title)).toEqual(["Part one", "Part two"]);
       expect(await bucketText(live!.chapters[1]!.r2_key)).toBe("<p>Two.</p>");
+    });
+
+    it("A label word in the text of a work with no summary isn't taken for a field", async () => {
+      const workId = 8813734;
+      const lines: PdfLine[] = [
+        {
+          text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.`,
+        },
+        { text: "Language: Klingon" },
+        { text: "Stats: Published: 2020-01-01 Chapters: 1/1" },
+        { text: "A title", size: 18, gap: 10 },
+        { text: "by Someone", url: "https://archiveofourown.org/users/someone" },
+        { text: "Language: this is the story speaking.", gap: 10 },
+        { text: "Stats: Published: 1999-09-09" },
+      ];
+      await ingestPdf(layoutPdf(lines));
+
+      const live = await liveWork(workId);
+      expect(live?.work.language).toBe("Klingon");
+      expect(live?.work.published_at?.toISOString().slice(0, 4)).toBe("2020");
     });
 
     it("A broken outline doesn't refuse a file that needs no outline", async () => {
@@ -613,12 +633,11 @@ describe("12-pdf-upload", () => {
     });
 
     it("A larger PDF is too large, by its bytes, whatever it was sent as", async () => {
-      const padded = new Uint8Array(PDF_MAX_BYTES + 1);
+      const padded = new Uint8Array(LIMITS.maxPdfBytes + 1);
       padded.set(onePage(flate("x")));
       const { row, result } = await ingestPdf(padded);
 
       expect(row.status).toBe("too_large");
-      expect(row.error_stage).toBe("read");
       expect(result.explicitAcks).toEqual(["msg-0"]);
     });
 

@@ -1,23 +1,8 @@
 import { EpubError } from "@archive/epub";
 import { Inflate } from "fflate";
+import { PDF_LIMITS } from "./limits";
 
 const MiB = 1024 * 1024;
-
-export const PDF_LIMITS = {
-  /** Bytes all of a file's streams may inflate to. */
-  maxInflatedBytes: 128 * MiB,
-  /** A `/Contents` array's most entries. */
-  maxContentsEntries: 8,
-  /** Bytes one stream may inflate to, and one page's `/Contents` together. */
-  maxStreamInflatedBytes: 16 * MiB,
-  /** Objects a file may hold, by its trailer and by what it really has. The largest sample has 8,561. */
-  maxObjects: 100_000,
-  /** Pages a file may have: at the samples' 230 to 554 words a page, about 1M words. */
-  maxPages: 5_000,
-  /** Text items and characters one parse may read: a limit on what it holds, by count. */
-  maxTextItems: 500_000,
-  maxTextChars: 8 * MiB,
-} as const;
 
 // Compressed bytes fed to the inflater at a time. Deflate expands at most about 1032:1, so one
 // push makes at most about 4 MiB before the budget is checked. A stored block, the one thing
@@ -78,11 +63,8 @@ type Value =
   | { kind: "dict"; dict: Dict }
   | { kind: "other" };
 
-/** A dictionary's top-level entries, a repeated key keeping every value, and where it ended. */
-interface Dict {
-  entries: Map<string, Value[]>;
-  end: number;
-}
+/** A dictionary's top-level entries, a repeated key keeping every value. */
+type Dict = Map<string, Value[]>;
 
 /**
  * Reads PDF tokens as pdf.js's lexer does: comments, strings with nested brackets and escapes,
@@ -223,7 +205,7 @@ class Reader {
       if (this.at >= bytes.length) return null;
       if (bytes[this.at] === 0x3e && bytes[this.at + 1] === 0x3e) {
         this.at += 2;
-        return { entries, end: this.at };
+        return entries;
       }
       // A key must be a name. pdf.js skips anything else, as this does.
       const key = this.value();
@@ -264,7 +246,7 @@ const isFlate = (name: string) => name === "Fl" || name === "FlateDecode";
  */
 function checkFilters(dict: Dict): void {
   for (const key of ["F", "Filter"]) {
-    for (const value of dict.entries.get(key) ?? []) {
+    for (const value of dict.get(key) ?? []) {
       const names = value.kind === "list" ? value.items : [value];
       const filters = names.map((n) => (n.kind === "name" ? n.name : null));
       const allowed =
@@ -385,8 +367,8 @@ interface Counts {
 }
 
 function checkDictLimits(dict: Dict): void {
-  if (dict.entries.has("Encrypt")) throw unreadable("Encrypted");
-  for (const size of numbers(dict.entries.get("Size"))) {
+  if (dict.has("Encrypt")) throw unreadable("Encrypted");
+  for (const size of numbers(dict.get("Size"))) {
     if (size > PDF_LIMITS.maxObjects) throw unreadable("Too many objects");
   }
 }
@@ -417,7 +399,7 @@ interface ContentsSeen {
 
 /** Refuses the `/Contents` values of `dict` that make the parser decode a stream over and over. */
 function noteContents(dict: Dict, seen: ContentsSeen): void {
-  for (const value of dict.entries.get("Contents") ?? []) {
+  for (const value of dict.get("Contents") ?? []) {
     if (value.kind === "number") {
       seen.refs.add(value.value);
     } else if (value.kind === "list") {
@@ -435,7 +417,7 @@ function noteContents(dict: Dict, seen: ContentsSeen): void {
 
 /** A form can call itself or others any number of times. None of the real samples has one. */
 function checkSubtype(dict: Dict): void {
-  for (const subtype of dict.entries.get("Subtype") ?? []) {
+  for (const subtype of dict.get("Subtype") ?? []) {
     if (subtype.kind !== "name" || subtype.name === "Form") {
       throw unreadable("A form XObject, or a stream whose subtype can't be read");
     }
@@ -447,13 +429,13 @@ function checkStreamDict(dict: Dict, counts: Counts): boolean {
   checkFilters(dict);
   checkSubtype(dict);
   checkDictLimits(dict);
-  const type = dict.entries.get("Type") ?? [];
+  const type = dict.get("Type") ?? [];
   const isType = (name: string) => type.some((t) => t.kind === "name" && t.name === name);
   if (isType("ObjStm")) {
-    for (const n of numbers(dict.entries.get("N"))) counts.objects += n;
+    for (const n of numbers(dict.get("N"))) counts.objects += n;
   }
   if (isType("XRef")) {
-    for (const index of dict.entries.get("Index") ?? []) {
+    for (const index of dict.get("Index") ?? []) {
       if (index.kind !== "list") continue;
       index.items.forEach((item, i) => {
         if (i % 2 === 1 && item.kind === "number") counts.entries += item.value;

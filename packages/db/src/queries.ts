@@ -2,6 +2,7 @@
 // caller's Kysely, so a Worker passes the one it made for the request.
 import { sql, type ExpressionBuilder, type Kysely, type Selectable } from "kysely";
 import { jsonArrayFrom } from "kysely/helpers/postgres";
+import { versionOriginalFormat } from "./original-key";
 import type {
   ChapterTable,
   Database,
@@ -144,12 +145,7 @@ export async function getLiveWork(
         .$notNull()
         .as("original_upload_id"),
     )
-    .select(
-      sql<UploadFormat>`(
-        select format from uploads
-        where uploads.id = coalesce(work_versions.upload_id, work_versions.source_upload_id)
-      )`.as("original_format"),
-    )
+    .select(versionOriginalFormat.as("original_format"))
     .select((eb) => [
       jsonArrayFrom(
         eb

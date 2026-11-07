@@ -4,11 +4,13 @@
 import {
   EpubError,
   parseStats,
+  TAG_LABELS,
   resolveByline,
   splitNames,
   type Author,
   type SeriesRef,
   type Stats,
+  type TagField,
 } from "@archive/epub";
 
 /** One line of print: its text and where it sits. `y` grows up the page, as PDF has it. */
@@ -54,33 +56,6 @@ export interface PdfWork {
   reviewReasons: string[];
 }
 
-type TagField =
-  | "rating"
-  | "warnings"
-  | "categories"
-  | "fandoms"
-  | "relationships"
-  | "characters"
-  | "freeforms";
-
-// A Map, so a label such as "Constructor" is not found on Object.prototype.
-const TAG_LABELS = new Map<string, TagField>([
-  ["rating", "rating"],
-  ["ratings", "rating"],
-  ["archive warning", "warnings"],
-  ["archive warnings", "warnings"],
-  ["category", "categories"],
-  ["categories", "categories"],
-  ["fandom", "fandoms"],
-  ["fandoms", "fandoms"],
-  ["relationship", "relationships"],
-  ["relationships", "relationships"],
-  ["character", "characters"],
-  ["characters", "characters"],
-  ["additional tag", "freeforms"],
-  ["additional tags", "freeforms"],
-]);
-
 const LABELS =
   /(Ratings?|Archive Warnings?|Categor(?:y|ies)|Fandoms?|Relationships?|Characters?|Additional Tags?|Language|Series|Stats):/g;
 
@@ -96,23 +71,6 @@ const SERIES_PART = /Part\s+(\d+)\s+of\s+(.+?)(?=\s+Part\s+\d+\s+of\s|$)/g;
 const PREFACE_LINES = 200;
 
 const trimmed = (line: TextLine) => line.text.trim();
-const unreadable = (why: string) => new EpubError("pdf_unreadable", why);
-
-function decodeTag(raw: string): string {
-  let text = raw.replace(/\/works\/?$/, "").replace(/\+/g, " ");
-  try {
-    text = decodeURIComponent(text);
-  } catch {
-    // Not valid percent-encoding: the name stays as printed in the URL.
-  }
-  // AO3's own escapes for characters a URL segment can't hold.
-  return text
-    .replace(/\*s\*/g, "/")
-    .replace(/\*a\*/g, "&")
-    .replace(/\*d\*/g, ".")
-    .replace(/\*h\*/g, "#")
-    .replace(/\*q\*/g, "?");
-}
 
 const decodeName = (raw: string): string => {
   try {
@@ -121,6 +79,17 @@ const decodeName = (raw: string): string => {
     return raw;
   }
 };
+
+/** A tag's name from its link: AO3's own escapes for characters a URL segment can't hold. */
+const decodeTag = (raw: string): string =>
+  decodeName(raw.replace(/\/works\/?$/, "").replace(/\+/g, " "))
+    .replace(/\*s\*/g, "/")
+    .replace(/\*a\*/g, "&")
+    .replace(/\*d\*/g, ".")
+    .replace(/\*h\*/g, "#")
+    .replace(/\*q\*/g, "?");
+
+type Layout = ReturnType<typeof layoutOf>;
 
 /** The size used most, the left edge used most, and the commonest line step on a page. */
 function layoutOf(lines: TextLine[]) {
@@ -181,7 +150,7 @@ const isSceneBreak = (text: string) => text.length <= 24 && !/[\p{L}\p{N}]/u.tes
  * paragraph. Not exact: on two files with an epub to compare, off by 5 to 19%. A print with no gap
  * between paragraphs needs the short line, or a whole chapter reads as a few walls of text.
  */
-function paragraphsOf(lines: TextLine[], layout: ReturnType<typeof layoutOf>): string[] {
+function paragraphsOf(lines: TextLine[], layout: Layout): string[] {
   const paragraphs: string[] = [];
   let current: string[] = [];
   const end = () => {
@@ -210,32 +179,201 @@ function paragraphsOf(lines: TextLine[], layout: ReturnType<typeof layoutOf>): s
   return paragraphs;
 }
 
-/** Each chapter's first line and title from the outline: the work's title, then one per chapter. */
-function chaptersFromOutline(
-  text: PdfText,
-  posted: number,
-): { at: number; title: string; skip: number }[] | null {
+/** Where a chapter starts: its line, its title, and how many lines of heading to leave out. */
+interface ChapterStart {
+  at: number;
+  title: string;
+  skip: number;
+}
+
+/** Each chapter's start from the outline: the work's title, then one entry per chapter. */
+function startsFromOutline(text: PdfText, posted: number): ChapterStart[] | null {
   if (text.outline.length !== posted + 1) return null;
-  const starts = [];
+  const { lines } = text;
+  const starts: ChapterStart[] = [];
   let from = 0;
   for (const entry of text.outline.slice(1)) {
-    const at = text.lines.findIndex(
-      (l, i) => i >= from && (l.page > entry.page || (l.page === entry.page && l.y <= entry.y + 4)),
+    const at = indexFrom(
+      lines,
+      from,
+      lines.length,
+      (l) => l.page > entry.page || (l.page === entry.page && l.y <= entry.y + 4),
     );
     if (at < 0) return null;
     const title = entry.title.trim();
-    starts.push({ at, title, skip: trimmed(text.lines[at]!) === title ? 1 : 0 });
+    starts.push({ at, title, skip: trimmed(lines[at]!) === title ? 1 : 0 });
     from = at + 1;
   }
   return starts;
 }
 
 const DECLARED_CHAPTERS = /Chapters:\s*(\d+)\//;
+const AFTERWORD = /^(?:Afterword|End Notes|Please drop by the)/;
+
+/** The first line in `from` to `to` that passes `test`, or -1. */
+function indexFrom(
+  lines: TextLine[],
+  from: number,
+  to: number,
+  test: (line: TextLine) => boolean,
+): number {
+  for (let i = from; i < to; i++) if (test(lines[i]!)) return i;
+  return -1;
+}
+
+const labelAt = (lines: TextLine[], label: string, from: number, to: number) =>
+  indexFrom(lines, from, to, (l) => trimmed(l) === label);
+
+/** Each label's place, and what's printed under each. */
+interface PrintedFields {
+  marks: { mark: Mark; label: string }[];
+  printed: Map<string, string>;
+}
+
+/**
+ * The labels of the preface and what follows each. The title and byline may come before them or
+ * after. After them they end the fields: in a work with no summary, what follows is the text.
+ */
+function readFields(lines: TextLine[], prefaceEnd: number, bylineAt: number): PrintedFields {
+  const marks: PrintedFields["marks"] = [];
+  const printed = new Map<string, string>();
+  let open: string | null = null;
+  const add = (label: string, value: string) =>
+    printed.set(label, `${printed.get(label) ?? ""} ${value}`);
+  for (let i = 0; i < prefaceEnd; i++) {
+    if (i === bylineAt - 1 || i === bylineAt) {
+      if (marks.length > 0) break;
+      open = null;
+      continue;
+    }
+    const line = lines[i]!;
+    const value = trimmed(line);
+    let last = 0;
+    for (const match of value.matchAll(LABELS)) {
+      if (open !== null) add(open, value.slice(last, match.index));
+      open = match[1]!.toLowerCase();
+      last = match.index + match[0].length;
+      // Several labels can share a line: each one's place on it, in proportion to its characters.
+      const x = line.x + ((line.right - line.x) * match.index) / Math.max(1, value.length);
+      marks.push({ mark: { page: line.page, y: line.y, x }, label: open });
+    }
+    if (open !== null) add(open, value.slice(last));
+  }
+  return { marks, printed };
+}
+
+function lastLabelBefore(marks: PrintedFields["marks"], at: Mark): string | undefined {
+  for (let i = marks.length - 1; i >= 0; i--) {
+    if (reads(marks[i]!.mark, at)) return marks[i]!.label;
+  }
+  return undefined;
+}
+
+/** Tags from links, each under the last label before it, deduped by URL; with none, from print. */
+function readTags(links: PageLink[], { marks, printed }: PrintedFields, prefaceMark: Mark) {
+  const tags: PdfWork["tags"] = {
+    rating: [],
+    warnings: [],
+    categories: [],
+    fandoms: [],
+    relationships: [],
+    characters: [],
+    freeforms: [],
+  };
+  const tagLinks = links
+    .flatMap((link) => {
+      const at = linkMark(link);
+      return TAG_URL.test(link.url) && reads(at, prefaceMark) ? [{ link, at }] : [];
+    })
+    .sort((a, b) => (reads(a.at, b.at) ? -1 : 1));
+  const seen = new Set<string>();
+  for (const { link, at } of tagLinks) {
+    if (seen.has(link.url)) continue;
+    seen.add(link.url);
+    const label = lastLabelBefore(marks, at);
+    const field = label === undefined ? undefined : TAG_LABELS.get(label);
+    if (field) tags[field].push(decodeTag(TAG_URL.exec(link.url)![1]!));
+  }
+  if (tagLinks.length > 0) return { tags, fromPrint: false };
+  // With no links a tag holding ", " can't be told apart from two tags, so it's flagged.
+  for (const [label, value] of printed) {
+    const field = TAG_LABELS.get(label);
+    if (!field) continue;
+    tags[field].push(
+      ...value
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s !== ""),
+    );
+  }
+  return { tags, fromPrint: Object.values(tags).some((names) => names.length > 0) };
+}
+
+/** The byline: its first line and each one under it holding an author's link, and where it ends. */
+function readByline(lines: TextLine[], links: PageLink[], bylineAt: number, prefaceEnd: number) {
+  const authors: Author[] = [];
+  if (bylineAt < 0) return { authors, ambiguous: false, end: prefaceEnd };
+  const first = trimmed(lines[bylineAt]!);
+  if (/^by\s+Anonymous\b/i.test(first)) {
+    return { authors: [{ pseud: "Anonymous", user: null }], ambiguous: false, end: bylineAt + 1 };
+  }
+  const userLinks = links.filter((l) => USER_URL.test(l.url));
+  let end = bylineAt + 1;
+  for (let i = bylineAt; i < prefaceEnd; i++) {
+    const line = lines[i]!;
+    const onLine = userLinks.filter(
+      (l) => l.page === line.page && Math.abs(linkMark(l).y - line.y) <= line.size,
+    );
+    if (onLine.length === 0) break;
+    end = i + 1;
+    for (const link of onLine) {
+      const user = decodeName(USER_URL.exec(link.url)![1]!);
+      const pseud = /\/pseuds\/([^/?#]+)/.exec(link.url)?.[1];
+      const author = { pseud: pseud === undefined ? user : decodeName(pseud), user };
+      if (!authors.some((a) => a.pseud === author.pseud && a.user === user)) authors.push(author);
+    }
+  }
+  if (authors.length > 0) return { authors, ambiguous: false, end };
+  const names = splitNames(first.replace(/^by\s+/, ""));
+  return {
+    authors: names.map((pseud) => ({ pseud, user: null })),
+    ambiguous: names.length > 1,
+    end,
+  };
+}
+
+/** The series the preface prints, with their IDs from its links, in order. */
+function readSeries(text: string, links: PageLink[], prefaceMark: Mark): SeriesRef[] {
+  const ids = [
+    ...new Set(
+      links
+        .filter((l) => reads(linkMark(l), prefaceMark))
+        .flatMap((l) => SERIES_URL.exec(l.url)?.[1] ?? []),
+    ),
+  ];
+  return [...text.matchAll(SERIES_PART)].map((match, i) => ({
+    name: match[2]!.trim(),
+    part: Number(match[1]),
+    ao3SeriesId: ids[i] ?? null,
+  }));
+}
+
+/** The end of the chapters' text, and the end notes after it. */
+function readEnd(lines: TextLine[], from: number, layout: Layout) {
+  const found = indexFrom(lines, from, lines.length, (l) => AFTERWORD.test(trimmed(l)));
+  const bodyEnd = found < 0 ? lines.length : found;
+  const notesAt = labelAt(lines, "End Notes", bodyEnd, lines.length);
+  if (notesAt < 0) return { bodyEnd, endNotes: [] };
+  const closing = indexFrom(lines, notesAt + 1, lines.length, (l) =>
+    trimmed(l).startsWith("Please drop by the"),
+  );
+  const stop = closing < 0 ? lines.length : closing;
+  return { bodyEnd, endNotes: paragraphsOf(lines.slice(notesAt + 1, stop), layout) };
+}
 
 /** Reads the work's fields and chapters, or refuses the file with a rejection code. */
 export function readWork(text: PdfText): PdfWork {
   const { lines, links } = text;
-  const layout = layoutOf(lines);
   const top = lines.slice(0, PREFACE_LINES).map(trimmed);
   const posted = POSTED.exec(top.join("").replace(/\s+/g, ""));
   if (posted === null) throw new EpubError("not_ao3", "No printed Posted originally line");
@@ -245,175 +383,76 @@ export function readWork(text: PdfText): PdfWork {
   if (linkedWork !== undefined && linkedWork !== ao3WorkId) {
     reviewReasons.push(`work_id_mismatch: printed ${ao3WorkId}, link ${linkedWork}`);
   }
+  const layout = layoutOf(lines);
 
-  const isHeading = (l: TextLine) =>
-    CHAPTER_HEADING.test(trimmed(l)) && l.size > layout.bodySize * 1.1;
-  let headings = lines.flatMap((l, i) => (isHeading(l) ? [i] : []));
-  const labelAt = (label: string, from: number, to: number) => {
-    for (let i = from; i < to; i++) if (trimmed(lines[i]!) === label) return i;
-    return -1;
-  };
-  // Where the preface's fields stop, whichever comes first.
+  // Where the preface's fields stop, whichever comes first, within the lines it can run to.
   const firstLabel = (to: number) => {
-    const summary = labelAt("Summary", 0, to);
-    const notes = labelAt("Notes", 0, to);
-    return summary >= 0 && (notes < 0 || summary < notes) ? summary : notes >= 0 ? notes : to;
+    const end = Math.min(to, PREFACE_LINES);
+    const summary = labelAt(lines, "Summary", 0, end);
+    const notes = labelAt(lines, "Notes", 0, end);
+    return summary >= 0 && (notes < 0 || summary < notes) ? summary : notes >= 0 ? notes : end;
   };
   const declared = Number(
     DECLARED_CHAPTERS.exec(top.slice(0, firstLabel(top.length)).join(" "))?.[1] ?? 1,
   );
+  const headings = lines.flatMap((l, i) =>
+    CHAPTER_HEADING.test(trimmed(l)) && l.size > layout.bodySize * 1.1 ? [i] : [],
+  );
   // In a one-chapter work a heading in the text is the text's, unless it's the only one.
-  if (declared <= 1 && headings.length !== 1) headings = [];
-  const firstHeading = headings[0] ?? lines.length;
-  const outlineStarts = headings.length === declared ? null : chaptersFromOutline(text, declared);
-  const firstBody = outlineStarts?.[0]?.at ?? firstHeading;
+  const single = declared <= 1 && headings.length !== 1;
+  const starts: ChapterStart[] | null = single
+    ? null
+    : headings.length === declared
+      ? headings.map((at) => ({ at, title: trimmed(lines[at]!), skip: 1 }))
+      : startsFromOutline(text, declared);
+  const firstBody = starts?.[0]?.at ?? (single ? lines.length : (headings[0] ?? lines.length));
   const prefaceEnd = firstLabel(firstBody);
 
-  const bylineAt = lines.slice(0, prefaceEnd).findIndex((l) => /^by\s/.test(trimmed(l)));
+  const bylineAt = indexFrom(lines, 0, prefaceEnd, (l) => /^by\s/.test(trimmed(l)));
   const title = bylineAt > 0 ? trimmed(lines[bylineAt - 1]!) : (text.infoTitle ?? "");
   if (title === "") reviewReasons.push("missing_title");
 
-  // Labels and what follows each. The title and byline may come before them or after, and end
-  // what's printed under the last label before them.
-  const marks: { mark: Mark; label: string }[] = [];
-  const printed = new Map<string, string>();
-  let openLabel: string | null = null;
-  const addPrinted = (label: string, value: string) =>
-    printed.set(label, `${printed.get(label) ?? ""} ${value}`);
-  for (let i = 0; i < prefaceEnd; i++) {
-    const line = lines[i]!;
-    if (i === bylineAt || i === bylineAt - 1) {
-      openLabel = null;
-      continue;
-    }
-    const value = trimmed(line);
-    let last = 0;
-    for (const match of value.matchAll(LABELS)) {
-      if (openLabel !== null) addPrinted(openLabel, value.slice(last, match.index));
-      openLabel = match[1]!.toLowerCase();
-      last = match.index + match[0].length;
-      // Several labels can share a line: each one's place on it, in proportion to its characters.
-      const x = line.x + ((line.right - line.x) * match.index) / Math.max(1, value.length);
-      marks.push({ mark: { page: line.page, y: line.y, x }, label: openLabel });
-    }
-    if (openLabel !== null) addPrinted(openLabel, value.slice(last));
-  }
-  const printedOf = (label: string) => printed.get(label)?.trim() ?? null;
-
-  const tags: Record<TagField, string[]> = {
-    rating: [],
-    warnings: [],
-    categories: [],
-    fandoms: [],
-    relationships: [],
-    characters: [],
-    freeforms: [],
-  };
+  const fields = readFields(lines, prefaceEnd, bylineAt);
+  const printedOf = (label: string) => fields.printed.get(label)?.trim() ?? null;
   const endLine = lines[prefaceEnd];
   const prefaceMark: Mark = endLine
     ? { page: endLine.page, y: endLine.y, x: endLine.x }
     : { page: Number.MAX_SAFE_INTEGER, y: 0, x: 0 };
-  const seen = new Set<string>();
-  const tagLinks = links
-    .filter((l) => TAG_URL.test(l.url) && reads(linkMark(l), prefaceMark))
-    .sort((a, b) => (reads(linkMark(a), linkMark(b)) ? -1 : 1));
-  for (const link of tagLinks) {
-    if (seen.has(link.url)) continue;
-    seen.add(link.url);
-    const at = linkMark(link);
-    const label = marks.filter((m) => reads(m.mark, at)).at(-1)?.label;
-    const field = label === undefined ? undefined : TAG_LABELS.get(label);
-    if (field) tags[field].push(decodeTag(TAG_URL.exec(link.url)![1]!));
-  }
-  if (tagLinks.length === 0) {
-    // With no links a tag holding ", " can't be told apart from two tags, so it's flagged.
-    for (const [label, value] of printed) {
-      const field = TAG_LABELS.get(label);
-      if (!field) continue;
-      const names = value
-        .split(",")
-        .map((s) => s.trim())
-        .filter((s) => s !== "");
-      tags[field].push(...names);
-    }
-    if (Object.values(tags).some((names) => names.length > 0))
-      reviewReasons.push("tags_from_print");
-  }
+  const { tags, fromPrint } = readTags(links, fields, prefaceMark);
+  if (fromPrint) reviewReasons.push("tags_from_print");
   if (tags.rating.length === 0) reviewReasons.push("missing_rating");
 
-  // The byline: its first line and each one under it that holds an author's link.
-  let authors: Author[] = [];
-  let bylineEnd = bylineAt < 0 ? prefaceEnd : bylineAt + 1;
-  let ambiguous = false;
-  const bylineLine = bylineAt >= 0 ? lines[bylineAt]! : null;
-  if (bylineLine && /^by\s+Anonymous\b/i.test(trimmed(bylineLine))) {
-    authors = [{ pseud: "Anonymous", user: null }];
-  } else if (bylineLine) {
-    for (let i = bylineAt; i < prefaceEnd; i++) {
-      const line = lines[i]!;
-      const onLine = links.filter(
-        (l) =>
-          l.page === line.page &&
-          USER_URL.test(l.url) &&
-          Math.abs(linkMark(l).y - line.y) <= line.size,
-      );
-      if (onLine.length === 0) break;
-      bylineEnd = i + 1;
-      for (const link of onLine) {
-        const user = decodeName(USER_URL.exec(link.url)![1]!);
-        const pseud = /\/pseuds\/([^/?#]+)/.exec(link.url)?.[1];
-        const author = { pseud: pseud === undefined ? user : decodeName(pseud), user };
-        if (!authors.some((a) => a.pseud === author.pseud && a.user === user)) authors.push(author);
-      }
-    }
-    if (authors.length === 0) {
-      const names = splitNames(trimmed(bylineLine).replace(/^by\s+/, ""));
-      authors = names.map((pseud) => ({ pseud, user: null }));
-      ambiguous = names.length > 1;
-    }
-  }
-  const byline = resolveByline(authors, ambiguous, []);
+  const named = readByline(lines, links, bylineAt, prefaceEnd);
+  const byline = resolveByline(named.authors, named.ambiguous, []);
   reviewReasons.push(...byline.reviewReasons);
 
   const statsRaw: Record<string, string> = Object.create(null);
   const stats = parseStats(printedOf("stats") ?? "", statsRaw);
 
-  const series: SeriesRef[] = [];
-  const seriesLinks = [
-    ...new Set(
-      links
-        .filter((l) => reads(linkMark(l), prefaceMark))
-        .flatMap((l) => {
-          const id = SERIES_URL.exec(l.url)?.[1];
-          return id === undefined ? [] : [id];
-        }),
-    ),
-  ];
-  const seriesText = printedOf("series") ?? "";
-  for (const match of seriesText.matchAll(SERIES_PART)) {
-    series.push({
-      name: match[2]!.trim(),
-      part: Number(match[1]),
-      ao3SeriesId: seriesLinks[series.length] ?? null,
-    });
-  }
-
-  const single = declared <= 1 && headings.length === 0;
-  const summaryAt = labelAt("Summary", 0, firstBody);
-  const notesAt = labelAt("Notes", summaryAt < 0 ? 0 : summaryAt, firstBody);
+  const blocksEnd = Math.min(firstBody, lines.length);
+  const summaryAt = labelAt(lines, "Summary", 0, Math.min(blocksEnd, PREFACE_LINES));
+  const notesAt = labelAt(
+    lines,
+    "Notes",
+    summaryAt < 0 ? 0 : summaryAt,
+    Math.min(blocksEnd, PREFACE_LINES),
+  );
   /**
    * Where a Summary or Notes block ends: at the next label, then the first chapter. A one-chapter
    * work has neither, so it ends where the block's indent does, or else at a page break.
    */
   const blockEnd = (from: number, next: number): number => {
-    const limit = next > from ? next : firstBody;
+    const limit = next > from ? next : blocksEnd;
     if (!single || next > from) return limit;
     const indented = (l: TextLine) => l.x > layout.left + 2;
-    if (lines[from + 1] && indented(lines[from + 1]!)) {
-      for (let i = from + 1; i < limit; i++) if (!indented(lines[i]!)) return i;
-    }
-    for (let i = from + 1; i < limit; i++) if (lines[i]!.page !== lines[from]!.page) return i;
-    return limit;
+    const unindented = indented(lines[from + 1] ?? lines[from]!)
+      ? indexFrom(lines, from + 1, limit, (l) => !indented(l))
+      : -1;
+    if (unindented >= 0) return unindented;
+    if (lines[from + 1] && indented(lines[from + 1]!)) return limit;
+    const page = lines[from]!.page;
+    const broken = indexFrom(lines, from + 1, limit, (l) => l.page !== page);
+    return broken < 0 ? limit : broken;
   };
   const summaryEnd = summaryAt >= 0 ? blockEnd(summaryAt, notesAt) : -1;
   const notesEnd = notesAt >= 0 ? blockEnd(notesAt, -1) : -1;
@@ -421,47 +460,23 @@ export function readWork(text: PdfText): PdfWork {
     summaryAt >= 0 ? paragraphsOf(lines.slice(summaryAt + 1, summaryEnd), layout) : [];
   const notes = notesAt >= 0 ? paragraphsOf(lines.slice(notesAt + 1, notesEnd), layout) : [];
 
-  const AFTERWORD = /^(?:Afterword|End Notes|Please drop by the)/;
-  const lastStart =
-    outlineStarts?.at(-1)?.at ?? headings.at(-1) ?? Math.max(bylineEnd, summaryEnd, notesEnd);
-  let bodyEnd = lines.length;
-  for (let i = lastStart; i < lines.length; i++) {
-    if (AFTERWORD.test(trimmed(lines[i]!))) {
-      bodyEnd = i;
-      break;
-    }
-  }
-  const endNotesAt = labelAt("End Notes", bodyEnd, lines.length);
-  let endNotes: string[] = [];
-  if (endNotesAt >= 0) {
-    let stop = lines.length;
-    for (let i = endNotesAt + 1; i < lines.length; i++) {
-      if (trimmed(lines[i]!).startsWith("Please drop by the")) {
-        stop = i;
-        break;
-      }
-    }
-    endNotes = paragraphsOf(lines.slice(endNotesAt + 1, stop), layout);
-  }
+  const lastStart = starts?.at(-1)?.at ?? Math.max(named.end, summaryEnd, notesEnd);
+  const { bodyEnd, endNotes } = readEnd(lines, lastStart, layout);
 
-  const couldntTell = () => unreadable("Chapters couldn't be told apart");
   let chapters: PdfWork["chapters"];
-  if (single) {
-    chapters = [{ title, paragraphs: paragraphsOf(lines.slice(lastStart, bodyEnd), layout) }];
-  } else if (headings.length === declared) {
-    chapters = headings.map((at, k) => ({
-      title: trimmed(lines[at]!),
-      paragraphs: paragraphsOf(lines.slice(at + 1, headings[k + 1] ?? bodyEnd), layout),
-    }));
-  } else if (outlineStarts !== null) {
-    chapters = outlineStarts.map(({ at, title: name, skip }, k) => ({
+  if (starts !== null) {
+    chapters = starts.map(({ at, title: name, skip }, k) => ({
       title: name,
-      paragraphs: paragraphsOf(lines.slice(at + skip, outlineStarts[k + 1]?.at ?? bodyEnd), layout),
+      paragraphs: paragraphsOf(lines.slice(at + skip, starts[k + 1]?.at ?? bodyEnd), layout),
     }));
+  } else if (single) {
+    chapters = [{ title, paragraphs: paragraphsOf(lines.slice(lastStart, bodyEnd), layout) }];
   } else {
-    throw couldntTell();
+    throw new EpubError("pdf_unreadable", "Chapters couldn't be told apart");
   }
-  if (chapters.some((c) => c.paragraphs.length === 0)) throw couldntTell();
+  if (chapters.some((c) => c.paragraphs.length === 0)) {
+    throw new EpubError("pdf_unreadable", "Chapters couldn't be told apart");
+  }
 
   return {
     ao3WorkId,
@@ -469,7 +484,7 @@ export function readWork(text: PdfText): PdfWork {
     authors: byline.authors,
     tags,
     language: printedOf("language") || null,
-    series,
+    series: readSeries(printedOf("series") ?? "", links, prefaceMark),
     stats,
     rawMeta: Object.fromEntries(Object.entries(statsRaw)),
     summary,

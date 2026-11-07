@@ -1,4 +1,11 @@
-import { countWords, LIMITS, nodeBudget, sanitizeFragment, type ParsedWork } from "@archive/epub";
+import {
+  countWords,
+  EpubError,
+  LIMITS,
+  nodeBudget,
+  sanitizeFragment,
+  type ParsedWork,
+} from "@archive/epub";
 import { preflightPdf } from "./preflight";
 import { readWork, type PdfText } from "./structure";
 
@@ -8,9 +15,6 @@ export interface PdfParser {
 }
 
 export type LoadPdfParser = () => Promise<PdfParser>;
-
-/** A PDF's largest size. An epub keeps `LIMITS.maxInputBytes`. */
-export const PDF_MAX_BYTES = LIMITS.maxPdfBytes;
 
 /** Whether the file's bytes call for the PDF processor. */
 export const isPdf = (bytes: Uint8Array): boolean =>
@@ -30,6 +34,10 @@ const escapeHtml = (text: string) =>
 
 /** A PDF's bytes in, a parsed work out, or an `EpubError`. */
 export async function processPdf(bytes: Uint8Array, load: LoadPdfParser): Promise<ParsedWork> {
+  // By the bytes: the web Worker checks the size against what the file was sent as, which can lie.
+  if (bytes.length > LIMITS.maxPdfBytes) {
+    throw new EpubError("too_large", `File is larger than ${LIMITS.maxPdfBytes} bytes`);
+  }
   preflightPdf(bytes);
   const parser = await load();
   const work = readWork(await parser.read(bytes));

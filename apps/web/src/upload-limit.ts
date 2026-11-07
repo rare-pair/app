@@ -8,6 +8,10 @@ export const PDF_TYPE = "application/pdf";
 /** The most files one `POST /uploads` may ask for; the page's script holds to it too. */
 export const MAX_BATCH_FILES = 10;
 
+/** Whether an upload may be of `type`, and what's said when it may not. */
+export const isUploadType = (type: string) => type === EPUB_TYPE || type === PDF_TYPE;
+export const WRONG_TYPE = "Only epub and PDF files can be uploaded.";
+
 /** The limit in MiB, as the pages say it: "25 MB". */
 export const MAX_UPLOAD_MB = 25;
 
