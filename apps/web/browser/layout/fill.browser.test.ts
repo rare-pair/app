@@ -151,6 +151,35 @@ for (const win of WINDOWS) {
       });
     });
 
+    describe("The reading column is centred, with its heading and navigation lined up", () => {
+      for (const name of ["chapter", "entire work"]) {
+        it(`on the ${name} page`, async () => {
+          const entry = OPEN_PAGES.find((p) => p.name === name)!;
+          const { page } = await visit(open.site, open.visitors, entry, open.seeded);
+          try {
+            const box = async (selector: string) => {
+              const found = page.locator(selector).first();
+              if ((await found.count()) === 0) return null;
+              return found.evaluate((el) => {
+                const r = el.getBoundingClientRect();
+                return { left: r.left, right: r.right, width: r.width };
+              });
+            };
+            const article = (await box("article.chapter"))!;
+            const innerWidth = await page.evaluate(() => window.innerWidth);
+            expect(Math.abs(article.left - (innerWidth - article.right))).toBeLessThanOrEqual(1);
+            for (const selector of [".chapter-title", ".chapter-nav", "p.back"]) {
+              const other = await box(selector);
+              if (!other) continue;
+              expect(Math.abs(other.left - article.left), selector).toBeLessThanOrEqual(1);
+            }
+          } finally {
+            await page.close();
+          }
+        });
+      }
+    });
+
     describe("The search box and button are compact but still touch targets", () => {
       it("is between 32 and 40 px tall", async () => {
         const entry = OPEN_PAGES.find((p) => p.name === "not found")!;

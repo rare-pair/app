@@ -83,11 +83,11 @@ export async function showChapter(c: ReaderContext) {
     n,
     title: `${workTitle}, chapter ${n}`,
     bar: readerBar(id, workTitle, chapterUrl(id, n)),
-    top: `${reviewNotice(live.version)}${nav("top")}
+    top: `${reviewNotice(live.version)}<div class="reading">${nav("top")}
 <h2 class="chapter-title">${escapeHtml(chapterTitle(chapter))}</h2>
 `,
     bottom: `
-${nav("bottom")}`,
+${nav("bottom")}</div>`,
     fragment: { versionId: live.version.id, r2Key: chapter.r2_key },
     prefix: live.version.r2_prefix,
     // Only ever kept for a signed-out reader, who can't turn the screen off.

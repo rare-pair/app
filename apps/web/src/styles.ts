@@ -249,6 +249,7 @@ article.chapter {
   font-size: var(--reading-size);
   line-height: 1.6;
   max-width: ${MEASURE};
+  margin: 0 auto;
   contain: content;
   padding: var(--space);
 }
@@ -317,6 +318,34 @@ article.chapter > div:last-child > p + blockquote:last-child {
 
 .chapter-nav {
   margin: calc(var(--space) * 4) 0;
+}
+
+/* The reading column is centred in the site's width. Its wrapper has the reading face and
+   size, so its 66ch is the chapter's own and the heading, the chapter navigation and the
+   link back, which keep the interface's face and size, share the chapter's edges (the
+   chapter's padding is one space). The reader bar above it keeps the site's full width. */
+.reading {
+  max-width: ${MEASURE};
+  margin: 0 auto;
+  font-family: var(--reading);
+  font-size: var(--reading-size);
+}
+
+.reading > .chapter-title,
+.reading > .chapter-nav,
+.reading > p.back {
+  padding-left: var(--space);
+  padding-right: var(--space);
+}
+
+.reading > .chapter-nav,
+.reading > p.back {
+  font-family: var(--ui);
+  font-size: var(--text-2);
+}
+
+.reading > .chapter-title {
+  font-family: var(--ui);
 }
 
 /* The form is a flex item and the select is as wide as its longest option (a long chapter

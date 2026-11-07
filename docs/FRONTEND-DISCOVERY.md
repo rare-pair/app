@@ -304,10 +304,11 @@ decoration in a minimal design. They're bold text with labels spelled out.
 
 ## Reading experience
 
-- The chapter text keeps a `66ch` measure, in the site's 960 px column. Inside it, the only chrome is a slim top
-  bar with the work title, which links to the work page, and a settings link, which
-  scrolls away (the site header
-  and footer sit around the column, as on every page).
+- The text column sits centred at `66ch`, in the site's 960 px column. The chapter
+  heading and the chapter navigation share its edges. Above it, the only chrome is a
+  slim top bar, at the site's full width, with the work title, which links to the work
+  page, and a settings link, which scrolls away (the site header and footer sit around
+  the column, as on every page).
 - Chapter notes come before the text, end notes after, both in a smaller,
   muted style. The summary is not repeated on chapter pages.
 - Settings: theme, size, line spacing, and serif or sans, kept in a cookie.
