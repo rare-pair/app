@@ -239,10 +239,12 @@ describe("12-pdf-upload", () => {
         .returning("other_hold_reasons")
         .executeTakeFirstOrThrow();
       expect(row.other_hold_reasons).toEqual(["pdf_more_chapters"]);
+      // SAFETY: the check under test refuses what the type does.
+      const notAReason = "not_a_reason" as "pdf_more_chapters";
       await expect(
         t.db
           .updateTable("work_versions")
-          .set({ other_hold_reasons: ["not_a_reason" as "pdf_more_chapters"] })
+          .set({ other_hold_reasons: [notAReason] })
           .where("id", "=", versionId)
           .execute(),
       ).rejects.toThrow();
