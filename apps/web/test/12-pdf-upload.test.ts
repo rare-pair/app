@@ -64,6 +64,16 @@ const get = async (path: string, cookie?: string) => {
   return { status: res.status, html: await res.text() };
 };
 
+/** A same-origin form post, as the admin pages' forms send it. */
+const post = async (path: string, fields: Record<string, string>, cookie: string) => {
+  const res = await fetchW(path, {
+    method: "POST",
+    headers: { cookie, "content-type": "application/x-www-form-urlencoded", ...SAME_ORIGIN },
+    body: new URLSearchParams(fields).toString(),
+  });
+  return { status: res.status, html: await res.text() };
+};
+
 describe("12-pdf-upload", () => {
   describe("The upload page takes PDFs", () => {
     it("the page's wording says PDFs are accepted, and that an epub reads better", async () => {
@@ -246,6 +256,30 @@ describe("12-pdf-upload", () => {
       expect(page.html).toContain("Converted from a PDF");
       expect(page.html).toContain("Tags read from print");
       expect(page.html).toContain("Make current");
+    });
+
+    it("A first PDF held for its byline is listed, and approving it puts the work live", async () => {
+      const work = await seedWork(db, {
+        ao3WorkId: 8813772,
+        title: "pdfcheck-8813772",
+        format: "pdf",
+        heldFirst: "pdf_byline_unsure",
+        reviewReasons: ["from_pdf", "byline_unsure"],
+      });
+      await putFragments(env.BUCKET, work.fragments);
+      const { cookie } = await signIn("moderator");
+      expect((await get("/works/8813772")).status).toBe(404);
+
+      const queue = await get("/admin/works", cookie);
+      expect(queue.html).toContain("A PDF whose byline may not have been read whole");
+      const page = await get("/admin/works/8813772", cookie);
+      expect(page.html).toContain("not live: its first upload is held for review");
+      expect(page.html).toContain("Byline may not have been read whole");
+      expect(page.html).not.toContain("pdf_byline_unsure");
+
+      const approved = await post("/admin/works/8813772/approve", { version: work.versionId }, cookie);
+      expect(approved.html).toContain("That version is approved and now current.");
+      expect((await get("/works/8813772")).status).toBe(200);
     });
   });
 });

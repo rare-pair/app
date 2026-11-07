@@ -22,7 +22,7 @@ Only 2 of the 8 could be checked against an epub, and both are single-chapter. S
 - Fixtures are synthetic PDFs built by a script in the tests, holding no fic text. Real PDFs stay on the operator's machine under `fixtures/`, and `fixtures/**/*.pdf` is git-ignored
 - A file is a PDF because of its bytes, not its name or the type it was sent with
 - A PDF is limited to 10 MB, and an epub keeps its 25 MB (operator's ruling, 2026-11-07). The daily quota, Turnstile and the rate limits are the same as for an epub, and a PDF counts as one upload
-- A **PDF version** is a work version made from a PDF. It carries the review reason `from_pdf`, so it goes live with the existing notice, and it never holds an upload by itself
+- A **PDF version** is a work version made from a PDF. It carries the review reason `from_pdf`, so it goes live with the existing notice, and `from_pdf` never holds an upload by itself. A PDF whose byline the reader isn't sure of is held (*A byline the reader isn't sure of is held*)
 - An upload's `format` column says `epub` or `pdf`, set when it's ingested. Its original is stored at `originals/<upload id>.epub` or `originals/<upload id>.pdf`, and every reader of that key goes through one helper that takes the format
 - `pdf_unreadable` is a new upload status: in the `UploadStatus` type, the database check, the status labels and messages, and an error code ingest treats as final, so the job isn't retried
 
@@ -83,9 +83,18 @@ Only 2 of the 8 could be checked against an epub, and both are single-chapter. S
 - WHEN it is ingested
 - THEN it is stored as an epub's anonymous work is
 - AND a `/users/` link outside the byline isn't taken for an author
-- AND only the marker alone is anonymous: "by Anonymous, A Name" names both, with `byline_ambiguous`, for the opt-out check to read
-- AND a byline can wrap, inside a name too, and every linked author on it is read. A link names who it covers, by the pseud in it or, with none, the name printed under it; a printed name no link covers is named as well, with `byline_ambiguous`. None of the 8 samples has more than one author, so this is shown only on synthetic files
+- AND only the marker alone is anonymous: "by Anonymous, A Name" names both, with `byline_ambiguous`, for the opt-out check to read, and is held as below
+- AND a byline can wrap, inside a name too, and every linked author on it is read. A link names who it covers, by the pseud in it or, with none, both the name printed under it and the login in the link, so the opt-out check reads whichever its list holds; a name printed as `Pseud (login)` under a link to that login names `Pseud`. A printed name no link covers is named as well, with `byline_ambiguous`. None of the 8 samples has more than one author, so this is shown only on synthetic files
 - AND a PDF's document metadata isn't read for authors, since a browser or word processor can set it to anything, so a file with no byline has `byline_missing`
+
+#### A byline the reader isn't sure of is held
+- GIVEN a PDF whose byline the reader isn't sure it read whole: a name on it no link covers, no byline at all, a byline that reaches its cap of 8 lines while it still goes on, or a line close under its last one that has an author's link or starts with a word that last line had no room for
+- WHEN it is ingested
+- THEN its version gets the `byline_unsure` review reason and is held for a moderator with the hold reason `pdf_byline_unsure`, whatever the version rules would make of it, except that a duplicate stays a duplicate (operator's ruling, 2026-11-07). Nothing of it is public until a moderator approves it
+- AND as a work's first upload, the work is made but stays unlisted, with no current version, and a moderator's approval puts it live at that version. A later upload of the work is decided as a first one: an epub, or a PDF the reader is sure of, goes live, and the held version stays held
+- AND *Works to check* lists it as "A PDF whose byline may not have been read whole: check its authors"
+- AND the re-sanitize backfill leaves a PDF version as it is when the reader is no longer sure of its byline, unless a moderator approved it already unsure
+- AND all 8 samples are read with no such doubt, and go live
 
 #### The chapter count must match
 - GIVEN a PDF whose chapters can't be found in the number its `Chapters:` line declares
@@ -151,7 +160,8 @@ These checks don't bound everything the parser can do, and that's accepted (oper
 - WHEN a reader opens a chapter or `/full`
 - THEN it uses the same pages, cache, warnings screen, settings and position as any work
 - AND chapter summaries and notes go where an epub's do, by their printed labels
-- AND the afterword is known by its heading with End Notes or the closing line under it, or else by an `End Notes` line before the closing line, which is the one case a line in the text can be taken for it
+- AND the afterword is known by its heading with End Notes, the works inspired by this one, or the closing line under it, or else by an `End Notes` line before the closing line, which is the one case a line in the text can be taken for it. The first heading that passes is the afterword, so a text line reading `Afterword` with an `End Notes` line under it ends the last chapter there
+- AND the list of works inspired by this one isn't kept: it isn't the author's notes. docs-sample has it under its afterword heading, with no end notes; broker-02 has it after its end notes, with no heading, where it stays in the end notes
 
 #### A reader is told it was converted
 - GIVEN a work whose current version is a PDF version

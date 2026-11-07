@@ -22,7 +22,7 @@ an unofficial stopgap.
 | Upload transfer | Each file goes through the web Worker, which checks the session and the upload's row and streams it to R2 through the bucket binding. There is no presigned link. A size refusal, a failed confirm or a failed upload frees its slot at once, and the reaper stays for what the server never hears about or a fault stops it freeing (operator rulings, 2026-11-06) |
 | Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend alone. There is no failover provider at launch, and while Resend is down sign-in stops until it returns (operator ruling, 2026-11-05) |
 | Accepted files | AO3-native epub exports, and PDFs of AO3 works, converted to text and limited to 10 MB, with an epub winning (### PDF processor). FanFicFare support comes later |
-| New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. A consistent edit goes live with no hold: readers' reports and rollback are the check (operator ruling, 2026-11-05). The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) A PDF is the exception: an epub replaces it unless the epub is older, with nothing compared, and a PDF of an epub-current work is a duplicate, or held if it has more chapters (### PDF processor) |
+| New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. A consistent edit goes live with no hold: readers' reports and rollback are the check (operator ruling, 2026-11-05). The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) A PDF is the exception: an epub replaces it unless the epub is older, with nothing compared, and a PDF of an epub-current work is a duplicate, or held if it has more chapters. A PDF whose byline the reader isn't sure of is held, even as a work's first upload (operator ruling, 2026-11-07; ### PDF processor) |
 | A file swapped after confirm | Ingest handles the file it read and records that file's hash. A mismatch with confirm's hash isn't refused, and no locked copy is made (operator ruling, 2026-11-05) |
 | Author identity | No work claims and no author verification while AO3 is down. Removal and opt-out are requests anyone can make, without proving who they are, and they take effect once the requester confirms control of the contact email |
 | Removal list | After launch, not built (operator ruling, 2026-11-06). Once built: removed works (title, byline, a link to the original with its ID, date, reason) are public at `/removed`, and pseuds with an approved opt-out at `/removed/pseuds`. Reasons come from a fixed list, never free text. Open requests and hidden works are never listed, and a moderator can withhold an entry |
@@ -179,7 +179,7 @@ work_versions(id, work_id,
               published_at, updated_at, raw_meta jsonb,                -- columns, as ingest read them from its file
                                       -- (NULL for a field it lacked); all NULL on a version saved
                                       -- before migration 0012 that wasn't current then
-              hold_reason NULL)       -- chapters_changed | tags_changed | authors_changed | pdf_more_chapters, on a version held since 0012
+              hold_reason NULL)       -- chapters_changed | tags_changed | authors_changed | pdf_more_chapters | pdf_byline_unsure, on a version held since 0012
 chapters     (work_id, version_id, n, title, words, r2_key)
 tags         (id, type, name, name_norm) -- type: fandom|relationship|character|freeform|warning|category|rating
 work_tags    (work_id, tag_id,
@@ -242,11 +242,14 @@ sign_in_email_counts (address_hash,  -- keyed hash of the address, never the add
 `user.role` is `user`, `moderator` or `admin`. An admin has every moderator
 power. The wait list has no admin action: its purge is a local script (Wait list).
 
-A held upload doesn't make its work held: a first upload always goes live (with
+A held upload doesn't make its work held: a first upload goes live (with
 the notice if the parser gave review reasons), and a later upload that is held
 leaves the work live at its current version. Held is a state of the version
 (its upload is `held_for_review`), never of the work, so `works.status` has no
-held value.
+held value. The one first upload that is held is a PDF whose byline the reader
+isn't sure of (### PDF processor): its work stays `processing` with no current
+version, unlisted, until a moderator approves a version (which puts it `live`)
+or a later upload goes live as a first one would.
 
 **Dedupe.** AO3 epubs carry the original work URL
 (`archiveofourown.org/works/<id>`) in the preface. That ID is the canonical key.
@@ -876,6 +879,18 @@ so a job that died before recording one leaves nothing behind.
 epub over a PDF replaces it with nothing else compared, unless it's older: fewer chapters, or as many
 with an earlier date, is `duplicate`. A PDF over an epub is `duplicate`, or with more chapters held
 with `pdf_more_chapters`, and a moderator can make it current. A PDF over a PDF follows the usual rules.
+
+**A byline the reader isn't sure of** (operator's ruling, 2026-11-07) adds `byline_unsure`, and the
+version is held with `pdf_byline_unsure` whatever the rules above make of it, but a duplicate stays a
+duplicate. The reader isn't sure when a name on the byline has no link, when there is no byline, when
+the byline reaches its cap of 8 lines still going on, or when the line close under its last one has an
+author's link or starts with a word the last line had no room for (by estimated widths across the
+text's measure). As a work's first upload, the work row is made and left `processing` with no
+current version: nothing is public, `approveVersion` puts it `live` at the approved version, and a
+later upload takes the same row and is decided as a first one. A link with no pseud in it names both
+the name printed under it and its login, so the opt-out check reads whichever its list holds. The
+backfill leaves a PDF version as it is when its byline reads unsure now and didn't when a moderator
+approved it.
 
 **What this doesn't bound.** The checks stop the structures that make pdf.js decode one stream over and
 over, but there's no budget over what a file's pages can reach. A file that passes and still kills

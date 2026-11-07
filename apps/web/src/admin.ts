@@ -2,7 +2,7 @@
 // every /admin URL goes through, and the four queues, read only. Actions and detail
 // pages come with later tickets (MOD2 on).
 
-import { reasonWording } from "./review-wording";
+import { reasonWording, WORDED_HOLDS } from "./review-wording";
 import {
   createDb,
   isModeratorRole,
@@ -323,11 +323,10 @@ export async function showWorksToCheck(c: AdminContext) {
     }
   };
   for (const r of held) {
+    const worded = WORDED_HOLDS.filter((reason) => r.hold_reasons.includes(reason));
     add(
       r,
-      r.hold_reasons.includes("pdf_more_chapters")
-        ? `Held version: ${reasonWording("pdf_more_chapters")}`
-        : "Held version",
+      worded.length > 0 ? `Held version: ${worded.map(reasonWording).join(", ")}` : "Held version",
     );
   }
   for (const r of flagged) {

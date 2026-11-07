@@ -115,7 +115,10 @@ adminWork.get("/works/:id", async (c) => {
     workAdminPage(
       work.title,
       work.ao3_work_id,
-      workStatusText(work.status, work.hidden_cause),
+      // A first upload held (spec 12) leaves the work with no version until one is approved.
+      work.status === "processing" && work.current_version_id === null
+        ? "not live: its first upload is held for review"
+        : workStatusText(work.status, work.hidden_cause),
       versions.map((v) => ({
         id: v.id,
         added: v.created_at.toISOString(),
