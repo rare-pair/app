@@ -977,7 +977,7 @@ describe("26-bulk-zip-upload", () => {
     class Counting {
       readable: ReadableStream;
       writable: WritableStream;
-      constructor(format: CompressionFormat) {
+      constructor(format: "deflate-raw") {
         const inflate = new DecompressionStream(format);
         const count = new TransformStream({
           transform(chunk: Uint8Array, out) {
