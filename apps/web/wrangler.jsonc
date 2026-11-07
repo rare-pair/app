@@ -185,9 +185,9 @@
     "NOTICES_EMAIL": "admin@rarepair.fans",
     // The most uploads an account may confirm in a UTC day (src/quota.ts): the new-account
     // tier, which every account but a moderator or admin gets, and the trusted tier of
-    // moderators and admins. ARCHITECTURE (Surge controls) sets them before launch from load
-    // testing; these are first values, to be revisited then.
-    "UPLOAD_QUOTA_NEW": "20",
+    // moderators and admins. Both are 100 by operator ruling (2026-11-07); ARCHITECTURE (Surge
+    // controls) records what that allows.
+    "UPLOAD_QUOTA_NEW": "100",
     "UPLOAD_QUOTA_TRUSTED": "100",
     // The most sign-in emails one address may be sent in a UTC day (src/quota.ts), counted in
     // Postgres because the rate-limiting bindings only have short windows. ARCHITECTURE (Surge

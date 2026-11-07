@@ -192,15 +192,37 @@ export async function postLoginOpen(
   fields: Record<string, string>,
   { url = "/login" }: { url?: string } = {},
 ) {
+  return postLoginWithVars({ PRELAUNCH: "off" }, fields, { url });
+}
+
+/**
+ * The upload quota's two tiers as the cases about the trusted tier run them. Wrangler.jsonc has
+ * both at 100 for now, so the trusted tier is only higher on these.
+ */
+export const TIERS = { UPLOAD_QUOTA_NEW: "20", UPLOAD_QUOTA_TRUSTED: "100" };
+
+/**
+ * `postLogin` to the Worker on the same bindings but with these vars set, for a case that
+ * needs a value other than wrangler.jsonc's, such as the upload quota's two tiers.
+ */
+export async function postLoginWithVars(
+  vars: Record<string, string>,
+  fields: Record<string, string>,
+  {
+    url = "/login",
+    headers = {},
+    body = new URLSearchParams(fields).toString(),
+  }: { url?: string; headers?: Record<string, string>; body?: BodyInit } = {},
+) {
   const ctx = createExecutionContext();
   const res = await app.fetch(
     new Request(new URL(url, BASE), {
       method: "POST",
       redirect: "manual",
-      headers: { ...LOGIN_HEADERS, "cf-connecting-ip": freshIp() },
-      body: new URLSearchParams(fields).toString(),
+      headers: { ...LOGIN_HEADERS, "cf-connecting-ip": freshIp(), ...headers },
+      body,
     }),
-    { ...env, PRELAUNCH: "off" },
+    { ...env, ...vars },
     ctx,
   );
   await waitOnExecutionContext(ctx);

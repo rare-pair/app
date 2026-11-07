@@ -213,9 +213,12 @@ export const uploadPage = (nonce: string, siteKey: string) =>
     "Upload a work",
     `<noscript><p>Uploading needs JavaScript, for its anti-spam check and to send the file. Reading works without it.</p></noscript>
 <div id="upload" hidden>
+<div id="drop" class="drop-area">
+<p>Drop epub files here, or pick them below. The list stays here until you press Upload.</p>
 <label for="file">EPUB files, ${MAX_UPLOAD_MB} MB at most each</label>
 <input id="file" type="file" name="file" accept=".epub,${EPUB_TYPE}" multiple>
-<div class="cf-turnstile" data-sitekey="${escapeHtml(siteKey)}" data-action="${TURNSTILE_ACTIONS.upload}"></div>
+</div>
+<div class="cf-turnstile" data-sitekey="${escapeHtml(siteKey)}" data-action="${TURNSTILE_ACTIONS.upload}" data-before-interactive-callback="onTurnstileInteractive"></div>
 <button id="send" type="button">Upload</button>
 <p id="message" role="status"></p>
 <ul id="files"></ul>
