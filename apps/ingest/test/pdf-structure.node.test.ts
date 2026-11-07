@@ -119,8 +119,12 @@ describe("12-pdf-upload: the byline, on the parser's lines", () => {
 
   it("is unsure of a byline longer than it reads", () => {
     // Every name linked: only the length says some weren't read.
-    const rows = Array.from({ length: 10 }, (_, i) => line(`${i ? "" : "by "}Name${i},`, 640 - i * 12));
-    const links = rows.map((row, i) => userLink(`u${i}`, row.x + (i ? 0 : 16), row.right - 5, row.y));
+    const rows = Array.from({ length: 10 }, (_, i) =>
+      line(`${i ? "" : "by "}Name${i},`, 640 - i * 12),
+    );
+    const links = rows.map((row, i) =>
+      userLink(`u${i}`, row.x + (i ? 0 : 16), row.right - 5, row.y),
+    );
     const work = read([...rows, line("The text.", 400)], links);
     expect(work.reviewReasons).not.toContain("byline_ambiguous");
     expect(work.reviewReasons).toContain("byline_unsure");

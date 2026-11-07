@@ -277,7 +277,11 @@ describe("12-pdf-upload", () => {
       expect(page.html).toContain("Byline may not have been read whole");
       expect(page.html).not.toContain("pdf_byline_unsure");
 
-      const approved = await post("/admin/works/8813772/approve", { version: work.versionId }, cookie);
+      const approved = await post(
+        "/admin/works/8813772/approve",
+        { version: work.versionId },
+        cookie,
+      );
       expect(approved.html).toContain("That version is approved and now current.");
       expect((await get("/works/8813772")).status).toBe(200);
     });

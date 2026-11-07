@@ -340,14 +340,18 @@ describe("12-pdf-upload", () => {
 
       it("a line starting by in the text isn't the byline", async () => {
         const id = 8813781;
-        const { live, text } = await chapterText(id, [
-          posted(id),
-          stats,
-          title,
-          { text: "by Someone" },
-          para("The first of the text."),
-          para("by the door she waited"),
-        ], true);
+        const { live, text } = await chapterText(
+          id,
+          [
+            posted(id),
+            stats,
+            title,
+            { text: "by Someone" },
+            para("The first of the text."),
+            para("by the door she waited"),
+          ],
+          true,
+        );
         expect(live?.authors.map((a) => a.pseud)).toEqual(["Someone"]);
         expect(live?.work.title).toBe("A title");
         expect(text).toContain("The first of the text.");
@@ -370,7 +374,11 @@ describe("12-pdf-upload", () => {
 
       it("a work with no byline keeps its text", async () => {
         const id = 8813783;
-        const { live, text } = await chapterText(id, [posted(id), stats, para("All the text.")], true);
+        const { live, text } = await chapterText(
+          id,
+          [posted(id), stats, para("All the text.")],
+          true,
+        );
         expect(text).toBe("<p>All the text.</p>");
         expect(live?.version.review_reasons).toContain("byline_missing");
       });
@@ -420,14 +428,18 @@ describe("12-pdf-upload", () => {
 
       it("a link-less byline that wraps keeps every name", async () => {
         const id = 8813787;
-        const { live } = await chapterText(id, [
-          posted(id),
-          stats,
-          title,
-          { text: "by A Very Long Pseud Name," },
-          { text: "Second Author" },
-          para("The text."),
-        ], true);
+        const { live } = await chapterText(
+          id,
+          [
+            posted(id),
+            stats,
+            title,
+            { text: "by A Very Long Pseud Name," },
+            { text: "Second Author" },
+            para("The text."),
+          ],
+          true,
+        );
         expect(live?.authors.map((a) => a.pseud)).toEqual([
           "A Very Long Pseud Name",
           "Second Author",
@@ -478,22 +490,26 @@ describe("12-pdf-upload", () => {
       it("a co-author with no link beside one with a link is still named", async () => {
         const id = 8813776;
         const text = "by Linked Author, Other Author";
-        const { live } = await chapterText(id, [
-          posted(id),
-          stats,
-          title,
-          {
-            text,
-            links: [
-              {
-                url: "https://archiveofourown.org/users/linked/pseuds/Linked%20Author",
-                at: 3,
-                length: 13,
-              },
-            ],
-          },
-          para("The text."),
-        ], true);
+        const { live } = await chapterText(
+          id,
+          [
+            posted(id),
+            stats,
+            title,
+            {
+              text,
+              links: [
+                {
+                  url: "https://archiveofourown.org/users/linked/pseuds/Linked%20Author",
+                  at: 3,
+                  length: 13,
+                },
+              ],
+            },
+            para("The text."),
+          ],
+          true,
+        );
         expect(live?.authors.map((a) => a.pseud)).toEqual(["Linked Author", "Other Author"]);
         expect(live?.version.review_reasons).toContain("byline_ambiguous");
       });
@@ -516,14 +532,22 @@ describe("12-pdf-upload", () => {
 
       it("a profile link in the first line of the text isn't an author", async () => {
         const id = 8813778;
-        const { live, text } = await chapterText(id, [
-          posted(id),
-          stats,
-          title,
-          by,
-          { text: "Thanks to a friend.", url: "https://archiveofourown.org/users/friend", gap: 10 },
-          para("The text."),
-        ], true);
+        const { live, text } = await chapterText(
+          id,
+          [
+            posted(id),
+            stats,
+            title,
+            by,
+            {
+              text: "Thanks to a friend.",
+              url: "https://archiveofourown.org/users/friend",
+              gap: 10,
+            },
+            para("The text."),
+          ],
+          true,
+        );
         expect(live?.authors.map((a) => a.pseud)).toEqual(["Someone"]);
         expect(text).toContain("Thanks to a friend.");
       });
@@ -688,19 +712,24 @@ describe("12-pdf-upload", () => {
         });
 
         it("a linked name under the byline with no gap isn't an author", async () => {
-          const { names, text } = await pseuds(8813764, [
-            { text: "by Someone", url: user("someone") },
-            { text: "Thanks to a friend.", url: user("friend") },
-          ], true);
+          const { names, text } = await pseuds(
+            8813764,
+            [
+              { text: "by Someone", url: user("someone") },
+              { text: "Thanks to a friend.", url: user("friend") },
+            ],
+            true,
+          );
           expect(names).toEqual(["Someone"]);
           expect(text).toContain("Thanks to a friend.");
         });
 
         it("an unlinked byline is read, whatever link sits under it", async () => {
-          const { names } = await pseuds(8813765, [
-            { text: "by Opted Out" },
-            { text: "Thanks to a friend.", url: user("friend") },
-          ], true);
+          const { names } = await pseuds(
+            8813765,
+            [{ text: "by Opted Out" }, { text: "Thanks to a friend.", url: user("friend") }],
+            true,
+          );
           expect(names).toEqual(["Opted Out"]);
         });
       });
@@ -987,7 +1016,10 @@ describe("12-pdf-upload", () => {
       expect(again.row.status).toBe("held_for_review");
       const { workId: id, status, current, versions } = await versionsOf(workId);
       expect({ status, current }).toEqual({ status: "processing", current: null });
-      expect(versions.map((v) => v.hold_reason)).toEqual(["pdf_byline_unsure", "pdf_byline_unsure"]);
+      expect(versions.map((v) => v.hold_reason)).toEqual([
+        "pdf_byline_unsure",
+        "pdf_byline_unsure",
+      ]);
       expect(versions[0]!.review_reasons).toContain("byline_unsure");
 
       // A moderator's approval puts it live.
