@@ -1587,7 +1587,7 @@ three stay open for a session from before sign-in closed. That leaves no way to
 become an admin before launch, and nothing needs one: the forms that fill the
 queues are closed, and the launch send and purge are local scripts. Right after
 launch, the operator signs in and sets their role. Turning `PRELAUNCH` off opens
-the archive: `/` becomes the home page and `POST /waitlist` answers 404.
+the archive: `/` becomes the home page and `POST /waitlist` answers 404. The archive opened on 2026-11-07, so `apps/web/wrangler.jsonc` now sets `PRELAUNCH` to "off"; a node test holds it.
 
 The wait list's pages are the only ones with web fonts: Fraunces and IBM Plex
 Mono, the publishers' own woff2 files, unmodified (FRONTEND-DISCOVERY,

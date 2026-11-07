@@ -19,11 +19,11 @@ function readConfig(): WebConfig {
   const json = text
     .replace(/"(?:[^"\\]|\\.)*"|\/\/[^\n]*/g, (m) => (m.startsWith('"') ? m : ""))
     .replace(/,(\s*[}\]])/g, "$1");
-  // SAFETY: the tests read only `observability`, from the file's own JSON.
+  // SAFETY: the tests read only `observability` and `vars.PRELAUNCH`, from the file's own JSON.
   return JSON.parse(json) as WebConfig;
 }
 
-// Reads the config only: it cannot show what the deployed Worker has, or that the platform
+// Reads the config only (observability, and PRELAUNCH below): it cannot show what the deployed Worker has, or that the platform
 // keeps error lines when invocation logs are off.
 describe("24-crawler-and-agent-blocking", () => {
   it("Counting refusals does not log what people read: invocation logs are off", () => {
