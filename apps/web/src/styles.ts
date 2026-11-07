@@ -705,14 +705,11 @@ main:has(.sign-in) > p[role="alert"] {
 }
 
 /* Help, not a warning: a quiet rule at the side, in the muted colour, with no box. */
-main:has(.sign-in) > .sign-in-help {
-  padding-left: calc(var(--space) * 3);
-  color: var(--muted);
-}
-
 .sign-in-help {
   box-sizing: border-box;
+  padding-left: calc(var(--space) * 3);
   border-left: 3px solid var(--rule);
+  color: var(--muted);
 }
 
 .sign-in label {
