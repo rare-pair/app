@@ -4,6 +4,7 @@ import {
   MAX_BATCH_FILES,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_MB,
+  MAX_ZIP_BYTES,
   MAX_ZIP_MB,
 } from "./upload-limit";
 
@@ -31,7 +32,7 @@ export const UPLOAD_SCRIPT = `"use strict";
   const MAX_MB = ${MAX_UPLOAD_MB};
   const MAX_FILES = ${MAX_BATCH_FILES};
   const ZIP_MB = ${MAX_ZIP_MB};
-  const ZIP_BYTES = ZIP_MB * 1048576;
+  const ZIP_BYTES = ${MAX_ZIP_BYTES};
   // A zip's end record is 22 bytes, then a comment of up to 65535.
   const END_SEARCH = 65557;
   // A directory larger than this is no zip of epubs, and would be a lot to hold.
@@ -73,10 +74,13 @@ export const UPLOAD_SCRIPT = `"use strict";
       : bytes < 1048576
         ? Math.round(bytes / 1024) + " KB"
         : (bytes / 1048576).toFixed(1) + " MB";
+  const isZip = (name) => /\\.zip$/i.test(name);
+  const isEpub = (name) => /\\.epub$/i.test(name);
+  const OVER_LIMIT = "Over the " + MAX_MB + " MB limit, so it was not uploaded.";
   const problemOf = (file) => {
-    if (!/\\.epub$/i.test(file.name)) return "Not an epub file, so it was not uploaded.";
+    if (!isEpub(file.name)) return "Not an epub file, so it was not uploaded.";
     if (file.size === 0) return "This file is empty, so it was not uploaded.";
-    if (file.size > MAX_BYTES) return "Over the " + MAX_MB + " MB limit, so it was not uploaded.";
+    if (file.size > MAX_BYTES) return OVER_LIMIT;
     return "";
   };
   const sameFile = (a, b) => a.name === b.name && a.size === b.size;
@@ -119,8 +123,6 @@ export const UPLOAD_SCRIPT = `"use strict";
   };
   const repeatsText = (repeats) =>
     repeats + (repeats === 1 ? " was" : " were") + " already in the list.";
-  const isZip = (name) => /\\.zip$/i.test(name);
-  const isEpub = (name) => /\\.epub$/i.test(name);
   const readBytes = async (file, from, to) =>
     new Uint8Array(await file.slice(from, to).arrayBuffer());
   // The entries in a zip's central directory: { path, method, flags, packed, size, offset }.
@@ -134,10 +136,12 @@ export const UPLOAD_SCRIPT = `"use strict";
     const count = tailView.getUint16(end + 10, true);
     const length = tailView.getUint32(end + 12, true);
     const start = tailView.getUint32(end + 16, true);
+    if (count === 0xffff || length === 0xffffffff || start === 0xffffffff) throw new Error("zip64");
     if (start + length > zip.size || length > MAX_DIRECTORY) throw new Error("bad directory");
     const dir = await readBytes(zip, start, start + length);
     const view = new DataView(dir.buffer);
     const found = [];
+    const decoder = new TextDecoder();
     let at = 0;
     for (let i = 0; i < count; i++) {
       if (at + 46 > dir.length || view.getUint32(at, true) !== 0x02014b50) throw new Error("bad entry");
@@ -148,7 +152,7 @@ export const UPLOAD_SCRIPT = `"use strict";
         packed: view.getUint32(at + 20, true),
         size: view.getUint32(at + 24, true),
         offset: view.getUint32(at + 42, true),
-        path: new TextDecoder().decode(dir.subarray(at + 46, at + 46 + nameLength)),
+        path: decoder.decode(dir.subarray(at + 46, at + 46 + nameLength)),
       });
       at += 46 + nameLength + view.getUint16(at + 30, true) + view.getUint16(at + 32, true);
     }
@@ -219,7 +223,7 @@ export const UPLOAD_SCRIPT = `"use strict";
         blob = null;
       }
       let ok;
-      if (blob === TOO_BIG) ok = addFile({ name, size: Math.max(entry.size, MAX_BYTES + 1) });
+      if (blob === TOO_BIG) ok = addFile({ name, size: entry.size }, OVER_LIMIT);
       else if (blob === null) {
         ok = addFile({ name, size: entry.size }, "Could not be read from the zip, so it was not uploaded.");
       } else ok = addFile(new File([blob], name, { type: TYPE }));
