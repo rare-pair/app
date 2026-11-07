@@ -212,6 +212,7 @@ export async function submitReport(c: ReportContext) {
       })
       .execute();
     // These kinds never count toward hiding, so there is nothing to count.
+    // SAFETY: a widening to string, so `includes` can take the form field.
     if ((UNCOUNTED_REPORT_KINDS as readonly string[]).includes(reason)) {
       return c.html(reportedPage(reason), 200, NO_STORE);
     }
