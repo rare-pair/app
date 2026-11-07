@@ -5,7 +5,11 @@ const MiB = 1024 * 1024;
 
 export const PDF_LIMITS = {
   /** Bytes all of a file's streams may inflate to. */
-  maxInflatedBytes: 64 * MiB,
+  maxInflatedBytes: 128 * MiB,
+  /** A `/Contents` array's most entries. */
+  maxContentsEntries: 8,
+  /** Bytes one stream may inflate to, and one page's `/Contents` together. */
+  maxStreamInflatedBytes: 16 * MiB,
   /** Objects a file may hold, by its trailer and by what it really has. The largest sample has 8,561. */
   maxObjects: 100_000,
   /** Pages a file may have: at the samples' 230 to 554 words a page, about 1M words. */
@@ -26,6 +30,7 @@ const OBJ = bytesOf("obj");
 const TRAILER = bytesOf("trailer");
 const XREF = bytesOf("xref");
 const STARTXREF = bytesOf("startxref");
+const START = bytesOf("start");
 
 const matches = (bytes: Uint8Array, at: number, word: number[]): boolean =>
   at >= 0 && word.every((b, i) => bytes[at + i] === b);
@@ -67,6 +72,7 @@ type Value =
   | { kind: "name"; name: string }
   | { kind: "number"; value: number }
   | { kind: "list"; items: Value[] }
+  | { kind: "dict"; dict: Dict }
   | { kind: "other" };
 
 /** A dictionary's top-level entries, a repeated key keeping every value, and where it ended. */
@@ -177,8 +183,8 @@ class Reader {
       return { kind: "other" };
     }
     if (b === 0x3c && bytes[this.at + 1] === 0x3c) {
-      if (this.dict() === null) return null;
-      return { kind: "other" };
+      const dict = this.dict();
+      return dict === null ? null : { kind: "dict", dict };
     }
     if (b === 0x3c) {
       this.hexString();
@@ -294,14 +300,23 @@ interface Budget {
 }
 
 /**
- * Inflates one stream, keeping nothing, until its deflate data ends or the file does. Refuses the
- * file when the bytes made pass the budget. Corrupt data is refused too, not skipped: fflate is
- * stricter than pdf.js, which reads on past a bad back-reference, so a stream fflate can't read
- * may still inflate far in the parser.
+ * Inflates one stream until its deflate data ends or the file does, and returns the bytes it made.
+ * Keeps them only for `keep`, an object stream the scan reads next. Refuses the file when they
+ * pass a budget. Corrupt data is refused too, not skipped: fflate is stricter than pdf.js, which
+ * reads on past a bad back-reference, so a stream fflate can't read may still inflate far in the
+ * parser.
  */
-function inflateStream(bytes: Uint8Array, start: number, budget: Budget): void {
+function inflateStream(
+  bytes: Uint8Array,
+  start: number,
+  budget: Budget,
+  keep: Uint8Array[] | null,
+): number {
+  let made = 0;
   const inflater = new Inflate((chunk) => {
+    made += chunk.length;
     budget.inflated += chunk.length;
+    if (keep !== null && made <= PDF_LIMITS.maxStreamInflatedBytes) keep.push(chunk);
   });
   // fflate has no public "finished" flag. A finished stream has its last-block flag set and no
   // block in progress. `pdf-preflight.node.test.ts` fails if a later fflate moves them.
@@ -317,11 +332,15 @@ function inflateStream(bytes: Uint8Array, start: number, budget: Budget): void {
     } catch (cause) {
       throw new EpubError("pdf_unreadable", "Corrupt deflate data", { cause });
     }
-    if (budget.inflated > PDF_LIMITS.maxInflatedBytes) {
-      throw new EpubError("zip_bomb", `Streams inflate past ${PDF_LIMITS.maxInflatedBytes} bytes`);
+    if (
+      made > PDF_LIMITS.maxStreamInflatedBytes ||
+      budget.inflated > PDF_LIMITS.maxInflatedBytes
+    ) {
+      throw new EpubError("zip_bomb", "Streams inflate too far");
     }
     if (state.f && !state.l) break;
   }
+  return made;
 }
 
 /** The last `startxref` in the file's tail must land on `xref` or on an object. */
@@ -364,7 +383,7 @@ interface Counts {
   entries: number;
 }
 
-function checkDictLimits(dict: Dict, counts: Counts): void {
+function checkDictLimits(dict: Dict): void {
   if (dict.entries.has("Encrypt")) throw unreadable("Encrypted");
   for (const size of numbers(dict.entries.get("Size"))) {
     if (size > PDF_LIMITS.maxObjects) throw unreadable("Too many objects");
@@ -377,10 +396,56 @@ function checkCounts(counts: Counts): void {
   }
 }
 
-/** A stream object's dictionary: its filters and what it says of the file's objects. */
-function checkStreamDict(dict: Dict, counts: Counts): void {
+/** A stream's dictionary, found at its `obj`, for when the scan reaches its keyword. */
+interface StreamInfo {
+  objectNumber: number | null;
+  objectStream: boolean;
+}
+
+/** What the scan collects of each page's `/Contents`, to check once all objects are known. */
+interface ContentsSeen {
+  /** Each `/Contents` array's references, by object number. */
+  lists: number[][];
+  /** Objects a lone `/Contents` reference names. */
+  refs: Set<number>;
+  /** Inflated bytes of each stream object. */
+  streamBytes: Map<number, number>;
+  /** Objects that aren't streams, or aren't only streams: an array could be one of them. */
+  others: Set<number>;
+}
+
+/** Refuses the `/Contents` values of `dict` that make the parser decode a stream over and over. */
+function noteContents(dict: Dict, seen: ContentsSeen): void {
+  for (const value of dict.entries.get("Contents") ?? []) {
+    if (value.kind === "number") {
+      seen.refs.add(value.value);
+    } else if (value.kind === "list") {
+      // A reference reads as three values: number, generation, R.
+      const refs = value.items.flatMap((item, i) =>
+        i % 3 === 0 && item.kind === "number" ? [item.value] : [],
+      );
+      if (refs.length > PDF_LIMITS.maxContentsEntries || new Set(refs).size < refs.length) {
+        throw unreadable("A /Contents array that repeats or runs long");
+      }
+      seen.lists.push(refs);
+    }
+  }
+}
+
+/** A form can call itself or others any number of times. None of the real samples has one. */
+function checkSubtype(dict: Dict): void {
+  for (const subtype of dict.entries.get("Subtype") ?? []) {
+    if (subtype.kind !== "name" || subtype.name === "Form") {
+      throw unreadable("A form XObject, or a stream whose subtype can't be read");
+    }
+  }
+}
+
+/** The stream dictionary at an `obj`: its filters and what it says of the file's objects. */
+function checkStreamDict(dict: Dict, counts: Counts): boolean {
   checkFilters(dict);
-  checkDictLimits(dict, counts);
+  checkSubtype(dict);
+  checkDictLimits(dict);
   const type = dict.entries.get("Type") ?? [];
   const isType = (name: string) => type.some((t) => t.kind === "name" && t.name === name);
   if (isType("ObjStm")) {
@@ -395,6 +460,7 @@ function checkStreamDict(dict: Dict, counts: Counts): void {
     }
   }
   checkCounts(counts);
+  return isType("ObjStm");
 }
 
 /** A cross-reference table's subsections: `<first> <count>`, then 20 bytes per entry. */
@@ -412,54 +478,143 @@ function countTable(bytes: Uint8Array, from: number, counts: Counts, work: { lef
   }
 }
 
+/** The number before an `obj` keyword, read backwards, or null when there is none. */
+function objectNumberBefore(bytes: Uint8Array, keyword: number): number | null {
+  let at = keyword - 1;
+  const skipSpace = () => {
+    while (isSpace(bytes[at])) at--;
+  };
+  const skipDigits = () => {
+    const from = at;
+    while (isDigit(bytes[at])) at--;
+    return from > at;
+  };
+  skipSpace();
+  if (!skipDigits()) return null;
+  skipSpace();
+  const end = at;
+  if (!skipDigits() || end - at > 10) return null;
+  let number = 0;
+  for (let i = at + 1; i <= end; i++) number = number * 10 + (bytes[i]! - 0x30);
+  return number;
+}
+
 /**
- * Refuses a file before the parser opens it: encrypted, corrupt, too many objects, or a stream
- * that inflates too far. Every keyword in the raw bytes counts, read or not, and a stream's data
- * is scanned like the rest: pdf.js finds objects through a cross-reference table that can point
- * anywhere, so a stream "inside" another stream, or one with a false `/Length`, is still
- * reachable. A stream can't live inside an object stream, so none is hidden from this.
+ * An object stream's objects: their numbers are not streams, and any page among them has its
+ * `/Contents` read. In order from the first object: a file whose header gives other offsets can
+ * hide one from this, which the rulings on #741 accept.
+ */
+function readObjectStream(parts: Uint8Array[], seen: ContentsSeen): void {
+  const data = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const part of parts) {
+    data.set(part, at);
+    at += part.length;
+  }
+  const reader = new Reader(data, { left: 2 * data.length + 2 * MiB });
+  let afterHeader = true;
+  let pending: number | null = null;
+  for (;;) {
+    const value = reader.value();
+    if (value === null) return;
+    if (value.kind === "dict") noteContents(value.dict, seen);
+    if (value.kind === "number" && afterHeader) {
+      // Header pairs: number, offset.
+      if (pending === null) {
+        pending = value.value;
+        seen.others.add(pending);
+      } else {
+        pending = null;
+      }
+    } else {
+      afterHeader = false;
+    }
+  }
+}
+
+/** What the scan could only check once it had seen every object. */
+function checkContents(seen: ContentsSeen): void {
+  for (const ref of seen.refs) {
+    if (seen.others.has(ref)) throw unreadable("/Contents that may be an array");
+  }
+  for (const refs of seen.lists) {
+    let total = 0;
+    for (const ref of refs) {
+      if (seen.others.has(ref)) throw unreadable("/Contents that may be an array");
+      total += seen.streamBytes.get(ref) ?? 0;
+    }
+    if (total > PDF_LIMITS.maxStreamInflatedBytes) throw unreadable("/Contents too long to join");
+  }
+}
+
+/**
+ * Refuses a file before the parser opens it: encrypted, corrupt, too many objects, a stream that
+ * inflates too far, or a structure that makes the parser decode a stream over and over. Every
+ * keyword in the raw bytes counts, read or not, and a stream's data is scanned like the rest:
+ * pdf.js finds objects through a cross-reference table that can point anywhere, so a stream
+ * "inside" another stream, or one with a false `/Length`, is still reachable. A stream can't live
+ * inside an object stream, so none is hidden from this.
  *
- * This bounds each stream's decoding once, not what the parser then does with it. pdf.js decodes
- * a stream once per reference and joins a `/Contents` array into one buffer, so a 13 KB file that
- * passes here took 6 GB in workerd. Not safe to put in front of the parser as it stands: see
- * PDFUPLOAD's report on #741.
+ * It doesn't bound everything: pdf.js decodes a stream once per reference, so a file with many
+ * pages naming one big stream still costs time, and one this misses can still kill the isolate.
+ * That file gets the normal retries, then `parse_failed` (the operator's ruling on #741).
  */
 export function preflightPdf(bytes: Uint8Array): void {
   checkStartxref(bytes);
   const budget: Budget = { inflated: 0, fed: 0 };
   const counts: Counts = { objects: 0, entries: 0 };
+  const seen: ContentsSeen = {
+    lists: [],
+    refs: new Set(),
+    streamBytes: new Map(),
+    others: new Set(),
+  };
+  const streams = new Map<number, StreamInfo>();
   const work = { left: 2 * bytes.length + 2 * MiB };
   const reader = new Reader(bytes, work);
   for (let at = 0; at < bytes.length; at++) {
     const b = bytes[at];
     if (b === 0x73 /* s */ && matches(bytes, at, STREAM) && !matches(bytes, at - 3, END)) {
       const start = dataStart(bytes, at + STREAM.length);
-      if (zlibHeaderAt(bytes, start)) inflateStream(bytes, start, budget);
+      if (zlibHeaderAt(bytes, start)) {
+        const info = streams.get(at);
+        const keep = info?.objectStream ? ([] as Uint8Array[]) : null;
+        const made = inflateStream(bytes, start, budget, keep);
+        if (info && info.objectNumber !== null) seen.streamBytes.set(info.objectNumber, made);
+        if (keep !== null) readObjectStream(keep, seen);
+      }
       at += STREAM.length - 1;
     } else if (b === 0x6f /* o */ && matches(bytes, at, OBJ) && !matches(bytes, at - 3, END)) {
       if (isLetter(bytes[at + OBJ.length])) continue;
       counts.objects++;
       checkCounts(counts);
+      const objectNumber = objectNumberBefore(bytes, at);
       reader.at = at + OBJ.length;
       reader.skipSpace();
-      if (bytes[reader.at] !== 0x3c || bytes[reader.at + 1] !== 0x3c) continue;
-      const dict = reader.dict();
-      if (dict === null) continue;
+      const dict = bytes[reader.at] === 0x3c && bytes[reader.at + 1] === 0x3c ? reader.dict() : null;
+      if (dict !== null) noteContents(dict, seen);
       reader.skipSpace();
-      if (matches(bytes, reader.at, STREAM)) checkStreamDict(dict, counts);
+      if (dict !== null && matches(bytes, reader.at, STREAM)) {
+        const objectStream = checkStreamDict(dict, counts);
+        const earlier = streams.get(reader.at)?.objectStream ?? false;
+        streams.set(reader.at, { objectNumber, objectStream: objectStream || earlier });
+      } else if (objectNumber !== null) {
+        seen.others.add(objectNumber);
+      }
     } else if (b === 0x74 /* t */ && matches(bytes, at, TRAILER)) {
       reader.at = at + TRAILER.length;
       reader.skipSpace();
       if (bytes[reader.at] !== 0x3c || bytes[reader.at + 1] !== 0x3c) continue;
       const dict = reader.dict();
-      if (dict !== null) checkDictLimits(dict, counts);
+      if (dict !== null) checkDictLimits(dict);
     } else if (
       b === 0x78 /* x */ &&
       matches(bytes, at, XREF) &&
-      !matches(bytes, at - 5, bytesOf("start")) &&
+      !matches(bytes, at - 5, START) &&
       isSpace(bytes[at + XREF.length])
     ) {
       countTable(bytes, at + XREF.length, counts, work);
     }
   }
+  checkContents(seen);
 }

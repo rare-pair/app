@@ -2,7 +2,7 @@ import { EpubError } from "@archive/epub";
 import { zlibSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import { PDF_LIMITS, preflightPdf } from "../src/pdf/preflight";
-import { buildPdf, flate, onePage, stream } from "./pdf-builder";
+import { buildPdf, flate, onePage, stream, type PdfBody } from "./pdf-builder";
 
 /** The code `preflightPdf` refuses `bytes` with, or null when it lets the file through. */
 async function refusal(bytes: Uint8Array): Promise<string | null> {
@@ -34,8 +34,9 @@ describe("12-pdf-upload: the checks before the parser opens a file", () => {
     });
 
     it("adds up small streams that together pass the budget", async () => {
-      const part = flate(new Uint8Array(Math.ceil(OVER_BUDGET / 4)));
-      const bodies = Array.from({ length: 5 }, () => part);
+      const part = flate(new Uint8Array(PDF_LIMITS.maxStreamInflatedBytes));
+      const count = Math.ceil(OVER_BUDGET / PDF_LIMITS.maxStreamInflatedBytes);
+      const bodies = Array.from({ length: count }, () => part);
       expect(await refusal(buildPdf(bodies))).toBe("zip_bomb");
     });
 
@@ -147,6 +148,92 @@ describe("12-pdf-upload: the checks before the parser opens a file", () => {
       ]) {
         expect(await refusal(onePage(body))).toBeNull();
       }
+    });
+  });
+
+  describe("A structure that makes the parser decode a stream over and over", () => {
+    const page = (contents: string) =>
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contents} >>`;
+    const pdfWith = (contents: string, ...more: PdfBody[]) =>
+      buildPdf([
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        page(contents),
+        flate("BT ET"),
+        flate("BT ET"),
+        ...more,
+      ]);
+
+    it("refuses a /Contents array that repeats a reference", async () => {
+      expect(await refusal(pdfWith("[4 0 R 4 0 R]"))).toBe("pdf_unreadable");
+    });
+
+    it("refuses a /Contents array of more than a few entries", async () => {
+      const entries = Array.from({ length: PDF_LIMITS.maxContentsEntries + 1 }, (_, i) => `${i + 10} 0 R`);
+      expect(await refusal(pdfWith(`[${entries.join(" ")}]`))).toBe("pdf_unreadable");
+    });
+
+    it("takes a /Contents array of a few different streams", async () => {
+      expect(await refusal(pdfWith("[4 0 R 5 0 R]"))).toBeNull();
+    });
+
+    it("refuses a /Contents array whose streams together inflate too far", async () => {
+      const part = flate(new Uint8Array(PDF_LIMITS.maxStreamInflatedBytes - 1024));
+      expect(await refusal(pdfWith("[6 0 R 7 0 R]", part, part))).toBe("pdf_unreadable");
+    });
+
+    it("refuses /Contents that points at an array object", async () => {
+      expect(await refusal(pdfWith("6 0 R", "[4 0 R 4 0 R]"))).toBe("pdf_unreadable");
+    });
+
+    it("refuses a repeated reference in a page inside an object stream", async () => {
+      const objects = "3 0 << /Contents [4 0 R 4 0 R] >>";
+      const body = flate(objects, "/Type /ObjStm /N 1 /First 4");
+      expect(await refusal(pdfWith("4 0 R", body))).toBe("pdf_unreadable");
+    });
+
+    it("refuses /Contents that points at an array in an object stream", async () => {
+      const objects = "7 0 [4 0 R 4 0 R]";
+      const body = flate(objects, "/Type /ObjStm /N 1 /First 4");
+      expect(await refusal(pdfWith("7 0 R", body))).toBe("pdf_unreadable");
+    });
+
+    it("takes /Contents that points at a stream, and an annotation's /Contents string", async () => {
+      expect(await refusal(pdfWith("4 0 R", "<< /Subtype /Link /Contents (a note) >>"))).toBeNull();
+    });
+
+    it("refuses a form XObject", async () => {
+      const form = stream("/Type /XObject /Subtype /Form /BBox [0 0 9 9]", "x");
+      expect(await refusal(onePage(form))).toBe("pdf_unreadable");
+    });
+
+    it("refuses a form XObject named in hex escapes", async () => {
+      expect(await refusal(onePage(stream("/Sub#74ype /F#6Frm", "x")))).toBe("pdf_unreadable");
+    });
+
+    it("refuses a stream's subtype behind a reference, which could be a form", async () => {
+      expect(await refusal(onePage(stream("/Subtype 5 0 R", "x")))).toBe("pdf_unreadable");
+    });
+
+    it("takes an image and a font file", async () => {
+      expect(await refusal(onePage(stream("/Subtype /Image /Filter /DCTDecode", "x")))).toBeNull();
+      expect(await refusal(onePage(flate("x", "/Subtype /Type1C")))).toBeNull();
+    });
+  });
+
+  describe("The budgets", () => {
+    it("refuses one stream past the per-stream cap", async () => {
+      const body = flate(new Uint8Array(PDF_LIMITS.maxStreamInflatedBytes + 1024));
+      expect(await refusal(onePage(body))).toBe("zip_bomb");
+    });
+
+    it("takes a stream at the per-stream cap", async () => {
+      const body = flate(new Uint8Array(PDF_LIMITS.maxStreamInflatedBytes));
+      expect(await refusal(onePage(body))).toBeNull();
+    });
+
+    it("leaves room for a real 10 MB file: 10 MB at docs-sample's 8.1:1 is 81 MB", () => {
+      expect(PDF_LIMITS.maxInflatedBytes).toBeGreaterThan(81 * 1024 * 1024);
     });
   });
 
