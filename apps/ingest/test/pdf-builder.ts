@@ -96,7 +96,12 @@ const escapePdf = (text: string) => text.replace(/[\\()]/g, (c) => `\\${c}`);
 /** A file laying `lines` out top to bottom on as many pages as they take. */
 export function layoutPdf(
   lines: PdfLine[],
-  options: { outline?: { title: string; line: number }[]; info?: string } = {},
+  options: {
+    outline?: { title: string; line: number }[];
+    /** The outline's destinations name a page that isn't there. */
+    brokenOutline?: boolean;
+    info?: string;
+  } = {},
 ): Uint8Array {
   const pages: { content: string[]; links: string[] }[] = [{ content: [], links: [] }];
   const placed = new Map<number, { page: number; y: number }>();
@@ -164,7 +169,7 @@ export function layoutPdf(
         (i < count - 1 ? `/Next ${first + i + 1} 0 R ` : "");
       bodies.push(
         `<< /Title (${escapePdf(entry.title)}) /Parent ${root} 0 R ${siblings}` +
-          `/Dest [${pageRefs[at.page]} 0 R /XYZ 0 ${at.y + 12} 0] >>`,
+          `/Dest [${options.brokenOutline ? 99999 : pageRefs[at.page]} 0 R /XYZ 0 ${at.y + 12} 0] >>`,
       );
     });
     outlines = `/Outlines ${root} 0 R`;

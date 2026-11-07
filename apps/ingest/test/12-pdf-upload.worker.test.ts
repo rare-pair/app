@@ -228,6 +228,24 @@ describe("12-pdf-upload", () => {
       expect(await bucketText(live!.chapters[1]!.r2_key)).toBe("<p>Two.</p>");
     });
 
+    it("A broken outline doesn't refuse a file that needs no outline", async () => {
+      const workId = 8813733;
+      const lines: PdfLine[] = [
+        {
+          text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.`,
+        },
+        { text: "Stats: Published: 2020-01-01 Chapters: 1/1" },
+        { text: "A title", size: 18, gap: 10 },
+        { text: "by Someone", url: "https://archiveofourown.org/users/someone" },
+        { text: "The text.", gap: 10 },
+      ];
+      const { row } = await ingestPdf(
+        layoutPdf(lines, { outline: [{ title: "A title", line: 0 }], brokenOutline: true }),
+      );
+
+      expect(row.status).toBe("live");
+    });
+
     it("A work with one chapter has nothing to split", async () => {
       const workId = 8813720;
       const title = "The one chapter";

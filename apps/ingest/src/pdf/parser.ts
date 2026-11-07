@@ -103,7 +103,8 @@ async function readText(bytes: Uint8Array): Promise<PdfText> {
       page.cleanup();
       if (n % YIELD_PAGES === 0) await yieldToTimers();
     }
-    const outline = await readOutline(pdf);
+    // Only a file with no chapter headings needs it, so a broken one refuses nothing by itself.
+    const outline = await readOutline(pdf).catch(() => []);
     const { info } = await pdf.getMetadata();
     // SAFETY: the one field read, of what the file says of itself, and its type is checked below.
     const infoTitle = (info as { Title?: unknown }).Title;
