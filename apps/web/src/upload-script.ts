@@ -98,12 +98,9 @@ export const UPLOAD_SCRIPT = `"use strict";
   };
   const addFiles = (files) => {
     if (busy) return say("Wait for the upload to finish before changing the list.");
-    let added = 0;
-    let repeats = 0;
-    for (const file of Array.from(files)) {
-      if (addFile(file)) added++;
-      else repeats++;
-    }
+    const picked = Array.from(files);
+    const added = picked.filter(addFile).length;
+    const repeats = picked.length - added;
     const text = [];
     if (added > 0) text.push(plural(added, "file") + " added.");
     if (repeats > 0) text.push(repeats + (repeats === 1 ? " was" : " were") + " already in the list.");
@@ -124,14 +121,12 @@ export const UPLOAD_SCRIPT = `"use strict";
     input.value = "";
     addFiles(picked);
   });
-  drop.addEventListener("dragenter", (event) => {
-    event.preventDefault();
-    drop.classList.add("over");
-  });
-  drop.addEventListener("dragover", (event) => {
-    event.preventDefault();
-    drop.classList.add("over");
-  });
+  for (const type of ["dragenter", "dragover"]) {
+    drop.addEventListener(type, (event) => {
+      event.preventDefault();
+      drop.classList.add("over");
+    });
+  }
   drop.addEventListener("dragleave", () => drop.classList.remove("over"));
   drop.addEventListener("drop", (event) => {
     event.preventDefault();

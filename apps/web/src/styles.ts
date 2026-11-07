@@ -511,7 +511,7 @@ main {
 
 /* The upload page's drop area: a dashed box, with a solid one while a file is over it. */
 .drop-area {
-  border: 2px dashed currentcolor;
+  border: 2px dashed currentColor;
   padding: calc(var(--space) * 4);
   margin-bottom: calc(var(--space) * 4);
 }
