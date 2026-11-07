@@ -1022,6 +1022,28 @@ describe("26-bulk-zip-upload", () => {
     expect(sizesOf(p.calls[0]!.body)).toEqual(["100", "200"]);
   });
 
+  it("A macOS resource-fork file beside an epub is skipped, not listed as an epub", async () => {
+    const p = page([], []);
+    p.pick([zipOf([book("Book.epub", 100), book("__MACOSX/._Book.epub", 20)])]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(2));
+    expect(p.rows().map(note)).toEqual(["", expect.stringMatching(/Skipped/)]);
+  });
+
+  it("An entry whose bytes don't match its claimed size is listed as unreadable", async () => {
+    const p = page([], []);
+    p.pick([zipOf([{ name: "short.epub", data: Buffer.alloc(500, 7), claims: 900 }])]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(1));
+    expect(note(p.rows()[0]!)).toMatch(/Could not be read/);
+  });
+
+  it("Focus returns to the picker once a zip has been read", async () => {
+    const p = page([], []);
+    p.pick([zipOf([book("one.epub", 100)])]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(1));
+    expect(remove(p.rows()[0]!).disabled).toBe(false);
+    expect(p.focused()).toBe(p.input);
+  });
+
   it("A zip with no epubs adds nothing", async () => {
     const p = page([], []);
     p.pick([zipOf([book("notes.txt", 50)])]);

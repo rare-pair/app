@@ -100,6 +100,8 @@ export const UPLOAD_SCRIPT = `"use strict";
     const remove = document.createElement("button");
     remove.type = "button";
     remove.textContent = "Remove";
+    // A row added while a zip is read waits with the others.
+    remove.disabled = busy;
     remove.setAttribute("aria-label", "Remove " + file.name);
     const bar = document.createElement("progress");
     bar.setAttribute("aria-label", file.name);
@@ -123,7 +125,9 @@ export const UPLOAD_SCRIPT = `"use strict";
   };
   const repeatsText = (repeats) =>
     repeats + (repeats === 1 ? " was" : " were") + " already in the list.";
-  const readBytes = async (file, from, to) =>
+  // An epub in a zip: not the resource-fork copy (__MACOSX/, ._name) a Mac adds beside each file.
+  const isBook = (path) => isEpub(path) && !/(^|\\/)(__MACOSX\\/|\\._)/.test(path);
+  const readBytes =async (file, from, to) =>
     new Uint8Array(await file.slice(from, to).arrayBuffer());
   // The entries in a zip's central directory: { path, method, flags, packed, size, offset }.
   // Throws when the file is no zip. Zip64 is refused: nothing within ZIP_MB needs it.
@@ -152,7 +156,7 @@ export const UPLOAD_SCRIPT = `"use strict";
         packed: view.getUint32(at + 20, true),
         size: view.getUint32(at + 24, true),
         offset: view.getUint32(at + 42, true),
-        path: decoder.decode(dir.subarray(at + 46, at + 46 + nameLength)),
+        path: decoder.decode(dir.subarray(at + 46, at + 46 + nameLength)).replace(/\\\\/g, "/"),
       });
       at += 46 + nameLength + view.getUint16(at + 30, true) + view.getUint16(at + 32, true);
     }
@@ -170,7 +174,7 @@ export const UPLOAD_SCRIPT = `"use strict";
     const from = entry.offset + 30 + view.getUint16(26, true) + view.getUint16(28, true);
     if (from + entry.packed > zip.size) return null;
     const packed = zip.slice(from, from + entry.packed);
-    if (entry.method === 0) return packed;
+    if (entry.method === 0) return entry.packed === entry.size ? packed : null;
     const reader = packed.stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
     const chunks = [];
     let total = 0;
@@ -184,7 +188,8 @@ export const UPLOAD_SCRIPT = `"use strict";
       }
       chunks.push(value);
     }
-    return new Blob(chunks);
+    // What the directory says it holds is what it held, or the entry is damaged.
+    return total === entry.size ? new Blob(chunks) : null;
   };
   // Adds the epubs in a zip, and the rest of its files as skipped rows. Returns what to say.
   const addZip = async (zip) => {
@@ -200,14 +205,14 @@ export const UPLOAD_SCRIPT = `"use strict";
     } catch {
       return zip.name + " isn't a valid zip file, so nothing was added.";
     }
-    if (!found.some((entry) => isEpub(entry.path))) {
+    if (!found.some((entry) => isBook(entry.path))) {
       return zip.name + " has no epub files in it, so nothing was added.";
     }
     let added = 0;
     let skipped = 0;
     let repeats = 0;
     for (const entry of found) {
-      if (!isEpub(entry.path)) {
+      if (!isBook(entry.path)) {
         skipped++;
         addFile(
           { name: entry.path, size: entry.size },
@@ -256,6 +261,8 @@ export const UPLOAD_SCRIPT = `"use strict";
         }
       } finally {
         setBusy(false);
+        // Disabling the picker dropped focus, unless the person moved it, so put it back.
+        if (!document.activeElement || document.activeElement === document.body) input.focus();
       }
     }
     if (text.length > 0) say(text.join(" "));
