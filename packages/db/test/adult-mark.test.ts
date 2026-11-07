@@ -63,7 +63,7 @@ describe("17-reports-and-dmca", () => {
 
 describe("18-moderation", () => {
   it("A moderator marks a work as adult", async () => {
-    const { workId } = await seedWork(t.db, { rating: "General Audiences" });
+    const { workId, ao3WorkId } = await seedWork(t.db, { rating: "General Audiences" });
     const moderator = await addUser();
     const closes = await report(workId, await addUser(), "higher_rating");
     const stays = await report(workId, await addUser(), "other");
@@ -71,7 +71,7 @@ describe("18-moderation", () => {
     const result = await markAdult(t.db, workId, { actor: moderator });
 
     expect(result).toEqual({ outcome: "changed", closed: 1 });
-    const live = await getLiveWork(t.db, await ao3IdOf(workId));
+    const live = await getLiveWork(t.db, ao3WorkId);
     expect(live?.work.adult_marked).toBe(true);
     // The rating still reads as the file gave it.
     expect(live?.work.rating).toBe("General Audiences");
@@ -138,13 +138,3 @@ describe("18-moderation", () => {
     expect(await dismissReport(t.db, id, { actor: await addUser() })).toBe("dismissed");
   });
 });
-
-async function ao3IdOf(workId: string) {
-  return (
-    await t.db
-      .selectFrom("works")
-      .select("ao3_work_id")
-      .where("id", "=", workId)
-      .executeTakeFirstOrThrow()
-  ).ao3_work_id;
-}
