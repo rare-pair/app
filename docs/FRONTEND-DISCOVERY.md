@@ -96,7 +96,7 @@ Reading never requires an account, for any work (ARCHITECTURE, *Auth*).
    anywhere else (bar the pages open to anyone: see the Accept terms row); then it continues to `next`. Returning users never see it.
 
 **3. Upload works** (uploader)
-1. They pick one or more `.epub` files on the upload page and submit. Each
+1. They pick one or more `.epub` files, or a zip of epubs (100 MB at most, operator ruling 2026-11-07, unzipped in the browser), on the upload page and submit. Each
    file goes through the Worker to R2 with a progress bar; uploading needs JavaScript.
 2. Each file appears on *My uploads* with a status: processing, live, held for
    review, already in the archive, or rejected with a plain reason. A held

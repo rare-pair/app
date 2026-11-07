@@ -125,8 +125,8 @@ export const UPLOAD_SCRIPT = `"use strict";
   };
   const repeatsText = (repeats) =>
     repeats + (repeats === 1 ? " was" : " were") + " already in the list.";
-  // An epub in a zip: not the resource-fork copy (__MACOSX/, ._name) a Mac adds beside each file.
-  const isBook = (path) => isEpub(path) && !/(^|\\/)(__MACOSX\\/|\\._)/.test(path);
+  // The resource-fork copy (__MACOSX/, ._name) a Mac adds beside each file: not listed at all.
+  const isJunk = (path) => /(^|\\/)(__MACOSX\\/|\\._)/.test(path);
   const readBytes =async (file, from, to) =>
     new Uint8Array(await file.slice(from, to).arrayBuffer());
   // The entries in a zip's central directory: { path, method, flags, packed, size, offset }.
@@ -196,28 +196,35 @@ export const UPLOAD_SCRIPT = `"use strict";
     if (zip.size > ZIP_BYTES) {
       return zip.name + " is over the " + ZIP_MB + " MB limit for a zip, so it was not opened.";
     }
-    if (typeof DecompressionStream === "undefined") {
+    // Some browsers have DecompressionStream without the raw deflate format zips use.
+    try {
+      new DecompressionStream("deflate-raw");
+    } catch {
       return "This browser can't open zip files. Please upload the epubs directly.";
     }
     let found;
     try {
-      found = (await readEntries(zip)).filter((entry) => !entry.path.endsWith("/"));
-    } catch {
-      return zip.name + " isn't a valid zip file, so nothing was added.";
+      found = (await readEntries(zip)).filter(
+        (entry) => !entry.path.endsWith("/") && !isJunk(entry.path),
+      );
+    } catch (error) {
+      return error.message === "zip64"
+        ? zip.name + " uses a zip format this page can't open. Please upload the epubs directly."
+        : zip.name + " isn't a valid zip file, so nothing was added.";
     }
-    if (!found.some((entry) => isBook(entry.path))) {
+    if (!found.some((entry) => isEpub(entry.path))) {
       return zip.name + " has no epub files in it, so nothing was added.";
     }
     let added = 0;
     let skipped = 0;
     let repeats = 0;
+    let blocked = 0;
     for (const entry of found) {
-      if (!isBook(entry.path)) {
-        skipped++;
-        addFile(
-          { name: entry.path, size: entry.size },
-          isZip(entry.path) ? "Skipped: a zip inside a zip is not opened." : "Skipped: not an epub file.",
-        );
+      if (!isEpub(entry.path)) {
+        const why = isZip(entry.path)
+          ? "Skipped: a zip inside a zip is not opened."
+          : "Skipped: not an epub file.";
+        if (addFile({ name: entry.path, size: entry.size }, why)) skipped++;
         continue;
       }
       const name = entry.path.split("/").pop();
@@ -232,16 +239,20 @@ export const UPLOAD_SCRIPT = `"use strict";
       else if (blob === null) {
         ok = addFile({ name, size: entry.size }, "Could not be read from the zip, so it was not uploaded.");
       } else ok = addFile(new File([blob], name, { type: TYPE }));
-      if (ok) added++;
-      else repeats++;
+      if (!ok) repeats++;
+      else {
+        added++;
+        if (entries[entries.length - 1].problem) blocked++;
+      }
     }
     const text = [plural(added, "epub") + " added from " + zip.name + "."];
+    if (blocked > 0) text.push(blocked + " can't be sent.");
     if (skipped > 0) text.push(skipped + " skipped.");
     if (repeats > 0) text.push(repeatsText(repeats));
     return text.join(" ");
   };
   const addFiles = async (files) => {
-    if (busy) return say("Wait for the upload to finish before changing the list.");
+    if (busy) return say("Wait for the upload or the zip being read to finish before changing the list.");
     const picked = Array.from(files);
     if (picked.length === 0) return say("No files were found. Pick or drop epub files.");
     const text = [];

@@ -60,7 +60,29 @@ The page unzips in the browser, with the browser's built-in decompression and no
 ### Epubs past the remaining daily quota stay listed
 - GIVEN a zip of epubs, and U with less daily quota left than the zip holds
 - WHEN U adds it and presses Upload
-- THEN the epubs are listed and sent as any picked files are: what fits is sent, and the rest stay listed and say they were not uploaded
+- THEN the epubs are listed and sent as any picked files are, in groups of 10: a group the quota can't cover is refused whole, and it and the groups after it stay listed and say they were not uploaded
+- AND what was sent before stays sent
+
+### Files a Mac adds beside each epub are left out
+- GIVEN a zip made on a Mac, holding `__MACOSX/._Book.epub` beside `Book.epub`
+- WHEN U adds it
+- THEN only `Book.epub` is added, and the resource-fork copy is neither listed nor counted
+
+### An epub already in the list is not added twice
+- GIVEN an epub from a zip is already in the list
+- WHEN U adds the same zip again
+- THEN the page says the epub was already in the list, and the list is unchanged
+
+### A damaged entry is listed as unreadable
+- GIVEN a zip whose epub holds a different number of bytes than its directory says
+- WHEN U adds it
+- THEN that epub is listed as not read from the zip, and is not sent
+
+### A zip the page can't open says to upload the epubs directly
+- GIVEN a zip in zip64 format
+- WHEN U adds it
+- THEN the page says it can't open that format and to upload the epubs directly
+- AND nothing is added to the list
 
 ### A browser without built-in decompression is told to upload the epubs directly
 - GIVEN a browser with no `DecompressionStream`

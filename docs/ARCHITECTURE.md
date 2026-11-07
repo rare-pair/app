@@ -317,7 +317,7 @@ database doesn't check that a `pseud_norm` isn't made only of invisibles:
    the next only when the one before has finished confirming. A refusal of a group (a spent
    quota, say) leaves it and the rest in the list, and what was sent stays sent. The
    page's script sends with `XMLHttpRequest`, since `fetch` reports no upload progress.
-   A zip of epubs (100 MB at most; one over that isn't read) is unzipped in the browser with
+   A zip of epubs (100 MB at most, operator ruling 2026-11-07; one over that isn't read) is unzipped in the browser with
    `DecompressionStream`, no library and no server change: each epub inside joins the list as a
    file picked by hand would, subject to the 25 MB limit counted as it inflates, and anything
    else in the zip, a nested zip included, is listed as skipped. A browser without

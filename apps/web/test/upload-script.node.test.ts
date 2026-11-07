@@ -1022,11 +1022,51 @@ describe("26-bulk-zip-upload", () => {
     expect(sizesOf(p.calls[0]!.body)).toEqual(["100", "200"]);
   });
 
-  it("A macOS resource-fork file beside an epub is skipped, not listed as an epub", async () => {
+  it("A macOS resource-fork file beside an epub is left out, not listed as an epub", async () => {
     const p = page([], []);
     p.pick([zipOf([book("Book.epub", 100), book("__MACOSX/._Book.epub", 20)])]);
-    await vi.waitFor(() => expect(p.rows()).toHaveLength(2));
-    expect(p.rows().map(note)).toEqual(["", expect.stringMatching(/Skipped/)]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(1));
+    expect(p.rows().map(name)).toEqual(["Book.epub"]);
+    expect(p.message.textContent).toBe("1 epub added from books.zip.");
+  });
+
+  it("An epub already in the list is counted as a repeat, not added again", async () => {
+    const p = page([], []);
+    p.pick([zipOf([book("one.epub", 100)])]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(1));
+    p.pick([zipOf([book("one.epub", 100)], "again.zip")]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/0 epubs added from again\.zip/));
+    expect(p.message.textContent).toMatch(/1 was already in the list/);
+    expect(p.rows()).toHaveLength(1);
+  });
+
+  it("An epub over the limit is listed but the page says it can't be sent", async () => {
+    const p = page([], []);
+    p.pick([zipOf([{ name: "huge.epub", data: Buffer.from("x"), claims: 26 * MB }])]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/1 can't be sent/));
+  });
+
+  it("A zip in a format the page can't open says to upload the epubs directly", async () => {
+    // An end record that says 65535 entries: the sign of zip64.
+    const end = Buffer.alloc(22);
+    end.writeUInt32LE(0x06054b50, 0);
+    end.writeUInt16LE(0xffff, 10);
+    const p = page([], []);
+    p.pick([new File([end], "big.zip")]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/upload the epubs directly/));
+    expect(p.rows()).toHaveLength(0);
+  });
+
+  it("A browser whose decompression lacks the zip format is told the same", async () => {
+    class NoRaw {
+      constructor() {
+        throw new TypeError("unsupported format");
+      }
+    }
+    const p = page([], [], { DecompressionStream: NoRaw });
+    p.pick([zipOf([book("one.epub", 100)])]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/upload the epubs directly/));
+    expect(p.rows()).toHaveLength(0);
   });
 
   it("An entry whose bytes don't match its claimed size is listed as unreadable", async () => {
