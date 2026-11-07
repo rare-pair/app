@@ -3,8 +3,8 @@
 // it on a crafted stream (an over-subscribed code table, a distance past the start), and a stream
 // that ends at once for one can run to 1000:1 for the other. Keep it the same if unpdf moves.
 
-/** Deflate data pdf.js would throw on, too. */
-export class BadDeflate extends Error {}
+/** Deflate data pdf.js would throw on, too: it stops there, having made what it made. */
+class BadDeflate extends Error {}
 
 const CODE_LENGTH_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
 const LENGTHS = [
@@ -94,8 +94,9 @@ class Output {
 
 /**
  * Reads the deflate data at `start`, past its two-byte header, to its last block or the end of
- * `bytes`. Returns how much it makes, and what it makes when `keep` is set. Throws `BadDeflate`
- * where pdf.js would throw, and whatever `watch` throws.
+ * `bytes`, or to where pdf.js would throw. Returns how much it makes, and what it makes when `keep`
+ * is set. It is given no end, so it can read past the stream's: what's there then ends it, or adds
+ * a little to the count. Throws what `watch` throws.
  */
 export function readFlate(bytes: Uint8Array, start: number, watch: FlateWatch, keep: boolean) {
   let at = start + 2;
@@ -138,97 +139,105 @@ export function readFlate(bytes: Uint8Array, start: number, watch: FlateWatch, k
     return built;
   };
 
-  for (let last = false; !last;) {
-    watch.progress(made, at - start, tableEntries);
-    let header: number;
-    try {
-      header = getBits(3);
-    } catch {
-      // Out of data at a block's start ends the stream in pdf.js, with no error.
-      break;
-    }
-    last = (header & 1) === 1;
-    const type = header >> 1;
-    if (type === 0) {
-      const b0 = byte();
-      const b1 = byte();
-      const b2 = byte();
-      const b3 = byte();
-      if (b0 === -1 || b1 === -1 || b2 === -1 || b3 === -1) break;
-      const length = b0 | (b1 << 8);
-      const check = b2 | (b3 << 8);
-      if (check !== (~length & 0xffff) && (length !== 0 || check !== 0)) {
-        throw new BadDeflate("Bad stored block");
+  const blocks = (): void => {
+    for (let last = false; !last;) {
+      watch.progress(made, at - start, tableEntries);
+      let header: number;
+      try {
+        header = getBits(3);
+      } catch {
+        // Out of data at a block's start ends the stream in pdf.js, with no error.
+        break;
       }
-      codeBuffer = 0;
-      codeSize = 0;
-      const stored = bytes.subarray(at, at + length);
-      output?.bytes(stored);
-      at += stored.length;
-      made += stored.length;
-      if (stored.length < length) break;
-      continue;
-    }
-    let literals = FIXED_LITERALS;
-    let distances = FIXED_DISTANCES;
-    if (type === 2) {
-      const literalCount = getBits(5) + 257;
-      const distanceCount = getBits(5) + 1;
-      const codeLengthCount = getBits(4) + 4;
-      const codeLengths = new Uint8Array(CODE_LENGTH_ORDER.length);
-      for (let i = 0; i < codeLengthCount; ++i) codeLengths[CODE_LENGTH_ORDER[i]!] = getBits(3);
-      const codeLengthTable = table(codeLengths);
-      let previous = 0;
-      const total = literalCount + distanceCount;
-      const lengths = new Uint8Array(total);
-      for (let i = 0; i < total;) {
-        const code = getCode(codeLengthTable);
-        let extraBits: number;
-        let base: number;
-        let value: number;
-        if (code === 16) {
-          extraBits = 2;
-          base = 3;
-          value = previous;
-        } else if (code === 17) {
-          extraBits = 3;
-          base = 3;
-          value = previous = 0;
-        } else if (code === 18) {
-          extraBits = 7;
-          base = 11;
-          value = previous = 0;
-        } else {
-          lengths[i++] = previous = code;
-          continue;
+      last = (header & 1) === 1;
+      const type = header >> 1;
+      if (type === 0) {
+        const b0 = byte();
+        const b1 = byte();
+        const b2 = byte();
+        const b3 = byte();
+        if (b0 === -1 || b1 === -1 || b2 === -1 || b3 === -1) break;
+        const length = b0 | (b1 << 8);
+        const check = b2 | (b3 << 8);
+        if (check !== (~length & 0xffff) && (length !== 0 || check !== 0)) {
+          throw new BadDeflate("Bad stored block");
         }
-        // A run past the end falls off the typed array, as in pdf.js.
-        for (let run = getBits(extraBits) + base; run-- > 0;) lengths[i++] = value;
-      }
-      literals = table(lengths.subarray(0, literalCount));
-      distances = table(lengths.subarray(literalCount, total));
-    } else if (type !== 1) {
-      throw new BadDeflate("Unknown block type");
-    }
-    for (let symbols = 0; ; symbols++) {
-      // Often enough to stop in time, and not so often that it costs: a copy makes at most 258.
-      if ((symbols & 0xffff) === 0xffff) watch.progress(made, at - start, tableEntries);
-      const code = getCode(literals);
-      if (code < 256) {
-        output?.literal(code);
-        made++;
+        codeBuffer = 0;
+        codeSize = 0;
+        const stored = bytes.subarray(at, at + length);
+        output?.bytes(stored);
+        at += stored.length;
+        made += stored.length;
+        if (stored.length < length) break;
         continue;
       }
-      if (code === 256) break;
-      const lengthEntry = LENGTHS[code - 257] ?? 0;
-      const lengthExtra = lengthEntry >> 16;
-      const length = (lengthEntry & 0xffff) + (lengthExtra > 0 ? getBits(lengthExtra) : 0);
-      const distanceEntry = DISTANCES[getCode(distances)] ?? 0;
-      const distanceExtra = distanceEntry >> 16;
-      const distance = (distanceEntry & 0xffff) + (distanceExtra > 0 ? getBits(distanceExtra) : 0);
-      output?.copy(length, distance);
-      made += length;
+      let literals = FIXED_LITERALS;
+      let distances = FIXED_DISTANCES;
+      if (type === 2) {
+        const literalCount = getBits(5) + 257;
+        const distanceCount = getBits(5) + 1;
+        const codeLengthCount = getBits(4) + 4;
+        const codeLengths = new Uint8Array(CODE_LENGTH_ORDER.length);
+        for (let i = 0; i < codeLengthCount; ++i) codeLengths[CODE_LENGTH_ORDER[i]!] = getBits(3);
+        const codeLengthTable = table(codeLengths);
+        let previous = 0;
+        const total = literalCount + distanceCount;
+        const lengths = new Uint8Array(total);
+        for (let i = 0; i < total;) {
+          const code = getCode(codeLengthTable);
+          let extraBits: number;
+          let base: number;
+          let value: number;
+          if (code === 16) {
+            extraBits = 2;
+            base = 3;
+            value = previous;
+          } else if (code === 17) {
+            extraBits = 3;
+            base = 3;
+            value = previous = 0;
+          } else if (code === 18) {
+            extraBits = 7;
+            base = 11;
+            value = previous = 0;
+          } else {
+            lengths[i++] = previous = code;
+            continue;
+          }
+          // A run past the end falls off the typed array, as in pdf.js.
+          for (let run = getBits(extraBits) + base; run-- > 0;) lengths[i++] = value;
+        }
+        literals = table(lengths.subarray(0, literalCount));
+        distances = table(lengths.subarray(literalCount, total));
+      } else if (type !== 1) {
+        throw new BadDeflate("Unknown block type");
+      }
+      for (let symbols = 0; ; symbols++) {
+        // Often enough to stop in time, and not so often that it costs: a copy makes at most 258.
+        if ((symbols & 0xffff) === 0xffff) watch.progress(made, at - start, tableEntries);
+        const code = getCode(literals);
+        if (code < 256) {
+          output?.literal(code);
+          made++;
+          continue;
+        }
+        if (code === 256) break;
+        const lengthEntry = LENGTHS[code - 257] ?? 0;
+        const lengthExtra = lengthEntry >> 16;
+        const length = (lengthEntry & 0xffff) + (lengthExtra > 0 ? getBits(lengthExtra) : 0);
+        const distanceEntry = DISTANCES[getCode(distances)] ?? 0;
+        const distanceExtra = distanceEntry >> 16;
+        const distance =
+          (distanceEntry & 0xffff) + (distanceExtra > 0 ? getBits(distanceExtra) : 0);
+        output?.copy(length, distance);
+        made += length;
+      }
     }
+  };
+  try {
+    blocks();
+  } catch (cause) {
+    if (!(cause instanceof BadDeflate)) throw cause;
   }
   watch.progress(made, at - start, tableEntries);
   return { made, data: output === null ? null : output.data };

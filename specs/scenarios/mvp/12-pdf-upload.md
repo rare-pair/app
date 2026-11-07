@@ -126,7 +126,7 @@ These checks don't bound everything the parser can do, and that's accepted (oper
 - WHEN it is ingested
 - THEN it ends `pdf_unreadable`, and the parser never opens it
 - AND a filter that could hide a stream from the check ends the same way: anything but one flate, optionally before a DCT or JPX filter on a stream that says it's an image, or a filter or subtype behind a reference. CCITT and JBIG2 are refused, since a few bytes of either can ask for hundreds of MB, and so is `/Contents` that names an image
-- AND so does a stream inside an object stream, which pdf.js reads though the format has none, and an object stream whose `/N` or `/First` is behind a reference
+- AND so does a stream inside an object stream or a dictionary, which pdf.js reads though the format has neither, an inline image in a dictionary, and an object stream with no filter or whose `/N` or `/First` is behind a reference
 - AND the check reads a dictionary as pdf.js does, so what it hides from a simpler reader isn't hidden from this one: names in hex escapes, a key that isn't a name, a `>>` as a value, `+4` and `4.0` as numbers. It keeps only the values it reads, and reads a bounded amount, so a file can't fill the Worker's memory or time with the check itself
 - AND what's still open, under the ruling above: an image stream named as a font, and an object stream whose header gives other offsets
 

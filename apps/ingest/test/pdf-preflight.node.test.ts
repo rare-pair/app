@@ -92,22 +92,21 @@ describe("12-pdf-upload: the checks before the parser opens a file", () => {
       expect(refusal(onePage(stream("/Filter /FlateDecode", trailing)))).toBeNull();
     });
 
-    it("refuses a stream whose deflate data is corrupt, since pdf.js is looser", () => {
+    it("leaves corrupt deflate data to the parser, which stops at the same place", () => {
       // Header, then a block type 3, which no deflate stream may hold.
       const data = Uint8Array.of(0x78, 0x9c, 0x07, 1, 2, 3, 4);
-      expect(refusal(onePage(stream("/Filter /FlateDecode", data)))).toBe("pdf_unreadable");
+      expect(refusal(onePage(stream("/Filter /FlateDecode", data)))).toBeNull();
     });
 
     it("refuses overlapping streams that make it read the file over and over", () => {
       // Each stored block holds the next "stream" keyword, so each stream runs to the file's end.
-      const parts: number[] = [];
+      const parts: number[] = [0x78, 0x01];
       for (let i = 0; i < 3_000; i++) {
-        const chunk = latin1("\nstream\n");
-        parts.push(0x78, 0x01, 0x00, chunk.length, 0x00, 0xff - chunk.length, 0xff, ...chunk);
+        // The payload ends with the next stream's zlib header, and the next block goes on from it.
+        const chunk = [...latin1("\nstream\n"), 0x78, 0x01];
+        parts.push(0x00, chunk.length, 0x00, 0xff - chunk.length, 0xff, ...chunk);
       }
-      const padded = new Uint8Array(4 * 1024 * 1024);
-      padded.set(parts);
-      const body = stream("/Filter /FlateDecode", padded);
+      const body = stream("/Filter /FlateDecode", Uint8Array.from(parts));
       expect(refusal(onePage(body))).toBe("pdf_unreadable");
     });
   });
@@ -537,6 +536,58 @@ describe("12-pdf-upload: the checks before the parser opens a file", () => {
     it("isn't refused for prose that happens to look like flate after the word stream", () => {
       const content = "(down by the stream) '\n(Still there) '";
       expect(refusal(onePage(stream("", content)))).toBeNull();
+    });
+  });
+
+  describe("Review round 5", () => {
+    const pdfWith = (contents: string, ...more: PdfBody[]) =>
+      buildPdf([
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contents} >>`,
+        flate("BT ET"),
+        ...more,
+      ]);
+
+    it("reads a number with a leading dot as pdf.js does", () => {
+      expect(refusal(pdfWith("[.4e1 0 R .4e1 0 R]"))).toBe("pdf_unreadable");
+      expect(refusal(onePage(flate("x"), { trailerExtra: "/Size .5e6" }))).toBe("pdf_unreadable");
+    });
+
+    it("refuses a stream written directly as a dictionary's value", () => {
+      const inner = "<< /Filter [/ASCIIHexDecode /FlateDecode] /Length 2 >> stream\nab\nendstream";
+      expect(refusal(pdfWith(inner))).toBe("pdf_unreadable");
+      expect(refusal(pdfWith(`[${inner}]`))).toBe("pdf_unreadable");
+    });
+
+    it("refuses an inline image in a dictionary, whose bytes can hide what follows", () => {
+      const body = stream("/Filter /ASCIIHexDecode /X BI ID ( EI", "ab");
+      expect(refusal(besidePage(body))).toBe("pdf_unreadable");
+    });
+
+    it("refuses an object stream with no filter, which only /Length bounds", () => {
+      const body = stream("/Type /ObjStm /N 1 /First 4", "3 0 << /Note (endstream) >>");
+      expect(refusal(pdfWith("4 0 R", body))).toBe("pdf_unreadable");
+    });
+
+    it("takes flate data that ends on a sync flush, with no last block", () => {
+      // Two stored blocks, neither the last: pdf.js stops quietly when the data runs out.
+      const data = Uint8Array.of(
+        0x78,
+        0x01,
+        0x00,
+        0x01,
+        0x00,
+        0xfe,
+        0xff,
+        0x20,
+        0x00,
+        0x00,
+        0x00,
+        0xff,
+        0xff,
+      );
+      expect(refusal(onePage(stream("/Filter /FlateDecode", data)))).toBeNull();
     });
   });
 

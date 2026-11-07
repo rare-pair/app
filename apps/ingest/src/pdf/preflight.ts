@@ -1,5 +1,5 @@
 import { EpubError } from "@archive/epub";
-import { BadDeflate, readFlate } from "./flate";
+import { readFlate } from "./flate";
 import { PDF_LIMITS } from "./limits";
 
 const MiB = 1024 * 1024;
@@ -182,7 +182,9 @@ class Reader {
         ? { kind: "number", value: 0 }
         : { kind: "other" };
     }
-    let value = 0;
+    // The first digit doesn't move the point: a leading dot's divisor already counts it.
+    let value = bytes[this.at]! - 0x30;
+    this.at++;
     let exponent = 0;
     let exponentSign = 1;
     let inExponent = false;
@@ -230,6 +232,10 @@ class Reader {
       this.at++;
     } else {
       while (!endsToken(bytes[this.at])) this.at++;
+    }
+    // In a value, pdf.js reads an inline image from here, and its raw bytes as anything at all.
+    if (this.depth > 0 && this.at === from + 2 && first === 0x42 && next === 0x49) {
+      throw unreadable("An inline image in a dictionary");
     }
     this.spend(from);
     return { kind: "other" };
@@ -348,6 +354,12 @@ class Reader {
       if (bytes[this.at] === 0x3e && bytes[this.at + 1] === 0x3e) {
         this.at += 2;
         this.depth--;
+        // pdf.js makes a stream of any dictionary the keyword follows, nested too. The scan only
+        // looks at the outermost one's filters, so one inside isn't let through.
+        if (this.depth > 0) {
+          this.skipSpace();
+          if (matches(bytes, this.at, STREAM)) throw unreadable("A stream inside a dictionary");
+        }
         return entries;
       }
       if (bytes[this.at] !== 0x2f) {
@@ -440,16 +452,10 @@ interface Budget {
  * Reads one stream's deflate data, as pdf.js would, and returns what it makes, keeping the bytes
  * only for an object stream, which the scan reads next. Refuses the file when it passes a budget.
  * Real streams don't overlap, so they feed each byte once; overlapping ones are refused rather than
- * read over and over. A stream pdf.js would throw on is refused if it says it's flate, and ignored
- * if not: it only looked like flate, and pdf.js won't inflate it.
+ * read over and over. Data the decoder can't read is left to the parser: it stops at the same place,
+ * having made what's counted here.
  */
-function inflateStream(
-  bytes: Uint8Array,
-  start: number,
-  budget: Budget,
-  keep: boolean,
-  declared: boolean,
-) {
+function inflateStream(bytes: Uint8Array, start: number, budget: Budget, keep: boolean) {
   const before = { ...budget };
   const watch = {
     progress(made: number, read: number, tables: number) {
@@ -466,13 +472,7 @@ function inflateStream(
       if (budget.tables > PDF_LIMITS.maxCodeTableEntries) throw unreadable("Too many code tables");
     },
   };
-  try {
-    return readFlate(bytes, start, watch, keep);
-  } catch (cause) {
-    if (!(cause instanceof BadDeflate)) throw cause;
-    if (declared) throw new EpubError("pdf_unreadable", "Corrupt deflate data", { cause });
-    return { made: 0, data: null };
-  }
+  return readFlate(bytes, start, watch, keep);
 }
 
 /** The last `startxref` in the file's tail must land on `xref` or on an object. */
@@ -533,8 +533,6 @@ interface StreamInfo {
   objectNumber: number | null;
   /** How many objects it holds, for an object stream. */
   objectCount: number | null;
-  /** Whether its dictionary names flate. */
-  flate: boolean;
 }
 
 /** What the scan collects of each page's `/Contents`, to check once all objects are known. */
@@ -575,15 +573,6 @@ function checkSubtype(dict: Dict): void {
   }
 }
 
-const namesFlate = (dict: Dict): boolean =>
-  ["F", "Filter"].some((key) =>
-    (dict.get(key) ?? []).some((value) =>
-      (value.kind === "list" ? value.items : [value]).some(
-        (name) => name.kind === "name" && isFlate(name.name),
-      ),
-    ),
-  );
-
 /**
  * The stream dictionary at an `obj`: its filters and what it says of the file's objects. Returns
  * whether it has an image filter, and how many objects it holds if it's an object stream, as pdf.js
@@ -591,7 +580,6 @@ const namesFlate = (dict: Dict): boolean =>
  */
 function checkStreamDict(dict: Dict, counts: Counts) {
   const image = checkFilters(dict);
-  const flate = namesFlate(dict);
   checkSubtype(dict);
   checkDictLimits(dict);
   const type = dict.get("Type") ?? [];
@@ -617,7 +605,7 @@ function checkStreamDict(dict: Dict, counts: Counts) {
     }
   }
   checkCounts(counts);
-  return { image, flate, objectCount };
+  return { image, objectCount };
 }
 
 /** A cross-reference table's subsections: `<first> <count>`, then 20 bytes per entry. */
@@ -706,20 +694,6 @@ function readObjectStream(
   }
 }
 
-/** An object stream with no filter: its raw bytes, to its first `endstream` or the file's end. */
-function rawStreamData(bytes: Uint8Array, start: number, work: { left: number }): Uint8Array {
-  let at = start;
-  while (
-    at < bytes.length &&
-    !(bytes[at] === 0x65 && matches(bytes, at, END) && matches(bytes, at + END.length, STREAM))
-  ) {
-    at++;
-  }
-  work.left -= at - start;
-  if (work.left < 0) throw unreadable("Too much to read in object streams");
-  return bytes.subarray(start, at);
-}
-
 /** What the scan could only check once it had seen every object. */
 function checkContents(seen: ContentsSeen): void {
   const check = (ref: number) => {
@@ -772,8 +746,7 @@ export function preflightPdf(bytes: Uint8Array): void {
       const info = streams.get(at);
       const count = info?.objectCount ?? null;
       if (zlibHeaderAt(bytes, start)) {
-        const declared = info?.flate ?? false;
-        const { made, data } = inflateStream(bytes, start, budget, count !== null, declared);
+        const { made, data } = inflateStream(bytes, start, budget, count !== null);
         if (info && info.objectNumber !== null) {
           // The most any copy of the object makes: the cross-reference table can name any of them.
           const most = Math.max(made, seen.streamBytes.get(info.objectNumber) ?? 0);
@@ -781,7 +754,8 @@ export function preflightPdf(bytes: Uint8Array): void {
         }
         if (count !== null && data !== null) readObjectStream(data, count, seen, objectWork);
       } else if (count !== null) {
-        readObjectStream(rawStreamData(bytes, start, objectWork), count, seen, objectWork);
+        // Only its `/Length` would say where it ends, and a real one is compressed.
+        throw unreadable("An object stream with no filter");
       }
       at += STREAM.length - 1;
     } else if (b === 0x6f /* o */ && matches(bytes, at, OBJ) && !matches(bytes, at - 3, END)) {
@@ -800,13 +774,9 @@ export function preflightPdf(bytes: Uint8Array): void {
         throw unreadable("An object whose number can't be read");
       }
       if (isStream) {
-        const { image, flate, objectCount } = checkStreamDict(dict, counts);
-        const earlier = streams.get(reader.at);
-        streams.set(reader.at, {
-          objectNumber,
-          objectCount: objectCount ?? earlier?.objectCount ?? null,
-          flate: flate || (earlier?.flate ?? false),
-        });
+        const { image, objectCount } = checkStreamDict(dict, counts);
+        const earlier = streams.get(reader.at)?.objectCount ?? null;
+        streams.set(reader.at, { objectNumber, objectCount: objectCount ?? earlier });
         if (image && objectNumber !== null) seen.images.add(objectNumber);
       } else if (objectNumber !== null && array) {
         seen.arrays.add(objectNumber);
