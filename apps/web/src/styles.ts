@@ -249,7 +249,6 @@ article.chapter {
   font-size: var(--reading-size);
   line-height: 1.6;
   max-width: ${MEASURE};
-  margin: 0 auto;
   contain: content;
   padding: var(--space);
 }
@@ -336,16 +335,12 @@ article.chapter > div:last-child > p + blockquote:last-child {
 .reading > p.back {
   padding-left: var(--space);
   padding-right: var(--space);
+  font-family: var(--ui);
 }
 
 .reading > .chapter-nav,
 .reading > p.back {
-  font-family: var(--ui);
   font-size: var(--text-2);
-}
-
-.reading > .chapter-title {
-  font-family: var(--ui);
 }
 
 /* The form is a flex item and the select is as wide as its longest option (a long chapter
