@@ -610,6 +610,23 @@ describe("12-pdf-upload: the checks before the parser opens a file", () => {
     });
   });
 
+  describe("Copilot's review", () => {
+    it("refuses a repeated key that would pile up values", () => {
+      const file = besidePage(`<<${"/Size 1".repeat(1_000)}>>`);
+      expect(refusal(file)).toBe("pdf_unreadable");
+    });
+
+    it("refuses more /Contents records than a file has objects", () => {
+      const file = besidePage(`<<${"/Contents[0]".repeat(PDF_LIMITS.maxObjects + 1)}>>`);
+      expect(refusal(file)).toBe("pdf_unreadable");
+    });
+
+    it("takes a very long name it has no use for, without keeping it", () => {
+      const file = besidePage(`<</${"A".repeat(2_000_000)} 1>>`);
+      expect(refusal(file)).toBeNull();
+    });
+  });
+
   describe("The budgets", () => {
     it("refuses one stream past the per-stream cap", () => {
       const body = flate(new Uint8Array(PDF_LIMITS.maxStreamInflatedBytes + 1024));

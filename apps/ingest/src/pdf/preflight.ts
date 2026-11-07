@@ -65,7 +65,6 @@ type Dict = Map<string, Value[]>;
 
 /** The keys any check reads. Nothing else is kept, or a file of values fills the isolate's memory. */
 const KEPT_KEYS = new Set([
-  "Contents",
   "Encrypt",
   "F",
   "Filter",
@@ -78,6 +77,9 @@ const KEPT_KEYS = new Set([
 ]);
 /** The most values kept from a list under one of those. A real one has a few. */
 const MAX_KEPT_ITEMS = 4096;
+/** The most values kept under one key of one dictionary, which a real one has once. */
+const MAX_KEPT_REPEATS = 64;
+const MAX_NAME_CHARS = 128;
 /** How deep lists and dictionaries nest. Real files go a few levels, and pdf.js recurses too. */
 const MAX_DEPTH = 64;
 
@@ -139,7 +141,8 @@ class Reader {
         b = hexValue(bytes[this.at + 1]) * 16 + hexValue(bytes[this.at + 2]);
         this.at += 2;
       }
-      name += String.fromCharCode(b);
+      // No name a check reads is near this long, and a long one needn't be kept.
+      if (name.length < MAX_NAME_CHARS) name += String.fromCharCode(b);
       this.at++;
     }
     this.spend(from);
@@ -383,9 +386,13 @@ class Reader {
       const wanted = contents || (keep && KEPT_KEYS.has(key.name));
       const value = this.value(wanted);
       if (value === null) return null;
-      if (contents) this.onContents?.([value]);
+      if (contents) {
+        this.onContents?.([value]);
+        continue;
+      }
       if (!wanted) continue;
       const values = entries.get(key.name);
+      if (values && values.length >= MAX_KEPT_REPEATS) throw unreadable("A key repeated too often");
       if (values) values.push(value);
       else entries.set(key.name, [value]);
     }
@@ -571,6 +578,8 @@ function noteContents(values: Value[], seen: ContentsSeen): void {
         throw unreadable("A /Contents array that repeats or runs long");
       }
       seen.lists.push(refs);
+      // A page has one, and the file's objects are limited: this keeps the record of them so too.
+      if (seen.lists.length > PDF_LIMITS.maxObjects) throw unreadable("Too many /Contents arrays");
     }
   }
 }

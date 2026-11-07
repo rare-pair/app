@@ -45,6 +45,11 @@ async function final<T>(step: () => Promise<T>): Promise<T> {
   }
 }
 
+const readFrom = async (parser: PdfParser, bytes: Uint8Array) => {
+  const text = await parser.read(bytes);
+  return final(async () => readWork(text));
+};
+
 /** A PDF's bytes in, a parsed work out, or an `EpubError`. */
 export async function processPdf(bytes: Uint8Array, load: LoadPdfParser): Promise<ParsedWork> {
   // By the bytes: the web Worker checks the size against what the file was sent as, which can lie.
@@ -53,8 +58,8 @@ export async function processPdf(bytes: Uint8Array, load: LoadPdfParser): Promis
   }
   await final(async () => preflightPdf(bytes));
   const parser = await load();
-  const text = await parser.read(bytes);
-  const work = await final(async () => readWork(text));
+  // In one go, so the lines and links are free for what comes next: this is where memory is tight.
+  const work = await readFrom(parser, bytes);
   // One budget for the work, as an epub has: the HTML is written here and sanitized the same way.
   const budget = nodeBudget();
   const html = async (paragraphs: string[]): Promise<string | null> => {
@@ -63,9 +68,14 @@ export async function processPdf(bytes: Uint8Array, load: LoadPdfParser): Promis
     return (await sanitizeFragment(markup, budget)).trim();
   };
   const chapters = [];
-  for (const [i, chapter] of work.chapters.entries()) {
+  for (let chapter = work.chapters.shift(); chapter; chapter = work.chapters.shift()) {
     const body = (await html(chapter.paragraphs)) ?? "";
-    chapters.push({ n: i + 1, title: chapter.title, html: body, words: countWords(body) });
+    chapters.push({
+      n: chapters.length + 1,
+      title: chapter.title,
+      html: body,
+      words: countWords(body),
+    });
   }
   return {
     ao3WorkId: work.ao3WorkId,

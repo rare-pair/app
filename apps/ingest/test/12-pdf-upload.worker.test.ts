@@ -460,6 +460,142 @@ describe("12-pdf-upload", () => {
         expect((await liveWork(id))?.work.chapters_count).toBe(3);
       });
 
+      it("a co-author with no link beside one with a link is still named", async () => {
+        const id = 8813776;
+        const text = "by Linked Author, Other Author";
+        const { live } = await chapterText(id, [
+          posted(id),
+          stats,
+          title,
+          {
+            text,
+            links: [
+              {
+                url: "https://archiveofourown.org/users/linked/pseuds/Linked%20Author",
+                at: 3,
+                length: 13,
+              },
+            ],
+          },
+          para("The text."),
+        ]);
+        expect(live?.authors.map((a) => a.pseud)).toEqual(["Linked Author", "Other Author"]);
+        expect(live?.version.review_reasons).toContain("byline_ambiguous");
+      });
+
+      it("a pseud printed with its user beside it is one author", async () => {
+        const id = 8813777;
+        const { live } = await chapterText(id, [
+          posted(id),
+          stats,
+          title,
+          {
+            text: "by A Pseud (auser)",
+            url: "https://archiveofourown.org/users/auser/pseuds/A%20Pseud",
+          },
+          para("The text."),
+        ]);
+        expect(live?.authors).toEqual([{ pseud: "A Pseud", ao3_user: "auser" }]);
+        expect(live?.version.review_reasons).not.toContain("byline_ambiguous");
+      });
+
+      it("a profile link in the first line of the text isn't an author", async () => {
+        const id = 8813778;
+        const { live, text } = await chapterText(id, [
+          posted(id),
+          stats,
+          title,
+          by,
+          { text: "Thanks to a friend.", url: "https://archiveofourown.org/users/friend", gap: 10 },
+          para("The text."),
+        ]);
+        expect(live?.authors.map((a) => a.pseud)).toEqual(["someone"]);
+        expect(text).toContain("Thanks to a friend.");
+      });
+
+      it("an exact End Notes line in the text, with no afterword, stays in the text", async () => {
+        const id = 8813779;
+        const { live, text } = await chapterText(id, [
+          posted(id),
+          stats,
+          title,
+          by,
+          para("Before."),
+          para("End Notes"),
+          para("After."),
+        ]);
+        expect(text).toBe("<p>Before.</p>\n<p>End Notes</p>\n<p>After.</p>");
+        expect(live?.chapters).toHaveLength(1);
+      });
+
+      it("a later link to another work in the preface is looked at too", async () => {
+        const id = 8813773;
+        const { live } = await chapterText(id, [
+          { ...posted(id), url: `https://archiveofourown.org/works/${id}` },
+          { text: "Rating: General", url: "https://archiveofourown.org/works/8813774" },
+          stats,
+          title,
+          by,
+          para("The text, with a link to another work."),
+        ]);
+        expect(live?.version.review_reasons.some((r) => r.startsWith("work_id_mismatch"))).toBe(
+          true,
+        );
+      });
+
+      it("a link to another work in the text isn't looked at", async () => {
+        const id = 8813772;
+        const { live } = await chapterText(id, [
+          { ...posted(id), url: `https://archiveofourown.org/works/${id}` },
+          stats,
+          title,
+          by,
+          { text: "Read this one too.", url: "https://archiveofourown.org/works/8813774", gap: 10 },
+        ]);
+        expect(live?.version.review_reasons.some((r) => r.startsWith("work_id_mismatch"))).toBe(
+          false,
+        );
+      });
+
+      it("an outline's chapters stay in place with running lines taken out", async () => {
+        const id = 8813771;
+        const header = (first = false): PdfLine => ({
+          text: "A running header",
+          size: 8,
+          newPage: !first,
+        });
+        const lines: PdfLine[] = [
+          header(true),
+          posted(id),
+          { text: "Stats: Published: 2020-01-01 Chapters: 2/2" },
+          title,
+          by,
+          header(),
+          { text: "Part one", gap: 10 },
+          para("One."),
+          header(),
+          { text: "Part two", gap: 10 },
+          para("Two."),
+          header(),
+          para("More of two."),
+        ];
+        await ingestPdf(
+          layoutPdf(lines, {
+            outline: [
+              { title: "A title", line: 3 },
+              { title: "Part one", line: 6 },
+              { title: "Part two", line: 9 },
+            ],
+          }),
+        );
+        const live = await liveWork(id);
+        expect(live?.chapters.map((c) => c.title)).toEqual(["Part one", "Part two"]);
+        expect(await bucketText(live!.chapters[0]!.r2_key)).toBe("<p>One.</p>");
+        expect(await bucketText(live!.chapters[1]!.r2_key)).toBe(
+          "<p>Two.</p>\n<p>More of two.</p>",
+        );
+      });
+
       it("a blank line isn't a paragraph", async () => {
         const id = 8813789;
         const { text } = await chapterText(id, [
