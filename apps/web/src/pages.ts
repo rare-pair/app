@@ -190,7 +190,7 @@ export const signInPage = (nonce: string, form: SignInForm) =>
     "Sign in",
     `${form.error === undefined ? "" : `<p role="alert">${escapeHtml(form.error)}</p>`}
 <noscript><p>Signing in needs JavaScript, for its anti-spam check. Reading works without it.</p></noscript>
-<form id="sign-in" method="post" action="/login" hidden>
+<form id="sign-in" class="sign-in" method="post" action="/login" hidden>
 <label for="email">Email address</label>
 <input id="email" type="email" name="email" autocomplete="email" maxlength="254" required value="${escapeHtml(form.email ?? "")}">
 <input type="hidden" name="next" value="${escapeHtml(form.next)}">

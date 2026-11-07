@@ -328,6 +328,16 @@ describe("21-accessibility-and-no-js", () => {
     expect(css).toMatch(/border-(top|bottom):\s*1px solid/);
   });
 
+  it("The sign-in form is a centred column with room between its parts (#726)", async () => {
+    const html = await htmlOf("/login");
+    expect(html).toContain('<form id="sign-in" class="sign-in" method="post"');
+    const css = await stylesheetOf();
+    expect(css).toMatch(/\.sign-in\s*\{[^}]*max-width:\s*28rem[^}]*margin:\s*0 auto/);
+    expect(css).toMatch(/\.sign-in label\s*\{[^}]*display:\s*block/);
+    expect(css).toMatch(/\.sign-in input\[type="email"\]\s*\{[^}]*width:\s*100%/);
+    expect(css).toMatch(/\.sign-in \.cf-turnstile[^{]*\{[^}]*margin-top:/);
+  });
+
   it("The stylesheet is served from the page's own origin, cached for good", async () => {
     const href = stylesheetHref(await htmlOf("/about"));
     expect(href).toMatch(/^\/assets\/site\.[0-9a-f]+\.css$/);
