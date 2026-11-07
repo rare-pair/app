@@ -292,6 +292,7 @@ export const UPLOAD_SCRIPT = `"use strict";
 
   const start = async () => {
     say("");
+    challenged = false;
     if (entries.length === 0) return say("Pick one or more epub files first.");
     const waiting = entries.filter((entry) => !entry.done && !entry.problem);
     if (waiting.length === 0) {
@@ -321,6 +322,7 @@ export const UPLOAD_SCRIPT = `"use strict";
         say("Too many uploads at once. Pausing " + outcome + " seconds, then it goes on.");
         await new Promise((resolve) => setTimeout(resolve, (outcome + 1) * 1000));
         token = await freshToken();
+        if (token) say("Sending group " + (g + 1) + " of " + groups.length + ".");
         outcome = token ? await sendGroup(groups[g], token) : false;
       }
       if (outcome === true) continue;
@@ -344,8 +346,8 @@ export const UPLOAD_SCRIPT = `"use strict";
       await start();
     } finally {
       setBusy(false);
-      // Disabling the button dropped focus; the person is back where they pressed.
-      button.focus();
+      // Disabling the button dropped focus, unless the person moved it, so put it back.
+      if (!document.activeElement || document.activeElement === document.body) button.focus();
     }
   });
 })();
