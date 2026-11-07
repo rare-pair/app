@@ -71,6 +71,7 @@ const expected = {
     updated_at: { type: "timestamptz", nullable: true },
     raw_meta: { type: "jsonb", nullable: true },
     hold_reason: { type: "text", nullable: true },
+    other_hold_reasons: { type: "_text", nullable: false },
     source: { type: "text", nullable: false },
     source_upload_id: { type: "text", nullable: true },
   },

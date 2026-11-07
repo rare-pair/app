@@ -154,7 +154,7 @@ works        (id, ao3_work_id UNIQUE NOT NULL, title, summary_html, rating, lang
               words, chapters_count,
               chapters_total NULL,  -- the planned total (AO3's y in x/y); NULL when unknown
               complete, published_at, updated_at,
-              status,            -- processing | live | hidden | removed
+              status,            -- processing | live | hidden | removed | held (0023: its first upload waits for a moderator)
               hidden_cause NULL, -- removal_request | reports | moderator, while hidden
               adult_marked,      -- boolean, default false: a moderator's mark that gives the work the warnings screen whatever its rating says; on the work, so a new version or a rollback keeps it
               removed_reason NULL, -- dmca | removal_request | wrong_file | site_safety; the schema's check, like hidden_cause's, allows it only while removed and requires it then
@@ -179,7 +179,7 @@ work_versions(id, work_id,
               published_at, updated_at, raw_meta jsonb,                -- columns, as ingest read them from its file
                                       -- (NULL for a field it lacked); all NULL on a version saved
                                       -- before migration 0012 that wasn't current then
-              hold_reason NULL)       -- chapters_changed | tags_changed | authors_changed | pdf_more_chapters | pdf_byline_unsure, on a version held since 0012
+              hold_reason NULL)       -- chapters_changed | tags_changed | authors_changed | pdf_more_chapters | pdf_byline_unsure, on a version held since 0012; other_hold_reasons text[] holds any other reason it is held for (0023)
 chapters     (work_id, version_id, n, title, words, r2_key)
 tags         (id, type, name, name_norm) -- type: fandom|relationship|character|freeform|warning|category|rating
 work_tags    (work_id, tag_id,
@@ -245,11 +245,14 @@ power. The wait list has no admin action: its purge is a local script (Wait list
 A held upload doesn't make its work held: a first upload goes live (with
 the notice if the parser gave review reasons), and a later upload that is held
 leaves the work live at its current version. Held is a state of the version
-(its upload is `held_for_review`), never of the work, so `works.status` has no
-held value. The one first upload that is held is a PDF whose byline the reader
-isn't sure of (### PDF processor): its work stays `processing` with no current
-version, unlisted, until a moderator approves a version (which puts it `live`)
-or a later upload goes live as a first one would.
+(its upload is `held_for_review`). The one first upload that is held is a PDF
+whose byline the reader isn't sure of (### PDF processor): its work is `held`
+(migration 0023), with that version current and its byline, and nothing of it is
+public, until a moderator approves a version (which puts it `live`) or a later
+upload the reader is sure of goes live as a first one would. Every helper that
+reads a work's status reads `held` as not public: a hash match counts it, an
+opt-out hides it (a restore puts it back to `held`), and removal and takedowns
+work on it.
 
 **Dedupe.** AO3 epubs carry the original work URL
 (`archiveofourown.org/works/<id>`) in the preface. That ID is the canonical key.
@@ -885,10 +888,14 @@ version is held with `pdf_byline_unsure` whatever the rules above make of it, bu
 duplicate. The reader isn't sure when a name on the byline has no link, when there is no byline, when
 the byline reaches its cap of 8 lines still going on, or when the line close under its last one has an
 author's link or starts with a word the last line had no room for (by estimated widths across the
-text's measure). As a work's first upload, the work row is made and left `processing` with no
-current version: nothing is public, `approveVersion` puts it `live` at the approved version, and a
-later upload takes the same row and is decided as a first one. A link with no pseud in it names both
-the name printed under it and its login, so the opt-out check reads whichever its list holds. The
+text's measure). As a work's first upload, the work is `held` at the version: nothing is public, `approveVersion`
+puts it `live` at the version approved, and a later upload the reader is sure of goes live as a first
+one would; a later unsure one is decided against the held version. Every other reason the rules give to
+hold the version is kept after `pdf_byline_unsure`, in `other_hold_reasons`. A byline that ends its page,
+or a line whose room can't be measured with certainty, is held too: the reader holds more rather than
+reads further. A link with no pseud in it names the printed pseud, with the login as its user, and the
+opt-out check reads every author's pseud and login (`checkedNames`), at ingest, when an opt-out is
+confirmed (also over a held work's every version) and when a moderator approves a held version. The
 backfill leaves a PDF version as it is when its byline reads unsure now and didn't when a moderator
 approved it.
 

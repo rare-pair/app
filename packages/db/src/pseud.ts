@@ -32,3 +32,22 @@ export function normalizePseud(pseud: string): string {
     .replace(WHITESPACE, " ")
     .trim();
 }
+
+/**
+ * The `pseud_norm`s the opt-out list is checked against for a byline, one per distinct name: each
+ * author's pseud, and the login of each author with one, since a PDF's link can name only the
+ * login while the byline shows the printed pseud (spec 12). Blank names match no opt-out (the
+ * schema refuses a blank `pseud_norm`), so they are left out; so is the "Anonymous" placeholder
+ * a processor gives a byline with no profile link, which names nobody. An author with a profile
+ * link whose user is "Anonymous" is a user, and stays.
+ */
+export function checkedNames(authors: readonly { pseud: string; user: string | null }[]): string[] {
+  const norms = new Set<string>();
+  for (const a of authors) {
+    const norm = normalizePseud(a.pseud);
+    if (norm !== "" && (a.user !== null || norm !== "anonymous")) norms.add(norm);
+    const login = a.user === null ? "" : normalizePseud(a.user);
+    if (login !== "") norms.add(login);
+  }
+  return [...norms];
+}

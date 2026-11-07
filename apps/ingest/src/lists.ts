@@ -1,4 +1,4 @@
-import { normalizePseud, type Database } from "@archive/db";
+import { checkedNames, type Database } from "@archive/db";
 import { sql, type Kysely } from "kysely";
 import { isDataErrorState, sqlState } from "./sql-state";
 import { parseWorkId } from "./work-id";
@@ -61,21 +61,8 @@ function rejectDataError(error: unknown): never {
   throw error;
 }
 
-/**
- * The `pseud_norm`s the opt-out check reads, one per distinct name: blank ones (nothing left
- * once whitespace and invisible characters go) match no opt-out, as the schema refuses a
- * blank `pseud_norm`, so they are left out; so is the "Anonymous" placeholder the processor
- * gives a byline with no profile link, which names nobody. An author with a profile link whose
- * user is "Anonymous" is a user, and stays.
- */
-export function checkedPseuds(authors: Listed["authors"]): string[] {
-  const norms = new Set<string>();
-  for (const a of authors) {
-    const norm = normalizePseud(a.pseud);
-    if (norm !== "" && (a.user !== null || norm !== "anonymous")) norms.add(norm);
-  }
-  return [...norms];
-}
+/** The `pseud_norm`s the opt-out check reads: `checkedNames`, each pseud and each login. */
+export const checkedPseuds = (authors: Listed["authors"]): string[] => checkedNames(authors);
 
 async function optedOut(db: Kysely<Database>, pseudNorms: string[]): Promise<boolean> {
   if (pseudNorms.length === 0) return false;

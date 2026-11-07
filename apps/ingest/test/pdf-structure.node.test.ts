@@ -70,7 +70,7 @@ describe("12-pdf-upload: the byline, on the parser's lines", () => {
     expect(work.authors.map((a) => a.pseud)).toContain("Mona");
   });
 
-  it("a link with no pseud in it names the pseud printed under it, and the login", () => {
+  it("a link with no pseud in it names the pseud printed under it, with its login", () => {
     const text = "by Opted Out, Other Name";
     const work = read(
       [line(text, 640), line("The text.", 610)],
@@ -79,24 +79,20 @@ describe("12-pdf-upload: the byline, on the parser's lines", () => {
         userLink("login2", 72 + 14 * 5.5, 72 + 24 * 5.5, 640),
       ],
     );
+    // One author a link: the printed pseud, shown, with the login the opt-out check reads too.
     expect(work.authors).toEqual([
       { pseud: "Opted Out", user: "login1" },
-      { pseud: "login1", user: "login1" },
       { pseud: "Other Name", user: "login2" },
-      { pseud: "login2", user: "login2" },
     ]);
     expect(work.reviewReasons).not.toContain("byline_unsure");
   });
 
-  it("a pseud printed with its login in brackets names the pseud and the login", () => {
+  it("a pseud printed with its login in brackets names the pseud, with its login", () => {
     const work = read(
       [line("by A Pseud (auser)", 640), line("The text.", 610)],
       [userLink("auser", 72 + 3 * 5.5, 72 + 18 * 5.5, 640)],
     );
-    expect(work.authors).toEqual([
-      { pseud: "A Pseud", user: "auser" },
-      { pseud: "auser", user: "auser" },
-    ]);
+    expect(work.authors).toEqual([{ pseud: "A Pseud", user: "auser" }]);
   });
 
   it("is unsure of an unlinked name that wraps with no separator", () => {
@@ -135,6 +131,35 @@ describe("12-pdf-upload: the byline, on the parser's lines", () => {
       "byline_unsure",
     );
     expect(read([line("The text.", 610)], []).reviewReasons).toContain("byline_unsure");
+  });
+
+  it("is unsure of a byline whose last line ends its page", () => {
+    // Every name linked: only the page break says the byline may go on.
+    const work = read(
+      [line("by Someone,", 640), { ...line("Second Name", 760), page: 2 }, line("The text.", 700)],
+      [userLink("someone", 72 + 3 * 5.5, 72 + 10 * 5.5, 640)],
+    );
+    expect(work.reviewReasons).not.toContain("byline_ambiguous");
+    expect(work.reviewReasons).toContain("byline_unsure");
+  });
+
+  it("is unsure of a line that reaches the margin, from wherever it starts", () => {
+    // Indented, so the line is narrower than the measure, but it ends at the margin.
+    const indented = { ...line("by First Author", 640), x: 300, right: 500 };
+    const work = read(
+      [indented, line("Out", 628), line("The text.", 600)],
+      [userLink("first", 300 + 16, 500, 640)],
+    );
+    expect(work.reviewReasons).toContain("byline_unsure");
+  });
+
+  it("is unsure of a line past the margin the text keeps", () => {
+    const wide = { ...line("by Someone", 640), right: 560 };
+    const work = read(
+      [wide, line("More", 628), line("The text.", 600)],
+      [userLink("someone", 72 + 16, 560, 640)],
+    );
+    expect(work.reviewReasons).toContain("byline_unsure");
   });
 
   it("is sure of a linked byline with a short line close under it", () => {

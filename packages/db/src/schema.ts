@@ -75,7 +75,12 @@ export interface RateLimitTable {
   last_request: ColumnType<string, number | string, number | string>;
 }
 
-export type WorkStatus = "processing" | "live" | "hidden" | "removed";
+/**
+ * `held` (migration 0023): the work's first upload is held for a moderator (spec 12, a PDF whose
+ * byline the reader isn't sure of). It has that version current and its byline, and is never
+ * public: an approval or a later upload puts it `live`.
+ */
+export type WorkStatus = "processing" | "live" | "hidden" | "removed" | "held";
 export type HiddenCause = "removal_request" | "reports" | "moderator";
 /** Every tag type, as the `tags.type` check allows. */
 export const TAG_TYPES = [
@@ -188,6 +193,8 @@ export interface WorkVersionTable {
   raw_meta: ColumnType<Record<string, string> | null, string | null | undefined, string | null>;
   /** Why ingest held this version for review. NULL for a version it didn't hold, and for one held before migration 0012. */
   hold_reason: HoldReason | null;
+  /** The other reasons it is held for, after `hold_reason` (migration 0023). */
+  other_hold_reasons: Generated<HoldReason[]>;
 }
 
 /** What made a version: an upload, or the re-sanitize backfill (migration 0016). */

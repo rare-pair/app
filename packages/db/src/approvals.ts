@@ -4,24 +4,27 @@
 import { sql, type Kysely } from "kysely";
 import { inTransaction, logModerationAction } from "./moderation-actions";
 import { closeOpenWrongVersionReports, makeVersionCurrent } from "./queries";
+import { checkedNames } from "./pseud";
 import type { Database } from "./schema";
 import { copyVersionToWork } from "./version-copy";
 
 /**
  * What `approveVersion` did: `cleared` the notice of the work's current version,
  * `published` a held version, changed `nothing` (nothing to approve, or a version that
- * isn't the work's), or found the work `unavailable` (removed, or ingest is still
- * finishing it).
+ * isn't the work's), found the work `unavailable` (removed, or ingest is still
+ * finishing it), or kept a held version held because its byline is `opted_out`.
  */
-export type ApproveOutcome = "cleared" | "published" | "nothing" | "unavailable";
+export type ApproveOutcome = "cleared" | "published" | "nothing" | "unavailable" | "opted_out";
 
 /**
  * Approves one of a work's versions, in one transaction. A held version is published: its
  * upload goes `live`, it is marked checked, and the work then describes it
  * (`makeVersionCurrent`, which closes the work's open `wrong_version` reports as the pointer
- * moves). A work whose first upload was held (spec 12: a PDF whose byline the reader wasn't
- * sure of) is still `processing`, with no current version: it goes `live` at the version. The
- * current version of a live or hidden work whose review reasons nobody has
+ * moves). A held version whose byline names an active opt-out, by a pseud or a login, isn't
+ * published: it stays held, `opted_out`, since the list may have changed while it waited. A
+ * `held` work (spec 12: its first upload a PDF whose byline the reader wasn't sure of) goes
+ * `live` at the version approved. The current version of a live or hidden work whose review
+ * reasons nobody has
  * cleared gets `checked_at`, which ends the notice. Any other version is left alone.
  * `hold_reason` is kept after a publish: the upload's status is the state.
  *
@@ -41,13 +44,7 @@ export async function approveVersion(
       .selectFrom("works")
       .select(["status", "current_version_id"])
       .where("id", "=", workId)
-      .where((eb) =>
-        eb.or([
-          eb("status", "in", ["live", "hidden"]),
-          // A first upload held (a PDF whose byline the reader wasn't sure of): no version yet.
-          eb.and([eb("status", "=", "processing"), eb("current_version_id", "is", null)]),
-        ]),
-      )
+      .where("status", "in", ["live", "hidden", "held"])
       .forNoKeyUpdate()
       .executeTakeFirst();
     if (work === undefined) return "unavailable";
@@ -55,7 +52,11 @@ export async function approveVersion(
       .selectFrom("work_versions")
       // A backfill version (migration 0016) has no upload of its own, so no upload to hold.
       .leftJoin("uploads", "uploads.id", "work_versions.upload_id")
-      .select(["work_versions.upload_id", "uploads.status as upload_status"])
+      .select([
+        "work_versions.upload_id",
+        "uploads.status as upload_status",
+        "work_versions.authors",
+      ])
       .where("work_versions.id", "=", versionId)
       .where("work_versions.work_id", "=", workId)
       .executeTakeFirst();
@@ -63,6 +64,7 @@ export async function approveVersion(
 
     let outcome: ApproveOutcome;
     if (version.upload_id !== null && version.upload_status === "held_for_review") {
+      if (await optedOut(trx, checkedNames(version.authors ?? []))) return "opted_out";
       const published = await trx
         .updateTable("uploads")
         .set({ status: "live" })
@@ -76,8 +78,8 @@ export async function approveVersion(
         .set({ checked_at: sql<Date>`coalesce(checked_at, now())` })
         .where("id", "=", versionId)
         .execute();
-      if (work.status === "processing") {
-        // The work's first version: it goes live with it, as ingest's first upload does.
+      if (work.status === "held") {
+        // The work's first time public: at this version, as ingest's first upload goes live.
         await trx
           .updateTable("works")
           .set({ current_version_id: versionId, status: "live" })
@@ -118,6 +120,19 @@ export async function approveVersion(
     }
     return outcome;
   });
+}
+
+/** Whether any of `names` (`pseud_norm`s) is on the active opt-out list. */
+async function optedOut(trx: Kysely<Database>, names: string[]): Promise<boolean> {
+  if (names.length === 0) return false;
+  const row = await trx
+    .selectFrom("optouts")
+    .select("id")
+    .where("active", "=", true)
+    .where(sql<boolean>`pseud_norm = any(${names}::text[])`)
+    .limit(1)
+    .executeTakeFirst();
+  return row !== undefined;
 }
 
 /**

@@ -45,6 +45,15 @@ describe("21 opt-out hardening: the pseuds the check reads", () => {
     expect(checkedPseuds([a("ANONYMOUS​"), a("Sun")])).toEqual(["sun"]);
     expect(checkedPseuds([a("Anonymous", "Anonymous")])).toEqual(["anonymous"]);
   });
+
+  it("Reads each author's login beside the pseud printed for it", () => {
+    // A PDF's link with no pseud in it: the byline shows the printed pseud, the list may hold the login.
+    expect(checkedPseuds([a("Opted Pseud", "optedlogin"), a("Sun", " ")])).toEqual([
+      "opted pseud",
+      "optedlogin",
+      "sun",
+    ]);
+  });
 });
 
 describe("21 opt-out hardening: SQLSTATE", () => {

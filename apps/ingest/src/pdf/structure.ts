@@ -446,17 +446,20 @@ function readByline(
   let end = bylineAt + 1;
   // No byline runs this long; a run that does is the text.
   while (end < prefaceEnd && end - bylineAt < 8 && wraps(lines[end - 1]!, lines[end]!)) end++;
-  // Whether a name may go on past what was read: the run stopped at its cap, or the line close
-  // under the last has an author's link, or starts with a word the last line had no room for.
+  // Whether a name may go on past what was read: the byline ends its page, or the run stopped at
+  // its cap, or the line close under the last has an author's link, or starts with a word the
+  // last line had no room for. Each is held, not read further (operator's ruling, 2026-11-07).
   const last = lines[end - 1]!;
   const below = end < prefaceEnd ? lines[end] : undefined;
   const close =
     below !== undefined && below.page === last.page && last.y - below.y <= layout.pitch * 1.5;
+  const endsPage = lines[end] !== undefined && lines[end]!.page !== last.page;
   const cut =
-    close &&
-    ((end - bylineAt >= 8 && wraps(last, below)) ||
-      linksOn(below).length > 0 ||
-      noRoomFor(last, below, layout));
+    endsPage ||
+    (close &&
+      ((end - bylineAt >= 8 && wraps(last, below)) ||
+        linksOn(below).length > 0 ||
+        noRoomFor(last, below, layout)));
 
   let byline = "";
   let covered: boolean[] = [];
@@ -494,13 +497,12 @@ function readByline(
       add({ pseud: decodeName(pseud), user });
       continue;
     }
-    // No pseud in the link: the name printed under it, as AO3 prints a pseud and its login, and
-    // the login, so the opt-out check reads whichever its list holds.
+    // No pseud in the link: the name printed under it, as AO3 prints a pseud and its login, with
+    // the login, which the opt-out check reads too.
     const under = names.find((n) => n.linked && n.from < to && n.to > from)?.name;
     const withLogin = under === undefined ? null : /^(.+?)\s*\(([^()]+)\)$/.exec(under);
     const printed = withLogin !== null && sameName(withLogin[2]!, user) ? withLogin[1]! : under;
-    if (printed !== undefined) add({ pseud: printed, user });
-    add({ pseud: user, user });
+    add({ pseud: printed ?? user, user });
   }
   // A name under a link that wrapped on to the next line is that link's, though split by a space.
   const unlinked = names.filter(
@@ -519,14 +521,19 @@ function readByline(
 }
 
 /**
- * Whether the first word of `below` would not have fitted at the end of `above`, by estimated
- * widths across the text's measure: the line was full, and `below` may go on with it.
+ * Whether the first word of `below` may not have fitted at the end of `above`, by estimated
+ * widths: the line was full, and `below` may go on with it. Its room is counted both across the
+ * text's measure and up to the margin from where the line ends, and the least is taken, since a
+ * line can be indented or centred; a measure that can't be read leaves no room at all.
  */
 function noRoomFor(above: TextLine, below: TextLine, layout: Layout): boolean {
+  const measure = layout.right - layout.left;
+  if (!(measure > 0)) return true;
   const word = /^\S+/.exec(trimmed(below))?.[0].slice(0, MAX_BYLINE_LINE) ?? "";
   let ems = charWidth(0x20);
   for (let i = 0; i < word.length; i++) ems += charWidth(word.charCodeAt(i));
-  return above.right - above.x + ems * above.size > layout.right - layout.left;
+  const room = Math.min(measure - (above.right - above.x), layout.right - above.right);
+  return ems * above.size > room;
 }
 
 /** The series the preface prints, with their IDs from its links, in order. */

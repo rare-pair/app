@@ -2,6 +2,7 @@ import { createDb, insertUpload } from "@archive/db";
 import { putFragments, seedVersion, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
+import { applyOptOut } from "../src/remove-confirm";
 import { MESSAGES } from "../src/upload-badge";
 import { BASE, fetchW, freshIp, signIn as signInAs, UPLOAD_TOKEN } from "./helpers";
 
@@ -273,7 +274,7 @@ describe("12-pdf-upload", () => {
       const queue = await get("/admin/works", cookie);
       expect(queue.html).toContain("A PDF whose byline may not have been read whole");
       const page = await get("/admin/works/8813772", cookie);
-      expect(page.html).toContain("not live: its first upload is held for review");
+      expect(page.html).toContain("held: not live until a version is approved");
       expect(page.html).toContain("Byline may not have been read whole");
       expect(page.html).not.toContain("pdf_byline_unsure");
 
@@ -284,6 +285,126 @@ describe("12-pdf-upload", () => {
       );
       expect(approved.html).toContain("That version is approved and now current.");
       expect((await get("/works/8813772")).status).toBe(200);
+    });
+
+    it("A held PDF shows every reason it is held for, the byline's first", async () => {
+      const work = await seedWork(db, { ao3WorkId: 8813773, title: "pdfcheck-8813773" });
+      await putFragments(env.BUCKET, work.fragments);
+      const held = await seedVersion(db, work, {
+        current: false,
+        format: "pdf",
+        holdReason: "pdf_byline_unsure",
+        chapters: 2,
+      });
+      await db
+        .updateTable("work_versions")
+        .set({ other_hold_reasons: ["pdf_more_chapters"] })
+        .where("id", "=", held.versionId)
+        .execute();
+      const { cookie } = await signIn("moderator");
+      const both =
+        "A PDF whose byline may not have been read whole: check its authors, A PDF with more chapters than the current epub";
+      expect((await get("/admin/works", cookie)).html).toContain(`Held version: ${both}`);
+      expect((await get("/admin/works/8813773", cookie)).html).toContain(
+        `Held for review: ${both}`,
+      );
+    });
+
+    it("An opt-out hides a held first upload, by its login or by any version it holds", async () => {
+      const byLogin = await seedWork(db, {
+        ao3WorkId: 8813774,
+        format: "pdf",
+        heldFirst: "pdf_byline_unsure",
+        authors: [{ pseud: "Shown Pseud", ao3_user: "optlogin8813774" }],
+      });
+      const byLater = await seedWork(db, {
+        ao3WorkId: 8813775,
+        format: "pdf",
+        heldFirst: "pdf_byline_unsure",
+      });
+      await seedVersion(db, byLater, {
+        current: false,
+        format: "pdf",
+        holdReason: "pdf_byline_unsure",
+        authors: [{ pseud: "Later Pseud 8813775", ao3_user: null }],
+      });
+      for (const pseud of ["optlogin8813774", "later pseud 8813775"]) {
+        await db.transaction().execute(async (trx) => {
+          const request = await trx
+            .insertInto("requests")
+            .values({
+              kind: "opt_out",
+              pseud_norm: pseud,
+              contact_email: "requester@example.test",
+              statement: "A short statement.",
+              ip_hash: "hash-of-an-ip",
+            })
+            .returning("id")
+            .executeTakeFirstOrThrow();
+          await applyOptOut(trx, { id: request.id, pseud_norm: pseud });
+        });
+      }
+      const works = await db
+        .selectFrom("works")
+        .select(["status", "hidden_cause"])
+        .where("id", "in", [byLogin.workId, byLater.workId])
+        .execute();
+      expect(works).toEqual([
+        { status: "hidden", hidden_cause: "removal_request" },
+        { status: "hidden", hidden_cause: "removal_request" },
+      ]);
+    });
+
+    it("Approving a held version whose author has opted out keeps it held, and says so", async () => {
+      const work = await seedWork(db, {
+        ao3WorkId: 8813776,
+        format: "pdf",
+        heldFirst: "pdf_byline_unsure",
+        authors: [{ pseud: "Opted 8813776", ao3_user: null }],
+      });
+      const request = await db
+        .insertInto("requests")
+        .values({
+          kind: "opt_out",
+          pseud_norm: "opted 8813776",
+          contact_email: "requester@example.test",
+          statement: "A short statement.",
+          ip_hash: "hash-of-an-ip",
+        })
+        .returning("id")
+        .executeTakeFirstOrThrow();
+      await db
+        .insertInto("optouts")
+        .values({ pseud_norm: "opted 8813776", request_id: request.id, active: true })
+        .execute();
+      const { cookie } = await signIn("moderator");
+
+      const approved = await post(
+        "/admin/works/8813776/approve",
+        { version: work.versionId },
+        cookie,
+      );
+
+      expect(approved.html).toContain("an author of that version is on the opt-out list");
+      expect((await get("/works/8813776")).status).toBe(404);
+    });
+
+    it("A held first upload can be removed", async () => {
+      const work = await seedWork(db, {
+        ao3WorkId: 8813777,
+        format: "pdf",
+        heldFirst: "pdf_byline_unsure",
+      });
+      const { cookie } = await signIn("moderator");
+
+      await post("/admin/works/8813777/remove", { confirm: "yes" }, cookie);
+
+      const row = await db
+        .selectFrom("works")
+        .select("status")
+        .where("id", "=", work.workId)
+        .executeTakeFirstOrThrow();
+      expect(row.status).toBe("removed");
     });
   });
 });

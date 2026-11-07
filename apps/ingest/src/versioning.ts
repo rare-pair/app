@@ -30,7 +30,11 @@ export interface VersionFacts {
 export type VersionDecision =
   | { outcome: "replace" }
   | { outcome: "duplicate"; reason: "not_newer" }
-  | { outcome: "hold"; reason: HoldReason };
+  | {
+      outcome: "hold";
+      reason: HoldReason;
+      /** The other reasons it is held for, if any. */ also?: HoldReason[];
+    };
 
 export interface VersionOptions {
   /** Chapter similarity at or above which an edit is small. Defaults to `SIMILARITY_THRESHOLD`. */
@@ -47,10 +51,12 @@ export function decideVersion(
   options: VersionOptions = {},
 ): VersionDecision {
   const decision = decideByContent(current, upload, options);
-  // An uncertain byline is held whatever else it would be, but a duplicate adds nothing.
-  return upload.bylineUnsure && decision.outcome !== "duplicate"
-    ? { outcome: "hold", reason: "pdf_byline_unsure" }
-    : decision;
+  // An uncertain byline is held whatever else it would be, but a duplicate adds nothing. Another
+  // reason to hold it is kept after it, so a moderator is told both.
+  if (!upload.bylineUnsure || decision.outcome === "duplicate") return decision;
+  return decision.outcome === "hold"
+    ? { outcome: "hold", reason: "pdf_byline_unsure", also: [decision.reason] }
+    : { outcome: "hold", reason: "pdf_byline_unsure" };
 }
 
 function decideByContent(

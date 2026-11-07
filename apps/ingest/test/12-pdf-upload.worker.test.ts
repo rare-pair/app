@@ -45,7 +45,7 @@ async function ingestPdf(bytes: Uint8Array) {
  */
 async function approveHeldFirst(ao3WorkId: number) {
   const { workId, status, current, versions } = await versionsOf(ao3WorkId);
-  expect({ status, current }).toEqual({ status: "processing", current: null });
+  expect({ status, current }).toEqual({ status: "held", current: versions[0]!.id });
   expect(versions.map((v) => v.hold_reason)).toEqual(["pdf_byline_unsure"]);
   expect(await withDb((db) => approveVersion(db, workId, versions[0]!.id))).toBe("published");
 }
@@ -627,6 +627,8 @@ describe("12-pdf-upload", () => {
             ],
           }),
         );
+        // The byline ends its page, so the version waits for a moderator first.
+        await approveHeldFirst(id);
         const live = await liveWork(id);
         expect(live?.chapters.map((c) => c.title)).toEqual(["Part one", "Part two"]);
         expect(await bucketText(live!.chapters[0]!.r2_key)).toBe("<p>One.</p>");
@@ -697,7 +699,7 @@ describe("12-pdf-upload", () => {
           expect(reasons).not.toContain("byline_ambiguous");
         });
 
-        it("links with no pseud in them name the printed names and the logins", async () => {
+        it("links with no pseud in them name the printed names, with their logins", async () => {
           const { names, reasons } = await pseuds(8813763, [
             {
               text: "by Real One, Real Two",
@@ -707,7 +709,7 @@ describe("12-pdf-upload", () => {
               ],
             },
           ]);
-          expect(names).toEqual(["Real One", "r1", "Real Two", "r2"]);
+          expect(names).toEqual(["Real One", "Real Two"]);
           expect(reasons).not.toContain("byline_ambiguous");
         });
 
@@ -1011,11 +1013,14 @@ describe("12-pdf-upload", () => {
       expect(first.row.status).toBe("held_for_review");
       expect(first.row.work_id).not.toBeNull();
       expect(await liveWork(workId)).toBeNull();
-      // Another unsure one waits beside it, and the work stays unlisted.
+      // The same file again adds nothing; a newer one waits beside it, and the work stays held.
+      const same = await ingestPdf(unsureOf(workId, "2020-02-01"));
+      expect(same.row.status).toBe("duplicate");
       const again = await ingestPdf(unsureOf(workId, "2020-03-01"));
       expect(again.row.status).toBe("held_for_review");
       const { workId: id, status, current, versions } = await versionsOf(workId);
-      expect({ status, current }).toEqual({ status: "processing", current: null });
+      const firstVersion = versions.find((v) => v.upload_id === first.id)!;
+      expect({ status, current }).toEqual({ status: "held", current: firstVersion.id });
       expect(versions.map((v) => v.hold_reason)).toEqual([
         "pdf_byline_unsure",
         "pdf_byline_unsure",
@@ -1023,7 +1028,6 @@ describe("12-pdf-upload", () => {
       expect(versions[0]!.review_reasons).toContain("byline_unsure");
 
       // A moderator's approval puts it live.
-      const firstVersion = versions.find((v) => v.upload_id === first.id)!;
       await withDb((db) => approveVersion(db, id, firstVersion.id));
       expect((await liveWork(workId))?.version.original_upload_id).toBe(first.id);
     });
@@ -1049,6 +1053,46 @@ describe("12-pdf-upload", () => {
       expect((await liveWork(workId))?.version.original_upload_id).toBe(first.id);
       const held = (await versionsOf(workId)).versions.find((v) => v.upload_id === newer.id);
       expect(held?.hold_reason).toBe("pdf_byline_unsure");
+    });
+
+    it("A held version keeps every reason it is held for, the byline's first", async () => {
+      const workId = 8813754;
+      await ingestPdf(epubOf(workId, "2020-02-01"));
+
+      const longer = await ingestPdf(
+        layoutPdf([
+          {
+            text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.`,
+          },
+          { text: "Stats: Published: 2019-01-01 Updated: 2020-03-01 Words: 10 Chapters: 2/2" },
+          { text: "A title", size: 18, gap: 10 },
+          { text: "by Someone With No Link" },
+          { text: "Chapter 1", size: 16, gap: 10 },
+          { text: "One.", gap: 10 },
+          { text: "Chapter 2", size: 16, gap: 10 },
+          { text: "Two.", gap: 10 },
+        ]),
+      );
+
+      expect(longer.row.status).toBe("held_for_review");
+      const held = (await versionsOf(workId)).versions.find((v) => v.upload_id === longer.id);
+      expect(held?.hold_reason).toBe("pdf_byline_unsure");
+      expect(held?.other_hold_reasons).toEqual(["pdf_more_chapters"]);
+    });
+
+    it("A backfill leaves a held work as it is", async () => {
+      const workId = 8813755;
+      await ingestPdf(unsureOf(workId, "2020-02-01"));
+      const before = await versionsOf(workId);
+
+      const result = await deliver([{ work_id: before.workId, version_id: before.current }], {
+        queue: "ingest-backfill",
+      });
+
+      expect(result.explicitAcks).toEqual(["msg-0"]);
+      const after = await versionsOf(workId);
+      expect(after.versions).toHaveLength(1);
+      expect(after.status).toBe("held");
     });
 
     it("A backfill doesn't put live a PDF whose byline the reader is no longer sure of", async () => {

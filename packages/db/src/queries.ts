@@ -11,6 +11,7 @@ import type {
   TagType,
   UploadFormat,
   UploadStatus,
+  WorkStatus,
   WorkTable,
   WorkVersionTable,
 } from "./schema";
@@ -533,7 +534,7 @@ export async function getUploadOf(
 
 /**
  * Stores a `pending` upload's SHA-256 (lowercase hex), and marks it `duplicate` of work W when
- * an earlier upload with that hash was ingested into W while W is `live` or `hidden`
+ * an earlier upload with that hash was ingested into W while W is `live`, `hidden` or `held`
  * (ARCHITECTURE, Ingestion pipeline, step 3). An earlier upload still `pending` or `processing`,
  * rejected, or whose work was removed gives no match. Returns W's id as `duplicateOf`, or null
  * for no match; returns null itself, writing nothing, when the upload isn't `pending`.
@@ -559,7 +560,8 @@ export async function recordUploadHash(
       .where("uploads.sha256", "=", sha256)
       .where("uploads.id", "!=", id)
       .where("uploads.status", "in", ["live", "held_for_review", "duplicate"])
-      .where("works.status", "in", ["live", "hidden"])
+      // A held work too: the same file again is no new version for a moderator to check.
+      .where("works.status", "in", ["live", "hidden", "held"])
       // The same upload every time two works match.
       .orderBy("uploads.created_at")
       .orderBy("uploads.id")
@@ -916,7 +918,16 @@ export async function hideWork(
       .updateTable("works")
       .set({ status: "hidden", hidden_cause: cause })
       .where("id", "=", workId)
-      .where("status", "in", cause === "moderator" ? ["live", "hidden"] : ["live"]);
+      .where(
+        "status",
+        "in",
+        cause === "moderator"
+          ? ["live", "hidden"]
+          : // An opt-out hides a held work too, so an approval can't publish it past the request.
+            cause === "removal_request"
+            ? ["live", "held"]
+            : ["live"],
+      );
     if (cause === "moderator") {
       // A work a moderator already hid is left as it is: nothing changed, so no row.
       update = update.where((eb) =>
@@ -944,7 +955,8 @@ export async function hideWork(
 }
 
 /**
- * Makes a `hidden` work `live` again and clears its cause, in one UPDATE (the
+ * Makes a `hidden` work `live` again (or `held`, when its current version is still held: a
+ * held first upload an opt-out hid) and clears its cause, in one UPDATE (the
  * schema's check allows a cause only while hidden), then closes the work's open
  * reports in the same transaction, so they stop counting toward `hideWork`'s
  * reporter count and the next report doesn't hide it again. True when it
@@ -972,7 +984,14 @@ export async function restoreWork(
   return inTransaction(db, async (trx) => {
     let update = trx
       .updateTable("works")
-      .set({ status: "live", hidden_cause: null })
+      .set({
+        // A work hidden while its first upload was held goes back to waiting for a moderator.
+        status: sql<WorkStatus>`case when exists (
+          select 1 from work_versions v join uploads u on u.id = v.upload_id
+          where v.id = works.current_version_id and u.status = 'held_for_review'
+        ) then 'held' else 'live' end`,
+        hidden_cause: null,
+      })
       .where("id", "=", workId)
       .where("status", "=", "hidden");
     if (options.cause !== undefined) update = update.where("hidden_cause", "=", options.cause);

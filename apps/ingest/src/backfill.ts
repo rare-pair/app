@@ -25,7 +25,8 @@ export interface BackfillDeps {
  * now (ARCHITECTURE, EPUB processor, step 8), while that version is still the one the message
  * names. Returns what became of it, for the log: `backfilled`, or why the current version was
  * left as it is (`no_work`, `removed`, `not_current`, `original_missing`, `too_large`,
- * `work_mismatch`, `byline_unsure` (a PDF whose byline the reader is no longer sure of),
+ * `held` (a work whose first upload waits for a moderator), `work_mismatch`, `byline_unsure`
+ * (a PDF whose byline the reader is no longer sure of),
  * `opted_out`, `optout_check_rejected_<sqlstate>` (the opt-out table refused a value
  * in the file), or an `EpubError`'s or `SaveRejected`'s code: the processor's
  * verdict on the original as it now stands). Each is final, so the message is acked: a short
@@ -61,6 +62,8 @@ export async function runBackfill(deps: BackfillDeps, message: BackfillMessage):
   // Already backfilled (a redelivery after the commit lands here), or a moderator or a newer
   // upload has moved the work since the message was made.
   if (row.current_version_id !== message.version_id) return "not_current";
+  // A held work's version waits for a moderator: nothing of it is re-made until it is approved.
+  if (row.status === "held") return "held";
   // A backfill version names the upload it was re-made from; the schema gives every version one.
   const originalUploadId = row.upload_id ?? row.source_upload_id;
   if (originalUploadId === null) throw new Error("a version names no original");

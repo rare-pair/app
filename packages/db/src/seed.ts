@@ -62,7 +62,7 @@ export interface SeedWorkOptions extends SeedVersionOptions {
   hiddenCause?: HiddenCause;
   /**
    * The first upload held for this reason, as ingest holds a PDF whose byline it isn't sure of:
-   * the work stays `processing`, with no current version. `status` is then ignored.
+   * the work is `held`, at that version. `status` is then ignored.
    */
   heldFirst?: HoldReason;
 }
@@ -144,7 +144,15 @@ export async function seedWork(
     const seeded = { workId: work.id, ao3WorkId, userId };
     if (options.heldFirst !== undefined) {
       const held = { ...options, current: false, holdReason: options.heldFirst };
-      return { ...seeded, ...(await addVersion(trx, seeded, columns, held)) };
+      const version = await addVersion(trx, seeded, columns, held);
+      // As ingest holds a first upload: the version current, its byline the work's, and `held`.
+      await trx
+        .updateTable("works")
+        .set({ current_version_id: version.versionId, status: "held" })
+        .where("id", "=", work.id)
+        .execute();
+      await copyVersionToWork(trx, work.id, version.versionId);
+      return { ...seeded, ...version };
     }
     const version = await addVersion(trx, seeded, columns, { ...options, current: true });
     // Last, as ingest does: the work leaves `processing` once its version is current.

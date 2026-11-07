@@ -224,7 +224,12 @@ export async function showWorksToCheck(c: AdminContext) {
     .select(["works.id", "works.title", "works.ao3_work_id"])
     .select((eb) => eb.fn.min("work_versions.created_at").as("created_at"))
     .select(
-      sql<(string | null)[]>`array_agg(distinct work_versions.hold_reason)`.as("hold_reasons"),
+      // Every reason any of its held versions is held for, first and other (repeats are harmless).
+      sql<
+        (string | null)[]
+      >`array_agg(work_versions.hold_reason) || coalesce(string_to_array(string_agg(array_to_string(work_versions.other_hold_reasons, ','), ','), ','), '{}')`.as(
+        "hold_reasons",
+      ),
     )
     .where("uploads.status", "=", "held_for_review")
     .where("works.status", "<>", "removed")
@@ -323,10 +328,17 @@ export async function showWorksToCheck(c: AdminContext) {
     }
   };
   for (const r of held) {
-    const worded = WORDED_HOLDS.filter((reason) => r.hold_reasons.includes(reason));
+    // A PDF's hold is named, with every other reason its versions are held for after it.
+    const rank = (reason: string) =>
+      WORDED_HOLDS.includes(reason) ? WORDED_HOLDS.indexOf(reason) : WORDED_HOLDS.length;
+    const reasons = [...new Set(r.hold_reasons.filter((x): x is string => x !== null))].sort(
+      (a, b) => rank(a) - rank(b),
+    );
     add(
       r,
-      worded.length > 0 ? `Held version: ${worded.map(reasonWording).join(", ")}` : "Held version",
+      reasons.some((x) => WORDED_HOLDS.includes(x))
+        ? `Held version: ${reasons.map(reasonWording).join(", ")}`
+        : "Held version",
     );
   }
   for (const r of flagged) {
