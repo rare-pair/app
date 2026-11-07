@@ -121,7 +121,9 @@ describe("12-pdf-upload", () => {
       const workId = 8813730;
       const tagUrl = (name: string) => `https://archiveofourown.org/tags/${name}`;
       const lines: PdfLine[] = [
-        { text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.` },
+        {
+          text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.`,
+        },
         { text: "The title first", size: 18, gap: 10 },
         { text: "by Someone", url: "https://archiveofourown.org/users/someone" },
         { text: "Rating:", gap: 10 },
@@ -140,7 +142,9 @@ describe("12-pdf-upload", () => {
       expect(live?.work.title).toBe("The title first");
       expect(live?.work.rating).toBe("Mature");
       expect(live?.work.language).toBe("Klingon");
-      expect(live?.tags.filter((t) => t.type === "fandom").map((t) => t.name)).toEqual(["Synthetic"]);
+      expect(live?.tags.filter((t) => t.type === "fandom").map((t) => t.name)).toEqual([
+        "Synthetic",
+      ]);
       expect(live?.work.published_at).not.toBeNull();
     });
 
@@ -149,7 +153,9 @@ describe("12-pdf-upload", () => {
       const tagUrl = (name: string) => `https://archiveofourown.org/tags/${name}`;
       const fields = "Rating: Mature Archive Warning: Creator Chose Not To Use";
       const lines: PdfLine[] = [
-        { text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.` },
+        {
+          text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.`,
+        },
         {
           text: fields,
           links: [
@@ -248,7 +254,9 @@ describe("12-pdf-upload", () => {
     it("A work with one chapter has nothing to split: no summary and no break", async () => {
       const workId = 8813721;
       const lines: PdfLine[] = [
-        { text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.` },
+        {
+          text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.`,
+        },
         { text: "Rating: General Audiences" },
         { text: "Stats: Published: 2020-01-01 Chapters: 1/1" },
         { text: "No summary here", size: 18, gap: 10 },
@@ -394,10 +402,10 @@ describe("12-pdf-upload", () => {
         },
       });
 
-      const result = await deliver(
-        [{ work_id: before.workId, version_id: before.current }],
-        { queue: "ingest-backfill", handler },
-      );
+      const result = await deliver([{ work_id: before.workId, version_id: before.current }], {
+        queue: "ingest-backfill",
+        handler,
+      });
 
       expect(result.explicitAcks).toEqual(["msg-0"]);
       expect(opened).toBe(1);
@@ -467,7 +475,9 @@ describe("12-pdf-upload", () => {
       await ingestPdf(
         ao3Pdf({
           workId,
-          chapters: [{ paragraphs: ["<script>alert(1)</script> & <b>bold</b>", "* * *", "After."] }],
+          chapters: [
+            { paragraphs: ["<script>alert(1)</script> & <b>bold</b>", "* * *", "After."] },
+          ],
         }),
       );
 
@@ -481,7 +491,9 @@ describe("12-pdf-upload", () => {
       const workId = 8813732;
       const full = "A full line of synthetic words that runs out to the right margin here";
       const lines: PdfLine[] = [
-        { text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.` },
+        {
+          text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.`,
+        },
         { text: "Stats: Published: 2020-01-01 Chapters: 1/1" },
         { text: "A title", size: 18, gap: 10 },
         { text: "by Someone", url: "https://archiveofourown.org/users/someone" },
@@ -567,7 +579,9 @@ describe("12-pdf-upload", () => {
     });
 
     it("Encrypted and corrupt files are refused: what the parser throws on is final", async () => {
-      const { row, result } = await ingestPdf(onePage(flate("x"), { trailerExtra: "/Root 99 0 R" }));
+      const { row, result } = await ingestPdf(
+        onePage(flate("x"), { trailerExtra: "/Root 99 0 R" }),
+      );
 
       expect(row.status).toBe("pdf_unreadable");
       expect(result.retryMessages).toEqual([]);

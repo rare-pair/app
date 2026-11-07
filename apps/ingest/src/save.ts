@@ -478,7 +478,9 @@ async function readCurrent(
     deps.db
       .selectFrom("work_versions")
       .innerJoin("uploads", (join) =>
-        join.on(sql`uploads.id = coalesce(work_versions.upload_id, work_versions.source_upload_id)`),
+        join.on(
+          sql<boolean>`uploads.id = coalesce(work_versions.upload_id, work_versions.source_upload_id)`,
+        ),
       )
       .select("uploads.format")
       .where("work_versions.id", "=", versionId)

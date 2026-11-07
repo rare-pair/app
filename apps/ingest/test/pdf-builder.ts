@@ -20,7 +20,7 @@ export type PdfBody = string | Uint8Array;
 
 /** A stream object's body: `dict` is what goes in the dictionary, beside a correct `/Length`. */
 export const stream = (dict: string, data: Uint8Array | string): Uint8Array => {
-  const bytes = typeof data === "string" ? latin1(data) : data;
+  const bytes = data instanceof Uint8Array ? data : latin1(data);
   return join([
     encoder.encode(`<< ${dict} /Length ${bytes.length} >>\nstream\n`),
     bytes,
@@ -32,7 +32,7 @@ export const stream = (dict: string, data: Uint8Array | string): Uint8Array => {
 export const flate = (data: Uint8Array | string, dict = ""): Uint8Array =>
   stream(
     `/Filter /FlateDecode ${dict}`,
-    zlibSync(typeof data === "string" ? latin1(data) : data, { level: 6 }),
+    zlibSync(data instanceof Uint8Array ? data : latin1(data), { level: 6 }),
   );
 
 export interface BuildOptions {
@@ -47,13 +47,13 @@ export interface BuildOptions {
 /** The file for `bodies`, where `bodies[i]` is object `i + 1`, with a correct cross-reference table. */
 export function buildPdf(bodies: PdfBody[], options: BuildOptions = {}): Uint8Array {
   const header = encoder.encode("%PDF-1.7\n");
-  const parts = [header];
+  const parts: Uint8Array[] = [header];
   const offsets: number[] = [];
   let at = header.length;
   bodies.forEach((body, i) => {
     const object = join([
       encoder.encode(`${i + 1} 0 obj\n`),
-      typeof body === "string" ? encoder.encode(body) : body,
+      body instanceof Uint8Array ? body : encoder.encode(body),
       encoder.encode("\nendobj\n"),
     ]);
     offsets.push(at);
@@ -154,7 +154,9 @@ export function layoutPdf(
     const root = bodies.length + 1;
     const first = root + 1;
     const count = options.outline.length;
-    bodies.push(`<< /Type /Outlines /First ${first} 0 R /Last ${first + count - 1} 0 R /Count ${count} >>`);
+    bodies.push(
+      `<< /Type /Outlines /First ${first} 0 R /Last ${first + count - 1} 0 R /Count ${count} >>`,
+    );
     options.outline.forEach((entry, i) => {
       const at = placed.get(entry.line)!;
       const siblings =
@@ -249,10 +251,8 @@ export function ao3Pdf(options: Ao3PdfOptions): Uint8Array {
   const url = `${AO3}/works/${printed}`;
   if (!options.noPostedLine) {
     const link = options.linkWorkId === undefined ? workId : options.linkWorkId;
-    lines.push({
-      text: `Posted originally on the Archive of Our Own at ${url}.`,
-      ...(link === null ? {} : { url: `${AO3}/works/${link}` }),
-    });
+    const text = `Posted originally on the Archive of Our Own at ${url}.`;
+    lines.push(link === null ? { text } : { text, url: `${AO3}/works/${link}` });
   } else if (options.linkWorkId !== undefined && options.linkWorkId !== null) {
     lines.push({ text: "A link to the work", url: `${AO3}/works/${options.linkWorkId}` });
   }
@@ -279,8 +279,7 @@ export function ao3Pdf(options: Ao3PdfOptions): Uint8Array {
       });
     }
   }
-  const quoted = (text: string[]) =>
-    text.map((t, i) => ({ text: t, x: 90, ...(i === 0 ? {} : { gap: 8 }) }));
+  const quoted = (text: string[]) => text.map((t, i) => ({ text: t, x: 90, gap: i === 0 ? 0 : 8 }));
   if (summary.length > 0) {
     lines.push({ text: "Summary", gap: 8 });
     lines.push(...quoted(summary));
@@ -306,8 +305,11 @@ export function ao3Pdf(options: Ao3PdfOptions): Uint8Array {
     } else if (i === 0) {
       lines.push({ text: chapter.paragraphs[0] ?? "", newPage: true });
     }
-    const rest = heading === undefined && i === 0 ? chapter.paragraphs.slice(1) : chapter.paragraphs;
-    lines.push(...rest.map((text, p) => ({ text, ...(p === 0 && heading !== undefined ? {} : { gap: 10 }) })));
+    const rest =
+      heading === undefined && i === 0 ? chapter.paragraphs.slice(1) : chapter.paragraphs;
+    lines.push(
+      ...rest.map((text, p) => ({ text, gap: p === 0 && heading !== undefined ? 0 : 10 })),
+    );
   }
   if (endNotes.length > 0) {
     lines.push({ text: "Afterword", size: 14, newPage: true });
@@ -318,10 +320,7 @@ export function ao3Pdf(options: Ao3PdfOptions): Uint8Array {
     text: "Please drop by the Archive and comment to let the creator know if you enjoyed their work!",
     gap: 12,
   });
-  return layoutPdf(lines, {
-    info: title,
-    ...(options.outlineChapters ? { outline } : {}),
-  });
+  return layoutPdf(lines, options.outlineChapters ? { info: title, outline } : { info: title });
 }
 
 /** A file of `count` empty pages. */

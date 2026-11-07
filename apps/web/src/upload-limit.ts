@@ -38,8 +38,7 @@ export const overLimit = (type: string, subject = "That file") =>
     : `${subject} is over the ${MAX_UPLOAD_MB} MB limit, so it can't be uploaded.`;
 
 /** The largest size of a file of `type`. */
-export const maxBytesFor = (type: string) =>
-  type === PDF_TYPE ? MAX_PDF_BYTES : MAX_UPLOAD_BYTES;
+export const maxBytesFor = (type: string) => (type === PDF_TYPE ? MAX_PDF_BYTES : MAX_UPLOAD_BYTES);
 
 // Upload ids are random text bounded at 64 characters (apps/ingest/src/message.ts). Nothing
 // longer, or holding a NUL, which Postgres refuses, can name an upload.

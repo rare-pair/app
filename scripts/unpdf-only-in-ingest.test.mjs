@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { describe, it } from "node:test";
+import { test } from "node:test";
 
 const ROOT = join(import.meta.dirname, "..");
 const WORKSPACES = [
@@ -24,30 +24,28 @@ function sources(dir) {
   return found;
 }
 
-describe("12-pdf-upload", () => {
-  it("The web and content Workers stay small: only the ingest Worker depends on unpdf", () => {
-    for (const workspace of WORKSPACES) {
-      const manifest = join(ROOT, workspace, "package.json");
-      if (!existsSync(manifest)) continue;
-      const { dependencies = {}, devDependencies = {} } = JSON.parse(readFileSync(manifest, "utf8"));
-      const version = dependencies.unpdf ?? devDependencies.unpdf;
-      if (workspace === join("apps", "ingest")) assert.equal(version, "0.12.1");
-      else assert.equal(version, undefined, workspace);
-    }
-  });
+await test("12-pdf-upload: only the ingest Worker depends on unpdf", () => {
+  for (const workspace of WORKSPACES) {
+    const manifest = join(ROOT, workspace, "package.json");
+    if (!existsSync(manifest)) continue;
+    const { dependencies = {}, devDependencies = {} } = JSON.parse(readFileSync(manifest, "utf8"));
+    const version = dependencies.unpdf ?? devDependencies.unpdf;
+    if (workspace === join("apps", "ingest")) assert.equal(version, "0.12.1");
+    else assert.equal(version, undefined, workspace);
+  }
+});
 
-  it("The web and content Workers stay small: one ingest module imports it, by import()", () => {
-    const importers = [];
-    for (const workspace of WORKSPACES) {
-      const src = join(ROOT, workspace, "src");
-      if (!existsSync(src)) continue;
-      for (const path of sources(src)) {
-        if (/from "unpdf|import\("unpdf/.test(readFileSync(path, "utf8"))) importers.push(path);
-      }
+await test("12-pdf-upload: one ingest module imports it, by import()", () => {
+  const importers = [];
+  for (const workspace of WORKSPACES) {
+    const src = join(ROOT, workspace, "src");
+    if (!existsSync(src)) continue;
+    for (const path of sources(src)) {
+      if (/from "unpdf|import\("unpdf/.test(readFileSync(path, "utf8"))) importers.push(path);
     }
-    assert.deepEqual(importers, [join(ROOT, "apps", "ingest", "src", "pdf", "parser.ts")]);
-    const worker = readFileSync(join(ROOT, "apps", "ingest", "src", "worker.ts"), "utf8");
-    assert.match(worker, /await import\("\.\/pdf\/parser"\)/);
-    assert.doesNotMatch(worker, /from "\.\/pdf\/parser"/);
-  });
+  }
+  assert.deepEqual(importers, [join(ROOT, "apps", "ingest", "src", "pdf", "parser.ts")]);
+  const worker = readFileSync(join(ROOT, "apps", "ingest", "src", "worker.ts"), "utf8");
+  assert.match(worker, /await import\("\.\/pdf\/parser"\)/);
+  assert.doesNotMatch(worker, /from "\.\/pdf\/parser"/);
 });

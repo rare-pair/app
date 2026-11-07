@@ -324,6 +324,7 @@ function inflateStream(
   // fflate has no public "finished" flag. A finished stream has its last-block flag set and no
   // block in progress. `pdf-preflight.node.test.ts` fails if a later fflate moves them.
   // SAFETY: the two fields of fflate's inflate state read here.
+  // oxlint-disable-next-line deslop/no-chained-type-assertions, deslop/no-known-value-widening -- private to fflate, and a test holds it
   const state = (inflater as unknown as { s: { f?: number; l?: unknown } }).s;
   for (let at = start + 2; at < bytes.length; at += PUSH_BYTES) {
     // Real streams don't overlap, so they feed each byte once. Overlapping ones are refused
@@ -335,10 +336,7 @@ function inflateStream(
     } catch (cause) {
       throw new EpubError("pdf_unreadable", "Corrupt deflate data", { cause });
     }
-    if (
-      made > PDF_LIMITS.maxStreamInflatedBytes ||
-      budget.inflated > PDF_LIMITS.maxInflatedBytes
-    ) {
+    if (made > PDF_LIMITS.maxStreamInflatedBytes || budget.inflated > PDF_LIMITS.maxInflatedBytes) {
       throw new EpubError("zip_bomb", "Streams inflate too far");
     }
     if (state.f && !state.l) break;
@@ -581,7 +579,7 @@ export function preflightPdf(bytes: Uint8Array): void {
       const start = dataStart(bytes, at + STREAM.length);
       if (zlibHeaderAt(bytes, start)) {
         const info = streams.get(at);
-        const keep = info?.objectStream ? ([] as Uint8Array[]) : null;
+        const keep: Uint8Array[] | null = info?.objectStream ? [] : null;
         const made = inflateStream(bytes, start, budget, keep);
         if (info && info.objectNumber !== null) seen.streamBytes.set(info.objectNumber, made);
         if (keep !== null) readObjectStream(keep, seen);
@@ -594,7 +592,8 @@ export function preflightPdf(bytes: Uint8Array): void {
       const objectNumber = objectNumberBefore(bytes, at);
       reader.at = at + OBJ.length;
       reader.skipSpace();
-      const dict = bytes[reader.at] === 0x3c && bytes[reader.at + 1] === 0x3c ? reader.dict() : null;
+      const dict =
+        bytes[reader.at] === 0x3c && bytes[reader.at + 1] === 0x3c ? reader.dict() : null;
       if (dict !== null) noteContents(dict, seen);
       reader.skipSpace();
       if (dict !== null && matches(bytes, reader.at, STREAM)) {

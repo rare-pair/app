@@ -259,7 +259,9 @@ export function readWork(text: PdfText): PdfWork {
     const notes = labelAt("Notes", 0, to);
     return summary >= 0 && (notes < 0 || summary < notes) ? summary : notes >= 0 ? notes : to;
   };
-  const declared = Number(DECLARED_CHAPTERS.exec(top.slice(0, firstLabel(top.length)).join(" "))?.[1] ?? 1);
+  const declared = Number(
+    DECLARED_CHAPTERS.exec(top.slice(0, firstLabel(top.length)).join(" "))?.[1] ?? 1,
+  );
   // In a one-chapter work a heading in the text is the text's, unless it's the only one.
   if (declared <= 1 && headings.length !== 1) headings = [];
   const firstHeading = headings[0] ?? lines.length;
@@ -328,10 +330,14 @@ export function readWork(text: PdfText): PdfWork {
     for (const [label, value] of printed) {
       const field = TAG_LABELS.get(label);
       if (!field) continue;
-      const names = value.split(",").map((s) => s.trim()).filter((s) => s !== "");
+      const names = value
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s !== "");
       tags[field].push(...names);
     }
-    if (Object.values(tags).some((names) => names.length > 0)) reviewReasons.push("tags_from_print");
+    if (Object.values(tags).some((names) => names.length > 0))
+      reviewReasons.push("tags_from_print");
   }
   if (tags.rating.length === 0) reviewReasons.push("missing_rating");
 
@@ -375,10 +381,12 @@ export function readWork(text: PdfText): PdfWork {
   const series: SeriesRef[] = [];
   const seriesLinks = [
     ...new Set(
-      links.filter((l) => reads(linkMark(l), prefaceMark)).flatMap((l) => {
-        const id = SERIES_URL.exec(l.url)?.[1];
-        return id === undefined ? [] : [id];
-      }),
+      links
+        .filter((l) => reads(linkMark(l), prefaceMark))
+        .flatMap((l) => {
+          const id = SERIES_URL.exec(l.url)?.[1];
+          return id === undefined ? [] : [id];
+        }),
     ),
   ];
   const seriesText = printedOf("series") ?? "";
@@ -409,11 +417,13 @@ export function readWork(text: PdfText): PdfWork {
   };
   const summaryEnd = summaryAt >= 0 ? blockEnd(summaryAt, notesAt) : -1;
   const notesEnd = notesAt >= 0 ? blockEnd(notesAt, -1) : -1;
-  const summary = summaryAt >= 0 ? paragraphsOf(lines.slice(summaryAt + 1, summaryEnd), layout) : [];
+  const summary =
+    summaryAt >= 0 ? paragraphsOf(lines.slice(summaryAt + 1, summaryEnd), layout) : [];
   const notes = notesAt >= 0 ? paragraphsOf(lines.slice(notesAt + 1, notesEnd), layout) : [];
 
   const AFTERWORD = /^(?:Afterword|End Notes|Please drop by the)/;
-  const lastStart = outlineStarts?.at(-1)?.at ?? headings.at(-1) ?? Math.max(bylineEnd, summaryEnd, notesEnd);
+  const lastStart =
+    outlineStarts?.at(-1)?.at ?? headings.at(-1) ?? Math.max(bylineEnd, summaryEnd, notesEnd);
   let bodyEnd = lines.length;
   for (let i = lastStart; i < lines.length; i++) {
     if (AFTERWORD.test(trimmed(lines[i]!))) {
@@ -426,7 +436,7 @@ export function readWork(text: PdfText): PdfWork {
   if (endNotesAt >= 0) {
     let stop = lines.length;
     for (let i = endNotesAt + 1; i < lines.length; i++) {
-      if (/^Please drop by the/.test(trimmed(lines[i]!))) {
+      if (trimmed(lines[i]!).startsWith("Please drop by the")) {
         stop = i;
         break;
       }

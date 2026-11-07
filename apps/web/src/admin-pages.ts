@@ -244,7 +244,9 @@ export type VersionRow = {
 function versionState(v: VersionRow) {
   const parts: string[] = [];
   if (v.held) {
-    parts.push(`Held for review: ${v.holdReason === null ? "no reason given" : reasonWording(v.holdReason)}`);
+    parts.push(
+      `Held for review: ${v.holdReason === null ? "no reason given" : reasonWording(v.holdReason)}`,
+    );
   }
   if (v.reviewReasons.length > 0) {
     parts.push(`Review reasons: ${v.reviewReasons.map(reasonWording).join(", ")}`);

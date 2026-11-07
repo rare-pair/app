@@ -401,8 +401,17 @@ describe("02-upload-handshake", () => {
   });
 
   it("12-pdf-upload: a PDF over 10 MB is refused before anything is asked", async () => {
-    const p = page([{ name: "big.pdf", size: 10485761 }, { name: "ok.pdf", size: 10485760 }], []);
-    expect(p.rows().map(note)).toEqual([expect.stringMatching(/over the 10 MB limit for a PDF/i), ""]);
+    const p = page(
+      [
+        { name: "big.pdf", size: 10485761 },
+        { name: "ok.pdf", size: 10485760 },
+      ],
+      [],
+    );
+    expect(p.rows().map(note)).toEqual([
+      expect.stringMatching(/over the 10 MB limit for a PDF/i),
+      "",
+    ]);
   });
 
   it("Only the files that pass are asked for", async () => {

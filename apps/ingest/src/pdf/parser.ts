@@ -1,6 +1,6 @@
 // The one module that loads `unpdf`, by `import()` from the Worker: an epub's job never does.
 import { EpubError } from "@archive/epub";
-import { getDocumentProxy, resolvePDFJSImports, type PDFDocumentProxy } from "unpdf";
+import { getDocumentProxy, resolvePDFJSImports } from "unpdf";
 import type { PdfParser } from "./index";
 import { PDF_LIMITS } from "./preflight";
 import type { PageLink, PdfText, TextLine } from "./structure";
@@ -19,9 +19,12 @@ interface TextItem {
 }
 
 /** The outline's entries in order, for those it can place; none when it's too long to be real. */
-async function readOutline(pdf: PDFDocumentProxy): Promise<PdfText["outline"]> {
+async function readOutline(
+  pdf: Awaited<ReturnType<typeof getDocumentProxy>>,
+): Promise<PdfText["outline"]> {
   const entries: { title: string; dest: unknown }[] = [];
   const walk = (items: unknown[]): void => {
+    // SAFETY: the shape pdf.js gives an outline's entries.
     for (const item of items as { title: string; dest: unknown; items?: unknown[] }[]) {
       entries.push({ title: item.title, dest: item.dest });
       if (entries.length > PDF_LIMITS.maxPages) return;
@@ -51,11 +54,11 @@ async function readOutline(pdf: PDFDocumentProxy): Promise<PdfText["outline"]> {
  */
 async function readText(bytes: Uint8Array): Promise<PdfText> {
   await resolvePDFJSImports(() => import("unpdf/pdfjs"));
-  const pdf = await getDocumentProxy(bytes.slice(), {
-    useSystemFonts: false,
-    disableFontFace: true,
-    verbosity: 0,
-  } as Parameters<typeof getDocumentProxy>[1]);
+  // SAFETY: pdf.js takes these options; unpdf's type names only some of them.
+  const options = { useSystemFonts: false, disableFontFace: true, verbosity: 0 } as Parameters<
+    typeof getDocumentProxy
+  >[1];
+  const pdf = await getDocumentProxy(bytes.slice(), options);
   try {
     if (pdf.numPages > PDF_LIMITS.maxPages) {
       throw new EpubError("pdf_unreadable", "More pages than a file may have");
@@ -75,6 +78,7 @@ async function readText(bytes: Uint8Array): Promise<PdfText> {
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
+        // SAFETY: the fields of a text item; a marked-content item has none, and is skipped below.
         for (const item of value.items as TextItem[]) {
           items++;
           const text = item.str ?? "";
@@ -100,6 +104,7 @@ async function readText(bytes: Uint8Array): Promise<PdfText> {
     }
     const outline = await readOutline(pdf);
     const { info } = await pdf.getMetadata();
+    // SAFETY: the one field read, of what the file says of itself, and its type is checked below.
     const infoTitle = (info as { Title?: unknown }).Title;
     return {
       lines,

@@ -97,6 +97,7 @@ describe("12-pdf-upload", () => {
       const { cookie } = await signIn();
       const res = await ask(cookie, [String(MB10 + 1)], [PDF]);
       expect(res.status).toBe(413);
+      // SAFETY: a refused request answers JSON.
       expect(((await res.json()) as { error: string }).error).toMatch(/10 MB limit for a PDF/);
     });
 
@@ -123,6 +124,7 @@ describe("12-pdf-upload", () => {
       const { id } = await opened(userId, MB10 + 1);
       const res = await put(id, cookie, new Uint8Array(MB10 + 1), PDF);
       expect(res.status).toBe(413);
+      // SAFETY: a refused request answers JSON.
       expect(((await res.json()) as { error: string }).error).toMatch(/10 MB limit for a PDF/);
     });
 

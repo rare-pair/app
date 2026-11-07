@@ -20,10 +20,13 @@ export const isPdf = (bytes: Uint8Array): boolean =>
   bytes[3] === 0x46 &&
   bytes[4] === 0x2d;
 
-const ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
-
 /** Plain text as markup: nothing from the file becomes a tag. */
-const escapeHtml = (text: string) => text.replace(/[&<>"]/g, (c) => ESCAPES[c]!);
+const escapeHtml = (text: string) =>
+  text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 
 /** A PDF's bytes in, a parsed work out, or an `EpubError`. */
 export async function processPdf(bytes: Uint8Array, load: LoadPdfParser): Promise<ParsedWork> {
