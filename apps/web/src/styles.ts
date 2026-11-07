@@ -684,6 +684,58 @@ html[data-face="sans"] {
   margin-top: calc(var(--space) * 4);
 }
 
+/* The sign-in page (#726): one centred column, 28rem, with its heading, alert and notes
+   in it, and room between the label, the field, the anti-spam check and the button. */
+.sign-in {
+  max-width: 28rem;
+  margin: 0 auto calc(var(--space) * 6);
+}
+
+main:has(.sign-in) > :not(.sign-in) {
+  max-width: 28rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+main:has(.sign-in) > p[role="alert"] {
+  box-sizing: border-box;
+  padding: calc(var(--space) * 3) calc(var(--space) * 4);
+  border: 2px solid currentColor;
+  font-weight: 600;
+}
+
+/* Help, not a warning: a quiet rule at the side, in the muted colour, with no box. */
+.sign-in-help {
+  box-sizing: border-box;
+  padding-left: calc(var(--space) * 3);
+  border-left: 3px solid var(--rule);
+  color: var(--muted);
+}
+
+.sign-in label {
+  display: block;
+  margin-bottom: calc(var(--space) * 2);
+  font-weight: 600;
+}
+
+.sign-in input[type="email"] {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: calc(var(--space) * 2) calc(var(--space) * 3);
+  font: inherit;
+}
+
+.sign-in .cf-turnstile,
+.sign-in button {
+  margin-top: calc(var(--space) * 6);
+}
+
+.sign-in button {
+  width: 100%;
+  min-height: 44px;
+}
+
 /* Updates: summary cards on the home page, and a post's byline and body. */
 .update-list {
   list-style: none;

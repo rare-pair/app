@@ -190,7 +190,7 @@ export const signInPage = (nonce: string, form: SignInForm) =>
     "Sign in",
     `${form.error === undefined ? "" : `<p role="alert">${escapeHtml(form.error)}</p>`}
 <noscript><p>Signing in needs JavaScript, for its anti-spam check. Reading works without it.</p></noscript>
-<form id="sign-in" method="post" action="/login" hidden>
+<form id="sign-in" class="sign-in" method="post" action="/login" hidden>
 <label for="email">Email address</label>
 <input id="email" type="email" name="email" autocomplete="email" maxlength="254" required value="${escapeHtml(form.email ?? "")}">
 <input type="hidden" name="next" value="${escapeHtml(form.next)}">
@@ -198,7 +198,8 @@ export const signInPage = (nonce: string, form: SignInForm) =>
 <button type="submit">Email me a sign-in link</button>
 </form>
 <script nonce="${escapeHtml(nonce)}">document.getElementById("sign-in").hidden = false;</script>
-<p>We'll email you a link that signs you in. It can take a minute to arrive during busy periods.</p>`,
+<p>We'll email you a link that signs you in. It can take a minute to arrive during busy periods.</p>
+<p class="sign-in-help">Prefer not to share your real address? You can use a mask from <a href="https://relay.firefox.com/">Firefox Relay</a>, which forwards our email to your inbox.</p>`,
     `<script src="${TURNSTILE_API}" nonce="${escapeHtml(nonce)}" async defer></script>`,
   );
 
