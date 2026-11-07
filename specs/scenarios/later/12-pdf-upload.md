@@ -2,7 +2,7 @@
 
 Relates to: docs/ARCHITECTURE.md § Ingestion pipeline, § Dedupe, § Reading (Download original epub), § The re-sanitize backfill; docs/FRONTEND-DISCOVERY.md § Key journeys (3); specs/scenarios/mvp/02-upload-handshake.md; specs/scenarios/mvp/06-ao3-preface-and-chapters.md; specs/scenarios/mvp/08-versioning-and-dedupe.md; specs/scenarios/mvp/09-content-origin.md
 
-Status: not built. Some readers only saved a PDF, and with the original archive offline they can't get an epub. This accepts those files, narrowly, and accepts that the result reads less well than an epub. An epub always wins over a PDF.
+Status: not built. Some readers only saved a PDF, and with the original archive offline they can't get an epub. This accepts those files, narrowly, and accepts that the result reads less well than an epub. An epub that isn't older wins over a PDF, and a PDF never replaces an epub.
 
 ## What the tests showed
 
@@ -13,7 +13,7 @@ From throwaway tests on 2026-11-07 of 8 PDFs: 2 AO3 exports or copies of them, 4
 - **Cost:** 2.3 s and +46 MB for the largest real file, text only. 9.1 s and +95 MB for a synthetic 25 MB file. `unpdf` adds 1.66 MB to the bundle. Local workerd enforces no CPU limit, so production's cost is unknown.
 - **Hostile files:** a 50,000-page file doesn't finish in 60 s. A 261 KB file that inflates to 256 MB took +455 MB, with nothing visible before inflating.
 
-Only 2 of the 8 could be checked against an epub, and both are single-chapter. See "Before it ships".
+Only 2 of the 8 could be checked against an epub, and both are single-chapter. So chapter text comparison, tags from print and paragraphs are unverified for multi-chapter files, and memory is tight: a 25 MB file held in memory plus the +95 MB above is close to a Worker's 128 MB. See "Before it ships".
 
 ## Setup
 
@@ -21,6 +21,8 @@ Only 2 of the 8 could be checked against an epub, and both are single-chapter. S
 - A file is a PDF because of its bytes, not its name or the type it was sent with
 - The 25 MB limit, the daily quota, Turnstile and the rate limits are the same as for an epub, and a PDF counts as one upload
 - A **PDF version** is a work version made from a PDF. It carries the review reason `from_pdf`, so it goes live with the existing notice, and it never holds an upload by itself
+- An upload's `format` column says `epub` or `pdf`, set when it's ingested. Its original is stored at `originals/<upload id>.epub` or `originals/<upload id>.pdf`, and every reader of that key goes through one helper that takes the format
+- `pdf_unreadable` is a new upload status: in the `UploadStatus` type, the database check, the status labels and messages, and an error code ingest treats as final, so the job isn't retried
 
 ## Cases
 
@@ -30,12 +32,14 @@ Only 2 of the 8 could be checked against an epub, and both are single-chapter. S
 - GIVEN a signed-in uploader on the upload page
 - WHEN they pick or drop a `.pdf` file
 - THEN it joins the list like an epub, goes through the same `POST /uploads`, `PUT` and confirm, and shows its own status on `/me/uploads`
+- AND `PUT` accepts exactly `application/epub+zip` or `application/pdf`, and the page sends whichever the file's extension calls for. Any other type is still a 415, and spec 02 says so
 - AND the page's wording says PDFs are accepted, and that an epub reads better if they have one
 
 #### A file's bytes decide what it is
 - GIVEN a PDF named `.epub`, or an epub named `.pdf`
 - WHEN it is ingested
 - THEN it goes through the processor its bytes call for
+- AND a file that starts `%PDF-` goes to the PDF processor. Anything else goes to the epub processor, so random bytes named `.pdf` end `not_epub`, whose message says it isn't a valid EPUB or PDF
 
 #### A zip doesn't hold PDFs yet
 - GIVEN a zip of epubs and PDFs on the upload page
@@ -52,7 +56,7 @@ Only 2 of the 8 could be checked against an epub, and both are single-chapter. S
 #### A PDF with no such line is refused
 - GIVEN a PDF with no "Posted originally" line, even if a work link appears elsewhere
 - WHEN it is ingested
-- THEN it ends `not_ao3`, as an epub does, and its stored file is deleted
+- THEN it ends `not_ao3`, as an epub does, and its file is treated as a refused epub's is
 
 #### A printed URL and a link that disagree are looked at
 - GIVEN a PDF whose printed work URL and link annotation name different works
@@ -83,10 +87,10 @@ Only 2 of the 8 could be checked against an epub, and both are single-chapter. S
 
 ### Hostile files
 
-Each stops before the parser opens the file, or stops it within its budget. The job ends with no retry, and its stored file is deleted.
+Each stops before the parser opens the file, or stops it within its budget. The job ends with no retry, and its file is treated as a refused epub's is.
 
 #### Encrypted and corrupt files are refused
-- GIVEN an encrypted PDF, random bytes named `.pdf`, a truncated PDF, or one whose `startxref` doesn't land on `xref` or an object
+- GIVEN a file starting `%PDF-` that is encrypted, truncated, or whose `startxref` doesn't land on `xref` or an object
 - WHEN it is ingested
 - THEN it ends `pdf_unreadable`, and the parser never opens it
 
@@ -105,7 +109,8 @@ Each stops before the parser opens the file, or stops it within its budget. The 
 #### A long parse keeps its lease
 - GIVEN a PDF near every limit
 - WHEN it is parsed
-- THEN the job's lease stays renewed, and a Worker that dies mid-parse is retried as any job is
+- THEN the parse yields between pages, so the lease's renewal timer can fire, and the lease stays renewed
+- AND a Worker that dies mid-parse is retried as any job is
 
 ### What a reader gets
 
@@ -125,7 +130,7 @@ Each stops before the parser opens the file, or stops it within its budget. The 
 - GIVEN a work whose current version is a PDF version
 - WHEN a reader opens its work page or a chapter
 - THEN the existing "Chapters may be imperfect; a moderator will check." notice shows until a moderator checks it
-- AND the work page says "Converted from a PDF", which stays after that check
+- AND the work page says "Converted from a PDF", decided from the version's upload format, so it stays after that check
 
 #### Italics and images are left out
 - GIVEN a PDF with italics or images
@@ -135,7 +140,7 @@ Each stops before the parser opens the file, or stops it within its budget. The 
 #### A moderator can check it
 - GIVEN a new PDF version
 - WHEN a moderator opens *Works to check*
-- THEN it is listed with the reason "Converted from a PDF", and checks like any other reason
+- THEN it is listed with the wording "Converted from a PDF", and "Tags read from print" for `tags_from_print`, not the raw reason codes, and checks like any other reason
 
 #### The original stays a download
 - GIVEN a live PDF version
@@ -143,18 +148,30 @@ Each stops before the parser opens the file, or stops it within its budget. The 
 - THEN `content.rarepair.fans` serves the PDF as an attachment, with `application/pdf` and the same throttle and refusals as any original
 - AND the link says "Download original PDF"
 
-### An epub always wins
+#### Everything that handles an original handles a PDF
+- GIVEN a PDF's original at `originals/<upload id>.pdf`
+- WHEN its work is removed or hidden, its version is held, or the daily sweep or an edge purge reaches it
+- THEN each treats it as it treats an epub's: nothing is left behind in R2 or the edge cache, and a hidden work's file is refused
+- AND each of those paths has a test, since each builds the key itself today
+
+### An epub wins
 
 #### An epub replaces a PDF
 - GIVEN a work whose current version is a PDF version
-- WHEN an epub of the same work, with the same date and chapter count or newer, is ingested
-- THEN the epub becomes current, whether or not the version rules would call it newer
-- AND a moderator's hide, or a hold on tags or authors changing, still applies as usual
+- WHEN an epub of the same work that isn't older is ingested: more chapters, or as many with the same date or a later one
+- THEN the epub becomes current, with the chapter, tag and author comparisons skipped, since a PDF's text and tags can't be held to an epub's
+- AND a moderator's hide or removal still applies as usual, and the version facts carry whether a version came from a PDF
+
+#### An older epub doesn't replace a newer PDF
+- GIVEN a work whose current version is a PDF version
+- WHEN an older epub of it is ingested
+- THEN it ends `duplicate`, as any older upload does
 
 #### A PDF never replaces an epub
 - GIVEN a work whose current version came from an epub
-- WHEN a PDF of the work is ingested, with any date
+- WHEN a PDF of the work is ingested, with any date or chapter count
 - THEN it ends `duplicate`, and the uploader sees "Already in the archive" with a link to the work
+- AND a moderator can't be blocked by this: making an older version current works as it does today, in either direction
 
 #### A PDF follows the rules against a PDF
 - GIVEN a work whose current version is a PDF version
