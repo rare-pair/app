@@ -346,6 +346,12 @@ describe("02-upload-handshake: the cap on open uploads", () => {
     await expectRefused(await ask(cookie, 1, TIERS), 429);
   });
 
+  it("The cap of a new account is its own tier's, not the trusted one's", async () => {
+    const { userId, cookie } = await signIn("uploadcap-new-tier@example.test");
+    await opened(userId, LOWER_NEW_LIMIT);
+    await expectRefused(await ask(cookie, 1, TIERS), 429);
+  });
+
   it("Only the account's own unconfirmed uploads are open", async () => {
     const { userId, cookie } = await signIn("uploadcap-not-open@example.test");
     const other = await signIn("uploadcap-not-open-other@example.test");
