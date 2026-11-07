@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { acceptTerms, BASE, fetchW, signIn } from "./helpers";
 
-// Runs in the "prelaunch" project, with PRELAUNCH on as wrangler.jsonc deploys it.
+// Runs in the "prelaunch" project, with PRELAUNCH turned on (wrangler.jsonc has it off).
 // The terms gate runs after the pre-launch redirect, so a closed page still goes to
 // the coming-soon page, and the open ones a new account needs still open.
 

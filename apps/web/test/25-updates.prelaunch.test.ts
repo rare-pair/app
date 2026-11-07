@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fetchW } from "./helpers";
 
-// Runs in the "prelaunch" project: wrangler.jsonc as deployed, with PRELAUNCH on.
+// Runs in the "prelaunch" project: wrangler.jsonc with PRELAUNCH turned on.
 describe("25-updates before launch", () => {
   it("Closed before launch", async () => {
     const res = await fetchW("/updates/release-0-1-0-chuhura");

@@ -5,7 +5,7 @@ import app from "../src/index";
 import { STYLESHEET_PATH } from "../src/styles";
 import { BASE, fetchW, nonceOf, TURNSTILE, withoutNonce } from "./helpers";
 
-// Runs in the "prelaunch" project: wrangler.jsonc exactly as it deploys, PRELAUNCH on.
+// Runs in the "prelaunch" project: wrangler.jsonc with PRELAUNCH turned on.
 
 const TURNSTILE_API = "https://challenges.cloudflare.com/turnstile/v0/api.js";
 
@@ -312,7 +312,7 @@ describe("22-waitlist", () => {
   });
 
   it("A missing or misspelt PRELAUNCH keeps the archive closed", async () => {
-    // wrangler.jsonc ships it on.
+    // the prelaunch project turns it on.
     expect(env.PRELAUNCH).toBe("on");
     // Only "off" opens the archive: the same handler, with the setting overridden.
     for (const PRELAUNCH of [undefined, "", "false", "OFF", "0"]) {

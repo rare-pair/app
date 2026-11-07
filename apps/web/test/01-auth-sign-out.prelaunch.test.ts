@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
 import { fetchW, postLogin, signIn, withoutHeader } from "./helpers";
 
-// Runs in the "prelaunch" project, with PRELAUNCH on as wrangler.jsonc deploys it:
+// Runs in the "prelaunch" project, with PRELAUNCH turned on (wrangler.jsonc has it off):
 // an admin signed in before launch can still sign out.
 
 const db = createDb({
