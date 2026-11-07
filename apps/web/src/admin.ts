@@ -2,7 +2,13 @@
 // every /admin URL goes through, and the four queues, read only. Actions and detail
 // pages come with later tickets (MOD2 on).
 
-import { createDb, isModeratorRole, type Database, type ModeratorRole } from "@archive/db";
+import {
+  createDb,
+  isModeratorRole,
+  UNCOUNTED_REPORT_KINDS,
+  type Database,
+  type ModeratorRole,
+} from "@archive/db";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { sql, type Kysely } from "kysely";
 import {
@@ -285,7 +291,7 @@ export async function showWorksToCheck(c: AdminContext) {
             .select("reports.id")
             .whereRef("reports.work_id", "=", "works.id")
             .where("reports.status", "=", "open")
-            .where("reports.kind", "<>", "wrong_version"),
+            .where("reports.kind", "not in", [...UNCOUNTED_REPORT_KINDS]),
         ),
       ),
     )

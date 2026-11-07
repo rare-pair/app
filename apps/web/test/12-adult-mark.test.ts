@@ -9,6 +9,8 @@ import { BASE, fetchW, signIn } from "./helpers";
 const G = 8813501; // General, no warnings: only a mark gives it the screen
 const R = 8813502; // General, for the report cases
 const K = 8813503; // General, marked and unmarked by the moderator
+const L = 8813505; // General, for the cache case
+const H = 8813504; // hidden by reports
 const LINE = "A moderator marked this work as adult.";
 const TAGS = [
   { type: "rating", name: "General Audiences" },
@@ -19,7 +21,7 @@ const TAGS = [
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 
 beforeAll(async () => {
-  for (const ao3WorkId of [G, R, K]) {
+  for (const ao3WorkId of [G, R, K, L]) {
     const w = await seedWork(db, {
       ao3WorkId,
       title: `adultmark work ${ao3WorkId}`,
@@ -196,6 +198,56 @@ describe("18-moderation", () => {
     });
     expect(res.status).toBe(404);
     expect((await stateOf(G)).adult_marked).toBe(false);
+  });
+
+  it("Lifting the mark doesn't leave a reader looping between a cached chapter and the screen", async () => {
+    const next = `/works/${L}/chapters/1`;
+    await db
+      .updateTable("works")
+      .set({ adult_marked: true })
+      .where("ao3_work_id", "=", L)
+      .execute();
+    const warm = await post(`/works/${L}/warnings`, undefined, { next });
+    const warned = warm.headers.getSetCookie()[0]!.split(";")[0]!;
+    // The edge keeps the page, with the screen decision made while the work was marked.
+    expect((await fetchW(next, { headers: { cookie: warned } })).status).toBe(200);
+    await db
+      .updateTable("works")
+      .set({ adult_marked: false })
+      .where("ao3_work_id", "=", L)
+      .execute();
+
+    const stale = await fetchW(next);
+    expect(stale.status).toBe(302);
+    const screen = await fetchW(stale.headers.get("location")!);
+    expect(screen.status).toBe(302);
+    expect(screen.headers.get("location")).toBe(next);
+    const cookie = screen.headers.getSetCookie()[0]!.split(";")[0]!;
+    expect((await fetchW(next, { headers: { cookie } })).status).toBe(200);
+  });
+
+  it("A work the reports hid with only a rating report open is in Works to check", async () => {
+    const hidden = await seedWork(db, {
+      ao3WorkId: H,
+      title: "adultmark hidden",
+      status: "hidden",
+      hiddenCause: "reports",
+      tags: [...TAGS],
+    });
+    const reporter = await signIn("adultmark-hidden-reporter@example.test", { acceptTerms: true });
+    void reporter;
+    const user = await db
+      .selectFrom("user")
+      .select("id")
+      .where("email", "=", "adultmark-hidden-reporter@example.test")
+      .executeTakeFirstOrThrow();
+    await db
+      .insertInto("reports")
+      .values({ work_id: hidden.workId, reporter_id: user.id, kind: "higher_rating" })
+      .execute();
+    const moderator = await moderatorCookie("adultmark-mod-wtc@example.test");
+    const page = await (await fetchW("/admin/works", { headers: { cookie: moderator } })).text();
+    expect(page).toContain(`(${H})`);
   });
 
   it("Only a moderator can mark a work", async () => {

@@ -126,6 +126,13 @@ export async function showWarnings(c: ReaderContext) {
   // Nothing to warn about, or the reader turned the screen off: on to the page asked for.
   const user = c.var.session?.user;
   if (!screenApplies(c, live)) {
+    // A work that no longer needs the screen (a mark lifted) can still have an edge-cached chapter page
+    // that sends its reader here for up to a minute: remembering the work lets that page through.
+    if (!needsWarnings(live)) {
+      c.header("Set-Cookie", warnedCookie([...warnedIds(c).filter((seen) => seen !== id), id]), {
+        append: true,
+      });
+    }
     c.header("Cache-Control", "private, no-store");
     return c.redirect(next, 302);
   }
