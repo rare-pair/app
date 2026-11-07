@@ -138,9 +138,11 @@ export const UPLOAD_SCRIPT = `"use strict";
   const readEntries = async (zip) => {
     const tail = await readBytes(zip, Math.max(0, zip.size - END_SEARCH), zip.size);
     const tailView = new DataView(tail.buffer);
+    // The last end record, as zip tools take it.
     let end = tail.length - 22;
     while (end >= 0 && tailView.getUint32(end, true) !== 0x06054b50) end--;
     if (end < 0) throw new Error("no end record");
+    if (end >= 20 && tailView.getUint32(end - 20, true) === 0x07064b50) throw new Error("zip64");
     const count = tailView.getUint16(end + 10, true);
     const length = tailView.getUint32(end + 12, true);
     const start = tailView.getUint32(end + 16, true);
@@ -154,6 +156,8 @@ export const UPLOAD_SCRIPT = `"use strict";
     for (let i = 0; i < count; i++) {
       if (at + 46 > dir.length || view.getUint32(at, true) !== 0x02014b50) throw new Error("bad entry");
       const nameLength = view.getUint16(at + 28, true);
+      const next = at + 46 + nameLength + view.getUint16(at + 30, true) + view.getUint16(at + 32, true);
+      if (next > dir.length) throw new Error("bad entry");
       found.push({
         flags: view.getUint16(at + 8, true),
         method: view.getUint16(at + 10, true),
@@ -162,33 +166,30 @@ export const UPLOAD_SCRIPT = `"use strict";
         offset: view.getUint32(at + 42, true),
         path: decoder.decode(dir.subarray(at + 46, at + 46 + nameLength)).replace(/\\\\/g, "/"),
       });
-      at += 46 + nameLength + view.getUint16(at + 30, true) + view.getUint16(at + 32, true);
+      at = next;
     }
-    if (found.some((entry) => entry.packed === 0xffffffff || entry.offset === 0xffffffff)) {
+    const sentinel = 0xffffffff;
+    if (found.some((e) => e.packed === sentinel || e.size === sentinel || e.offset === sentinel)) {
       throw new Error("zip64");
     }
-    // Entries that share bytes would make each one cost a full inflate for the same stream.
-    const spans = found
-      .filter((entry) => entry.packed > 0)
-      .map((entry) => [entry.offset, entry.offset + 30 + entry.packed])
-      .sort((a, b) => a[0] - b[0]);
-    for (let i = 1; i < spans.length; i++) {
-      if (spans[i][0] < spans[i - 1][1]) throw new Error("overlapping entries");
-    }
     return found;
+  };
+  // Where an entry's bytes start, from its local header; null when the header isn't there.
+  const locate = async (zip, entry) => {
+    const head = await readBytes(zip, entry.offset, entry.offset + 30);
+    const view = new DataView(head.buffer);
+    if (head.length < 30 || view.getUint32(0, true) !== 0x04034b50) return null;
+    const from = entry.offset + 30 + view.getUint16(26, true) + view.getUint16(28, true);
+    return from + entry.packed > zip.size ? null : from;
   };
   const TOO_BIG = "too big";
   // One entry's bytes as a Blob; TOO_BIG when it holds more than MAX_BYTES, counted as it is
   // inflated, whatever size the directory claims; null when it can't be read.
   const inflate = async (zip, entry) => {
-    if (entry.size > MAX_BYTES || entry.packed > MAX_BYTES) return TOO_BIG;
+    if (entry.size > MAX_BYTES) return TOO_BIG;
     if ((entry.flags & 1) !== 0 || (entry.method !== 0 && entry.method !== 8)) return null;
-    const head = await readBytes(zip, entry.offset, entry.offset + 30);
-    const view = new DataView(head.buffer);
-    if (head.length < 30 || view.getUint32(0, true) !== 0x04034b50) return null;
-    const from = entry.offset + 30 + view.getUint16(26, true) + view.getUint16(28, true);
-    if (from + entry.packed > zip.size) return null;
-    const packed = zip.slice(from, from + entry.packed);
+    if (entry.from === null) return null;
+    const packed = zip.slice(entry.from, entry.from + entry.packed);
     if (entry.method === 0) return entry.packed === entry.size ? packed : null;
     const reader = packed.stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
     const chunks = [];
@@ -229,6 +230,20 @@ export const UPLOAD_SCRIPT = `"use strict";
     }
     if (!found.some((entry) => isEpub(entry.path))) {
       return zip.name + " has no epub files in it, so nothing was added.";
+    }
+    // Where each epub's bytes are. Two that share bytes would each cost a full inflate of the
+    // same stream, so a zip laid out so is no valid zip.
+    const books = found.filter((entry) => isEpub(entry.path));
+    for (const entry of books) {
+      entry.from = await locate(zip, entry).catch(() => null);
+    }
+    const placed = books
+      .filter((entry) => entry.from !== null && entry.packed > 0)
+      .sort((a, b) => a.from - b.from);
+    for (let i = 1; i < placed.length; i++) {
+      if (placed[i].from < placed[i - 1].from + placed[i - 1].packed) {
+        return zip.name + " isn't a valid zip file, so nothing was added.";
+      }
     }
     let added = 0;
     let skipped = 0;

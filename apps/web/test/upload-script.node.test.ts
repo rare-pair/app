@@ -1,4 +1,5 @@
 import { createContext, runInContext, Script } from "node:vm";
+import { randomBytes } from "node:crypto";
 import { deflateRawSync } from "node:zlib";
 import { describe, expect, it, vi } from "vitest";
 import { UPLOAD_SCRIPT } from "../src/upload-script";
@@ -848,7 +849,13 @@ type ZipEntry = {
   /** Where the directory says the entry starts, when not where it really does. */
   at?: number;
 };
-const zipOf = (entries: ZipEntry[], zipName = "books.zip") => {
+type ZipExtras = {
+  /** A zip64 end-record locator before the end record. */
+  locator?: boolean;
+  /** An extra-field length the last directory entry claims but the directory doesn't hold. */
+  lastExtra?: number;
+};
+const zipOf = (entries: ZipEntry[], zipName = "books.zip", extras: ZipExtras = {}) => {
   const parts: Buffer[] = [];
   const directory: Buffer[] = [];
   let offset = 0;
@@ -872,6 +879,7 @@ const zipOf = (entries: ZipEntry[], zipName = "books.zip") => {
     central.writeUInt32LE(body.length, 20);
     central.writeUInt32LE(claims, 24);
     central.writeUInt16LE(entryName.length, 28);
+    if (entry === entries[entries.length - 1]) central.writeUInt16LE(extras.lastExtra ?? 0, 30);
     central.writeUInt32LE(entry.at ?? offset, 42);
     parts.push(local, entryName, body);
     directory.push(central, entryName);
@@ -884,7 +892,9 @@ const zipOf = (entries: ZipEntry[], zipName = "books.zip") => {
   end.writeUInt16LE(entries.length, 10);
   end.writeUInt32LE(dir.length, 12);
   end.writeUInt32LE(offset, 16);
-  return new File([Buffer.concat([...parts, dir, end])], zipName);
+  const locator = Buffer.alloc(extras.locator ? 20 : 0);
+  if (extras.locator) locator.writeUInt32LE(0x07064b50, 0);
+  return new File([Buffer.concat([...parts, dir, locator, end])], zipName);
 };
 const book = (bookName: string, bytes: number): ZipEntry => ({
   name: bookName,
@@ -1107,6 +1117,32 @@ describe("26-bulk-zip-upload", () => {
     p.pick([zipOf([first, { ...book("b.epub", 101), at: 0 }])]);
     await vi.waitFor(() => expect(p.message.textContent).toMatch(/isn't a valid zip/));
     expect(p.rows()).toHaveLength(0);
+  });
+
+  it("A directory entry whose fields run past the directory adds nothing", async () => {
+    const p = page([], []);
+    p.pick([zipOf([book("one.epub", 100)], "books.zip", { lastExtra: 500 })]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/isn't a valid zip/));
+    expect(p.rows()).toHaveLength(0);
+  });
+
+  it("A zip64 marker is refused before any row is added", async () => {
+    const p = page([], []);
+    p.pick([zipOf([book("one.epub", 100)], "located.zip", { locator: true })]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/upload the epubs directly/));
+    p.pick([zipOf([{ name: "two.epub", data: Buffer.from("x"), claims: 0xffffffff }])]);
+    await vi.waitFor(() =>
+      expect(p.message.textContent).toMatch(/books\.zip uses a zip format this page can't open/),
+    );
+    expect(p.rows()).toHaveLength(0);
+  });
+
+  it("An epub of exactly 25 MB that doesn't compress is accepted", async () => {
+    // Deflate stores incompressible bytes with a little overhead, so it packs to more than 25 MB.
+    const p = page([], []);
+    p.pick([zipOf([{ name: "full.epub", data: randomBytes(25 * MB) }])]);
+    await vi.waitFor(() => expect(p.rows()).toHaveLength(1), { timeout: 10000 });
+    expect(note(p.rows()[0]!)).toBe("");
   });
 
   it("A zip with no epubs adds nothing", async () => {
