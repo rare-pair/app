@@ -6,7 +6,7 @@
 // Default tags are shared rows: on a database several test files share, give
 // each file its own tag names and AO3 work IDs, or a listing sees the others'.
 import type { Kysely, Transaction } from "kysely";
-import type { Database, HiddenCause, HoldReason, TagType } from "./schema";
+import type { Database, HiddenCause, HoldReason, TagType, UploadFormat } from "./schema";
 import { copyVersionToWork } from "./version-copy";
 
 export interface SeedChapter {
@@ -48,6 +48,8 @@ export interface SeedVersionOptions extends SeedVersionFields {
    * own, and its fragments under `works/<ao3_work_id>/<version id>/`. Default: an upload's.
    */
   backfillOf?: string;
+  /** What the version's upload is. Default `epub`. */
+  format?: UploadFormat;
 }
 
 export interface SeedWorkOptions extends SeedVersionOptions {
@@ -317,6 +319,7 @@ async function addVersion(
         bytes: 1024,
         status: current ? "live" : "held_for_review",
         work_id: work.workId,
+        format: options.format ?? "epub",
       })
       .execute();
   }

@@ -105,6 +105,7 @@ const expected = {
     error_stage: { type: "text", nullable: true },
     error: { type: "text", nullable: true },
     work_id: { type: "text", nullable: true },
+    format: { type: "text", nullable: false },
     created_at: { type: "timestamptz", nullable: false },
   },
 } satisfies Record<string, Record<string, { type: string; nullable: boolean }>>;
