@@ -5,6 +5,7 @@ import {
   hideWork,
   listRecentLiveWorks,
   makeVersionCurrent,
+  restoreWork,
   markAdult,
   unmarkAdult,
 } from "../src/index";
@@ -130,6 +131,16 @@ describe("18-moderation", () => {
     await markAdult(t.db, workId, { actor: await addUser() });
     const listed = await listRecentLiveWorks(t.db, 500);
     expect(listed.find((l) => l.work.ao3_work_id === ao3WorkId)?.work.adult_marked).toBe(true);
+  });
+
+  it("A moderator's restore leaves a needs-a-higher-rating report open", async () => {
+    const { workId } = await seedWork(t.db);
+    const other = await report(workId, await addUser(), "other");
+    const rating = await report(workId, await addUser(), "higher_rating");
+    await hideWork(t.db, workId, "moderator");
+    expect(await restoreWork(t.db, workId)).toBe(true);
+    expect(await statusOf(other)).toBe("closed");
+    expect(await statusOf(rating)).toBe("open");
   });
 
   it("A higher-rating report can be dismissed", async () => {

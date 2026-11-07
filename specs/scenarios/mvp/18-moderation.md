@@ -191,6 +191,7 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.role, user.banned_at, work_
 - WHEN M uses the restore action on W
 - THEN W is `live` again and the report is `closed`
 - AND restoring a work that isn't hidden changes nothing, its open reports included
+- AND an open "This needs a higher rating" report stays `open`, because only marking the work or dismissing the report decides it
 
 ### Replacing a version leaves wrong-version reports open
 - GIVEN work BV with a "This version is wrong" report

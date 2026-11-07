@@ -253,7 +253,7 @@ export interface ReportTable {
   work_id: string;
   /** Reporting needs an account. */
   reporter_id: string;
-  /** `wrong_version` ("This version is wrong") is the only value the docs name. */
+  /** `wrong_version` ("This version is wrong") and `higher_rating` ("This needs a higher rating") are the values the docs name. */
   kind: string;
   /** The optional details. */
   body: string | null;

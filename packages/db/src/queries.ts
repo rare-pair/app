@@ -994,6 +994,8 @@ export async function restoreWork(
         .set({ status: "closed" })
         .where("work_id", "=", workId)
         .where("status", "=", "open")
+        // A rating report is about the rating, not the hide: only marking or dismissing closes it.
+        .where("kind", "<>", "higher_rating")
         .execute();
     }
     if (options.actor !== undefined) {

@@ -134,7 +134,10 @@ adminWork.get("/works/:id", async (c) => {
       workActions(work.ao3_work_id, `/admin/works/${work.ao3_work_id}`),
       // A removed work's reports can't be closed here, so the form isn't offered.
       work.status === "removed" ? 0 : Number(work.open_wrong_version),
-      { marked: work.adult_marked, openRatingReports: Number(work.open_higher_rating) },
+      // A removed work can be neither marked nor have its reports closed here.
+      work.status === "removed"
+        ? null
+        : { marked: work.adult_marked, openRatingReports: Number(work.open_higher_rating) },
     ),
   );
 });
@@ -198,7 +201,10 @@ adminWork.post("/works/:id/adult", async (c) => {
     resultPage(
       {
         changed: `Marked as adult.${closedText}`,
-        unchanged: `Nothing changed: it was marked already.${closedText}`,
+        unchanged:
+          closed === 0
+            ? "Nothing changed: it was marked already."
+            : `It was marked already.${closedText}`,
         unavailable: "Nothing changed: the work is removed.",
       }[outcome],
       back,

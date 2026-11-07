@@ -294,7 +294,7 @@ export function workAdminPage(
   versions: VersionRow[],
   actions: string,
   openWrongVersionReports: number,
-  adult: { marked: boolean; openRatingReports: number },
+  adult: { marked: boolean; openRatingReports: number } | null,
 ) {
   const approve = (v: VersionRow) =>
     needsApproval(v)
@@ -328,7 +328,7 @@ ${rows}
 </tbody>
 </table>
 ${wrongVersionReports(ao3WorkId, openWrongVersionReports)}
-${adultMarkForms(ao3WorkId, adult.marked, adult.openRatingReports)}
+${adult === null ? "" : adultMarkForms(ao3WorkId, adult.marked, adult.openRatingReports)}
 ${actions}`,
   );
 }

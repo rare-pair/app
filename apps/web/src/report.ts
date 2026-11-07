@@ -2,7 +2,7 @@
 // needs an account (ARCHITECTURE, Author requests & takedowns, Reports). No
 // script and no Turnstile, so it works with JavaScript off.
 
-import { createDb, hideWork, isBanned } from "@archive/db";
+import { createDb, hideWork, isBanned, UNCOUNTED_REPORT_KINDS } from "@archive/db";
 import type { Context, MiddlewareHandler } from "hono";
 import { blockedReporterIds } from "./blocked-reporters";
 import type { Bindings } from "./env";
@@ -211,8 +211,8 @@ export async function submitReport(c: ReportContext) {
         body: details.trim() === "" ? null : details,
       })
       .execute();
-    // A rating report never counts toward hiding, so there is nothing to count.
-    if (reason === "higher_rating") {
+    // These kinds never count toward hiding, so there is nothing to count.
+    if ((UNCOUNTED_REPORT_KINDS as readonly string[]).includes(reason)) {
       return c.html(reportedPage(reason), 200, NO_STORE);
     }
     // The count is inside the hiding UPDATE: a read could come from Hyperdrive's
