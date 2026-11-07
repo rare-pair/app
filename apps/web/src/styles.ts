@@ -509,6 +509,21 @@ main {
   overflow-wrap: anywhere;
 }
 
+/* The upload page's drop area: a dashed box, with a solid one while a file is over it. */
+.drop-area {
+  border: 2px dashed currentcolor;
+  padding: calc(var(--space) * 4);
+  margin-bottom: calc(var(--space) * 4);
+}
+
+.drop-area.over {
+  border-style: solid;
+}
+
+#files li button {
+  margin: 0 calc(var(--space) * 2);
+}
+
 /* The upload page's bars: never wider than a narrow screen. */
 progress {
   max-width: 100%;

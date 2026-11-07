@@ -198,6 +198,51 @@ Relates to: docs/ARCHITECTURE.md § Ingestion pipeline (steps 1-3), § Dedupe, �
 - AND each file is PUT to its own address, with its own progress
 - AND each finished transfer goes through `POST /uploads/:id/complete`
 
+### Picked and dropped files wait in a list until Upload
+- GIVEN user U on `/upload` with JavaScript on
+- WHEN U picks epub files with the file picker, or drops them on the marked drop area
+- THEN each shows in a list with its name and size, and nothing is sent
+- AND the file picker is still there for keyboard, screen reader and phone users
+- AND the page announces how many files were added
+
+### Adding more files adds to the list, and a file added twice shows once
+- GIVEN a list of files
+- WHEN U adds more files, one of them a file already in the list
+- THEN the list holds the earlier files and the new ones, and the repeat shows once
+- AND the page announces that it was already in the list
+
+### A row can be removed, and focus lands next to it
+- GIVEN a list of files
+- WHEN U presses a row's Remove button
+- THEN the row goes, the page announces it, and nothing is sent
+- AND focus lands on the Remove button of the row that took its place, or the one before it, or the file picker when the list is empty
+
+### A file that cannot be sent says so in the list
+- GIVEN a list holding a file that is not an epub, an empty file and a file over the size limit
+- WHEN the files are added
+- THEN each row shows its problem
+- AND U presses Upload, and those files are not sent
+- AND the other files in the list are
+
+### A long list is sent in groups of 10
+- GIVEN a list of 25 files that can be sent
+- WHEN U presses Upload
+- THEN the page asks `POST /uploads` for the first 10, sends them and confirms all 10
+- AND only then gets a fresh Turnstile token, with no click, and asks for the next 10, and then the last 5
+- AND no `POST /uploads` asks for more than 10 files
+
+### A Turnstile check that needs the person is said aloud
+- GIVEN a long list, partway through the groups
+- WHEN the fresh Turnstile check asks the person to do something
+- THEN the page says so, and goes on once the check passes
+
+### A daily quota that runs out partway keeps what was sent
+- GIVEN a list of 15 files and quota for 12
+- WHEN the second group is refused for the quota
+- THEN the first 10 stay sent, and show as uploaded
+- AND the rows of the refused group say they were not uploaded and stay in the list
+- AND pressing Upload again sends only those
+
 ### A transfer answered 409 goes on to the confirm and isn't reported
 - GIVEN a PUT answered 409, such as a stored file's PUT sent again by the browser after its answer was lost
 - WHEN the page gets that answer

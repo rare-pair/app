@@ -9,6 +9,11 @@ import { UPLOAD_SCRIPT } from "../src/upload-script";
 type Fake = { name: string; size: number };
 type Row = { children: FakeElement[] };
 
+/** Each element the page gave focus, in order. */
+let focusLog: FakeElement[] = [];
+
+type FakeEvent = { preventDefault: () => void; dataTransfer?: { files: Fake[] } };
+
 class FakeElement {
   children: FakeElement[] = [];
   textContent = "";
@@ -18,10 +23,21 @@ class FakeElement {
   value = 0;
   files: Fake[] = [];
   attributes: Record<string, string> = {};
-  listeners: Record<string, () => Promise<void>> = {};
+  listeners: Record<string, (event?: FakeEvent) => Promise<void> | void> = {};
+  classes = new Set<string>();
+  classList = {
+    add: (name: string) => this.classes.add(name),
+    remove: (name: string) => this.classes.delete(name),
+  };
   appendChild(child: FakeElement) {
     this.children.push(child);
     return child;
+  }
+  removeChild(child: FakeElement) {
+    this.children = this.children.filter((one) => one !== child);
+  }
+  focus() {
+    focusLog.push(this);
   }
   replaceChildren() {
     this.children = [];
@@ -29,7 +45,7 @@ class FakeElement {
   setAttribute(name: string, value: string) {
     this.attributes[name] = value;
   }
-  addEventListener(type: string, listener: () => Promise<void>) {
+  addEventListener(type: string, listener: (event?: FakeEvent) => Promise<void> | void) {
     this.listeners[type] = listener;
   }
 }
@@ -89,8 +105,9 @@ type Call = { url: string; method: string; body: URLSearchParams | undefined };
 function page(files: Fake[], replies: ((call: Call) => { status: number; body: object })[]) {
   FakeXhr.all = [];
   const elements = Object.fromEntries(
-    ["file", "send", "message", "files"].map((id) => [id, new FakeElement()]),
+    ["file", "send", "message", "files", "drop"].map((id) => [id, new FakeElement()]),
   );
+  focusLog = [];
   elements["file"]!.files = files;
   const calls: Call[] = [];
   // The uploads the page has reported as failed. Each is answered without using up a reply.
@@ -99,8 +116,21 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
   const turnstile = {
     token: "token-1",
     resets: 0,
-    getResponse: () => turnstile.token,
-    reset: () => turnstile.resets++,
+    // How many times `getResponse` answers with nothing after a reset, as a check still running does.
+    slowBy: 0,
+    waiting: 0,
+    getResponse: () => {
+      if (turnstile.waiting > 0) {
+        turnstile.waiting--;
+        return "";
+      }
+      return turnstile.token;
+    },
+    reset: () => {
+      turnstile.resets++;
+      turnstile.token = `token-${turnstile.resets + 1}`;
+      turnstile.waiting = turnstile.slowBy;
+    },
   };
   const globals = {
     document: {
@@ -118,7 +148,11 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
       if (reply.status === 0) throw new TypeError("Failed to fetch");
       return { ok: reply.status < 300, status: reply.status, json: async () => reply.body };
     },
-    setTimeout: (run: () => void, ms: number) => timers.push(new FakeTimer(ms, run)) - 1,
+    setTimeout: (run: () => void, ms: number) => {
+      // A short wait, such as the poll for a token, passes at once; a long one is the test's to fire.
+      if (ms < 1000) setImmediate(run);
+      return timers.push(new FakeTimer(ms, run)) - 1;
+    },
     clearTimeout: (id: number) => {
       timers[id]!.cleared = true;
     },
@@ -130,6 +164,8 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
   // The script reaches Turnstile as window.turnstile; the page's globals are the same object.
   const context = createContext({ ...globals, window: globals });
   runInContext(UPLOAD_SCRIPT, context);
+  // The files are in the input as the script loads; picking them is the input's change.
+  void elements["file"]!.listeners["change"]?.();
   const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
   return {
     calls,
@@ -137,6 +173,15 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
     timers,
     turnstile,
     button: elements["send"]!,
+    input: elements["file"]!,
+    drop: elements["drop"]!,
+    pick: (more: Fake[]) => {
+      elements["file"]!.files = more;
+      void elements["file"]!.listeners["change"]?.();
+    },
+    focused: () => focusLog[focusLog.length - 1],
+    // Turnstile's call back to the page, for a check that needs the person.
+    interact: () => runInContext("window.onTurnstileInteractive()", context),
     message: elements["message"]!,
     rows: () => elements["files"]!.children,
     click: async () => {
@@ -146,8 +191,12 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
   };
 }
 
-const bar = (row: Row) => row.children[1]!;
-const note = (row: Row) => row.children[2]!.textContent;
+// A row is its name, size, Remove button, progress bar and note.
+const name = (row: Row) => row.children[0]!.textContent.trim();
+const size = (row: Row) => row.children[1]!.textContent;
+const remove = (row: Row) => row.children[2]!;
+const bar = (row: Row) => row.children[3]!;
+const note = (row: Row) => row.children[4]!.textContent;
 const epub = (n: number, size = 1000 + n): Fake => ({ name: `book-${n}.epub`, size });
 const sizesOf = (body: URLSearchParams | undefined) => body?.getAll("size");
 const done = (xhr: FakeXhr, status = 200) => {
@@ -282,7 +331,10 @@ describe("02-upload-handshake", () => {
     expect(p.message.textContent).toBe("You have 1 upload left today.");
     expect(FakeXhr.all).toHaveLength(0);
     expect(p.turnstile.resets).toBe(1);
-    expect(p.rows().map(note)).toEqual(["Not uploaded.", "Not uploaded."]);
+    expect(p.rows().map(note)).toEqual([
+      expect.stringMatching(/Not uploaded/),
+      expect.stringMatching(/Not uploaded/),
+    ]);
     expect(p.button.disabled).toBe(false);
   });
 
@@ -295,6 +347,12 @@ describe("02-upload-handshake", () => {
       ],
       [],
     );
+    // The problems show in the list as the files are added, before anything is sent.
+    expect(p.rows().map(note)).toEqual([
+      expect.stringMatching(/Not an epub/),
+      expect.stringMatching(/over the 25 MB limit/i),
+      expect.stringMatching(/empty/),
+    ]);
     await p.click();
     expect(p.calls).toHaveLength(0);
     expect(p.rows().map(note)).toEqual([
@@ -317,16 +375,6 @@ describe("02-upload-handshake", () => {
     expect(sizesOf(p.calls[0]!.body)).toEqual(["77"]);
     done(FakeXhr.all[0]!);
     await clicked;
-  });
-
-  it("More than ten files are refused before anything is asked", async () => {
-    const p = page(
-      Array.from({ length: 11 }, (_, i) => epub(i)),
-      [],
-    );
-    await p.click();
-    expect(p.calls).toHaveLength(0);
-    expect(p.message.textContent).toMatch(/10 files/);
   });
 
   it("Asks nothing until the anti-spam check has an answer", async () => {
@@ -493,7 +541,7 @@ describe("02-upload-handshake", () => {
     await p.flush();
     // Only the file that failed is asked for again.
     expect(sizesOf(p.calls[2]!.body)).toEqual(["1002"]);
-    expect(p.rows().map(note)[0]).toMatch(/Already uploaded/);
+    expect(p.rows().map(note)[0]).toMatch(/Uploaded/);
     done(FakeXhr.all[2]!);
     await second;
   });
@@ -507,5 +555,176 @@ describe("02-upload-handshake", () => {
     expect(p.calls).toHaveLength(1);
     expect(note(p.rows()[0]!)).toMatch(/try again/);
     expect(p.reported).toEqual(["/uploads/up-1"]);
+  });
+
+  it("Picked and dropped files wait in a list until Upload", async () => {
+    const p = page([epub(1, 2048), epub(2, 3 * 1024 * 1024)], []);
+    expect(p.rows().map(name)).toEqual(["book-1.epub", "book-2.epub"]);
+    expect(p.rows().map(size)).toEqual([
+      expect.stringContaining("2 KB"),
+      expect.stringContaining("3.0 MB"),
+    ]);
+    expect(p.message.textContent).toMatch(/2 files added/);
+    // A drop on the marked area adds to the same list.
+    let prevented = false;
+    void p.drop.listeners["dragover"]!({ preventDefault: () => (prevented = true) });
+    expect(prevented).toBe(true);
+    void p.drop.listeners["drop"]!({
+      preventDefault: () => undefined,
+      dataTransfer: { files: [epub(3)] },
+    });
+    expect(p.rows().map(name)).toEqual(["book-1.epub", "book-2.epub", "book-3.epub"]);
+    // Nothing is sent until Upload is pressed.
+    expect(p.calls).toHaveLength(0);
+    expect(FakeXhr.all).toHaveLength(0);
+  });
+
+  it("Adding more files adds to the list, and a file added twice shows once", async () => {
+    const p = page([epub(1), epub(2)], []);
+    p.pick([epub(2), epub(3)]);
+    expect(p.rows().map(name)).toEqual(["book-1.epub", "book-2.epub", "book-3.epub"]);
+    expect(p.message.textContent).toMatch(/1 file added/);
+    expect(p.message.textContent).toMatch(/1 was already in the list/);
+  });
+
+  it("A row can be removed, and focus lands next to it", async () => {
+    const p = page([epub(1), epub(2), epub(3)], []);
+    await remove(p.rows()[1]!).listeners["click"]!();
+    expect(p.rows().map(name)).toEqual(["book-1.epub", "book-3.epub"]);
+    expect(p.message.textContent).toMatch(/Removed book-2.epub/);
+    // The row that took its place has focus.
+    expect(p.focused()).toBe(remove(p.rows()[1]!));
+    // The last row's removal leaves focus on the one before.
+    await remove(p.rows()[1]!).listeners["click"]!();
+    expect(p.focused()).toBe(remove(p.rows()[0]!));
+    // An empty list leaves focus on the file picker.
+    await remove(p.rows()[0]!).listeners["click"]!();
+    expect(p.rows()).toHaveLength(0);
+    expect(p.focused()).toBe(p.input);
+    expect(p.calls).toHaveLength(0);
+  });
+
+  it("A long list is sent in groups of 10, each confirmed before the next, with a fresh token", async () => {
+    const files = Array.from({ length: 25 }, (_, i) => epub(i));
+    const ids = (from: number, n: number) => ({
+      uploads: Array.from({ length: n }, (_, i) => ({ id: `u${from + i}` })),
+    });
+    const p = page(files, [
+      () => ({ status: 200, body: ids(0, 10) }),
+      ...Array.from({ length: 10 }, () => () => ({ status: 200, body: { status: "queued" } })),
+      () => ({ status: 200, body: ids(10, 10) }),
+      ...Array.from({ length: 10 }, () => () => ({ status: 200, body: { status: "queued" } })),
+      () => ({ status: 200, body: ids(20, 5) }),
+      ...Array.from({ length: 5 }, () => () => ({ status: 200, body: { status: "queued" } })),
+    ]);
+    const clicked = p.click();
+    const finishAll = async (from: number, n: number) => {
+      for (let i = from; i < from + n; i++) {
+        // Three at a time: each is started as another ends.
+        while (FakeXhr.all.length <= i) await p.flush();
+        done(FakeXhr.all[i]!);
+        await p.flush();
+      }
+    };
+    await p.flush();
+    expect(sizesOf(p.calls[0]!.body)).toHaveLength(10);
+    expect(p.calls[0]!.body?.get("cf-turnstile-response")).toBe("token-1");
+    await finishAll(0, 10);
+    for (let i = 0; i < 20 && p.calls.length < 12; i++) await p.flush();
+    // The second ask comes only after the first ten were confirmed, with the next token.
+    expect(p.calls.slice(1, 11).every((c) => c.url.endsWith("/complete"))).toBe(true);
+    expect(sizesOf(p.calls[11]!.body)).toHaveLength(10);
+    expect(p.calls[11]!.body?.get("cf-turnstile-response")).toBe("token-2");
+    await finishAll(10, 10);
+    for (let i = 0; i < 20 && p.calls.length < 23; i++) await p.flush();
+    expect(sizesOf(p.calls[22]!.body)).toHaveLength(5);
+    expect(p.calls[22]!.body?.get("cf-turnstile-response")).toBe("token-3");
+    await finishAll(20, 5);
+    await clicked;
+    const asks = p.calls.filter((c) => c.url === "/uploads");
+    expect(asks.map((c) => sizesOf(c.body)?.length)).toEqual([10, 10, 5]);
+    expect(p.rows().every((r) => /Uploaded/.test(note(r)))).toBe(true);
+  });
+
+  it("A Turnstile check that needs the person is said aloud", async () => {
+    const files = Array.from({ length: 11 }, (_, i) => epub(i));
+    const p = page(files, [
+      () => ({
+        status: 200,
+        body: { uploads: Array.from({ length: 10 }, (_, i) => ({ id: `u${i}` })) },
+      }),
+      ...Array.from({ length: 10 }, () => () => ({ status: 200, body: { status: "queued" } })),
+      () => ({ status: 200, body: { id: "last" } }),
+      () => ({ status: 200, body: { status: "queued" } }),
+    ]);
+    // The check after the first ask is slow.
+    p.turnstile.slowBy = 1000000;
+    const clicked = p.click();
+    for (let i = 0; i < 10; i++) {
+      while (FakeXhr.all.length <= i) await p.flush();
+      done(FakeXhr.all[i]!);
+      await p.flush();
+    }
+    for (let i = 0; i < 5; i++) await p.flush();
+    expect(p.calls).toHaveLength(11);
+    // Turnstile calls the page back when it needs the person.
+    p.interact();
+    for (let i = 0; i < 5; i++) await p.flush();
+    expect(p.message.textContent).toMatch(/needs you/);
+    // Once it passes, the page goes on with no click.
+    p.turnstile.waiting = 0;
+    while (FakeXhr.all.length < 11) await p.flush();
+    done(FakeXhr.all[10]!);
+    await clicked;
+    expect(sizesOf(p.calls[11]!.body)).toHaveLength(1);
+    expect(note(p.rows()[10]!)).toMatch(/Uploaded/);
+  });
+
+  it("A daily quota that runs out partway keeps what was sent", async () => {
+    const files = Array.from({ length: 15 }, (_, i) => epub(i));
+    const p = page(files, [
+      () => ({
+        status: 200,
+        body: { uploads: Array.from({ length: 10 }, (_, i) => ({ id: `u${i}` })) },
+      }),
+      ...Array.from({ length: 10 }, () => () => ({ status: 200, body: { status: "queued" } })),
+      () => ({ status: 429, body: { error: "You have no uploads left today." } }),
+      () => ({
+        status: 200,
+        body: { uploads: Array.from({ length: 5 }, (_, i) => ({ id: `v${i}` })) },
+      }),
+      ...Array.from({ length: 5 }, () => () => ({ status: 200, body: { status: "queued" } })),
+    ]);
+    const clicked = p.click();
+    for (let i = 0; i < 10; i++) {
+      while (FakeXhr.all.length <= i) await p.flush();
+      done(FakeXhr.all[i]!);
+      await p.flush();
+    }
+    await clicked;
+    expect(p.message.textContent).toBe("You have no uploads left today.");
+    expect(
+      p
+        .rows()
+        .slice(0, 10)
+        .every((r) => /Uploaded/.test(note(r))),
+    ).toBe(true);
+    expect(p.rows().slice(10).map(note)).toEqual(
+      Array(5).fill(expect.stringMatching(/Not uploaded.*stays in the list/)),
+    );
+    expect(p.rows()).toHaveLength(15);
+    expect(p.button.disabled).toBe(false);
+
+    // Another click sends only the five.
+    const again = p.click();
+    await p.flush();
+    expect(sizesOf(p.calls[p.calls.length - 1]!.body)).toHaveLength(5);
+    for (let i = 10; i < 15; i++) {
+      while (FakeXhr.all.length <= i) await p.flush();
+      done(FakeXhr.all[i]!);
+      await p.flush();
+    }
+    await again;
+    expect(p.rows().every((r) => /Uploaded/.test(note(r)))).toBe(true);
   });
 });
