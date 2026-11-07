@@ -79,6 +79,8 @@ export interface PdfLine {
   x?: number;
   /** A link annotation over the line's text. */
   url?: string;
+  /** Link annotations over parts of the line, by character. */
+  links?: { url: string; at: number; length: number }[];
   /** Empty points above the line, on top of the line pitch. Default 0. */
   gap?: number;
   /** Starts a new page. */
@@ -114,6 +116,14 @@ export function layoutPdf(
       page.links.push(
         `<< /Type /Annot /Subtype /Link /Rect [${x} ${y - 2} ${right} ${y + size}] ` +
           `/A << /S /URI /URI (${escapePdf(line.url)}) >> >>`,
+      );
+    }
+    for (const link of line.links ?? []) {
+      const left = x + link.at * size * 0.5;
+      const right = left + link.length * size * 0.5;
+      page.links.push(
+        `<< /Type /Annot /Subtype /Link /Rect [${left} ${y - 2} ${right} ${y + size}] ` +
+          `/A << /S /URI /URI (${escapePdf(link.url)}) >> >>`,
       );
     }
     placed.set(index, { page: pages.length - 1, y });

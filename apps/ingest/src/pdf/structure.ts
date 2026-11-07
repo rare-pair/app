@@ -176,8 +176,10 @@ const NOTES_POINTER = /^\(See the end of the (?:chapter|work) for (?:more )?note
 const isSceneBreak = (text: string) => text.length <= 24 && !/[\p{L}\p{N}]/u.test(text);
 
 /**
- * Lines joined into paragraphs. A new one starts after a gap wider than the line step, or when a
- * short line ends a page. A line of symbols alone is a scene break and keeps its own paragraph.
+ * Lines joined into paragraphs. A new one starts after a gap wider than the line step, or after a
+ * line that stops short of the margin. A line of symbols alone is a scene break, in its own
+ * paragraph. Not exact: on two files with an epub to compare, off by 5 to 19%. A print with no gap
+ * between paragraphs needs the short line, or a whole chapter reads as a few walls of text.
  */
 function paragraphsOf(lines: TextLine[], layout: ReturnType<typeof layoutOf>): string[] {
   const paragraphs: string[] = [];
@@ -193,7 +195,7 @@ function paragraphsOf(lines: TextLine[], layout: ReturnType<typeof layoutOf>): s
     if (previous) {
       const samePage = previous.page === line.page;
       const wideGap = samePage && previous.y - line.y > layout.pitch * 1.5;
-      const shortEnd = !samePage && previous.right < layout.right - 30;
+      const shortEnd = previous.right < layout.right - 30;
       if (wideGap || shortEnd) end();
     }
     if (isSceneBreak(text)) {
@@ -269,21 +271,28 @@ export function readWork(text: PdfText): PdfWork {
   const title = bylineAt > 0 ? trimmed(lines[bylineAt - 1]!) : (text.infoTitle ?? "");
   if (title === "") reviewReasons.push("missing_title");
 
-  // Labels and what follows each, up to the title.
-  const printedEnd = bylineAt > 0 ? bylineAt - 1 : prefaceEnd;
+  // Labels and what follows each. The title and byline may come before them or after, and end
+  // what's printed under the last label before them.
   const marks: { mark: Mark; label: string }[] = [];
   const printed = new Map<string, string>();
   let openLabel: string | null = null;
   const addPrinted = (label: string, value: string) =>
     printed.set(label, `${printed.get(label) ?? ""} ${value}`);
-  for (const line of lines.slice(0, printedEnd)) {
+  for (let i = 0; i < prefaceEnd; i++) {
+    const line = lines[i]!;
+    if (i === bylineAt || i === bylineAt - 1) {
+      openLabel = null;
+      continue;
+    }
     const value = trimmed(line);
     let last = 0;
     for (const match of value.matchAll(LABELS)) {
       if (openLabel !== null) addPrinted(openLabel, value.slice(last, match.index));
       openLabel = match[1]!.toLowerCase();
       last = match.index + match[0].length;
-      marks.push({ mark: { page: line.page, y: line.y, x: line.x }, label: openLabel });
+      // Several labels can share a line: each one's place on it, in proportion to its characters.
+      const x = line.x + ((line.right - line.x) * match.index) / Math.max(1, value.length);
+      marks.push({ mark: { page: line.page, y: line.y, x }, label: openLabel });
     }
     if (openLabel !== null) addPrinted(openLabel, value.slice(last));
   }
@@ -298,13 +307,13 @@ export function readWork(text: PdfText): PdfWork {
     characters: [],
     freeforms: [],
   };
-  const titleLine = lines[printedEnd];
-  const titleMark: Mark = titleLine
-    ? { page: titleLine.page, y: titleLine.y, x: titleLine.x }
+  const endLine = lines[prefaceEnd];
+  const prefaceMark: Mark = endLine
+    ? { page: endLine.page, y: endLine.y, x: endLine.x }
     : { page: Number.MAX_SAFE_INTEGER, y: 0, x: 0 };
   const seen = new Set<string>();
   const tagLinks = links
-    .filter((l) => TAG_URL.test(l.url) && reads(linkMark(l), titleMark))
+    .filter((l) => TAG_URL.test(l.url) && reads(linkMark(l), prefaceMark))
     .sort((a, b) => (reads(linkMark(a), linkMark(b)) ? -1 : 1));
   for (const link of tagLinks) {
     if (seen.has(link.url)) continue;
@@ -328,7 +337,7 @@ export function readWork(text: PdfText): PdfWork {
 
   // The byline: its first line and each one under it that holds an author's link.
   let authors: Author[] = [];
-  let bylineEnd = bylineAt < 0 ? printedEnd : bylineAt + 1;
+  let bylineEnd = bylineAt < 0 ? prefaceEnd : bylineAt + 1;
   let ambiguous = false;
   const bylineLine = bylineAt >= 0 ? lines[bylineAt]! : null;
   if (bylineLine && /^by\s+Anonymous\b/i.test(trimmed(bylineLine))) {
@@ -366,7 +375,7 @@ export function readWork(text: PdfText): PdfWork {
   const series: SeriesRef[] = [];
   const seriesLinks = [
     ...new Set(
-      links.filter((l) => reads(linkMark(l), titleMark)).flatMap((l) => {
+      links.filter((l) => reads(linkMark(l), prefaceMark)).flatMap((l) => {
         const id = SERIES_URL.exec(l.url)?.[1];
         return id === undefined ? [] : [id];
       }),

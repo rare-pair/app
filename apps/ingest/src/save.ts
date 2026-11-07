@@ -225,7 +225,7 @@ async function saveFiles(
   // Read before the writes below and never inside the transaction: the current version's text
   // comes from R2, which is slow, and a row lock must not be held across it.
   let current = await readCurrent(deps, ao3WorkId);
-  const facts = factsOf(work);
+  const facts = factsOf(work, lease.format === "pdf");
   const prefix = `works/${ao3WorkId}/${lease.id}/`;
   // Before each write, the job checks it still holds the upload. A check leaves a window of one
   // write in flight, so the fence in the transaction has the last word.
@@ -455,7 +455,7 @@ async function readCurrent(
   // A committed work always has one: a failure worth a retry, not a verdict on the file.
   if (work.current_version_id === null) throw new Error("a saved work has no current version");
   const versionId = work.current_version_id;
-  const [chapters, tags, authors] = await Promise.all([
+  const [chapters, tags, authors, source] = await Promise.all([
     deps.db
       .selectFrom("chapters")
       .select(["n", "r2_key"])
@@ -474,6 +474,15 @@ async function readCurrent(
       .where("work_id", "=", work.id)
       .orderBy("position")
       .execute(),
+    // The upload the version was made from: a backfill version's is the one it was re-made from.
+    deps.db
+      .selectFrom("work_versions")
+      .innerJoin("uploads", (join) =>
+        join.on(sql`uploads.id = coalesce(work_versions.upload_id, work_versions.source_upload_id)`),
+      )
+      .select("uploads.format")
+      .where("work_versions.id", "=", versionId)
+      .executeTakeFirst(),
   ]);
   const texts: { n: number; text: string }[] = [];
   await inPool(chapters, async (c) => {
@@ -493,17 +502,19 @@ async function readCurrent(
       chapters: texts,
       tags,
       authors: authors.map((a) => ({ pseud: a.pseud, user: a.ao3_user })),
+      fromPdf: source?.format === "pdf",
     },
   };
 }
 
 /** The upload's own facts, in the same terms as the current version's. */
-function factsOf(work: ParsedWork): VersionFacts {
+function factsOf(work: ParsedWork, fromPdf: boolean): VersionFacts {
   return {
     date: updatedAtOf(work)?.slice(0, 10) ?? null,
     chapters: work.chapters.map((c) => ({ n: c.n, text: c.html })),
     tags: distinctTags(work),
     authors: distinctAuthors(work),
+    fromPdf,
   };
 }
 

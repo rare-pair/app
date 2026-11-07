@@ -1,6 +1,17 @@
 import { env } from "cloudflare:workers";
+import { makeVersionCurrent } from "@archive/db";
 import { inject, describe, expect, it } from "vitest";
-import { bucketKeys, bucketText, deliver, liveWork, pendingUpload, uploadRow } from "./helpers";
+import {
+  bucketKeys,
+  bucketText,
+  deliver,
+  hideWork,
+  liveWork,
+  pendingUpload,
+  uploadRow,
+  versionsOf,
+  withDb,
+} from "./helpers";
 import { ao3Epub } from "../../../packages/epub/test/helpers";
 import { PDF_MAX_BYTES } from "../src/pdf";
 import { PDF_LIMITS } from "../src/pdf/preflight";
@@ -104,6 +115,58 @@ describe("12-pdf-upload", () => {
       expect(live?.version.review_reasons).not.toContain("tags_from_print");
     });
 
+    it("Tags come from links, then from print: the byline may come before the fields", async () => {
+      const workId = 8813730;
+      const tagUrl = (name: string) => `https://archiveofourown.org/tags/${name}`;
+      const lines: PdfLine[] = [
+        { text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.` },
+        { text: "The title first", size: 18, gap: 10 },
+        { text: "by Someone", url: "https://archiveofourown.org/users/someone" },
+        { text: "Rating:", gap: 10 },
+        { text: "Mature", url: tagUrl("Mature") },
+        { text: "Fandom:" },
+        { text: "Synthetic", url: tagUrl("Synthetic") },
+        { text: "Language: Klingon" },
+        { text: "Stats: Published: 2020-01-01 Chapters: 1/1" },
+        { text: "Summary", gap: 8 },
+        { text: "The summary.", x: 90 },
+        { text: "The text.", newPage: true },
+      ];
+      await ingestPdf(layoutPdf(lines));
+
+      const live = await liveWork(workId);
+      expect(live?.work.title).toBe("The title first");
+      expect(live?.work.rating).toBe("Mature");
+      expect(live?.work.language).toBe("Klingon");
+      expect(live?.tags.filter((t) => t.type === "fandom").map((t) => t.name)).toEqual(["Synthetic"]);
+      expect(live?.work.published_at).not.toBeNull();
+    });
+
+    it("Tags come from links, then from print: several labels may share a line", async () => {
+      const workId = 8813731;
+      const tagUrl = (name: string) => `https://archiveofourown.org/tags/${name}`;
+      const fields = "Rating: Mature Archive Warning: Creator Chose Not To Use";
+      const lines: PdfLine[] = [
+        { text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.` },
+        {
+          text: fields,
+          links: [
+            { url: tagUrl("Mature"), at: fields.indexOf("Mature"), length: 6 },
+            { url: tagUrl("Unused"), at: fields.indexOf("Creator"), length: 24 },
+          ],
+        },
+        { text: "Stats: Published: 2020-01-01 Chapters: 1/1" },
+        { text: "A title", size: 18, gap: 10 },
+        { text: "by Someone", url: "https://archiveofourown.org/users/someone" },
+        { text: "The text.", gap: 10 },
+      ];
+      await ingestPdf(layoutPdf(lines));
+
+      const live = await liveWork(workId);
+      expect(live?.work.rating).toBe("Mature");
+      expect(live?.tags.filter((t) => t.type === "warning").map((t) => t.name)).toEqual(["Unused"]);
+    });
+
     it("An anonymous work has no author link", async () => {
       const workId = 8813716;
       await ingestPdf(ao3Pdf({ workId, anonymous: true, strayUserLink: true }));
@@ -197,6 +260,124 @@ describe("12-pdf-upload", () => {
     });
   });
 
+  describe("An epub wins", () => {
+    const pdfOf = (workId: number, updated: string, count = 1, words = "Words of the PDF.") =>
+      ao3Pdf({
+        workId,
+        stats: `Published: 2019-01-01 Updated: ${updated} Words: 10 Chapters: ${count}/${count}`,
+        chapters: Array.from({ length: count }, (_, i) => ({
+          heading: `Chapter ${i + 1}`,
+          paragraphs: [`${words} ${i}`],
+        })),
+      });
+    const epubOf = (workId: number, updated: string, count = 1) =>
+      ao3Epub({
+        workId,
+        pseud: "epubauthor",
+        stats: `Published: 2019-01-01 Updated: ${updated} Words: 10 Chapters: ${count}/${count}`,
+        files: Array.from({ length: count }, (_, i) => ({
+          name: `c${i + 1}.xhtml`,
+          body: `<div id="chapters" class="userstuff1"><h2 class="toc-heading" id="toc_${i}">Chapter ${i + 1}</h2><div class="userstuff2"><p>Different words of the epub, chapter ${i}.</p></div></div>`,
+        })),
+      });
+
+    it("An epub replaces a PDF", async () => {
+      const workId = 8813740;
+      const first = await ingestPdf(pdfOf(workId, "2020-02-01"));
+      expect(first.row.status).toBe("live");
+
+      const second = await ingestPdf(epubOf(workId, "2020-02-01"));
+
+      expect(second.row.status).toBe("live");
+      const live = await liveWork(workId);
+      expect(live?.version.original_format).toBe("epub");
+      expect(live?.version.original_upload_id).toBe(second.id);
+      expect(live?.version.review_reasons).not.toContain("from_pdf");
+    });
+
+    it("An epub replaces a PDF: more chapters, whatever the date", async () => {
+      const workId = 8813741;
+      await ingestPdf(pdfOf(workId, "2020-02-01"));
+
+      const second = await ingestPdf(epubOf(workId, "2019-06-01", 2));
+
+      expect(second.row.status).toBe("live");
+      expect((await liveWork(workId))?.work.chapters_count).toBe(2);
+    });
+
+    it("An epub replaces a PDF: a moderator's hide still applies", async () => {
+      const workId = 8813742;
+      await ingestPdf(pdfOf(workId, "2020-02-01"));
+      await hideWork(workId);
+
+      const second = await ingestPdf(epubOf(workId, "2020-03-01"));
+
+      expect(second.row.status).toBe("live");
+      expect(await liveWork(workId)).toBeNull();
+    });
+
+    it("An older epub doesn't replace a newer PDF", async () => {
+      const workId = 8813743;
+      const first = await ingestPdf(pdfOf(workId, "2020-02-01"));
+
+      const second = await ingestPdf(epubOf(workId, "2020-01-15"));
+
+      expect(second.row.status).toBe("duplicate");
+      expect((await liveWork(workId))?.version.original_upload_id).toBe(first.id);
+    });
+
+    it("A PDF never replaces an epub", async () => {
+      const workId = 8813744;
+      const first = await ingestPdf(epubOf(workId, "2020-02-01"));
+
+      const later = await ingestPdf(pdfOf(workId, "2021-01-01"));
+      const same = await ingestPdf(pdfOf(workId, "2020-02-01"));
+
+      expect(later.row.status).toBe("duplicate");
+      expect(same.row.status).toBe("duplicate");
+      expect(later.row.work_id).not.toBeNull();
+      expect((await liveWork(workId))?.version.original_upload_id).toBe(first.id);
+    });
+
+    it("A PDF with more chapters than the current epub is held for a moderator", async () => {
+      const workId = 8813745;
+      const first = await ingestPdf(epubOf(workId, "2020-02-01"));
+
+      const longer = await ingestPdf(pdfOf(workId, "2019-01-01", 2));
+
+      expect(longer.row.status).toBe("held_for_review");
+      const live = await liveWork(workId);
+      expect(live?.version.original_upload_id).toBe(first.id);
+      const { versions } = await versionsOf(workId);
+      const held = versions.find((v) => v.upload_id === longer.id);
+      expect(held?.hold_reason).toBe("pdf_more_chapters");
+
+      // A moderator can make it current, as any version.
+      await withDb((db) => makeVersionCurrent(db, live!.work.id, held!.id));
+      const after = await liveWork(workId);
+      expect(after?.version.original_upload_id).toBe(longer.id);
+      expect(after?.version.original_format).toBe("pdf");
+    });
+
+    it("A PDF follows the rules against a PDF", async () => {
+      const workId = 8813746;
+      await ingestPdf(pdfOf(workId, "2020-02-01", 1, "Words."));
+
+      const notNewer = await ingestPdf(pdfOf(workId, "2020-02-01", 1, "Words."));
+      expect(notNewer.row.status).toBe("duplicate");
+
+      const newer = await ingestPdf(pdfOf(workId, "2020-03-01", 1, "Words."));
+      expect(newer.row.status).toBe("live");
+
+      const rewritten = await ingestPdf(
+        pdfOf(workId, "2020-04-01", 1, "Wholly other text with nothing the same in it at all now."),
+      );
+      expect(rewritten.row.status).toBe("held_for_review");
+      const held = (await versionsOf(workId)).versions.find((v) => v.upload_id === rewritten.id);
+      expect(held?.hold_reason).toBe("chapters_changed");
+    });
+  });
+
   describe("Uploading", () => {
     it("A file's bytes decide what it is", async () => {
       // A PDF at an epub's key and type: it goes to the PDF processor.
@@ -226,6 +407,32 @@ describe("12-pdf-upload", () => {
       const live = await liveWork(workId);
       expect(await bucketText(live!.chapters[0]!.r2_key)).toBe(
         "<p>&lt;script&gt;alert(1)&lt;/script&gt; &amp; &lt;b&gt;bold&lt;/b&gt;</p>\n<p>* * *</p>\n<p>After.</p>",
+      );
+    });
+
+    it("The text is built, not copied: lines wrap into paragraphs by their layout", async () => {
+      const workId = 8813732;
+      const full = "A full line of synthetic words that runs out to the right margin here";
+      const lines: PdfLine[] = [
+        { text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.` },
+        { text: "Stats: Published: 2020-01-01 Chapters: 1/1" },
+        { text: "A title", size: 18, gap: 10 },
+        { text: "by Someone", url: "https://archiveofourown.org/users/someone" },
+        { text: full, gap: 10 },
+        { text: full },
+        { text: "A short end." },
+        // No gap: only the short line above says this is a new paragraph.
+        { text: full },
+        { text: full },
+        { text: full },
+        { text: full },
+        { text: "Another end." },
+      ];
+      await ingestPdf(layoutPdf(lines));
+
+      const live = await liveWork(workId);
+      expect(await bucketText(live!.chapters[0]!.r2_key)).toBe(
+        `<p>${full} ${full} A short end.</p>\n<p>${full} ${full} ${full} ${full} Another end.</p>`,
       );
     });
 

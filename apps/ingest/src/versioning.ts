@@ -21,6 +21,8 @@ export interface VersionFacts {
   /** As stored: type and name as the file spells it. */
   tags: { type: TagType; name: string }[];
   authors: { pseud: string; user: string | null }[];
+  /** The version came from a PDF, whose text and tags can't be held to an epub's. */
+  fromPdf?: boolean;
 }
 
 export type VersionDecision =
@@ -45,6 +47,18 @@ export function decideVersion(
   const threshold = options.threshold ?? SIMILARITY_THRESHOLD;
   // NaN or a value outside 0..1 would pass every rewrite or hold every identical chapter.
   if (!(threshold >= 0 && threshold <= 1)) throw new RangeError("threshold must be from 0 to 1");
+  // An epub wins (spec 12): over a PDF unless it's older, with nothing else compared. A PDF never
+  // replaces an epub by itself: with more chapters a moderator looks, and otherwise it's a duplicate.
+  if (current.fromPdf && !upload.fromPdf) {
+    return isNotOlder(current, upload)
+      ? { outcome: "replace" }
+      : { outcome: "duplicate", reason: "not_newer" };
+  }
+  if (!current.fromPdf && upload.fromPdf) {
+    return upload.chapters.length > current.chapters.length
+      ? { outcome: "hold", reason: "pdf_more_chapters" }
+      : { outcome: "duplicate", reason: "not_newer" };
+  }
   if (!isNewer(current, upload)) return { outcome: "duplicate", reason: "not_newer" };
   if (!sharedChaptersAlike(current, upload, threshold)) {
     return { outcome: "hold", reason: "chapters_changed" };
@@ -64,6 +78,16 @@ function isNewer(current: VersionFacts, upload: VersionFacts): boolean {
   const from = validDate(current.date);
   const to = validDate(upload.date);
   return from !== null && to !== null && to > from;
+}
+
+/** More chapters, or as many with the same date or a later one. */
+function isNotOlder(current: VersionFacts, upload: VersionFacts): boolean {
+  if (upload.chapters.length !== current.chapters.length) {
+    return upload.chapters.length > current.chapters.length;
+  }
+  const from = validDate(current.date);
+  const to = validDate(upload.date);
+  return from !== null && to !== null && to >= from;
 }
 
 function validDate(date: string | null): string | null {
