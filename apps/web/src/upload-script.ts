@@ -83,7 +83,10 @@ export const UPLOAD_SCRIPT = `"use strict";
     if (file.size > MAX_BYTES) return OVER_LIMIT;
     return "";
   };
-  const sameFile = (a, b) => a.name === b.name && a.size === b.size;
+  // A file is the same as one in the list by name and size. Kept as a set of keys, so a zip of
+  // thousands of entries isn't compared against the whole list for each.
+  const known = new Set();
+  const keyOf = (file) => file.size + ":" + file.name;
   const setBusy = (on) => {
     busy = on;
     button.disabled = on;
@@ -115,7 +118,8 @@ export const UPLOAD_SCRIPT = `"use strict";
   };
   // Adds one file to the list, with its problem if it has one. False when it is there already.
   const addFile = (file, problem = problemOf(file)) => {
-    if (entries.some((entry) => sameFile(entry.file, file))) return false;
+    if (known.has(keyOf(file))) return false;
+    known.add(keyOf(file));
     const row = addRow(file);
     row.note.textContent = problem;
     const entry = { file, row, problem, done: false };
@@ -127,7 +131,7 @@ export const UPLOAD_SCRIPT = `"use strict";
     repeats + (repeats === 1 ? " was" : " were") + " already in the list.";
   // The resource-fork copy (__MACOSX/, ._name) a Mac adds beside each file: not listed at all.
   const isJunk = (path) => /(^|\\/)(__MACOSX\\/|\\._)/.test(path);
-  const readBytes =async (file, from, to) =>
+  const readBytes = async (file, from, to) =>
     new Uint8Array(await file.slice(from, to).arrayBuffer());
   // The entries in a zip's central directory: { path, method, flags, packed, size, offset }.
   // Throws when the file is no zip. Zip64 is refused: nothing within ZIP_MB needs it.
@@ -159,6 +163,14 @@ export const UPLOAD_SCRIPT = `"use strict";
         path: decoder.decode(dir.subarray(at + 46, at + 46 + nameLength)).replace(/\\\\/g, "/"),
       });
       at += 46 + nameLength + view.getUint16(at + 30, true) + view.getUint16(at + 32, true);
+    }
+    // Entries that share bytes would make each one cost a full inflate for the same stream.
+    const spans = found
+      .filter((entry) => entry.packed > 0)
+      .map((entry) => [entry.offset, entry.offset + 30 + entry.packed])
+      .sort((a, b) => a[0] - b[0]);
+    for (let i = 1; i < spans.length; i++) {
+      if (spans[i][0] < spans[i - 1][1]) throw new Error("overlapping entries");
     }
     return found;
   };
@@ -228,6 +240,11 @@ export const UPLOAD_SCRIPT = `"use strict";
         continue;
       }
       const name = entry.path.split("/").pop();
+      // Already in the list, by the size the directory gives: not worth inflating again.
+      if (known.has(keyOf({ name, size: entry.size }))) {
+        repeats++;
+        continue;
+      }
       let blob = null;
       try {
         blob = await inflate(zip, entry);
@@ -282,6 +299,7 @@ export const UPLOAD_SCRIPT = `"use strict";
     if (busy) return;
     const at = entries.indexOf(entry);
     entries.splice(at, 1);
+    known.delete(keyOf(entry.file));
     list.removeChild(entry.row.item);
     say("Removed " + entry.file.name + ". " + plural(entries.length, "file") + " in the list.");
     const next = entries[at] || entries[at - 1];

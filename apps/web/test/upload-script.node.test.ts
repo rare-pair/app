@@ -840,7 +840,14 @@ describe("02-upload-handshake", () => {
 });
 
 // A zip built by hand: entries stored or deflated, with the size the directory claims for each.
-type ZipEntry = { name: string; data: Buffer; method?: 0 | 8; claims?: number };
+type ZipEntry = {
+  name: string;
+  data: Buffer;
+  method?: 0 | 8;
+  claims?: number;
+  /** Where the directory says the entry starts, when not where it really does. */
+  at?: number;
+};
 const zipOf = (entries: ZipEntry[], zipName = "books.zip") => {
   const parts: Buffer[] = [];
   const directory: Buffer[] = [];
@@ -865,7 +872,7 @@ const zipOf = (entries: ZipEntry[], zipName = "books.zip") => {
     central.writeUInt32LE(body.length, 20);
     central.writeUInt32LE(claims, 24);
     central.writeUInt16LE(entryName.length, 28);
-    central.writeUInt32LE(offset, 42);
+    central.writeUInt32LE(entry.at ?? offset, 42);
     parts.push(local, entryName, body);
     directory.push(central, entryName);
     offset += local.length + entryName.length + body.length;
@@ -1082,6 +1089,14 @@ describe("26-bulk-zip-upload", () => {
     await vi.waitFor(() => expect(p.rows()).toHaveLength(1));
     expect(remove(p.rows()[0]!).disabled).toBe(false);
     expect(p.focused()).toBe(p.input);
+  });
+
+  it("A zip whose entries share the same bytes is refused, so one stream is not inflated many times", async () => {
+    const p = page([], []);
+    const first = book("a.epub", 100);
+    p.pick([zipOf([first, { ...book("b.epub", 101), at: 0 }])]);
+    await vi.waitFor(() => expect(p.message.textContent).toMatch(/isn't a valid zip/));
+    expect(p.rows()).toHaveLength(0);
   });
 
   it("A zip with no epubs adds nothing", async () => {
