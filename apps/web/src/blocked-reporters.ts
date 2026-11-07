@@ -8,7 +8,7 @@
 // made after an account reported also leaves its older report out of the next count.
 // Never logs, and the hashes go nowhere but the comparison.
 
-import type { Database } from "@archive/db";
+import { UNCOUNTED_REPORT_KINDS, type Database } from "@archive/db";
 import type { Kysely } from "kysely";
 import { ipHash } from "./ip-hash";
 
@@ -38,7 +38,7 @@ export async function blockedReporterIds(
     .distinct()
     .where("work_id", "=", workId)
     .where("status", "=", "open")
-    .where("kind", "<>", "wrong_version")
+    .where("kind", "not in", [...UNCOUNTED_REPORT_KINDS])
     .execute();
   const candidates = [...new Set([selfId, ...reporters.map((r) => r.reporter_id)])];
   const sessions = await db

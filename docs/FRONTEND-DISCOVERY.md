@@ -128,7 +128,8 @@ Reading never requires an account, for any work (ARCHITECTURE, *Auth*).
 
 **5. Report a work** (signed-in user)
 1. "Report" on a work page opens a short form: a reason and optional details.
-   One reason is "This version is wrong", for a bad replacement.
+   One reason is "This version is wrong", for a bad replacement. Another is "This needs a
+   higher rating", which waits in the Reports queue until a moderator decides.
    A signed-out reader is redirected to sign in first and brought back to the
    form (the same stored `next` value as sign-in). Authors who want a work removed
    use `/remove` instead, which needs no account.
@@ -153,7 +154,9 @@ Reading never requires an account, for any work (ARCHITECTURE, *Auth*).
    reason, review reasons and whether they are checked) with "Make current" and
    "Approve" (a held version, or the current version with an unchecked notice),
    and, while a "This version is wrong" report is open, its count and a form that
-   closes them. Only moderators can roll back.
+   closes them. It also has "Mark as adult" and "Remove the adult mark": a marked work gets
+   the warnings screen whatever its rating says, and marking closes its open "This needs a
+   higher rating" reports. Only moderators can roll back.
 4. Anyone else gets a 404 for every `/admin` URL.
 
 ## Page inventory

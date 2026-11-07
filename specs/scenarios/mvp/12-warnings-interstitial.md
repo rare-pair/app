@@ -51,6 +51,12 @@ Relates to: docs/ARCHITECTURE.md § Data model (user.warnings_off), § Reading (
 - WHEN a reader goes to read chapter 1
 - THEN they first see the warnings screen showing that warning
 
+### A work a moderator marked as adult shows the interstitial
+- GIVEN a live work rated General Audiences with no archive warnings, which a moderator has marked as adult
+- WHEN a reader goes to read chapter 1
+- THEN they first see the warnings screen, still showing the rating "General Audiences"
+- AND the screen says "A moderator marked this work as adult."
+
 ### Unwarned general work skips the interstitial
 - GIVEN live work G
 - WHEN a reader goes to read chapter 1

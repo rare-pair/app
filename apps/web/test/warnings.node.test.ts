@@ -8,7 +8,7 @@ import {
 } from "../src/warnings";
 
 const work = (rating: string | null, warnings: string[] = []) => ({
-  work: { rating },
+  work: { rating, adult_marked: false },
   tags: warnings.map((name) => ({ type: "warning" as const, name, name_norm: name.toLowerCase() })),
 });
 
@@ -33,6 +33,14 @@ describe("12-warnings-interstitial: which works need the screen", () => {
       expect(needsWarnings(work(rating))).toBe(true);
     },
   );
+  it("A work a moderator marked as adult shows the interstitial", () => {
+    const marked = {
+      ...work("General Audiences"),
+      work: { rating: "General Audiences", adult_marked: true },
+    };
+    expect(needsWarnings(marked)).toBe(true);
+    expect(needsWarnings({ ...marked, work: { ...marked.work, adult_marked: false } })).toBe(false);
+  });
   it("An unknown rating shows the interstitial", () => {
     expect(needsWarnings(work("Banana Audiences"))).toBe(true);
   });

@@ -2,7 +2,7 @@
 // needs an account (ARCHITECTURE, Author requests & takedowns, Reports). No
 // script and no Turnstile, so it works with JavaScript off.
 
-import { createDb, hideWork, isBanned } from "@archive/db";
+import { createDb, hideWork, isBanned, UNCOUNTED_REPORT_KINDS } from "@archive/db";
 import type { Context, MiddlewareHandler } from "hono";
 import { blockedReporterIds } from "./blocked-reporters";
 import type { Bindings } from "./env";
@@ -25,12 +25,14 @@ const MAX_INT4 = 2_147_483_647;
 const REPORTERS_TO_HIDE = 3;
 
 /**
- * The reasons a reader can give, by the `kind` stored. Only `wrong_version` is
- * named in the docs: moderators' *Works to check* and the auto-hide count read it
- * by that string. The labels are draft copy.
+ * The reasons a reader can give, by the `kind` stored. `wrong_version` and
+ * `higher_rating` are named in the docs: moderators' *Works to check*, the Reports queue,
+ * the mark-as-adult action and the auto-hide count read them by those strings.
+ * The labels are draft copy.
  */
 const REASONS = {
   wrong_version: "This version is wrong",
+  higher_rating: "This needs a higher rating",
   harmful_content: "It breaks the rules or is harmful",
   not_this_work: "It isn't the work it says it is",
   other: "Something else",
@@ -107,20 +109,29 @@ ${escapeHtml(form.details ?? "")}</textarea>
 /** The sign-in form, coming back to work `id`'s report form after. */
 const signInFirst = (id: number) => `/login?next=${encodeURIComponent(`/works/${id}/report`)}`;
 
+const SEVERAL =
+  "<p>A work several readers report may be hidden until a moderator has looked at it.</p>";
+
+/** The line each reason ends the confirmation with. Draft copy. */
+const reportedNote: Record<Kind, string> = {
+  wrong_version: "<p>A moderator will check this version of the work.</p>",
+  higher_rating:
+    "<p>The work stays as it is until a moderator decides whether it needs a higher rating.</p>",
+  harmful_content: SEVERAL,
+  not_this_work: SEVERAL,
+  other: SEVERAL,
+};
+
 /**
- * What happens next. A wrong version is checked, and never counts toward hiding
- * the work. It says nothing of how many reports hide a work, which would help
- * anyone gaming it. Draft copy.
+ * What happens next. A wrong version is checked, and a rating report waits for a
+ * moderator; neither counts toward hiding the work. It says nothing of how many
+ * reports hide a work, which would help anyone gaming it. Draft copy.
  */
 const reportedPage = (kind: Kind) =>
   layout(
     "Report sent",
     `<p>Thank you. A moderator will look at it. Your report is kept with your account.</p>
-${
-  kind === "wrong_version"
-    ? "<p>A moderator will check this version of the work.</p>"
-    : "<p>A work several readers report may be hidden until a moderator has looked at it.</p>"
-}`,
+${reportedNote[kind]}`,
   );
 
 /** `GET /works/:id/report`: the form, for a signed-in reader. */
@@ -200,6 +211,11 @@ export async function submitReport(c: ReportContext) {
         body: details.trim() === "" ? null : details,
       })
       .execute();
+    // These kinds never count toward hiding, so there is nothing to count.
+    // SAFETY: a widening to string, so `includes` can take the form field.
+    if ((UNCOUNTED_REPORT_KINDS as readonly string[]).includes(reason)) {
+      return c.html(reportedPage(reason), 200, NO_STORE);
+    }
     // The count is inside the hiding UPDATE: a read could come from Hyperdrive's
     // cache and miss the report just stored.
     // Accounts that match a blocked requester by IP hash don't count; by email, the count

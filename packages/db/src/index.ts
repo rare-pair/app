@@ -13,6 +13,7 @@ export {
   listLiveWorksByTag,
   liveTagSpellings,
   NOT_RATED,
+  UNCOUNTED_REPORT_KINDS,
   listPopularFandoms,
   listRecentLiveWorks,
   type PopularFandom,
@@ -63,6 +64,7 @@ export {
   type ApproveOutcome,
   type DismissOutcome,
 } from "./approvals";
+export { markAdult, unmarkAdult, type AdultMarkOutcome, type MarkAdultResult } from "./adult-mark";
 export { refreshWorkSearch } from "./search-index";
 export { getImageAccess, getOriginalAccess, type ContentAccess } from "./content-access";
 export { copyVersionToWork } from "./version-copy";
