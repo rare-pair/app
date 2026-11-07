@@ -177,9 +177,9 @@ describe("upload journeys", () => {
     await site.waitForUpload(id, "not_epub");
 
     const row = await myUploadsRow(page, id);
-    await expect.poll(() => row.locator(".badge").innerText()).toBe("Rejected: not an EPUB");
+    await expect.poll(() => row.locator(".badge").innerText()).toBe("Rejected: not an EPUB or PDF");
     await expect
       .poll(() => row.locator(".upload-message").innerText())
-      .toContain("isn't a valid EPUB, so we couldn't read it");
+      .toContain("isn't a valid EPUB or PDF, so we couldn't read it");
   });
 });
