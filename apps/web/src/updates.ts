@@ -29,8 +29,7 @@ export const updatePage = (slug: string, list: readonly Update[] = UPDATES): str
   if (update === undefined) return null;
   return layout(
     update.title,
-    `<p>${escapeHtml(update.summary)}</p>
-${byline(update)}
+    `${byline(update)}
 <div class="update-body">
 ${update.body}
 </div>`,

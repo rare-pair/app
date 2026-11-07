@@ -67,7 +67,7 @@ describe("20-site-chrome-and-legal", () => {
       expect(res.headers.get("set-cookie")).toBeNull();
       expect(count(html, /<h1\b/g)).toBe(1);
       expect(html).not.toMatch(/<script/i);
-      expect(html).toMatch(/Draft/);
+      expect(html).not.toMatch(/Draft|proofread/);
     }
   });
 
@@ -187,9 +187,25 @@ describe("20-site-chrome-and-legal", () => {
     const html = await res.text();
     expect(res.status).toBe(404);
     expect(html).toMatch(/<form role="search" method="get" action="\/search">/);
-    expect(html).toMatch(/<label for="q">[^<]+<\/label>\s*<input type="search" id="q" name="q"/);
+    expect(html).toMatch(
+      /<label for="q" class="visually-hidden">Search the archive<\/label>\s*<input type="search" id="q" name="q"/,
+    );
     expect(html).toMatch(/<button type="submit">/);
     expect(html).toMatch(/<main[\s\S]*<a href="\/">[\s\S]*<\/main>/);
+  });
+
+  it("The draft line is on no page", async () => {
+    for (const path of [...APP_PAGES, "/", "/search?q=x", "/dmca"]) {
+      expect(await htmlOf(path), path).not.toMatch(/proofread|class="draft"/);
+    }
+  });
+
+  it("The search box has a label only screen readers see", async () => {
+    for (const path of ["/", "/no-such-page", "/search?q=x"]) {
+      expect(await htmlOf(path), path).toContain(
+        '<label for="q" class="visually-hidden">Search the archive</label>',
+      );
+    }
   });
 
   it("The logo is in the site header", async () => {

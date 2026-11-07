@@ -204,7 +204,7 @@ describe("01-auth-magic-link", () => {
     expect(html).toContain(`<input type="hidden" name="next" value="${WORK_PAGE}">`);
     expect(html).toMatch(/<button type="submit">[^<]+<\/button>/);
     expect(html).toContain('<a href="/terms">');
-    expect(html).toContain('<p class="draft">');
+    expect(html).not.toContain("proofread");
     expect(html).not.toMatch(BRANDING);
   });
 

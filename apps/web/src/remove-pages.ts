@@ -2,7 +2,7 @@
 // 400, 413 and 503 answers, and the confirmation. Draft copy, for the operator to proof.
 
 import { siteCard } from "./cards";
-import { DRAFT, escapeHtml, layout, TURNSTILE_API } from "./pages";
+import { escapeHtml, layout, TURNSTILE_API } from "./pages";
 import { TURNSTILE_ACTIONS } from "./turnstile";
 
 /** The longest statement kept, in characters, as the form says. */
@@ -56,8 +56,7 @@ export const removePage = (
         : "";
   return layout(
     "Ask for a work to be removed",
-    `${DRAFT}
-${alert}<noscript><p>This form needs JavaScript, for its anti-spam check. To ask for something to be removed without it, email the moderators at ${escapeHtml(moderators)}.</p></noscript>
+    `${alert}<noscript><p>This form needs JavaScript, for its anti-spam check. To ask for something to be removed without it, email the moderators at ${escapeHtml(moderators)}.</p></noscript>
 <p>Tell the moderators which work you want removed, or the pseud whose works you want removed. No proof of identity is asked for, because there is nothing to check it against while the original archive is offline. A moderator reviews every request. An opt-out covers only the pseud you type, so if you write under several pseuds, send one request for each.</p>
 <form id="remove" class="remove-form" method="post" action="/remove" hidden>
 <label for="email">Your email address</label>
@@ -85,8 +84,7 @@ ${escapeHtml(values.statement ?? "")}</textarea>
 export const removeReceivedPage = () =>
   layout(
     "Check your email",
-    `${DRAFT}
-<p>Check your email: we've sent a link to the address you gave. Open it and press the button to confirm your request. The link works once, for 7 days, and nothing happens until you confirm.</p>`,
+    `<p>Check your email: we've sent a link to the address you gave. Open it and press the button to confirm your request. The link works once, for 7 days, and nothing happens until you confirm.</p>`,
   );
 
 /**
@@ -98,8 +96,7 @@ export const removeReceivedPage = () =>
 export const requestConfirmPage = (token: string) =>
   layout(
     "Confirm your request",
-    `${DRAFT}
-<form method="post" action="/remove/confirm">
+    `<form method="post" action="/remove/confirm">
 <input type="hidden" name="token" value="${escapeHtml(token)}">
 <p>Press the button to confirm your request.</p>
 <button type="submit">Confirm</button>
@@ -113,24 +110,21 @@ export const requestConfirmPage = (token: string) =>
 export const removeConfirmedPage = () =>
   layout(
     "Request confirmed",
-    `${DRAFT}
-<p>Your request is confirmed. A moderator will review it and email you.</p>`,
+    `<p>Your request is confirmed. A moderator will review it and email you.</p>`,
   );
 
 /** A used, expired or unknown confirmation link, or none at all. */
 export const removeLinkRefusedPage = () =>
   layout(
     "That link doesn't work",
-    `${DRAFT}
-<p>That confirmation link has already been used or has expired, or it was never valid. Links work once, for 7 days. You can <a href="/remove">send the request again</a> to get a new one.</p>`,
+    `<p>That confirmation link has already been used or has expired, or it was never valid. Links work once, for 7 days. You can <a href="/remove">send the request again</a> to get a new one.</p>`,
   );
 
 /** The confirmation email couldn't be queued, and the request was not kept. */
 export const removeUnavailablePage = () =>
   layout(
     "Something went wrong",
-    `${DRAFT}
-<p>We couldn't send your confirmation email just now, so your request was not kept. Please <a href="/remove">try again</a> in a minute.</p>`,
+    `<p>We couldn't send your confirmation email just now, so your request was not kept. Please <a href="/remove">try again</a> in a minute.</p>`,
   );
 
 /**
@@ -142,7 +136,6 @@ export const removeUnavailablePage = () =>
 export const removeNotHeldPage = () =>
   layout(
     "Not in the archive",
-    `${DRAFT}
-<p>That work isn't in the archive, so there is nothing to remove, and no request was stored.</p>
+    `<p>That work isn't in the archive, so there is nothing to remove, and no request was stored.</p>
 <p>To keep a pseud's works out of the archive, <a href="/remove">ask for the pseud to be removed</a> instead.</p>`,
   );

@@ -10,7 +10,7 @@ import type { Context } from "hono";
 import type { Bindings } from "./env";
 import { PAGE_SIZE, pager, pageOf, RATINGS, select, workList, type Pair } from "./listing";
 import { siteCard } from "./cards";
-import { DRAFT, escapeHtml, layout } from "./pages";
+import { escapeHtml, layout } from "./pages";
 import { ipKey, isLimited, SEARCH_WINDOW_SECONDS, tooManyRequests, userKey } from "./rate-limit";
 import type { SessionVariables } from "./session";
 
@@ -48,7 +48,7 @@ const searchForm = (
   q: string,
   { fandom, rating }: Filters,
 ) => `<form role="search" method="get" action="/search">
-<label for="q">Search the archive</label>
+<label for="q" class="visually-hidden">Search the archive</label>
 <input type="search" id="q" name="q" value="${escapeHtml(q)}">
 <p><label for="search-fandom">Fandom</label> <input id="search-fandom" name="fandom" type="text" maxlength="${MAX_FANDOM}" value="${escapeHtml(fandom ?? "")}"></p>
 ${select("search-rating", "rating", "Rating", [["", "Any"], ...RATINGS.map((r): Pair => [r, r])], rating ?? "")}
@@ -100,8 +100,7 @@ export async function showSearch(c: Context<{ Bindings: Bindings; Variables: Ses
     const last = Math.max(1, Math.ceil(total / PAGE_SIZE));
     if (page > last) return c.notFound();
     // Draft copy, for the operator to proof.
-    const list =
-      works.length === 0 ? `<p>No works match your search.</p>\n${DRAFT}` : workList(works);
+    const list = works.length === 0 ? `<p>No works match your search.</p>` : workList(works);
     const href = (n: number) => searchHref(q, filters, n);
     return c.html(
       layout(
