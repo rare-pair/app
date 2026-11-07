@@ -317,6 +317,11 @@ database doesn't check that a `pseud_norm` isn't made only of invisibles:
    the next only when the one before has finished confirming. A refusal of a group (a spent
    quota, say) leaves it and the rest in the list, and what was sent stays sent. The
    page's script sends with `XMLHttpRequest`, since `fetch` reports no upload progress.
+   A zip of epubs (100 MB at most; one over that isn't read) is unzipped in the browser with
+   `DecompressionStream`, no library and no server change: each epub inside joins the list as a
+   file picked by hand would, subject to the 25 MB limit counted as it inflates, and anything
+   else in the zip, a nested zip included, is listed as skipped. A browser without
+   `DecompressionStream` is told to upload the epubs directly.
    Each finished PUT is confirmed with `POST /uploads/:id/complete`.
    Uploading needs JavaScript, as every form with a Turnstile check does
    (Turnstile can't produce a token without it); without JS the upload page
@@ -1951,6 +1956,7 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
 8. Terms, a privacy notice and a clear "unofficial, temporary" banner
 9. Updates: up to three summary cards on the home page, each linking to a static
    post, held in the web Worker's code
+10. Upload a zip of epubs, unzipped in the browser (specs/scenarios/mvp/26-bulk-zip-upload.md)
 
 **Later**
 - The public removal list, `/removed` and `/removed/pseuds`, after launch (operator ruling, 2026-11-06; specs/scenarios/later/11-public-removal-list.md)
@@ -1959,7 +1965,6 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
 - Series pages and collections
 - Tag synonym merging and filtering by excluded tags
 - Comments (needs much more moderation, so leave it out unless people ask)
-- Bulk upload from a zip of epubs
 - FanFicFare epubs of AO3 works (second preface parser, keyed on `dc:source`)
 - PDFs of AO3 works, converted to text, with an epub always winning (specs/scenarios/later/12-pdf-upload.md)
 - Export and shut down: nothing changes automatically when AO3 returns (the

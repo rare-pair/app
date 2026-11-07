@@ -7,7 +7,7 @@ import { LINK_LIFETIME_MINUTES } from "./signin";
 import { LOGO_PATH } from "./logo";
 import { STYLESHEET_PATH } from "./styles";
 import { TURNSTILE_ACTIONS } from "./turnstile";
-import { EPUB_TYPE, MAX_UPLOAD_MB } from "./upload-limit";
+import { EPUB_TYPE, MAX_UPLOAD_MB, MAX_ZIP_MB } from "./upload-limit";
 import { UPLOAD_SCRIPT_PATH } from "./upload-script";
 
 export const TURNSTILE_API = `${TURNSTILE_ORIGIN}/turnstile/v0/api.js`;
@@ -215,8 +215,8 @@ export const uploadPage = (nonce: string, siteKey: string) =>
 <div id="upload" hidden>
 <div id="drop" class="drop-area">
 <p>Drop epub files here, or pick them below. The list stays here until you press Upload.</p>
-<label for="file">EPUB files, ${MAX_UPLOAD_MB} MB at most each</label>
-<input id="file" type="file" name="file" accept=".epub,${EPUB_TYPE}" multiple>
+<label for="file">EPUB files, ${MAX_UPLOAD_MB} MB at most each, or a zip of them (${MAX_ZIP_MB} MB at most)</label>
+<input id="file" type="file" name="file" accept=".epub,${EPUB_TYPE},.zip,application/zip" multiple>
 </div>
 <div class="cf-turnstile" data-sitekey="${escapeHtml(siteKey)}" data-action="${TURNSTILE_ACTIONS.upload}" data-before-interactive-callback="onTurnstileInteractive"></div>
 <button id="send" type="button">Upload</button>

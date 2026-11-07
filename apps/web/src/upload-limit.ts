@@ -10,6 +10,9 @@ export const MAX_BATCH_FILES = 10;
 /** The limit in MiB, as the pages say it: "25 MB". */
 export const MAX_UPLOAD_MB = 25;
 
+/** The largest zip of epubs the page opens, in MiB (operator ruling, 2026-11-07). */
+export const MAX_ZIP_MB = 100;
+
 /**
  * The largest declared size `POST /uploads` accepts: 25 MiB, the processor's
  * `LIMITS.maxInputBytes` (packages/epub/src/unzip.ts). Restated, since importing
