@@ -1850,7 +1850,8 @@ markup: its inline `style` attributes become stylesheet rules, because
   assumed the same; operator ruling, 2026-11-07: accepted).
   Query strings were stored too, until the setting is deployed, and any already stored age
   out with the 7 days (no purge). Sign-in, confirmation and unsubscribe tokens travel in
-  them, so both Workers set `observability.redact_query_string`. It is documented to remove
+  them, so both Workers set `observability.redact_query_string` (ingest, sweep and the
+  mailer have no routes, so nothing with a query reaches them). It is documented to remove
   query strings from request URLs in logs and traces; whether it clears a custom line's
   `request.url` and `request.search` is unconfirmed until the live check on the deployed
   Workers. What the code writes into a line holds no URL. Track queue depth, ingest failure
