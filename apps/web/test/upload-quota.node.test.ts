@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { experimental_readRawConfig } from "wrangler";
 import {
   DEFAULT_NEW_LIMIT,
   DEFAULT_TRUSTED_LIMIT,
@@ -59,5 +60,24 @@ describe("secondsToReset", () => {
   it("is a whole day just after midnight, never zero", () => {
     expect(secondsToReset(new Date("2026-11-02T00:00:00Z"))).toBe(86400);
     expect(secondsToReset(new Date("2026-12-31T23:59:59.999Z"))).toBe(1);
+  });
+});
+
+describe("the upload quotas in wrangler.jsonc", () => {
+  const { rawConfig } = experimental_readRawConfig({ config: "wrangler.jsonc" });
+  const vars = rawConfig.vars ?? {};
+
+  it("give a new account 100 uploads a day, as the operator ruled", () => {
+    expect(vars.UPLOAD_QUOTA_NEW).toBe("100");
+    expect(limitFor(null, vars)).toBe(100);
+  });
+
+  it("leave the code's fallback for a bad value lower than the configured one", () => {
+    expect(DEFAULT_NEW_LIMIT).toBeLessThan(Number(vars.UPLOAD_QUOTA_NEW));
+  });
+
+  it("set the trusted tier no lower than the new-account tier", () => {
+    expect(Number(vars.UPLOAD_QUOTA_TRUSTED)).toBeGreaterThanOrEqual(Number(vars.UPLOAD_QUOTA_NEW));
+    expect(limitFor("admin", vars)).toBe(Number(vars.UPLOAD_QUOTA_TRUSTED));
   });
 });

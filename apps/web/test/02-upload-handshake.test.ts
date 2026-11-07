@@ -9,6 +9,8 @@ import {
   nonceOf,
   UPLOAD_TOKEN,
   postLogin,
+  postLoginWithVars,
+  TIERS,
   signIn as signInAs,
   withoutHeader,
   withoutNonce,
@@ -243,7 +245,8 @@ describe("19-surge-controls-and-quotas", () => {
 // U4: today's confirmed uploads are counted at `/complete` (02-upload-confirm.test.ts), so
 // `POST /uploads` only refuses early, when the quota is already spent.
 const NEW_LIMIT = Number(env.UPLOAD_QUOTA_NEW);
-const TRUSTED_LIMIT = Number(env.UPLOAD_QUOTA_TRUSTED);
+const LOWER_NEW_LIMIT = Number(TIERS.UPLOAD_QUOTA_NEW);
+const TRUSTED_LIMIT = Number(TIERS.UPLOAD_QUOTA_TRUSTED);
 // The database's UTC day, the clock the quota itself uses, not the JS clock.
 const today = sql<string>`(now() at time zone 'utc')::date`;
 const setUsedToday = (userId: string, used: number) =>
@@ -287,8 +290,9 @@ describe("02-upload-handshake: the cap on open uploads", () => {
     await db.insertInto("uploads").values(rows).execute();
   }
 
-  const ask = (cookie: string, files: number) =>
-    postLogin(
+  const ask = (cookie: string, files: number, vars: Record<string, string> = {}) =>
+    postLoginWithVars(
+      vars,
       {},
       {
         url: "/uploads",
@@ -337,11 +341,17 @@ describe("02-upload-handshake: the cap on open uploads", () => {
   it("The cap is the account's daily quota for its tier", async () => {
     const { userId, cookie } = await signIn("uploadcap-trusted@example.test");
     await db.updateTable("user").set({ role: "moderator" }).where("id", "=", userId).execute();
-    await opened(userId, NEW_LIMIT);
-    expect((await ask(cookie, 1)).status).toBe(200);
+    await opened(userId, LOWER_NEW_LIMIT);
+    expect((await ask(cookie, 1, TIERS)).status).toBe(200);
 
-    await opened(userId, TRUSTED_LIMIT - NEW_LIMIT - 1);
-    await expectRefused(await ask(cookie, 1), 429);
+    await opened(userId, TRUSTED_LIMIT - LOWER_NEW_LIMIT - 1);
+    await expectRefused(await ask(cookie, 1, TIERS), 429);
+  });
+
+  it("The cap of a new account is its own tier's, not the trusted one's", async () => {
+    const { userId, cookie } = await signIn("uploadcap-new-tier@example.test");
+    await opened(userId, LOWER_NEW_LIMIT);
+    await expectRefused(await ask(cookie, 1, TIERS), 429);
   });
 
   it("Only the account's own unconfirmed uploads are open", async () => {
@@ -382,17 +392,16 @@ describe("19-surge-controls-and-quotas: asking while quota is left", () => {
   it("a trusted user is asked past the new-account limit", async () => {
     const { userId, cookie } = await signIn("u4-ask-trusted@example.test");
     await db.updateTable("user").set({ role: "admin" }).where("id", "=", userId).execute();
-    await setUsedToday(userId, NEW_LIMIT);
-    const open = await requestUpload(
-      { size: "1000", "cf-turnstile-response": UPLOAD_TOKEN },
-      { cookie },
-    );
-    expect(open.status).toBe(200);
+    const request = () =>
+      postLoginWithVars(
+        TIERS,
+        { size: "1000", "cf-turnstile-response": UPLOAD_TOKEN },
+        { url: "/uploads", headers: { cookie } },
+      );
+    await setUsedToday(userId, LOWER_NEW_LIMIT);
+    expect((await request()).status).toBe(200);
     await setUsedToday(userId, TRUSTED_LIMIT);
-    await expectRefused(
-      await requestUpload({ size: "1000", "cf-turnstile-response": UPLOAD_TOKEN }, { cookie }),
-      429,
-    );
+    await expectRefused(await request(), 429);
   });
 
   it("an earlier day's use is no use today", async () => {

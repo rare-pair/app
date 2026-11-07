@@ -1732,9 +1732,11 @@ markup: its inline `style` attributes become stylesheet rules, because
   redirect. A non-moderator on `/admin`, signed out included,
   gets **404** (Author requests & takedowns, Moderation).
 - Upload quotas are hard limits, so they're counted in Postgres (or a Durable
-  Object). There are two daily tiers: new accounts get a lower limit, trusted
-  users a higher one. The numbers and the rule for "trusted" are configuration,
-  set before launch from load testing.
+  Object). There are two daily tiers: new accounts get one limit, trusted users
+  one at least as high. The numbers and the rule for "trusted" are configuration.
+  By operator ruling (2026-11-07) both are 100 a day for now, so new accounts and
+  moderators have the same limit; the code's fallback for a missing or misspelt
+  new-account value stays at 20, a safe default.
 - **Sign-in emails per day.** One address gets at most `LOGIN_EMAIL_QUOTA` (5)
   sign-in emails a UTC day, however many solved Turnstile challenges someone brings
   (operator ruling, 2026-11-05). It's counted in Postgres, in `sign_in_email_counts`,
@@ -1775,13 +1777,16 @@ markup: its inline `style` attributes become stylesheet rules, because
   takes an object whose delete failed.
   **What an account can store.** The Worker stores a file only for an open upload, and only of its
   declared size, at most 25 MB, once. So an account holds at most its cap times 25 MB through
-  unfinished uploads: 500 MB on the new-account quota of 20, 2.5 GB on the trusted 100, for the day
-  or two until the reaper runs. A confirmed upload's file also stays under `uploads/` until the
-  7-day rule, so a day's quota for 8 days adds about 4 GB on the new-account quota and 20 GB on the
-  trusted one. A ban ends an account's pending uploads, which takes them out of
+  unfinished uploads: 2.5 GB on the quota of 100 that new accounts and the trusted tier both have,
+  for the day or two until the reaper runs. A confirmed upload's file also stays under `uploads/`
+  until the 7-day rule, so a day's quota for 8 days adds about 20 GB on either tier. A ban ends an
+  account's pending uploads, which takes them out of
   the reaper's reach, so a file stored and never confirmed before a ban waits for the 7-day rule
-  (#685). Since the cap is the daily quota, raising
-  `UPLOAD_QUOTA_NEW` raises these bounds with it, and a quota under 10 can't take a full batch of 10.
+  (#685). Since the cap is the daily quota, raising either quota raises these bounds for the
+  accounts it covers (the trusted quota covers moderators and admins), and a quota under 10
+  can't take a full batch of 10. The ingest backlog grows with it too: at 100 a day, 350
+  accounts each uploading a full day's quota would put 35,000 uploads on the queue, the low end
+  of the retention bound in *EPUB processor*.
   Raw files the archive keeps are copied to `originals/` during ingest.
 - Queue backpressure: set a maximum consumer concurrency so Neon connections
   stay bounded. Hyperdrive pools connections, and Neon autoscales compute. Each Hyperdrive
