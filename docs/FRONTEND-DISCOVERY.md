@@ -69,7 +69,7 @@ Reading never requires an account, for any work (ARCHITECTURE, *Auth*).
 4. They open the work page: summary, tags, stats, chapter list, original AO3
    link.
 5. For works rated Mature or Explicit, carrying warnings, or with no rating
-   (shown as "Not Rated"), a warnings screen comes first, whichever reading
+   (shown as "Not Rated") or an unknown one, a warnings screen comes first, whichever reading
    page they enter by: chapter 1, a shared link
    to a later chapter, or the entire work. "Continue" goes to the page they
    asked for, and the screen isn't shown again for that work until the browser

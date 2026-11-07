@@ -927,7 +927,7 @@ can be snapshotted.
   stale-while-revalidate=60` adds up to 120 s in the same browser, so about 195 s.
 - **Warnings screen.** A work rated Mature or Explicit, or carrying archive
   warnings, or marked "Choose Not To Use Archive Warnings", or with no rating
-  at all, shows an interstitial with its rating and warnings the first time a
+  at all or one the archive doesn't use, shows an interstitial with its rating and warnings the first time a
   reader enters its reading pages, from any entry point: chapter 1, a direct
   link to a later chapter, or `/full`. "Continue" goes on to the page they asked for. Having
   seen it is then remembered for that work in a session cookie, so other
