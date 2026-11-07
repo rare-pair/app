@@ -60,6 +60,11 @@ export interface SeedWorkOptions extends SeedVersionOptions {
   /** Default `live`. A hidden work needs `hiddenCause`, or the schema refuses it. */
   status?: "live" | "hidden" | "removed";
   hiddenCause?: HiddenCause;
+  /**
+   * The first upload held for this reason, as ingest holds a PDF whose byline it isn't sure of:
+   * the work stays `processing`, with no current version. `status` is then ignored.
+   */
+  heldFirst?: HoldReason;
 }
 
 /** One chapter fragment to put in R2. */
@@ -137,6 +142,10 @@ export async function seedWork(
       .returning("id")
       .executeTakeFirstOrThrow();
     const seeded = { workId: work.id, ao3WorkId, userId };
+    if (options.heldFirst !== undefined) {
+      const held = { ...options, current: false, holdReason: options.heldFirst };
+      return { ...seeded, ...(await addVersion(trx, seeded, columns, held)) };
+    }
     const version = await addVersion(trx, seeded, columns, { ...options, current: true });
     // Last, as ingest does: the work leaves `processing` once its version is current.
     await trx

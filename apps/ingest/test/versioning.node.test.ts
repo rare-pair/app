@@ -78,6 +78,19 @@ describe("08 versioning and dedupe: decideVersion", () => {
       expect(decideVersion(facts(), fromPdf({ chapters: 4, date: "2020-01-01" }))).toEqual(held);
     });
 
+    it("A PDF whose byline the reader isn't sure of is held instead of going live", () => {
+      const unsure = (over: Parameters<typeof facts>[0] = {}) => ({
+        ...fromPdf(over),
+        bylineUnsure: true,
+      });
+      const bylineHeld = { outcome: "hold", reason: "pdf_byline_unsure" };
+      expect(decideVersion(fromPdf(), unsure({ date: "2026-02-01" }))).toEqual(bylineHeld);
+      // Over another hold too: the byline is read first.
+      expect(decideVersion(facts(), unsure({ chapters: 4 }))).toEqual(bylineHeld);
+      // A duplicate adds nothing, so nothing waits on the byline.
+      expect(decideVersion(facts(), unsure())).toEqual(duplicate);
+    });
+
     it("A PDF follows the rules against a PDF", () => {
       expect(decideVersion(fromPdf(), fromPdf())).toEqual(duplicate);
       expect(decideVersion(fromPdf(), fromPdf({ date: "2026-02-01" }))).toEqual(REPLACE);

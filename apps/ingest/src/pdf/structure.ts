@@ -55,6 +55,9 @@ export interface PdfWork {
   reviewReasons: string[];
 }
 
+/** The review reason of a byline the reader isn't sure it read whole: its version is held. */
+export const BYLINE_UNSURE = "byline_unsure";
+
 const LABELS =
   /(Ratings?|Archive Warnings?|Categor(?:y|ies)|Fandoms?|Relationships?|Characters?|Additional Tags?|Language|Series|Stats):/g;
 
@@ -421,10 +424,11 @@ function readByline(
   layout: Layout,
 ) {
   const none: Author[] = [];
-  if (bylineAt < 0) return { authors: none, ambiguous: false, end: prefaceEnd };
+  if (bylineAt < 0) return { authors: none, ambiguous: false, unsure: true, end: prefaceEnd };
   // Only the marker alone: a name after it is a name, for the opt-out check to read.
   if (/^by\s+Anonymous$/i.test(trimmed(lines[bylineAt]!))) {
-    return { authors: [{ pseud: "Anonymous", user: null }], ambiguous: false, end: bylineAt + 1 };
+    const anonymous = [{ pseud: "Anonymous", user: null }];
+    return { authors: anonymous, ambiguous: false, unsure: false, end: bylineAt + 1 };
   }
   const userLinks = links.filter((l) => USER_URL.test(l.url));
   const linksOn = (line: TextLine) => userLinks.filter((l) => onLine(l, line));
@@ -441,6 +445,17 @@ function readByline(
   let end = bylineAt + 1;
   // No byline runs this long; a run that does is the text.
   while (end < prefaceEnd && end - bylineAt < 8 && wraps(lines[end - 1]!, lines[end]!)) end++;
+  // Whether a name may go on past what was read: the run stopped at its cap, or the line close
+  // under the last has an author's link, or starts with a word the last line had no room for.
+  const last = lines[end - 1]!;
+  const below = end < prefaceEnd ? lines[end] : undefined;
+  const close =
+    below !== undefined && below.page === last.page && last.y - below.y <= layout.pitch * 1.5;
+  const cut =
+    close &&
+    ((end - bylineAt >= 8 && wraps(last, below)) ||
+      linksOn(below).length > 0 ||
+      noRoomFor(last, below, layout));
 
   let byline = "";
   let covered: boolean[] = [];
@@ -478,9 +493,13 @@ function readByline(
       add({ pseud: decodeName(pseud), user });
       continue;
     }
-    // No pseud in the link: the name printed under it, which the opt-out check reads.
-    const under = names.find((n) => n.linked && n.from < to && n.to > from);
-    add({ pseud: under?.name ?? user, user });
+    // No pseud in the link: the name printed under it, as AO3 prints a pseud and its login, and
+    // the login, so the opt-out check reads whichever its list holds.
+    const under = names.find((n) => n.linked && n.from < to && n.to > from)?.name;
+    const withLogin = under === undefined ? null : /^(.+?)\s*\(([^()]+)\)$/.exec(under);
+    const printed = withLogin !== null && sameName(withLogin[2]!, user) ? withLogin[1]! : under;
+    if (printed !== undefined) add({ pseud: printed, user });
+    add({ pseud: user, user });
   }
   // A name under a link that wrapped on to the next line is that link's, though split by a space.
   const unlinked = names.filter(
@@ -492,8 +511,21 @@ function readByline(
     authors: [...authors, ...unlinked.map((n): Author => ({ pseud: n.name, user: null }))],
     // Names with no links at all split as a list; beside links, one is a guess too.
     ambiguous: authors.length > 0 ? unlinked.length > 0 : unlinked.length > 1,
+    // A name with no link may be part of one, or not a name at all.
+    unsure: cut || unlinked.length > 0,
     end,
   };
+}
+
+/**
+ * Whether the first word of `below` would not have fitted at the end of `above`, by estimated
+ * widths across the text's measure: the line was full, and `below` may go on with it.
+ */
+function noRoomFor(above: TextLine, below: TextLine, layout: Layout): boolean {
+  const word = /^\S+/.exec(trimmed(below))?.[0].slice(0, MAX_BYLINE_LINE) ?? "";
+  let ems = charWidth(0x20);
+  for (let i = 0; i < word.length; i++) ems += charWidth(word.charCodeAt(i));
+  return above.right - above.x + ems * above.size > layout.right - layout.left;
 }
 
 /** The series the preface prints, with their IDs from its links, in order. */
@@ -523,14 +555,20 @@ function readEnd(lines: TextLine[], from: number, layout: Layout) {
   };
   const closing = last((text) => text.toLowerCase().startsWith(CLOSING_LINE));
   const stop = closing < 0 ? lines.length : closing;
-  // The heading says so only by what's under it: End Notes, or the closing line at most a line on. A
-  // chapter can have the word as its text, and the notes under the heading can too, so the first
-  // that passes is the heading.
+  // The heading says so only by what's under it: End Notes, the works inspired by this one, or the
+  // closing line at most a line on. A chapter can have the word as its text, and the notes under
+  // the heading can too, so the first that passes is the heading.
   let afterword = -1;
   for (let i = from; i < lines.length && afterword < 0; i++) {
     if (trimmed(lines[i]!) !== "Afterword") continue;
     const under = lines[i + 1] === undefined ? "" : trimmed(lines[i + 1]!);
-    if (under === "End Notes" || (closing > i && closing - i <= 2)) afterword = i;
+    if (
+      under === "End Notes" ||
+      under.startsWith("Works inspired by this one") ||
+      (closing > i && closing - i <= 2)
+    ) {
+      afterword = i;
+    }
   }
   // A label in the text stays in the text. The real one is under the heading when there is one, and
   // otherwise before the closing line, which can't be told from one in the text just above it.
@@ -686,6 +724,8 @@ export function readWork(text: PdfText): PdfWork {
 
   const byline = resolveByline(named.authors, named.ambiguous, []);
   reviewReasons.push(...byline.reviewReasons);
+  // The version is held for a moderator (spec 12): an author the reader missed would go unchecked.
+  if (named.unsure || byline.authors.length === 0) reviewReasons.push(BYLINE_UNSURE);
 
   const statsRaw: Record<string, string> = Object.create(null);
   const stats = parseStats((printedOf("stats") ?? "").slice(0, MAX_STATS_CHARS), statsRaw);

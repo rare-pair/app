@@ -23,6 +23,8 @@ export interface VersionFacts {
   authors: { pseud: string; user: string | null }[];
   /** The version came from a PDF, whose text and tags can't be held to an epub's. */
   fromPdf?: boolean;
+  /** A PDF whose byline the reader isn't sure it read whole: it goes live only by a moderator. */
+  bylineUnsure?: boolean;
 }
 
 export type VersionDecision =
@@ -43,6 +45,18 @@ export function decideVersion(
   current: VersionFacts,
   upload: VersionFacts,
   options: VersionOptions = {},
+): VersionDecision {
+  const decision = decideByContent(current, upload, options);
+  // An uncertain byline is held whatever else it would be, but a duplicate adds nothing.
+  return upload.bylineUnsure && decision.outcome !== "duplicate"
+    ? { outcome: "hold", reason: "pdf_byline_unsure" }
+    : decision;
+}
+
+function decideByContent(
+  current: VersionFacts,
+  upload: VersionFacts,
+  options: VersionOptions,
 ): VersionDecision {
   const threshold = options.threshold ?? SIMILARITY_THRESHOLD;
   // NaN or a value outside 0..1 would pass every rewrite or hold every identical chapter.

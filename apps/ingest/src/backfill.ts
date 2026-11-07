@@ -4,6 +4,7 @@ import { sql, type Kysely } from "kysely";
 import type { JobDeps } from "./job";
 import { ListCheckRejected, onRejectList } from "./lists";
 import type { BackfillMessage } from "./message";
+import { BYLINE_UNSURE } from "./pdf/structure";
 import {
   clearRemovedWork,
   saveBackfill,
@@ -24,7 +25,8 @@ export interface BackfillDeps {
  * now (ARCHITECTURE, EPUB processor, step 8), while that version is still the one the message
  * names. Returns what became of it, for the log: `backfilled`, or why the current version was
  * left as it is (`no_work`, `removed`, `not_current`, `original_missing`, `too_large`,
- * `work_mismatch`, `opted_out`, `optout_check_rejected_<sqlstate>` (the opt-out table refused a value
+ * `work_mismatch`, `byline_unsure` (a PDF whose byline the reader is no longer sure of),
+ * `opted_out`, `optout_check_rejected_<sqlstate>` (the opt-out table refused a value
  * in the file), or an `EpubError`'s or `SaveRejected`'s code: the processor's
  * verdict on the original as it now stands). Each is final, so the message is acked: a short
  * fixed code, never text from the file. Throws on a failure worth retrying, such as R2 or
@@ -80,6 +82,11 @@ export async function runBackfill(deps: BackfillDeps, message: BackfillMessage):
     return error.code;
   }
   if (work.ao3WorkId !== String(row.ao3_work_id)) return "work_mismatch";
+  // A PDF's byline the reader is no longer sure of goes live only by a moderator (spec 12): kept
+  // as it is, unless a moderator approved the version already unsure.
+  if (work.reviewReasons.includes(BYLINE_UNSURE) && !row.review_reasons.includes(BYLINE_UNSURE)) {
+    return BYLINE_UNSURE;
+  }
   // Before anything is written: what an opt-out now blocks is not published again.
   try {
     if (await onRejectList(deps.db, work)) return "opted_out";

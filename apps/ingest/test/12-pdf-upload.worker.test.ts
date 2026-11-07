@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { makeVersionCurrent } from "@archive/db";
+import { approveVersion, makeVersionCurrent } from "@archive/db";
 import { inject, describe, expect, it } from "vitest";
 import {
   addOptOut,
@@ -37,6 +37,17 @@ async function ingestPdf(bytes: Uint8Array) {
   const id = await pendingUpload(bytes);
   const result = await deliver([{ upload_id: id }]);
   return { id, row: await uploadRow(id), result };
+}
+
+/**
+ * Approves the one held version of a work whose first upload was held for its byline, and checks
+ * it was held for that: then the work reads as any live one.
+ */
+async function approveHeldFirst(ao3WorkId: number) {
+  const { workId, status, current, versions } = await versionsOf(ao3WorkId);
+  expect({ status, current }).toEqual({ status: "processing", current: null });
+  expect(versions.map((v) => v.hold_reason)).toEqual(["pdf_byline_unsure"]);
+  expect(await withDb((db) => approveVersion(db, workId, versions[0]!.id))).toBe("published");
 }
 
 describe("12-pdf-upload", () => {
@@ -196,7 +207,8 @@ describe("12-pdf-upload", () => {
         { text: "by Anonymous, Second Name" },
         { text: "The text.", gap: 10 },
       ];
-      await ingestPdf(layoutPdf(lines));
+      expect((await ingestPdf(layoutPdf(lines))).row.status).toBe("held_for_review");
+      await approveHeldFirst(workId);
 
       const live = await liveWork(workId);
       expect(live?.authors.map((a) => a.pseud)).toEqual(["Anonymous", "Second Name"]);
@@ -302,8 +314,11 @@ describe("12-pdf-upload", () => {
       const title: PdfLine = { text: "A title", size: 18, gap: 10 };
       const by: PdfLine = { text: "by Someone", url: "https://archiveofourown.org/users/someone" };
       const para = (text: string): PdfLine => ({ text, gap: 10 });
-      const chapterText = async (id: number, lines: PdfLine[]) => {
-        await ingestPdf(layoutPdf(lines));
+      /** The work's first chapter. With `held`, the upload must be held for its byline first. */
+      const chapterText = async (id: number, lines: PdfLine[], held = false) => {
+        const { row } = await ingestPdf(layoutPdf(lines));
+        expect(row.status).toBe(held ? "held_for_review" : "live");
+        if (held) await approveHeldFirst(id);
         const live = await liveWork(id);
         return { live, text: await bucketText(live!.chapters[0]!.r2_key) };
       };
@@ -332,7 +347,7 @@ describe("12-pdf-upload", () => {
           { text: "by Someone" },
           para("The first of the text."),
           para("by the door she waited"),
-        ]);
+        ], true);
         expect(live?.authors.map((a) => a.pseud)).toEqual(["Someone"]);
         expect(live?.work.title).toBe("A title");
         expect(text).toContain("The first of the text.");
@@ -355,7 +370,7 @@ describe("12-pdf-upload", () => {
 
       it("a work with no byline keeps its text", async () => {
         const id = 8813783;
-        const { live, text } = await chapterText(id, [posted(id), stats, para("All the text.")]);
+        const { live, text } = await chapterText(id, [posted(id), stats, para("All the text.")], true);
         expect(text).toBe("<p>All the text.</p>");
         expect(live?.version.review_reasons).toContain("byline_missing");
       });
@@ -412,7 +427,7 @@ describe("12-pdf-upload", () => {
           { text: "by A Very Long Pseud Name," },
           { text: "Second Author" },
           para("The text."),
-        ]);
+        ], true);
         expect(live?.authors.map((a) => a.pseud)).toEqual([
           "A Very Long Pseud Name",
           "Second Author",
@@ -478,7 +493,7 @@ describe("12-pdf-upload", () => {
             ],
           },
           para("The text."),
-        ]);
+        ], true);
         expect(live?.authors.map((a) => a.pseud)).toEqual(["Linked Author", "Other Author"]);
         expect(live?.version.review_reasons).toContain("byline_ambiguous");
       });
@@ -508,7 +523,7 @@ describe("12-pdf-upload", () => {
           by,
           { text: "Thanks to a friend.", url: "https://archiveofourown.org/users/friend", gap: 10 },
           para("The text."),
-        ]);
+        ], true);
         expect(live?.authors.map((a) => a.pseud)).toEqual(["Someone"]);
         expect(text).toContain("Thanks to a friend.");
       });
@@ -599,14 +614,12 @@ describe("12-pdf-upload", () => {
       describe("Bylines", () => {
         const user = (login: string, pseud?: string) =>
           `https://archiveofourown.org/users/${login}${pseud ? `/pseuds/${encodeURIComponent(pseud)}` : ""}`;
-        const pseuds = async (id: number, rows: PdfLine[]) => {
-          const { live, text } = await chapterText(id, [
-            posted(id),
-            stats,
-            title,
-            ...rows,
-            para("The text."),
-          ]);
+        const pseuds = async (id: number, rows: PdfLine[], held = false) => {
+          const { live, text } = await chapterText(
+            id,
+            [posted(id), stats, title, ...rows, para("The text.")],
+            held,
+          );
           return {
             names: live?.authors.map((a) => a.pseud),
             reasons: live?.version.review_reasons,
@@ -660,7 +673,7 @@ describe("12-pdf-upload", () => {
           expect(reasons).not.toContain("byline_ambiguous");
         });
 
-        it("links with no pseud in them don't add the printed names too", async () => {
+        it("links with no pseud in them name the printed names and the logins", async () => {
           const { names, reasons } = await pseuds(8813763, [
             {
               text: "by Real One, Real Two",
@@ -670,7 +683,7 @@ describe("12-pdf-upload", () => {
               ],
             },
           ]);
-          expect(names).toEqual(["Real One", "Real Two"]);
+          expect(names).toEqual(["Real One", "r1", "Real Two", "r2"]);
           expect(reasons).not.toContain("byline_ambiguous");
         });
 
@@ -678,7 +691,7 @@ describe("12-pdf-upload", () => {
           const { names, text } = await pseuds(8813764, [
             { text: "by Someone", url: user("someone") },
             { text: "Thanks to a friend.", url: user("friend") },
-          ]);
+          ], true);
           expect(names).toEqual(["Someone"]);
           expect(text).toContain("Thanks to a friend.");
         });
@@ -687,7 +700,7 @@ describe("12-pdf-upload", () => {
           const { names } = await pseuds(8813765, [
             { text: "by Opted Out" },
             { text: "Thanks to a friend.", url: user("friend") },
-          ]);
+          ], true);
           expect(names).toEqual(["Opted Out"]);
         });
       });
@@ -949,6 +962,85 @@ describe("12-pdf-upload", () => {
       const after = await liveWork(workId);
       expect(after?.version.original_upload_id).toBe(longer.id);
       expect(after?.version.original_format).toBe("pdf");
+    });
+
+    const unsureOf = (workId: number, updated: string) =>
+      layoutPdf([
+        {
+          text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.`,
+        },
+        { text: `Stats: Published: 2019-01-01 Updated: ${updated} Words: 10 Chapters: 1/1` },
+        { text: "A title", size: 18, gap: 10 },
+        { text: "by Someone With No Link" },
+        { text: "Words of the PDF. 0", gap: 10 },
+      ]);
+
+    it("A PDF whose byline the reader isn't sure of is held, even as the first upload", async () => {
+      const workId = 8813747;
+      const first = await ingestPdf(unsureOf(workId, "2020-02-01"));
+
+      expect(first.row.status).toBe("held_for_review");
+      expect(first.row.work_id).not.toBeNull();
+      expect(await liveWork(workId)).toBeNull();
+      // Another unsure one waits beside it, and the work stays unlisted.
+      const again = await ingestPdf(unsureOf(workId, "2020-03-01"));
+      expect(again.row.status).toBe("held_for_review");
+      const { workId: id, status, current, versions } = await versionsOf(workId);
+      expect({ status, current }).toEqual({ status: "processing", current: null });
+      expect(versions.map((v) => v.hold_reason)).toEqual(["pdf_byline_unsure", "pdf_byline_unsure"]);
+      expect(versions[0]!.review_reasons).toContain("byline_unsure");
+
+      // A moderator's approval puts it live.
+      const firstVersion = versions.find((v) => v.upload_id === first.id)!;
+      await withDb((db) => approveVersion(db, id, firstVersion.id));
+      expect((await liveWork(workId))?.version.original_upload_id).toBe(first.id);
+    });
+
+    it("An epub of a work whose first PDF is held goes live, and the PDF stays held", async () => {
+      const workId = 8813748;
+      const pdf = await ingestPdf(unsureOf(workId, "2020-02-01"));
+
+      const epub = await ingestPdf(epubOf(workId, "2020-01-01"));
+
+      expect(epub.row.status).toBe("live");
+      expect((await liveWork(workId))?.version.original_upload_id).toBe(epub.id);
+      expect((await uploadRow(pdf.id)).status).toBe("held_for_review");
+    });
+
+    it("A PDF whose byline the reader isn't sure of doesn't replace a PDF", async () => {
+      const workId = 8813749;
+      const first = await ingestPdf(pdfOf(workId, "2020-02-01"));
+
+      const newer = await ingestPdf(unsureOf(workId, "2020-03-01"));
+
+      expect(newer.row.status).toBe("held_for_review");
+      expect((await liveWork(workId))?.version.original_upload_id).toBe(first.id);
+      const held = (await versionsOf(workId)).versions.find((v) => v.upload_id === newer.id);
+      expect(held?.hold_reason).toBe("pdf_byline_unsure");
+    });
+
+    it("A backfill doesn't put live a PDF whose byline the reader is no longer sure of", async () => {
+      const workId = 8813753;
+      await ingestPdf(pdfOf(workId, "2020-02-01"));
+      const before = await versionsOf(workId);
+      // A reader that has since lost the links: the byline's name is no longer sure.
+      const handler = ingestWorker({
+        loadPdfParser: async () => {
+          const { pdfParser } = await import("../src/pdf/parser");
+          const parser = pdfParser();
+          return { read: async (bytes) => ({ ...(await parser.read(bytes)), links: [] }) };
+        },
+      });
+
+      const result = await deliver([{ work_id: before.workId, version_id: before.current }], {
+        handler,
+        queue: "ingest-backfill",
+      });
+
+      expect(result.explicitAcks).toEqual(["msg-0"]);
+      const after = await versionsOf(workId);
+      expect(after.current).toBe(before.current);
+      expect(after.versions).toHaveLength(1);
     });
 
     it("A PDF follows the rules against a PDF", async () => {

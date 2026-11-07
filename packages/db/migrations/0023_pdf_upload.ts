@@ -1,6 +1,7 @@
-// PDF upload (spec 12): what an upload was made from, its own refusal status, and the reason a
-// PDF with more chapters than the current epub is held. An upload's `format` is set when it is
-// ingested; every upload before this one was an epub. Add-only: never edit this file once merged.
+// PDF upload (spec 12): what an upload was made from, its own refusal status, and the reasons a
+// PDF is held: more chapters than the current epub, or a byline the reader isn't sure of. An
+// upload's `format` is set when it is ingested; every upload before this one was an epub.
+// Add-only: never edit this file once merged.
 // Each check is dropped and re-added with the old values kept, as 0002 says a new status must be.
 export default /* sql */ `
 alter table "uploads" add column "format" text not null default 'epub';
@@ -15,6 +16,7 @@ alter table "uploads" add constraint "uploads_status_check"
 alter table "work_versions" drop constraint "work_versions_hold_reason_check";
 alter table "work_versions" add constraint "work_versions_hold_reason_check"
   check ("hold_reason" in (
-    'chapters_changed', 'tags_changed', 'authors_changed', 'pdf_more_chapters'
+    'chapters_changed', 'tags_changed', 'authors_changed', 'pdf_more_chapters',
+    'pdf_byline_unsure'
   ));
 `;

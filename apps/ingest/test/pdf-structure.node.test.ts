@@ -70,7 +70,7 @@ describe("12-pdf-upload: the byline, on the parser's lines", () => {
     expect(work.authors.map((a) => a.pseud)).toContain("Mona");
   });
 
-  it("a link with no pseud in it names the pseud printed under it", () => {
+  it("a link with no pseud in it names the pseud printed under it, and the login", () => {
     const text = "by Opted Out, Other Name";
     const work = read(
       [line(text, 640), line("The text.", 610)],
@@ -81,8 +81,64 @@ describe("12-pdf-upload: the byline, on the parser's lines", () => {
     );
     expect(work.authors).toEqual([
       { pseud: "Opted Out", user: "login1" },
+      { pseud: "login1", user: "login1" },
       { pseud: "Other Name", user: "login2" },
+      { pseud: "login2", user: "login2" },
     ]);
+    expect(work.reviewReasons).not.toContain("byline_unsure");
+  });
+
+  it("a pseud printed with its login in brackets names the pseud and the login", () => {
+    const work = read(
+      [line("by A Pseud (auser)", 640), line("The text.", 610)],
+      [userLink("auser", 72 + 3 * 5.5, 72 + 18 * 5.5, 640)],
+    );
+    expect(work.authors).toEqual([
+      { pseud: "A Pseud", user: "auser" },
+      { pseud: "auser", user: "auser" },
+    ]);
+  });
+
+  it("is unsure of an unlinked name that wraps with no separator", () => {
+    // The line is full, and the word under it wouldn't have fitted at its end.
+    const full = { ...line("by First Author, Opted", 640), right: 500 };
+    const work = read([full, line("Out", 628), line("The text.", 600)], []);
+    expect(work.reviewReasons).toContain("byline_unsure");
+  });
+
+  it("is unsure of a full linked line with a word close under it that wouldn't have fitted", () => {
+    // Every name on the line is linked, so only the wrap says a name may go on.
+    const full = { ...line("by First Author, Opted", 640), right: 500 };
+    const work = read(
+      [full, line("Out", 628), line("The text.", 600)],
+      [userLink("first", 72 + 30, 500, 640)],
+    );
+    expect(work.reviewReasons).not.toContain("byline_ambiguous");
+    expect(work.reviewReasons).toContain("byline_unsure");
+  });
+
+  it("is unsure of a byline longer than it reads", () => {
+    // Every name linked: only the length says some weren't read.
+    const rows = Array.from({ length: 10 }, (_, i) => line(`${i ? "" : "by "}Name${i},`, 640 - i * 12));
+    const links = rows.map((row, i) => userLink(`u${i}`, row.x + (i ? 0 : 16), row.right - 5, row.y));
+    const work = read([...rows, line("The text.", 400)], links);
+    expect(work.reviewReasons).not.toContain("byline_ambiguous");
+    expect(work.reviewReasons).toContain("byline_unsure");
+  });
+
+  it("is unsure of a name with no link, and of no byline at all", () => {
+    expect(read([line("by Someone", 640), line("The text.", 610)], []).reviewReasons).toContain(
+      "byline_unsure",
+    );
+    expect(read([line("The text.", 610)], []).reviewReasons).toContain("byline_unsure");
+  });
+
+  it("is sure of a linked byline with a short line close under it", () => {
+    const work = read(
+      [line("by Someone", 640), line("Rating: Mature", 628), line("The text.", 600)],
+      [userLink("someone", 72 + 3 * 5.5, 72 + 10 * 5.5, 640)],
+    );
+    expect(work.reviewReasons).not.toContain("byline_unsure");
   });
 
   it("a long byline doesn't take the field line under it", () => {
@@ -113,7 +169,8 @@ describe("12-pdf-upload: the byline, on the parser's lines", () => {
       [line("by A Rather Long Pseud", 640), ...poem.map((p, i) => line(p, 626 - i * 14))],
       [userLink("rl", 72 + 3 * 5.5, 72 + 22 * 5.5, 640)],
     );
-    expect(work.authors.map((a) => a.user)).toEqual(["rl"]);
+    expect(new Set(work.authors.map((a) => a.user))).toEqual(new Set(["rl"]));
+    expect(work.reviewReasons).not.toContain("byline_unsure");
     expect(work.chapters[0]!.paragraphs.join(" ")).toContain("the shore");
   });
 
@@ -161,6 +218,18 @@ describe("12-pdf-upload: the end of the text, on the parser's lines", () => {
       "The epilogue goes on.",
       "And on.",
     ]);
+  });
+
+  it("an Afterword over the works inspired by this one is the heading", () => {
+    const work = ending([
+      "Body.",
+      "Afterword",
+      "Works inspired by this one:",
+      "A Work by Someone Else",
+      "Another Work by Someone Else",
+    ]);
+    expect(work.chapters[0]!.paragraphs).toEqual(["Body."]);
+    expect(work.endNotes).toEqual([]);
   });
 
   it("the heading's notes keep a line of their own reading Afterword", () => {

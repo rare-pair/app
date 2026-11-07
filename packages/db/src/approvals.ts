@@ -5,6 +5,7 @@ import { sql, type Kysely } from "kysely";
 import { inTransaction, logModerationAction } from "./moderation-actions";
 import { closeOpenWrongVersionReports, makeVersionCurrent } from "./queries";
 import type { Database } from "./schema";
+import { copyVersionToWork } from "./version-copy";
 
 /**
  * What `approveVersion` did: `cleared` the notice of the work's current version,
@@ -18,7 +19,9 @@ export type ApproveOutcome = "cleared" | "published" | "nothing" | "unavailable"
  * Approves one of a work's versions, in one transaction. A held version is published: its
  * upload goes `live`, it is marked checked, and the work then describes it
  * (`makeVersionCurrent`, which closes the work's open `wrong_version` reports as the pointer
- * moves). The current version of a live or hidden work whose review reasons nobody has
+ * moves). A work whose first upload was held (spec 12: a PDF whose byline the reader wasn't
+ * sure of) is still `processing`, with no current version: it goes `live` at the version. The
+ * current version of a live or hidden work whose review reasons nobody has
  * cleared gets `checked_at`, which ends the notice. Any other version is left alone.
  * `hold_reason` is kept after a publish: the upload's status is the state.
  *
@@ -36,9 +39,15 @@ export async function approveVersion(
   return inTransaction(db, async (trx) => {
     const work = await trx
       .selectFrom("works")
-      .select("current_version_id")
+      .select(["status", "current_version_id"])
       .where("id", "=", workId)
-      .where("status", "in", ["live", "hidden"])
+      .where((eb) =>
+        eb.or([
+          eb("status", "in", ["live", "hidden"]),
+          // A first upload held (a PDF whose byline the reader wasn't sure of): no version yet.
+          eb.and([eb("status", "=", "processing"), eb("current_version_id", "is", null)]),
+        ]),
+      )
       .forNoKeyUpdate()
       .executeTakeFirst();
     if (work === undefined) return "unavailable";
@@ -67,8 +76,16 @@ export async function approveVersion(
         .set({ checked_at: sql<Date>`coalesce(checked_at, now())` })
         .where("id", "=", versionId)
         .execute();
-      // No `actor`: the approve is the one log row.
-      if (!(await makeVersionCurrent(trx, workId, versionId))) {
+      if (work.status === "processing") {
+        // The work's first version: it goes live with it, as ingest's first upload does.
+        await trx
+          .updateTable("works")
+          .set({ current_version_id: versionId, status: "live" })
+          .where("id", "=", workId)
+          .execute();
+        await copyVersionToWork(trx, workId, versionId);
+        // No `actor`: the approve is the one log row.
+      } else if (!(await makeVersionCurrent(trx, workId, versionId))) {
         throw new Error("The work was locked as live or hidden, so the version must be current.");
       }
       outcome = "published";

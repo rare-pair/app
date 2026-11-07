@@ -198,7 +198,9 @@ export type HoldReason =
   | "chapters_changed"
   | "tags_changed"
   | "authors_changed"
-  | "pdf_more_chapters";
+  | "pdf_more_chapters"
+  /** A PDF whose byline the reader isn't sure it read whole: held even as a work's first upload. */
+  | "pdf_byline_unsure";
 
 export interface VersionTag {
   type: TagType;

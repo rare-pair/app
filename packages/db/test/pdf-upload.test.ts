@@ -1,5 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { getLiveWork, originalKey, originalKeys } from "../src/index";
+import {
+  approveVersion,
+  getLiveWork,
+  makeVersionCurrent,
+  originalKey,
+  originalKeys,
+} from "../src/index";
 import { seedWork } from "../src/seed";
 import { createTestDb, type TestDb } from "../src/testing";
 
@@ -56,6 +62,44 @@ describe("12-pdf-upload", () => {
         .returning("hold_reason")
         .executeTakeFirstOrThrow();
       expect(row.hold_reason).toBe("pdf_more_chapters");
+    });
+  });
+
+  describe("A byline the reader isn't sure of is held", () => {
+    it("pdf_byline_unsure is a hold reason", async () => {
+      const { versionId } = await seedWork(t.db, { ao3WorkId: 8813703 });
+      const row = await t.db
+        .updateTable("work_versions")
+        .set({ hold_reason: "pdf_byline_unsure" })
+        .where("id", "=", versionId)
+        .returning("hold_reason")
+        .executeTakeFirstOrThrow();
+      expect(row.hold_reason).toBe("pdf_byline_unsure");
+    });
+
+    it("a held first upload leaves its work unlisted until a moderator approves it", async () => {
+      const seeded = await seedWork(t.db, {
+        ao3WorkId: 8813704,
+        format: "pdf",
+        heldFirst: "pdf_byline_unsure",
+      });
+      expect(await getLiveWork(t.db, 8813704)).toBeNull();
+      // Only an approval publishes it: "Make current" doesn't.
+      expect(await makeVersionCurrent(t.db, seeded.workId, seeded.versionId)).toBe(false);
+      expect(await approveVersion(t.db, seeded.workId, seeded.versionId)).toBe("published");
+      const work = await t.db
+        .selectFrom("works")
+        .select(["status", "current_version_id"])
+        .where("id", "=", seeded.workId)
+        .executeTakeFirstOrThrow();
+      expect(work).toEqual({ status: "live", current_version_id: seeded.versionId });
+      expect((await getLiveWork(t.db, 8813704))?.version.id).toBe(seeded.versionId);
+      const upload = await t.db
+        .selectFrom("uploads")
+        .select("status")
+        .where("id", "=", seeded.uploadId)
+        .executeTakeFirstOrThrow();
+      expect(upload.status).toBe("live");
     });
   });
 
