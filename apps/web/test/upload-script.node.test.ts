@@ -110,7 +110,7 @@ function page(
   files: Fake[],
   replies: ((call: Call) => { status: number; body: object })[],
   // Browser features the zip reader uses; `{ DecompressionStream: undefined }` is a browser without it.
-  browser: object = {},
+  browser: { DecompressionStream?: unknown } = {},
 ) {
   FakeXhr.all = [];
   const elements = Object.fromEntries(
@@ -905,7 +905,7 @@ describe("26-bulk-zip-upload", () => {
     const clicked = p.click();
     await p.flush();
     expect(sizesOf(p.calls[0]!.body)).toEqual(["300", "5000"]);
-    expect(FakeXhr.all.map((x) => [x.url, (x.sent as Fake).name, (x.sent as Fake).size])).toEqual([
+    expect(FakeXhr.all.map((x) => [x.url, x.sent?.name, x.sent?.size])).toEqual([
       ["/uploads/a", "one.epub", 300],
       ["/uploads/b", "two.epub", 5000],
     ]);
