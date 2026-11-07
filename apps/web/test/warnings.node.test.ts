@@ -33,6 +33,15 @@ describe("12-warnings-interstitial: which works need the screen", () => {
       expect(needsWarnings(work(rating))).toBe(true);
     },
   );
+  it("An unknown rating shows the interstitial", () => {
+    expect(needsWarnings(work("Banana Audiences"))).toBe(true);
+  });
+  it("A mild rating with the Rape/Non-Con or Underage warning shows the interstitial", () => {
+    for (const warning of ["Rape/Non-Con", "Underage"]) {
+      expect(needsWarnings(work("General Audiences", [warning]))).toBe(true);
+      expect(needsWarnings(work("Teen And Up Audiences", [warning]))).toBe(true);
+    }
+  });
   it("General or Teen with no warnings, or only No Archive Warnings Apply, skips it", () => {
     expect(needsWarnings(work("General Audiences"))).toBe(false);
     expect(needsWarnings(work("Teen And Up Audiences", ["No Archive Warnings Apply"]))).toBe(false);

@@ -17,8 +17,8 @@ fandoms and pseuds in it are invented placeholders.
 | --- | --- |
 | Visual direction | Modern and minimal. The identity is plain HTML with a strong typographic hierarchy: type, spacing and rules do the work, not boxes, shadows or imagery |
 | Warnings | **Hard constraint:** rating and archive warnings show on every work card and work page. They are never collapsed, never behind a hover, and never hidden to save space. Minimalism applies to everything else |
-| JavaScript | Reading, browsing, search and reader settings work fully with JavaScript off, unless Cloudflare's bot protection challenges the reader; small scripts only enhance them (settings without a reload, saving reading position). On the sign-in link's page, a script presses the button for the browser that asked for the link. Forms with a Turnstile check (sign-in, upload, `/remove`, the copyright notice at `/dmca`, and the wait list before launch) need JavaScript, because Turnstile can't produce a token without it; with JS off they say so in a `<noscript>` message. Post-launch, an NSFW work also needs a sign-in to read (*NSFW works*, below), so a browser with JS off can't ask for its own link. The age box needs no JS |
-| NSFW works | No gate at launch. **Post-launch, not built:** works rated Mature or Explicit, or carrying the warning Rape/Non-Con or Underage, need a sign-in and a ticked age statement, which a cookie remembers in that browser. A visitor to a chapter or the entire work gets the warnings screen with a sign-in link, or once signed in the age box, in place of Continue. The work's images and original epub are gated too. Its card, work page, listings and search stay public. Readers can report a work as NSFW: reports from 3 accounts gate it until a moderator confirms or clears that, and the work says so, with its rating unchanged. Reading position isn't saved on these works, and a sign-in link asked for from one goes to the home page, so the email holds no work ID (operator rulings, 2026-11-06; specs/scenarios/later/09-nsfw-sign-in-gate.md) |
+| JavaScript | Reading, browsing, search and reader settings work fully with JavaScript off, unless Cloudflare's bot protection challenges the reader; small scripts only enhance them (settings without a reload, saving reading position). On the sign-in link's page, a script presses the button for the browser that asked for the link. Forms with a Turnstile check (sign-in, upload, `/remove`, the copyright notice at `/dmca`, and the wait list before launch) need JavaScript, because Turnstile can't produce a token without it; with JS off they say so in a `<noscript>` message. No work needs a sign-in to read, so none needs JavaScript (*NSFW works*, below) |
+| NSFW works | A click-through warning and no gate (operator rulings, 2026-11-07, replacing those of 2026-11-06). A work rated Mature or Explicit, or Not Rated (a missing or unknown rating included), or carrying any archive warning, shows the warnings screen before its reading pages. No sign-in, age statement, age cookie or reader pass, and its images and original epub are not locked. Reading needs no account and no JavaScript, for every work. Reports do not change a work by themselves; a moderator decides |
 | Pagination | Server-side pages with real URLs. No infinite scroll |
 | Branding | The logo is the pinwheel star ✯ (U+272F) before the site name in the header, hidden from assistive technology, and the same star drawn as our own SVG for the browser tab. No AO3 or OTW name, symbols or styling in the UI. Ratings and warnings are text badges, not symbol icons (ARCHITECTURE, opening) |
 | Author identity | No claims, no author accounts, no "my works". Removal and opt-out are a public request form that needs no sign-in (ARCHITECTURE, *Author requests & takedowns*) |
@@ -56,8 +56,7 @@ fandoms and pseuds in it are invented placeholders.
 | Author | No | Get a work taken down, or opt out a pseud entirely. Updating a work is just an upload |
 | Moderator | Yes, with the role | Work through reports, takedowns, removal or opt-out requests, and works to check |
 
-At launch, reading never requires an account (ARCHITECTURE, *Auth*). Post-launch,
-reading an NSFW work will (ARCHITECTURE, *Reading*, NSFW gate).
+Reading never requires an account, for any work (ARCHITECTURE, *Auth*).
 
 ## Key journeys
 
@@ -76,9 +75,6 @@ reading an NSFW work will (ARCHITECTURE, *Reading*, NSFW gate).
    asked for, and the screen isn't shown again for that work until the browser
    session ends. Signed-in readers can turn the screen off; the choice is saved
    to their account. Signed-out readers can't turn it off.
-   Post-launch, a signed-out reader on an NSFW work gets that screen with a sign-in
-   link in place of "Continue". Signing in leads to the home page, so they find the
-   work again, tick an age statement once per browser, and go on to the page.
    If the work's chapters were split uncertainly, the work and reader pages
    carry one line: "Chapters may be imperfect; a moderator will check."
 6. They read. Next and previous chapter links sit at both ends of the chapter.
@@ -177,7 +173,7 @@ without it. Elsewhere the
 | Search results | `/search?q=…` | all | GET form, paged results, filter form | — |
 | Fandom / tag listing | `/tags/:slug` | all | Paged works, sort and filter as a GET form | — |
 | Work page | `/works/:id` | all | Full metadata, chapter list, links; the "may be imperfect" notice when it applies | — |
-| Warnings screen | `/works/:id/warnings` | all | Shown on first entry to any reading page of a warned or Not Rated work, then remembered for the session; Continue button (a POST form) to the page asked for, plus a turn-off checkbox when signed in (saved to the account). Post-launch, on an NSFW work, a signed-out visitor gets a sign-in link in place of Continue, and a signed-in reader who hasn't ticked it in this browser gets the age box above Continue | — |
+| Warnings screen | `/works/:id/warnings` | all | Shown on first entry to any reading page of a warned or Not Rated work, then remembered for the session; Continue button (a POST form) to the page asked for, plus a turn-off checkbox when signed in (saved to the account). | — |
 | Chapter reader | `/works/:id/chapters/:n` | all | Chapter, nav, settings link; the "may be imperfect" notice when it applies | Settings without reload, saves position |
 | Entire work | `/works/:id/full` | all | All chapters on one page; the "may be imperfect" notice when it applies | Saves position |
 | Reader settings | `/settings/reader` | all | POST form sets a cookie, then redirects back; signed-in readers also get the warnings on/off choice, saved to their account | Applied live from the reader |
