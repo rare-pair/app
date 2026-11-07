@@ -46,10 +46,10 @@ export function needsWarnings({
   work,
   tags,
 }: {
-  work: { rating: string | null; adult_marked?: boolean };
+  work: { rating: string | null; adult_marked: boolean };
   tags: { type: string; name_norm: string }[];
 }) {
-  if (work.adult_marked === true) return true;
+  if (work.adult_marked) return true;
   // Only the two mild ratings skip the screen; anything else, an unknown or oddly
   // spelled rating included, shows it.
   const rating = work.rating?.trim().toLowerCase() ?? "";

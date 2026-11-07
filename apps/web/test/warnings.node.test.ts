@@ -8,7 +8,7 @@ import {
 } from "../src/warnings";
 
 const work = (rating: string | null, warnings: string[] = []) => ({
-  work: { rating },
+  work: { rating, adult_marked: false },
   tags: warnings.map((name) => ({ type: "warning" as const, name, name_norm: name.toLowerCase() })),
 });
 

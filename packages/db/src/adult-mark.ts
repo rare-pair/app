@@ -62,6 +62,9 @@ export async function markAdult(
         action: "mark_adult",
         targetKind: "work",
         targetId: workId,
+        ...(closed > 0 && {
+          note: `${closed} higher_rating ${closed === 1 ? "report" : "reports"} closed`,
+        }),
       });
     }
     return { outcome, closed };

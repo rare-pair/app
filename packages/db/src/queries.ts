@@ -833,9 +833,12 @@ export async function listRecentLiveWorks(
   return rows.map(asListed);
 }
 
+/** The report kinds that never count toward the automatic hide: they are for a moderator to decide. */
+export const UNCOUNTED_REPORT_KINDS = ["wrong_version", "higher_rating"] as const;
+
 /**
  * How many distinct accounts have an open report that counts toward hiding the
- * work, as a SQL expression. A `wrong_version` or `higher_rating` report never counts, and an
+ * work, as a SQL expression. A report of an `UNCOUNTED_REPORT_KINDS` kind never counts, and an
  * account counts once however often it reports. A reporter whose account email matches a
  * blocked requester (any case) never counts, nor does one in `ignore`: the accounts the
  * caller found to match a block by IP hash, which needs the `IP_HASH_KEY` secret and so
@@ -845,7 +848,7 @@ export async function listRecentLiveWorks(
 const countedReporters = (workId: string, ignore: string[]) => sql<number>`(
   select count(distinct reports.reporter_id) from reports
   where reports.work_id = ${workId} and reports.status = 'open'
-    and reports.kind not in ('wrong_version', 'higher_rating')
+    and reports.kind <> all(${[...UNCOUNTED_REPORT_KINDS]}::text[])
     and reports.reporter_id <> all(${ignore}::text[])
     and not exists (
       select 1 from requester_blocks b join "user" u on lower(b.contact_email) = lower(u.email)
