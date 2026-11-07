@@ -84,8 +84,10 @@ export async function approveVersion(
           .where("id", "=", workId)
           .execute();
         await copyVersionToWork(trx, workId, versionId);
+      } else if (
         // No `actor`: the approve is the one log row.
-      } else if (!(await makeVersionCurrent(trx, workId, versionId))) {
+        !(await makeVersionCurrent(trx, workId, versionId))
+      ) {
         throw new Error("The work was locked as live or hidden, so the version must be current.");
       }
       outcome = "published";

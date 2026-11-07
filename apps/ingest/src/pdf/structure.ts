@@ -424,7 +424,8 @@ function readByline(
   layout: Layout,
 ) {
   const none: Author[] = [];
-  if (bylineAt < 0) return { authors: none, ambiguous: false, unsure: true, end: prefaceEnd };
+  // No byline names nobody, which `readWork` holds as unsure.
+  if (bylineAt < 0) return { authors: none, ambiguous: false, unsure: false, end: prefaceEnd };
   // Only the marker alone: a name after it is a name, for the opt-out check to read.
   if (/^by\s+Anonymous$/i.test(trimmed(lines[bylineAt]!))) {
     const anonymous = [{ pseud: "Anonymous", user: null }];
