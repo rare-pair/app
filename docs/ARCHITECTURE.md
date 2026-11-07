@@ -848,7 +848,8 @@ job never loads it, and no other Worker bundles it.
    whether it sits inside another stream or not, since a cross-reference table can point anywhere.
    `pdf_unreadable`: a tail `startxref` that lands on neither `xref` nor an object; `/Encrypt`; a
    trailer or cross-reference `/Size`, or a count of objects or entries, over 100,000; a filter other
-   than one flate, optionally before one image filter, or one behind a reference; a form XObject; a
+   than one flate, optionally before one DCT or JPX filter on a stream marked an image, or one behind
+   a reference; a form XObject; a stream inside an object stream; `/Contents` naming an image; a
    `/Contents` array over 8 entries, repeating a reference or inflating past 16 MiB together;
    `/Contents` naming an object that isn't a stream, object streams read too. `zip_bomb`: a stream that
    inflates past 16 MiB, or a file's past 128 MiB, inflated with `fflate` 4 KB at a time and

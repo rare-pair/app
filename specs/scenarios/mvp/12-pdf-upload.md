@@ -83,6 +83,8 @@ Only 2 of the 8 could be checked against an epub, and both are single-chapter. S
 - WHEN it is ingested
 - THEN it is stored as an epub's anonymous work is
 - AND a `/users/` link outside the byline isn't taken for an author
+- AND only the marker alone is anonymous: "by Anonymous, A Name" names both, with `byline_ambiguous`, for the opt-out check to read
+- AND a PDF's document metadata isn't read for authors, since a browser or word processor can set it to anything, so a file with no byline has `byline_missing`
 
 #### The chapter count must match
 - GIVEN a PDF whose chapters can't be found in the number its `Chapters:` line declares
@@ -122,7 +124,10 @@ These checks don't bound everything the parser can do, and that's accepted (oper
 - GIVEN a PDF with a form XObject, or a `/Contents` array that repeats a reference, holds more than 8 entries or whose streams inflate past 16 MiB together, or `/Contents` that names an array object
 - WHEN it is ingested
 - THEN it ends `pdf_unreadable`, and the parser never opens it
-- AND a filter that could hide a stream from the check ends the same way: anything but one flate, optionally before one image filter, or a filter or subtype behind a reference
+- AND a filter that could hide a stream from the check ends the same way: anything but one flate, optionally before a DCT or JPX filter on a stream that says it's an image, or a filter or subtype behind a reference. CCITT and JBIG2 are refused, since a few bytes of either can ask for hundreds of MB, and so is `/Contents` that names an image
+- AND so does a stream inside an object stream, which pdf.js reads though the format has none, and an object stream whose `/N` or `/First` is behind a reference
+- AND the check reads a dictionary as pdf.js does, so what it hides from a simpler reader isn't hidden from this one: names in hex escapes, a key that isn't a name, a `>>` as a value, `+4` and `4.0` as numbers. It keeps only the values it reads, and reads a bounded amount, so a file can't fill the Worker's memory or time with the check itself
+- AND what's still open, under the ruling above: an image stream named as a font, and an object stream whose header gives other offsets
 
 #### A long parse keeps its lease
 - GIVEN a PDF near every limit
@@ -190,6 +195,7 @@ These checks don't bound everything the parser can do, and that's accepted (oper
 - GIVEN a work whose current version came from an epub
 - WHEN a PDF of the work is ingested, with no more chapters than that epub, and any date
 - THEN it ends `duplicate`, and the uploader sees "Already in the archive" with a link to the work
+- AND its file isn't served, unlike an epub's duplicate: no moderator has looked at it, nothing links to it, and any file with the right line on it could be hosted that way
 - AND a moderator can't be blocked by this: making an older version current works as it does today, in either direction
 
 #### A PDF with more chapters than the current epub is held

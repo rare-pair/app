@@ -25,6 +25,16 @@ const OVER_BUDGET = PDF_LIMITS.maxInflatedBytes + 1024 * 1024;
 const hex = (bytes: Uint8Array) =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 
+/** A file with `body` as an object beside the page's contents, which it doesn't name. */
+const besidePage = (body: PdfBody): Uint8Array =>
+  buildPdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>",
+    flate("BT ET"),
+    body,
+  ]);
+
 describe("12-pdf-upload: the checks before the parser opens a file", () => {
   describe("A stream that inflates too far is refused", () => {
     it("lets through a stream that inflates within the budget", () => {
@@ -143,14 +153,13 @@ describe("12-pdf-upload: the checks before the parser opens a file", () => {
       for (const body of [
         stream("", "BT ET"),
         flate("BT ET", "/DecodeParms << /Predictor 12 /Columns 4 >>"),
-        stream("/Filter /DCTDecode", Uint8Array.of(0xff, 0xd8, 0xff)),
-        stream("/Filter [/DCTDecode]", Uint8Array.of(0xff, 0xd8, 0xff)),
         flate("x", "/Other [/FlateDecode /DCTDecode]"),
-        stream("/Filter /JPXDecode", "x"),
-        stream("/Filter /CCITTFaxDecode", "x"),
-        stream("/Filter /JBIG2Decode", "x"),
+        stream("/Subtype /Image /Filter /DCTDecode", Uint8Array.of(0xff, 0xd8, 0xff)),
+        stream("/Subtype /Image /Filter [/DCTDecode]", Uint8Array.of(0xff, 0xd8, 0xff)),
+        stream("/Subtype /Image /Filter /JPXDecode", "x"),
+        flate("x", "/Subtype /Image /Other 1"),
       ]) {
-        expect(refusal(onePage(body))).toBeNull();
+        expect(refusal(besidePage(body))).toBeNull();
       }
     });
   });
@@ -223,8 +232,121 @@ describe("12-pdf-upload: the checks before the parser opens a file", () => {
     });
 
     it("takes an image and a font file", () => {
-      expect(refusal(onePage(stream("/Subtype /Image /Filter /DCTDecode", "x")))).toBeNull();
-      expect(refusal(onePage(flate("x", "/Subtype /Type1C")))).toBeNull();
+      expect(refusal(besidePage(stream("/Subtype /Image /Filter /DCTDecode", "x")))).toBeNull();
+      expect(refusal(besidePage(flate("x", "/Subtype /Type1C")))).toBeNull();
+    });
+  });
+
+  describe("Review round 1: what pdf.js reads and a naive scan wouldn't", () => {
+    const pdfWith = (contents: string, ...more: PdfBody[]) =>
+      buildPdf([
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contents} >>`,
+        flate("BT ET"),
+        flate("BT ET"),
+        ...more,
+      ]);
+    const raw = (dict: string, data = "x") => latin1(`${dict}\nstream\n${data}\nendstream`);
+
+    it("reads a dictionary whose first token isn't a name, as pdf.js skips one token", () => {
+      expect(refusal(onePage(raw("<<[/Subtype/Form/BBox[0 0 9 9]/Length 1]>>")))).toBe(
+        "pdf_unreadable",
+      );
+      expect(refusal(onePage(raw("<<[/Filter/AHx/Length 1]>>")))).toBe("pdf_unreadable");
+    });
+
+    it("reads on past a >> that is a key's value, as pdf.js does", () => {
+      expect(refusal(onePage(raw("<</Q>>/Subtype/Form/BBox[0 0 9 9]/Length 1>>")))).toBe(
+        "pdf_unreadable",
+      );
+    });
+
+    it("refuses a stream inside an object stream", () => {
+      const inner = "5 0 <</Subtype/Image/Length 1>>\nstream\nx\nendstream";
+      const body = flate(inner, "/Type /ObjStm /N 1 /First 4");
+      expect(refusal(pdfWith("4 0 R", body))).toBe("pdf_unreadable");
+    });
+
+    it("refuses an image filter on a stream that isn't an image", () => {
+      expect(refusal(onePage(stream("/Filter /DCTDecode", "x")))).toBe("pdf_unreadable");
+    });
+
+    it("refuses /Contents that names a stream with an image filter", () => {
+      const image = stream("/Subtype /Image /Filter /DCTDecode", "x");
+      expect(refusal(pdfWith("6 0 R", image))).toBe("pdf_unreadable");
+      expect(refusal(pdfWith("[4 0 R 6 0 R]", image))).toBe("pdf_unreadable");
+    });
+
+    it("refuses the filters a text PDF has no use for, whose decoders have no budget", () => {
+      for (const filter of ["CCF", "CCITTFaxDecode", "JBIG2Decode"]) {
+        expect(refusal(onePage(stream(`/Subtype /Image /Filter /${filter}`, "x"))), filter).toBe(
+          "pdf_unreadable",
+        );
+      }
+    });
+
+    it("reads numbers as pdf.js does: signs, decimals, and a keyword right after", () => {
+      for (const list of ["[+4 0 R +4 0 R]", "[4.0 0 R 4.0 0 R]", "[4 0R 4 0R]"]) {
+        expect(refusal(pdfWith(list)), list).toBe("pdf_unreadable");
+      }
+      expect(refusal(onePage(flate("x"), { trailerExtra: "/Size +200000" }))).toBe(
+        "pdf_unreadable",
+      );
+    });
+
+    it("takes a harmless list that isn't references, and finds references after junk", () => {
+      expect(refusal(pdfWith("[1 4 0 R 4 0 R]"))).toBe("pdf_unreadable");
+    });
+
+    it("reads an object stream with no /Type, by its /First and /N", () => {
+      const body = flate("3 0 << /Contents [4 0 R 4 0 R] >>", "/N 1 /First 4");
+      expect(refusal(pdfWith("4 0 R", body))).toBe("pdf_unreadable");
+    });
+
+    it("reads an object stream with no filter", () => {
+      const body = stream("/Type /ObjStm /N 1 /First 4", "3 0 << /Contents [4 0 R 4 0 R] >>");
+      expect(refusal(pdfWith("4 0 R", body))).toBe("pdf_unreadable");
+    });
+
+    it("refuses an object stream whose /N or /First is behind a reference", () => {
+      const body = flate("3 0 << /Contents [4 0 R 4 0 R] >>", "/Type /ObjStm /N 7 0 R /First 4");
+      expect(refusal(pdfWith("4 0 R", body))).toBe("pdf_unreadable");
+    });
+
+    it("refuses an object stream with a filter it can't read", () => {
+      const body = stream("/Type /ObjStm /N 1 /First 4 /Subtype /Image /Filter /DCTDecode", "x");
+      expect(refusal(pdfWith("4 0 R", body))).toBe("pdf_unreadable");
+    });
+
+    it("isn't quadratic on stream keywords with no line end", () => {
+      const file = latin1(
+        `%PDF-1.7\n${"stream ".repeat(1_000_000)}\nxref\n0 0\ntrailer\n<<>>\nstartxref\n`,
+      );
+      const tail = latin1(`${file.length - 34}\n%%EOF\n`);
+      const whole = new Uint8Array(file.length + tail.length);
+      whole.set(file);
+      whole.set(tail, file.length);
+      const started = Date.now();
+      expect(refusal(whole)).toBe("pdf_unreadable");
+      expect(Date.now() - started).toBeLessThan(5_000);
+    });
+
+    it("refuses nesting too deep to read, as a final refusal", () => {
+      const file = onePage(`<</A${"[".repeat(200_000)}`);
+      expect(refusal(file)).toBe("pdf_unreadable");
+    });
+
+    it("doesn't keep the values of keys it has no use for", () => {
+      // 10 MB of numbers held as objects would be some hundreds of MB; a scan that keeps them
+      // would pass here but fail on Cloudflare, so this holds the shape: a very long list passes.
+      const file = besidePage(`<</A[${"0 ".repeat(5_000_000)}]>>`);
+      expect(refusal(file)).toBeNull();
+    });
+
+    it("refuses an implausibly long list under a key it reads", () => {
+      const stm = onePage(stream(`/Type/XRef/Size 5/Index[${"1 ".repeat(5_000)}]`, "x"));
+      expect(refusal(stm)).toBe("pdf_unreadable");
     });
   });
 

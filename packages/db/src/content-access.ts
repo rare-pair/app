@@ -43,11 +43,14 @@ export async function getOriginalAccess(
   const row = await db
     .selectFrom("uploads")
     .leftJoin("works", "works.id", "uploads.work_id")
-    .select(["uploads.status as upload_status", "works.status as work_status"])
+    .select(["uploads.status as upload_status", "uploads.format", "works.status as work_status"])
     .where("uploads.id", "=", uploadId)
     .executeTakeFirst();
   if (!row?.work_status) return "refuse";
   // Only a published upload says anything about its work: a held one is a 404 either way.
-  const published = row.upload_status === "live" || row.upload_status === "duplicate";
+  // A PDF's duplicate has had no version made and no moderator look at it, so its file isn't served:
+  // nothing links to it, and any file with the right line on it could be hosted that way.
+  const published =
+    row.upload_status === "live" || (row.upload_status === "duplicate" && row.format === "epub");
   return published ? byWorkStatus(row.work_status) : "refuse";
 }

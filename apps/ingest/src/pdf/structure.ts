@@ -67,6 +67,8 @@ const WORK_URL = new RegExp(`${AO3}/works/(\\d+)`, "i");
 const POSTED = /postedoriginallyonthe.{0,80}?archiveofourown\.org\/works\/(\d+)/i;
 const CHAPTER_HEADING = /^Chapter \d+\b/;
 const SERIES_PART = /Part\s+(\d+)\s+of\s+(.+?)(?=\s+Part\s+\d+\s+of\s|$)/g;
+const MAX_FIELD_CHARS = 64 * 1024;
+const MAX_STATS_CHARS = 2 * 1024;
 /** Lines from the top of the file the preface's checks read. */
 const PREFACE_LINES = 200;
 
@@ -238,8 +240,11 @@ function readFields(lines: TextLine[], prefaceEnd: number, bylineAt: number): Pr
   const marks: PrintedFields["marks"] = [];
   const printed = new Map<string, string>();
   let open: string | null = null;
-  const add = (label: string, value: string) =>
-    printed.set(label, `${printed.get(label) ?? ""} ${value}`);
+  const add = (label: string, value: string) => {
+    const so = printed.get(label) ?? "";
+    // Bounded, so the patterns run on these later can't be made slow by a file of one long field.
+    if (so.length < MAX_FIELD_CHARS) printed.set(label, `${so} ${value}`.slice(0, MAX_FIELD_CHARS));
+  };
   for (let i = 0; i < prefaceEnd; i++) {
     if (i === bylineAt - 1 || i === bylineAt) {
       if (marks.length > 0) break;
@@ -314,7 +319,8 @@ function readByline(lines: TextLine[], links: PageLink[], bylineAt: number, pref
   const authors: Author[] = [];
   if (bylineAt < 0) return { authors, ambiguous: false, end: prefaceEnd };
   const first = trimmed(lines[bylineAt]!);
-  if (/^by\s+Anonymous\b/i.test(first)) {
+  // Only the marker alone: a name after it is a name, for the opt-out check to read.
+  if (/^by\s+Anonymous$/i.test(first)) {
     return { authors: [{ pseud: "Anonymous", user: null }], ambiguous: false, end: bylineAt + 1 };
   }
   const userLinks = links.filter((l) => USER_URL.test(l.url));
@@ -408,7 +414,29 @@ export function readWork(text: PdfText): PdfWork {
   const firstBody = starts?.[0]?.at ?? (single ? lines.length : (headings[0] ?? lines.length));
   const prefaceEnd = firstLabel(firstBody);
 
-  const bylineAt = indexFrom(lines, 0, prefaceEnd, (l) => /^by\s/.test(trimmed(l)));
+  // A title can start "by" too: the byline is the first such line with an author's link, or the
+  // marker, or else the last, since a title comes before it.
+  const isByline = (l: TextLine) => /^by\s/.test(trimmed(l));
+  const linked = indexFrom(
+    lines,
+    0,
+    prefaceEnd,
+    (l) =>
+      isByline(l) &&
+      (/^by\s+Anonymous$/i.test(trimmed(l)) ||
+        links.some(
+          (link) =>
+            link.page === l.page &&
+            USER_URL.test(link.url) &&
+            Math.abs(linkMark(link).y - l.y) <= l.size,
+        )),
+  );
+  let bylineAt = linked;
+  if (bylineAt < 0) {
+    for (let i = indexFrom(lines, 0, prefaceEnd, isByline); i >= 0 && i < prefaceEnd; i++) {
+      if (isByline(lines[i]!)) bylineAt = i;
+    }
+  }
   const title = bylineAt > 0 ? trimmed(lines[bylineAt - 1]!) : (text.infoTitle ?? "");
   if (title === "") reviewReasons.push("missing_title");
 
@@ -427,7 +455,7 @@ export function readWork(text: PdfText): PdfWork {
   reviewReasons.push(...byline.reviewReasons);
 
   const statsRaw: Record<string, string> = Object.create(null);
-  const stats = parseStats(printedOf("stats") ?? "", statsRaw);
+  const stats = parseStats((printedOf("stats") ?? "").slice(0, MAX_STATS_CHARS), statsRaw);
 
   const blocksEnd = Math.min(firstBody, lines.length);
   const summaryAt = labelAt(lines, "Summary", 0, Math.min(blocksEnd, PREFACE_LINES));
@@ -484,7 +512,7 @@ export function readWork(text: PdfText): PdfWork {
     authors: byline.authors,
     tags,
     language: printedOf("language") || null,
-    series: readSeries(printedOf("series") ?? "", links, prefaceMark),
+    series: readSeries((printedOf("series") ?? "").slice(0, MAX_STATS_CHARS), links, prefaceMark),
     stats,
     rawMeta: Object.fromEntries(Object.entries(statsRaw)),
     summary,

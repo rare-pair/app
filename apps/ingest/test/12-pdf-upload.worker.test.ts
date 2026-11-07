@@ -175,6 +175,42 @@ describe("12-pdf-upload", () => {
       expect(live?.tags.filter((t) => t.type === "warning").map((t) => t.name)).toEqual(["Unused"]);
     });
 
+    it("A byline that starts with the marker still names who follows it", async () => {
+      const workId = 8813735;
+      const lines: PdfLine[] = [
+        {
+          text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.`,
+        },
+        { text: "Stats: Published: 2020-01-01 Chapters: 1/1" },
+        { text: "A title", size: 18, gap: 10 },
+        { text: "by Anonymous, Second Name" },
+        { text: "The text.", gap: 10 },
+      ];
+      await ingestPdf(layoutPdf(lines));
+
+      const live = await liveWork(workId);
+      expect(live?.authors.map((a) => a.pseud)).toEqual(["Anonymous", "Second Name"]);
+      expect(live?.version.review_reasons).toContain("byline_ambiguous");
+    });
+
+    it("A title that starts with by isn't taken for the byline", async () => {
+      const workId = 8813736;
+      const lines: PdfLine[] = [
+        {
+          text: `Posted originally on the Archive of Our Own at https://archiveofourown.org/works/${workId}.`,
+        },
+        { text: "Stats: Published: 2020-01-01 Chapters: 1/1" },
+        { text: "by the sea", size: 18, gap: 10 },
+        { text: "by Someone", url: "https://archiveofourown.org/users/someone" },
+        { text: "The text.", gap: 10 },
+      ];
+      await ingestPdf(layoutPdf(lines));
+
+      const live = await liveWork(workId);
+      expect(live?.work.title).toBe("by the sea");
+      expect(live?.authors).toEqual([{ pseud: "someone", ao3_user: "someone" }]);
+    });
+
     it("An anonymous work has no author link", async () => {
       const workId = 8813716;
       await ingestPdf(ao3Pdf({ workId, anonymous: true, strayUserLink: true }));

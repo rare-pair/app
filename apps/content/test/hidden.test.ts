@@ -129,6 +129,28 @@ describe("12-pdf-upload", () => {
     await expectRefused(`originals/${held.uploadId}.pdf`, 404, "a held version's PDF");
   });
 
+  it("A PDF that ended duplicate isn't served, as its work's epub duplicate is", async () => {
+    const live = await seededPdf("live");
+    const id = crypto.randomUUID();
+    await withDb((db) =>
+      db
+        .insertInto("uploads")
+        .values({
+          id,
+          user_id: live.userId,
+          r2_key: `uploads/${id}`,
+          sha256: hash(),
+          bytes: 1,
+          status: "duplicate",
+          format: "pdf",
+          work_id: live.workId,
+        })
+        .execute(),
+    );
+    await E.BUCKET.put(`originals/${id}.pdf`, EPUB);
+    await expectRefused(`originals/${id}.pdf`, 404, "a PDF's duplicate");
+  });
+
   it("Everything that handles an original handles a PDF: other spellings aren't served", async () => {
     const live = await seededPdf("live");
     for (const key of [`originals/${live.uploadId}.PDF`, `originals/${live.uploadId}.pdf.pdf`]) {

@@ -32,15 +32,31 @@ const escapeHtml = (text: string) =>
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 
+/**
+ * Runs a step that does no I/O of its own, on the file's bytes alone: what it throws it would throw
+ * every time, so it's a final refusal, not a job to retry. A stack overflow, say.
+ */
+async function final<T>(step: () => Promise<T>): Promise<T> {
+  try {
+    return await step();
+  } catch (cause) {
+    if (cause instanceof EpubError) throw cause;
+    throw new EpubError("pdf_unreadable", "The file couldn't be read", { cause });
+  }
+}
+
 /** A PDF's bytes in, a parsed work out, or an `EpubError`. */
 export async function processPdf(bytes: Uint8Array, load: LoadPdfParser): Promise<ParsedWork> {
   // By the bytes: the web Worker checks the size against what the file was sent as, which can lie.
   if (bytes.length > LIMITS.maxPdfBytes) {
     throw new EpubError("too_large", `File is larger than ${LIMITS.maxPdfBytes} bytes`);
   }
-  preflightPdf(bytes);
-  const parser = await load();
-  const work = readWork(await parser.read(bytes));
+  const parser = await final(async () => {
+    preflightPdf(bytes);
+    return load();
+  });
+  const text = await parser.read(bytes);
+  const work = await final(async () => readWork(text));
   // One budget for the work, as an epub has: the HTML is written here and sanitized the same way.
   const budget = nodeBudget();
   const html = async (paragraphs: string[]): Promise<string | null> => {

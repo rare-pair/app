@@ -9,6 +9,8 @@ import type { PageLink, PdfText, TextLine } from "./structure";
 // costs far more wall time than the parse (65 s against 11 s on a 4,252-page file).
 const YIELD_PAGES = 16;
 
+const MAX_LINE = 8 * 1024;
+
 const AO3_LINK = /^https?:\/\/(?:www\.|download\.)?archiveofourown\.org\//i;
 
 const yieldToTimers = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -94,7 +96,8 @@ async function readText(bytes: Uint8Array): Promise<PdfText> {
           const [, , c = 0, d = 0, x = 0, y = 0] = item.transform;
           const right = x + (item.width ?? 0);
           const last = lines.at(-1);
-          if (last && last.page === n && Math.abs(last.y - y) < 2) {
+          // Bounded: a real line is a few hundred characters, and later patterns read them.
+          if (last && last.page === n && Math.abs(last.y - y) < 2 && last.text.length < MAX_LINE) {
             last.text += text;
             last.right = Math.max(last.right, right);
           } else {
