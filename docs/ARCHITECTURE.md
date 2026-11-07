@@ -1970,6 +1970,7 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
 - Comments (needs much more moderation, so leave it out unless people ask)
 - Bulk upload from a zip of epubs
 - FanFicFare epubs of AO3 works (second preface parser, keyed on `dc:source`)
+- PDFs of AO3 works, converted to text, with an epub always winning (specs/scenarios/later/12-pdf-upload.md)
 - Export and shut down: nothing changes automatically when AO3 returns (the
   AO3 links simply start working). The operator starts the wind-down by hand:
   redirect every work to its AO3 URL, then shut the site down

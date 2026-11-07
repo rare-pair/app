@@ -5,3 +5,5 @@ fixtures/epubs/*.epub
 # Expected values for them (hashes of titles, names and so on): also local only.
 # fixtures/epubs/expected.example.json is the committed schema example.
 fixtures/epubs/expected.json
+# Real PDFs of AO3 works are fanworks too.
+fixtures/**/*.pdf
