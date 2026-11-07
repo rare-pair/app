@@ -103,11 +103,14 @@ body > footer {
   width: 100%;
 }
 
-/* Prose on a page keeps a readable measure inside the wider column. A list with a class is
-   a layout (cards, chapters, tags), not running text. */
+/* Prose on a page keeps a readable measure inside the wider column: paragraphs and plain
+   lists directly in main, and the work summary. A list with a class is a layout (cards,
+   chapters, tags), not running text. A page that puts prose anywhere else gives it a rule. */
 main > p,
 main > ul:not([class]),
-main > ol:not([class]) {
+main > ol:not([class]),
+main > section.summary,
+main form > p.note {
   max-width: ${MEASURE};
 }
 

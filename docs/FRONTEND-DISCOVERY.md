@@ -253,7 +253,10 @@ on the work page. Only size and spacing change.
 960 px (`SITE_WIDTH` in `apps/web/src/styles.ts`), set in px so the footer's smaller text
 doesn't make it a narrower column. Running text keeps a measure inside that column:
 the reader (chapters and `/full`) is capped at `66ch` and line height 1.6, and so are
-the paragraphs and plain lists of other pages, such as About and Terms. The
+the paragraphs and plain lists directly in a page's main, a post's body and a work's
+summary, on pages such as About, Terms and a post. A page that puts prose anywhere else
+needs a rule of its own. The cap is 66ch of the interface's font, narrower than a
+chapter's 66ch of the reading font. The
 interface uses 1.45. Spacing is on a 4 px grid, and sections are separated by
 whitespace and single hairline rules, not boxes.
 
