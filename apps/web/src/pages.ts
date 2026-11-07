@@ -76,7 +76,7 @@ ${heading}
 
 /** The search box, shared by the home page and the not-found page. */
 export const SEARCH_FORM = `<form role="search" method="get" action="/search">
-<label for="q">Search the archive</label>
+<label for="q" class="visually-hidden">Search the archive</label>
 <input type="search" id="q" name="q">
 <button type="submit">Search</button>
 </form>`;
@@ -92,15 +92,12 @@ ${SEARCH_FORM}`,
 const FRAUNCES_LICENCE = "/assets/waitlist/fonts/fraunces/OFL.txt";
 const PLEX_LICENCE = "/assets/waitlist/fonts/ibm-plex-mono/license.txt";
 
-export const DRAFT = `<p class="draft">Draft: this text has not been proofread yet.</p>`;
-
 // Drafts for the operator to proof before launch. They describe provenance
 // without naming the original archive or its organisation (branding rule).
 export const aboutPage = () =>
   layout(
     "About rarepair",
-    `${DRAFT}
-<p>rarepair is a temporary, community-run reading archive for fanworks. It is an unofficial stopgap, not the original archive, and it is not affiliated with or approved by that archive or the organisation behind it.</p>
+    `<p>rarepair is a temporary, community-run reading archive for fanworks. It is an unofficial stopgap, not the original archive, and it is not affiliated with or approved by that archive or the organisation behind it.</p>
 <p>People upload the epub files they downloaded from the original archive while it is offline. Anyone can browse and read the works that have been uploaded and accepted. Work pages link back to the original page, and the credit belongs to its author.</p>
 <p>Accepted uploads are public. Anyone can ask for a work to be removed, with no need to prove who they are, using the "Remove my work" link in the footer.</p>
 <p>The wait list pages are set in Fraunces (<a href="${FRAUNCES_LICENCE}">licence</a>) and IBM Plex Mono (<a href="${PLEX_LICENCE}">licence</a>).</p>
@@ -114,8 +111,7 @@ export const aboutPage = () =>
 export const termsPage = () =>
   layout(
     "Terms",
-    `${DRAFT}
-<p>By using this site you agree to these terms. New accounts are also asked to accept them once.</p>
+    `<p>By using this site you agree to these terms. New accounts are also asked to accept them once.</p>
 <ul>
 <li>You may upload only epub files exported from the original archive, and only works you are happy to have shared.</li>
 <li>Uploads that pass our checks are public: anyone can read them.</li>
@@ -135,8 +131,7 @@ export const termsPage = () =>
 export const welcomeTermsPage = (next: string) =>
   layout(
     "Before you start",
-    `${DRAFT}
-<p>Welcome to rarepair. Before you go on, please read <a href="/terms">the terms</a> and accept them.</p>
+    `<p>Welcome to rarepair. Before you go on, please read <a href="/terms">the terms</a> and accept them.</p>
 <p>In short: uploads that pass our checks are public, anyone can ask for a work to be removed, and we may remove any work or close any account to keep the site safe. The site is an unofficial, temporary stopgap that may change or close at any time.</p>
 <form method="post" action="/welcome/terms">
 <input type="hidden" name="next" value="${escapeHtml(next)}">
@@ -147,8 +142,7 @@ export const welcomeTermsPage = (next: string) =>
 export const privacyPage = () =>
   layout(
     "Privacy",
-    `${DRAFT}
-<p>This is what we keep about you.</p>
+    `<p>This is what we keep about you.</p>
 <ul>
 <li>Signing in uses an email link. We keep your email address and no password. Each session also keeps the network address and browser (user agent) it was started from, for as long as the session lasts.</li>
 <li>To send one address at most a few sign-in emails a day, we count them under a keyed hash of the address, not the address itself. A day's count is deleted the next time anyone is sent a sign-in email on a later day.</li>

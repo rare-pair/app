@@ -73,7 +73,8 @@ Updates are short posts from the operator: release notes first, and news later. 
 - GIVEN a visitor on `/updates/:slug`
 - WHEN the page renders
 - THEN the title is the page's main heading
-- AND the summary, the author and the created date come next, then the body
+- AND the author and the created date come next, then the body
+- AND the page does not show the summary: the home page's card and the post's link card keep it
 - AND the page has the shared layout, banner and footer, like `/about`
 
 ### The post is static

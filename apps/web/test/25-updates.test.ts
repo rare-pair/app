@@ -144,8 +144,8 @@ describe("25-updates", () => {
     expect(main.match(/<h1>/g)).toHaveLength(1);
     expect(html).toContain("<h1>rarepair v0.1.0 &quot;Chuhura&quot;</h1>");
     const at = (text: string) => main.indexOf(text);
-    expect(at("<h1>")).toBeLessThan(at("rarepair is open. It is a temporary"));
-    expect(at("rarepair is open. It is a temporary")).toBeLessThan(at("admin and 🤖"));
+    expect(main).not.toContain(first.summary);
+    expect(at("<h1>")).toBeLessThan(at("admin and 🤖"));
     expect(at("admin and 🤖")).toBeLessThan(at('<time datetime="2026-11-06">2026-11-06</time>'));
     expect(at('<time datetime="2026-11-06">')).toBeLessThan(at("TLDR; ⚡"));
     expect(main).toContain(first.body);
@@ -153,6 +153,16 @@ describe("25-updates", () => {
     expect(html).toContain('<aside class="banner"');
     expect(html).toContain("<footer>");
     expect(html).not.toContain("this text has not been proofread yet");
+  });
+
+  it("A post does not repeat its summary", () => {
+    const post = update("sum", "2026-03-01", { summary: "A one-line summary nobody repeats" });
+    const html = updatePage("sum", [post]) ?? "";
+    const main = mainOf(html);
+    expect(main).not.toContain(post.summary);
+    expect(main).toContain(post.body);
+    // The post's link card still carries it.
+    expect(html).toContain(`<meta property="og:description" content="${post.summary}">`);
   });
 
   it("The post is static", async () => {

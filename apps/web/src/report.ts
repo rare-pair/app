@@ -86,8 +86,7 @@ interface ReportForm {
 const reportPage = (ao3WorkId: number, title: string, form: ReportForm = {}) =>
   layout(
     "Report a work",
-    `<p class="draft">Draft: this text has not been proofread yet.</p>
-${form.error === undefined ? "" : `<p role="alert">${escapeHtml(form.error)}</p>\n`}<p>Tell the moderators what is wrong with <a href="/works/${ao3WorkId}">${escapeHtml(title)}</a>.</p>
+    `${form.error === undefined ? "" : `<p role="alert">${escapeHtml(form.error)}</p>\n`}<p>Tell the moderators what is wrong with <a href="/works/${ao3WorkId}">${escapeHtml(title)}</a>.</p>
 <form class="report-form" method="post" action="/works/${ao3WorkId}/report">
 <fieldset>
 <legend>Reason</legend>
@@ -116,8 +115,7 @@ const signInFirst = (id: number) => `/login?next=${encodeURIComponent(`/works/${
 const reportedPage = (kind: Kind) =>
   layout(
     "Report sent",
-    `<p class="draft">Draft: this text has not been proofread yet.</p>
-<p>Thank you. A moderator will look at it. Your report is kept with your account.</p>
+    `<p>Thank you. A moderator will look at it. Your report is kept with your account.</p>
 ${
   kind === "wrong_version"
     ? "<p>A moderator will check this version of the work.</p>"

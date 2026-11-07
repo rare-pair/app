@@ -127,8 +127,7 @@ const dmcaPage = (
 ) =>
   layout(
     "Copyright notice",
-    `<p class="draft">Draft: this text has not been proofread yet.</p>
-${error === undefined ? "" : `<p role="alert">${escapeHtml(error)}</p>\n`}${fallback ? `<p>${fallbackMessage(notices)}</p>\n` : ""}<noscript><p>${noscriptMessage(notices)}</p></noscript>
+    `${error === undefined ? "" : `<p role="alert">${escapeHtml(error)}</p>\n`}${fallback ? `<p>${fallbackMessage(notices)}</p>\n` : ""}<noscript><p>${noscriptMessage(notices)}</p></noscript>
 <form id="dmca" class="dmca-form" method="post" action="/dmca" hidden>
 <p>Use this form to tell us that a work here infringes your copyright. A notice that leaves something out is still kept, and a moderator looks at it, but it may not be enough for us to act on. This is not legal advice.</p>
 <label for="work">The work here (its address, or its number)</label>
@@ -157,8 +156,7 @@ ${escapeHtml(notice.contact)}</textarea>
 const receivedPage = () =>
   layout(
     "Notice received",
-    `<p class="draft">Draft: this text has not been proofread yet.</p>
-<p>Thank you. A moderator will look at your notice. The work stays up until a moderator has decided.</p>`,
+    `<p>Thank you. A moderator will look at your notice. The work stays up until a moderator has decided.</p>`,
   );
 
 /** `GET /dmca`: the form, for anyone. */
