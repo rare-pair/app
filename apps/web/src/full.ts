@@ -172,14 +172,17 @@ export async function showFull(c: ReaderContext) {
   // markup between two fragments goes out as one part.
   const heading = (ch: { n: number; title: string }) =>
     `<h2 class="chapter-title" id="chapter-${ch.n}">${escapeHtml(chapterTitle(ch))}</h2>\n<article class="chapter" aria-labelledby="chapter-${ch.n}">`;
-  const parts: Part[] = [`${before}${reviewNotice(version)}${heading(head)}`, first];
+  const parts: Part[] = [
+    `${before}${reviewNotice(version)}<div class="reading">${heading(head)}`,
+    first,
+  ];
   // Each later chapter keeps only its key and the bucket for the life of the stream.
   for (const ch of rest) {
     const key = ch.r2_key;
     parts.push(`</article>\n${heading(ch)}`, () => openFragment(bucket, key));
   }
   parts.push(
-    `</article>\n<p class="back"><a href="/works/${id}">Back to the work page</a></p>${after}`,
+    `</article>\n<p class="back"><a href="/works/${id}">Back to the work page</a></p></div>${after}`,
   );
   return c.body(streamParts(parts), 200, headers);
 }

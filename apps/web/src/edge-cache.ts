@@ -177,7 +177,10 @@ export interface ChapterPage {
   /** The document's title, and the reader bar that is its one h1. */
   title: string;
   bar: string;
-  /** The page's main content before the chapter's article and after it. */
+  /**
+   * The page's main content before the chapter's article and after it. `top` opens the
+   * reading column's wrapper `div` and `bottom` closes it, so use them together.
+   */
   top: string;
   bottom: string;
   /** The chapter's fragment, and its version's prefix, to check its key again. */
@@ -191,7 +194,7 @@ export interface ChapterPage {
  * The page entry's shape, raised whenever `ChapterPage` changes, so an entry an earlier
  * deploy left is a miss rather than a page built from the wrong fields.
  */
-const PAGE_FORMAT = 1;
+const PAGE_FORMAT = 2;
 
 /** What a page entry holds. Only this Worker writes it. */
 interface StoredPage {

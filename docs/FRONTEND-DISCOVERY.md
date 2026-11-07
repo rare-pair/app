@@ -249,7 +249,14 @@ rating and warnings (the same size as author, weight 600), then
 fandom, then summary, then tags, then stats. The same order holds on cards and
 on the work page. Only size and spacing change.
 
-**Measure and rhythm.** The reader is capped at `66ch` and line height 1.6. The
+**Measure and rhythm.** The site's header, main content and footer share one width,
+960 px (`SITE_WIDTH` in `apps/web/src/styles.ts`), set in px so the footer's smaller text
+doesn't make it a narrower column. Running text keeps a measure inside that column:
+the reader (chapters and `/full`) is capped at `66ch` and line height 1.6, and so are
+the paragraphs and plain lists directly in a page's main, a post's body and a work's
+summary, on pages such as About, Terms and a post. A page that puts prose anywhere else
+needs a rule of its own. The cap is 66ch of the interface's font, narrower than a
+chapter's 66ch of the reading font. The
 interface uses 1.45. Spacing is on a 4 px grid, and sections are separated by
 whitespace and single hairline rules, not boxes.
 
@@ -300,10 +307,11 @@ decoration in a minimal design. They're bold text with labels spelled out.
 
 ## Reading experience
 
-- The text column sits centred at `66ch`. Inside it, the only chrome is a slim top
-  bar with the work title, which links to the work page, and a settings link, which
-  scrolls away (the site header
-  and footer sit around the column, as on every page).
+- The text column sits centred at `66ch`, in the site's 960 px column. The chapter
+  heading and the chapter navigation share its edges. Above it, the only chrome is a
+  slim top bar, at the site's full width, with the work title, which links to the work
+  page, and a settings link, which scrolls away (the site header and footer sit around
+  the column, as on every page).
 - Chapter notes come before the text, end notes after, both in a smaller,
   muted style. The summary is not repeated on chapter pages.
 - Settings: theme, size, line spacing, and serif or sans, kept in a cookie.

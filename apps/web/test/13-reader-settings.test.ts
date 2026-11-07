@@ -382,7 +382,7 @@ describe("13-reader-settings-and-position", () => {
     expect(chapter).toMatch(/line-height:\s*1\.6;/);
     expect(chapter).toMatch(/max-width:\s*66ch;/);
     expect(chapter).toMatch(/font-size:\s*var\(--reading-size\);/);
-    expect(css.match(/max-width:\s*66ch/g)?.length).toBe(2);
+    expect(css.match(/max-width:\s*66ch/g)?.length).toBe(4);
     expect(rulesFor(css, "header").join("\n") + rulesFor(css, "main").join("\n")).toMatch(
       /margin:\s*0 auto;/,
     );
