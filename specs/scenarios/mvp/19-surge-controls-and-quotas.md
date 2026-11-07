@@ -7,7 +7,7 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Load target), § Surge con
 - The Workers rate-limiting binding covers login, upload requests and search, keyed per IP and per user, over 10- or 60-second windows. It also covers reads, per specs/scenarios/mvp/24-crawler-and-agent-blocking.md
 - Upload quotas are counted in Postgres (`user.upload_quota_used`)
 - Users: a user E with quota left (on either tier), a brand-new user N, a trusted user T
-- There are two daily quota tiers, a lower one for new accounts and a higher one for trusted users; the numbers and the rule for "trusted" are configuration, set before launch from load testing, and the cases below use whatever values are configured
+- There are two daily quota tiers, one for new accounts and one at least as high for trusted users; the numbers and the rule for "trusted" are configuration (both 100 by operator ruling, 2026-11-07), and the cases below that need the trusted tier to be higher run with values set for them
 
 ## Cases
 
@@ -67,7 +67,7 @@ Relates to: docs/ARCHITECTURE.md § Decisions so far (Load target), § Surge con
 ### Trusted users get the higher quota
 - GIVEN trusted user T, who meets the configured rule for "trusted"
 - WHEN T's daily quota is checked
-- THEN it is the configured trusted-user limit, which is higher than the new-account limit
+- THEN it is the configured trusted-user limit, which is at least the new-account limit (higher, in the cases run with a lower new-account tier)
 
 ### Oversized files are refused as they arrive
 - GIVEN an open upload

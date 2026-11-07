@@ -76,7 +76,8 @@ describe("the upload quotas in wrangler.jsonc", () => {
     expect(DEFAULT_NEW_LIMIT).toBeLessThan(Number(vars.UPLOAD_QUOTA_NEW));
   });
 
-  it("leave moderators no lower than new accounts", () => {
-    expect(limitFor("admin", vars)).toBeGreaterThanOrEqual(limitFor(null, vars));
+  it("set the trusted tier no lower than the new-account tier", () => {
+    expect(Number(vars.UPLOAD_QUOTA_TRUSTED)).toBeGreaterThanOrEqual(Number(vars.UPLOAD_QUOTA_NEW));
+    expect(limitFor("admin", vars)).toBe(Number(vars.UPLOAD_QUOTA_TRUSTED));
   });
 });
