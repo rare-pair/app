@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fetchW } from "./helpers";
 
-// Runs in the "prelaunch" project: wrangler.jsonc as it deploys, PRELAUNCH on.
+// Runs in the "prelaunch" project: wrangler.jsonc with PRELAUNCH turned on.
 
 describe("22-waitlist", () => {
   it("Privacy notice covers the wait list", async () => {

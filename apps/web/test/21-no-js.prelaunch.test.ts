@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { nonceOf } from "./helpers";
 import { attr, expectInOrder, forms, NoJsBrowser, scriptTags, type Page } from "./no-js-browser";
 
-// Runs in the "prelaunch" project: wrangler.jsonc as it deploys, PRELAUNCH on. The wait
+// Runs in the "prelaunch" project: wrangler.jsonc with PRELAUNCH turned on. The wait
 // list pages are in FRONTEND-DISCOVERY's inventory though spec 21's setup list omits them.
 // They read the database for nothing here: every token is one no row holds. Text is synthetic.
 

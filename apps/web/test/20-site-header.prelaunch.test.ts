@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
 import { fetchW, headerOf, signIn } from "./helpers";
 
-// Before launch (the "prelaunch" project, wrangler.jsonc as it deploys): /upload,
+// Before launch (the "prelaunch" project, PRELAUNCH turned on): /upload,
 // /me/uploads and /login are closed, so the header's Add work, My uploads and Sign in show
 // disabled as the footer's Remove link does. Sign out and Admin stay live. Addresses are synthetic.
 

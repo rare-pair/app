@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fetchW } from "./helpers";
 
-// Runs in the "prelaunch" project: wrangler.jsonc exactly as it deploys, PRELAUNCH on.
+// Runs in the "prelaunch" project: wrangler.jsonc with PRELAUNCH turned on.
 
 describe("entire work before launch", () => {
   it("The entire work is closed before launch", async () => {

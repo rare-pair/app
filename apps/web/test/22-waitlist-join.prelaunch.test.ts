@@ -21,7 +21,7 @@ import {
   withoutNonce,
 } from "./helpers";
 
-// Runs in the "prelaunch" project: wrangler.jsonc as it deploys, PRELAUNCH on. Joining
+// Runs in the "prelaunch" project: wrangler.jsonc with PRELAUNCH turned on. Joining
 // the wait list is wanted only before launch.
 
 // The Postgres the Worker uses, through the same Hyperdrive binding. One database

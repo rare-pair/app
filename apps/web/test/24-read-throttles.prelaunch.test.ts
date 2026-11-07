@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import app from "../src/index";
 
-// PRELAUNCH on, as wrangler.jsonc deploys it. No work is seeded: a redirect never reads one.
+// PRELAUNCH turned on (wrangler.jsonc has it off). No work is seeded: a redirect never reads one.
 // AO3 work ID 8812790 is this file's.
 const W = 8812790;
 

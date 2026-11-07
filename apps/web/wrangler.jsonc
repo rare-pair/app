@@ -162,10 +162,10 @@
     "traces": { "enabled": false },
   },
   "vars": {
-    // "on" until the archive opens (ARCHITECTURE, Wait list): / is the coming-soon
-    // page and other app pages redirect to it. Only "off" turns it off; a missing or
-    // misspelt value keeps it on.
-    "PRELAUNCH": "on",
+    // "off": the archive opened on 2026-11-07, so a deploy needs no --var flag to keep it open.
+    // While "on" (ARCHITECTURE, Wait list), / is the coming-soon page and other app pages
+    // redirect to it. Only "off" turns it off; a missing or misspelt value keeps it on.
+    "PRELAUNCH": "off",
     // The public Turnstile sitekey of every Turnstile form: coming-soon, sign-in, upload, removal and copyright notice. The widget is for
     // rarepair.fans, with its secret in TURNSTILE_SECRET_KEY. Without a matching pair those forms fail closed (the copyright notice form too: the page's email address is the only way to send one).
     "TURNSTILE_SITE_KEY": "0x4AAAAAAF0X4q4IwNS4pX4A",

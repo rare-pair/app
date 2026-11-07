@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
 import { fetchW, mailedWaitlistAddress, STRICT, withoutNonce } from "./helpers";
 
-// PRELAUNCH on, as wrangler.jsonc deploys it. No work is seeded: a redirect never reads one.
+// PRELAUNCH turned on (wrangler.jsonc has it off). No work is seeded: a redirect never reads one.
 // AO3 work ID 8812420 is this file's.
 const W = 8812420;
 const headers = { "user-agent": "GPTBot/1.3", "signature-agent": '"https://agent.example"' };

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fetchW } from "./helpers";
 
-// With PRELAUNCH on (wrangler.jsonc as deployed). The rest is in 24-robots.test.ts.
+// With PRELAUNCH turned on (wrangler.jsonc has it off). The rest is in 24-robots.test.ts.
 
 describe("24-crawler-and-agent-blocking", () => {
   it("robots.txt keeps crawlers off the app", async () => {

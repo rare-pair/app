@@ -19,7 +19,7 @@ import {
 } from "./helpers";
 import { WAITLIST_EMAIL_LIMIT, WAITLIST_IP_LIMIT } from "./limits";
 
-// Runs in the "prelaunch" project: wrangler.jsonc as it deploys, PRELAUNCH on.
+// Runs in the "prelaunch" project: wrangler.jsonc with PRELAUNCH turned on.
 
 const db = createDb({ connectionString: env.HYPERDRIVE.connectionString, max: 1 });
 afterAll(() => db.destroy());

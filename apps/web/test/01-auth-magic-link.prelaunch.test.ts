@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { emailsTo, fetchW, LOGIN_TOKEN, postLogin, postLoginOpen } from "./helpers";
 
-// Runs in the "prelaunch" project, with PRELAUNCH on as wrangler.jsonc deploys it.
+// Runs in the "prelaunch" project, with PRELAUNCH turned on (wrangler.jsonc has it off).
 // Sign-in is closed until the archive opens. Addresses are synthetic.
 
 describe("01-auth-magic-link before launch", () => {
