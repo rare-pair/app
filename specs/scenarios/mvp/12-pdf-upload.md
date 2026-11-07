@@ -84,6 +84,7 @@ Only 2 of the 8 could be checked against an epub, and both are single-chapter. S
 - THEN it is stored as an epub's anonymous work is
 - AND a `/users/` link outside the byline isn't taken for an author
 - AND only the marker alone is anonymous: "by Anonymous, A Name" names both, with `byline_ambiguous`, for the opt-out check to read
+- AND a byline can wrap, inside a name too, and every linked author on it is read. A link names who it covers; a printed name no link covers is named as well, with `byline_ambiguous`. None of the 8 samples has more than one author, so this is shown only on synthetic files
 - AND a PDF's document metadata isn't read for authors, since a browser or word processor can set it to anything, so a file with no byline has `byline_missing`
 
 #### The chapter count must match
@@ -129,6 +130,7 @@ These checks don't bound everything the parser can do, and that's accepted (oper
 - AND so does a stream inside an object stream or a dictionary, which pdf.js reads though the format has neither, an inline image in a dictionary, and an object stream with no filter or whose `/N` or `/First` is behind a reference
 - AND the check reads a dictionary as pdf.js does, so what it hides from a simpler reader isn't hidden from this one: names in hex escapes, a key that isn't a name, a `>>` as a value, `+4` and `4.0` as numbers. It keeps only the values it reads, and reads a bounded amount, so a file can't fill the Worker's memory or time with the check itself
 - AND what's still open, under the ruling above: an image stream named as a font, and an object stream whose header gives other offsets
+- AND the check itself stays small on any file up to the limit: it keeps only a dictionary's few values it reads, and refuses a file with more of them than a real one has
 
 #### A long parse keeps its lease
 - GIVEN a PDF near every limit

@@ -596,6 +596,187 @@ describe("12-pdf-upload", () => {
         );
       });
 
+      describe("Bylines", () => {
+        const user = (login: string, pseud?: string) =>
+          `https://archiveofourown.org/users/${login}${pseud ? `/pseuds/${encodeURIComponent(pseud)}` : ""}`;
+        const pseuds = async (id: number, rows: PdfLine[]) => {
+          const { live, text } = await chapterText(id, [
+            posted(id),
+            stats,
+            title,
+            ...rows,
+            para("The text."),
+          ]);
+          return {
+            names: live?.authors.map((a) => a.pseud),
+            reasons: live?.version.review_reasons,
+            text,
+          };
+        };
+
+        it("a pseud that wraps keeps the byline going, and every linked author", async () => {
+          const { names, reasons, text } = await pseuds(8813760, [
+            {
+              text: "by First Author, Second",
+              links: [
+                { url: user("fa", "First Author"), at: 3, length: 12 },
+                { url: user("sa", "Second Author"), at: 17, length: 6 },
+              ],
+            },
+            {
+              text: "Author, Third Person,",
+              links: [
+                { url: user("sa", "Second Author"), at: 0, length: 6 },
+                { url: user("tp", "Third Person"), at: 8, length: 12 },
+              ],
+            },
+            { text: "Opted Out", url: user("oo", "Opted Out") },
+          ]);
+          expect(names).toEqual(["First Author", "Second Author", "Third Person", "Opted Out"]);
+          expect(reasons).not.toContain("byline_ambiguous");
+          expect(text).toBe("<p>The text.</p>");
+        });
+
+        it("an unlinked word ending the line, with a link under it, is that name wrapping", async () => {
+          const { names, text } = await pseuds(8813761, [
+            {
+              text: "by First, Second Person, Opted",
+              links: [
+                { url: user("fa", "First"), at: 3, length: 5 },
+                { url: user("sp", "Second Person"), at: 10, length: 13 },
+              ],
+            },
+            { text: "Out", url: user("oo", "Opted Out") },
+          ]);
+          expect(names).toEqual(["First", "Second Person", "Opted Out"]);
+          expect(text).toBe("<p>The text.</p>");
+        });
+
+        it("one linked pseud with and in it is one author", async () => {
+          const { names, reasons } = await pseuds(8813762, [
+            { text: "by Salt and Pepper", url: user("sp", "Salt and Pepper") },
+          ]);
+          expect(names).toEqual(["Salt and Pepper"]);
+          expect(reasons).not.toContain("byline_ambiguous");
+        });
+
+        it("links with no pseud in them don't add the printed names too", async () => {
+          const { names, reasons } = await pseuds(8813763, [
+            {
+              text: "by Real One, Real Two",
+              links: [
+                { url: user("r1"), at: 3, length: 8 },
+                { url: user("r2"), at: 13, length: 8 },
+              ],
+            },
+          ]);
+          expect(names).toEqual(["r1", "r2"]);
+          expect(reasons).not.toContain("byline_ambiguous");
+        });
+
+        it("a linked name under the byline with no gap isn't an author", async () => {
+          const { names, text } = await pseuds(8813764, [
+            { text: "by Someone", url: user("someone") },
+            { text: "Thanks to a friend.", url: user("friend") },
+          ]);
+          expect(names).toEqual(["someone"]);
+          expect(text).toContain("Thanks to a friend.");
+        });
+
+        it("an unlinked byline is read, whatever link sits under it", async () => {
+          const { names } = await pseuds(8813765, [
+            { text: "by Opted Out" },
+            { text: "Thanks to a friend.", url: user("friend") },
+          ]);
+          expect(names).toEqual(["Opted Out"]);
+        });
+      });
+
+      describe("End notes in the text", () => {
+        const closing: PdfLine = {
+          text: "Please drop by the Archive and comment to let the creator know if you enjoyed their work!",
+          gap: 10,
+        };
+        const read = async (id: number, rows: PdfLine[]) => {
+          const { live, text } = await chapterText(id, [posted(id), stats, title, by, ...rows]);
+          return { text, endNotes: live?.work };
+        };
+
+        it("an End Notes line before the Afterword heading is the text's", async () => {
+          const { text } = await read(8813766, [
+            para("Before."),
+            para("End Notes"),
+            para("After the label."),
+            para("Afterword"),
+            closing,
+          ]);
+          expect(text).toBe("<p>Before.</p>\n<p>End Notes</p>\n<p>After the label.</p>");
+        });
+
+        it("an End Notes line over an indented line, with no closing line, is the text's", async () => {
+          const { text } = await read(8813767, [
+            para("Before."),
+            para("End Notes"),
+            { text: "Indented.", x: 90, gap: 10 },
+          ]);
+          expect(text).toContain("End Notes");
+          expect(text).toContain("Indented.");
+        });
+
+        it("the Afterword heading ends the text with its contents under it", async () => {
+          const { text } = await read(8813768, [
+            para("Body."),
+            para("Afterword"),
+            { text: "Something the print puts here." },
+            closing,
+          ]);
+          expect(text).toBe("<p>Body.</p>");
+        });
+
+        it("real end notes still leave the text", async () => {
+          const { text } = await read(8813769, [
+            para("Body."),
+            para("End Notes"),
+            { text: "The notes.", x: 90 },
+            closing,
+          ]);
+          expect(text).toBe("<p>Body.</p>");
+        });
+      });
+
+      describe("Which links are compared with the printed work", () => {
+        it("the Posted line's own link, wherever the line is", async () => {
+          const id = 8813756;
+          const { live } = await chapterText(id, [
+            { text: "Rating: General" },
+            stats,
+            title,
+            by,
+            { ...posted(id), url: "https://archiveofourown.org/works/777", gap: 10 },
+            para("The text."),
+          ]);
+          expect(live?.version.review_reasons.some((r) => r.startsWith("work_id_mismatch"))).toBe(
+            true,
+          );
+        });
+
+        it("not a link on the first line of the text, when fields follow the byline", async () => {
+          const id = 8813757;
+          const { live } = await chapterText(id, [
+            { ...posted(id), url: `https://archiveofourown.org/works/${id}` },
+            title,
+            by,
+            { text: "Rating: Mature" },
+            stats,
+            { text: "Read this one too.", url: "https://archiveofourown.org/works/999", gap: 10 },
+            para("The text."),
+          ]);
+          expect(live?.version.review_reasons.some((r) => r.startsWith("work_id_mismatch"))).toBe(
+            false,
+          );
+        });
+      });
+
       it("a blank line isn't a paragraph", async () => {
         const id = 8813789;
         const { text } = await chapterText(id, [

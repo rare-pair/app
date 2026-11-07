@@ -1,4 +1,4 @@
-﻿// A PDF's text and links -> a work's fields and chapters, as plain text. Pure: it never sees the
+// A PDF's text and links -> a work's fields and chapters, as plain text. Pure: it never sees the
 // file, only what `parser.ts` read from it. Field names follow the printed labels, never fonts or
 // colours, which each tool that made the PDF sets differently.
 import {
@@ -6,7 +6,6 @@ import {
   parseStats,
   TAG_LABELS,
   resolveByline,
-  splitNames,
   type Author,
   type SeriesRef,
   type Stats,
@@ -274,7 +273,11 @@ function lastLabelBefore(marks: PrintedFields["marks"], at: Mark): string | unde
 }
 
 /** Tags from links, each under the last label before it, deduped by URL; with none, from print. */
-function readTags(links: PageLink[], { marks, printed }: PrintedFields, prefaceMark: Mark) {
+function readTags(
+  links: PageLink[],
+  { marks, printed }: PrintedFields,
+  inFields: (link: PageLink) => boolean,
+) {
   const tags: PdfWork["tags"] = {
     rating: [],
     warnings: [],
@@ -287,7 +290,7 @@ function readTags(links: PageLink[], { marks, printed }: PrintedFields, prefaceM
   const tagLinks = links
     .flatMap((link) => {
       const at = linkMark(link);
-      return TAG_URL.test(link.url) && reads(at, prefaceMark) ? [{ link, at }] : [];
+      return TAG_URL.test(link.url) && inFields(link) ? [{ link, at }] : [];
     })
     .sort((a, b) => (reads(a.at, b.at) ? -1 : 1));
   const seen = new Set<string>();
@@ -313,75 +316,135 @@ function readTags(links: PageLink[], { marks, printed }: PrintedFields, prefaceM
   return { tags, fromPrint: Object.values(tags).some((names) => names.length > 0) };
 }
 
-/** Whether two names match, whatever their case. */
-const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+/**
+ * Whether a link sits on this line: its middle within the line's band. Real ones sit 0.36 of the
+ * size above the baseline, and the next line can be as near as 1.2 sizes under it, so the band is
+ * no wider than this or the line below counts too.
+ */
+const onLine = (link: PageLink, line: TextLine): boolean => {
+  if (link.page !== line.page) return false;
+  const above = linkMark(link).y - line.y;
+  return above >= -0.25 * line.size && above <= 0.75 * line.size;
+};
+
+/** Each character of a line: whether a link covers it, placed in proportion across the line. */
+function coveredChars(line: TextLine, lineLinks: PageLink[]): boolean[] {
+  const text = trimmed(line);
+  const width = line.right - line.x;
+  return Array.from(text, (_, i) => {
+    const x = line.x + (width * (i + 0.5)) / Math.max(1, text.length);
+    return lineLinks.some((l) => x >= (l.rect[0] ?? 0) - 1 && x <= (l.rect[2] ?? 0) + 1);
+  });
+}
+
+/** Whether a line's last word is mostly outside its links. */
+function endsUnlinked(line: TextLine, lineLinks: PageLink[]): boolean {
+  const covered = coveredChars(line, lineLinks);
+  const word = trimmed(line).length - (/\S+$/.exec(trimmed(line))?.[0].length ?? 0);
+  const inWord = covered.slice(word);
+  return inWord.filter(Boolean).length * 2 < inWord.length;
+}
+
+const BYLINE_SEPARATOR = /\s*,\s*(?:and\s+)?|\s+and\s+/g;
+/** More than any byline: past this, a name goes unread sooner than a pattern runs long. */
+const MAX_BYLINE_CHARS = 4 * 1024;
 
 /**
- * The byline: its first line, and each one under it while the line before ends on a separator, as
- * a wrapped list does. Links name its authors; a name printed with no link is named too, so the
- * opt-out check reads it, and flagged, since nothing says it isn't part of a name.
+ * The names printed in a byline with no link over them. A name counts as linked when a link covers
+ * it, not when it spells the link: a link can name a user where the print has a pseud, and
+ * `Salt and Pepper` under one link is one name, though it splits as a list.
  */
-function readByline(lines: TextLine[], links: PageLink[], bylineAt: number, prefaceEnd: number) {
+function unlinkedNames(text: string, covered: boolean[]): string[] {
+  const names: string[] = [];
+  const add = (from: number, to: number) => {
+    const name = text.slice(from, to).trim();
+    if (name === "") return;
+    let linked = 0;
+    for (let i = from; i < to; i++) if (covered[i]) linked++;
+    // Part of a name under a link is that name wrapping: its other part can be on the line above.
+    if (linked < 3 && linked * 2 < to - from) names.push(name);
+  };
+  let from = /^by\s+/.exec(text)?.[0].length ?? 0;
+  for (const match of text.matchAll(BYLINE_SEPARATOR)) {
+    add(from, match.index);
+    from = match.index + match[0].length;
+  }
+  add(from, text.length);
+  return names;
+}
+
+/**
+ * The byline: its first line and each one it wraps on to. It goes on when a line ends on a separator
+ * or fills the width, when one link runs across the two lines, or when a line with links ends on
+ * words without one and the next has a link. Links name its authors. A name printed with no link
+ * is named too, so the opt-out check reads it, and flagged, since nothing says it isn't part of
+ * a name.
+ */
+function readByline(
+  lines: TextLine[],
+  links: PageLink[],
+  bylineAt: number,
+  prefaceEnd: number,
+  layout: Layout,
+) {
   const none: Author[] = [];
   if (bylineAt < 0) return { authors: none, ambiguous: false, end: prefaceEnd };
-  let byline = trimmed(lines[bylineAt]!);
   // Only the marker alone: a name after it is a name, for the opt-out check to read.
-  if (/^by\s+Anonymous$/i.test(byline)) {
+  if (/^by\s+Anonymous$/i.test(trimmed(lines[bylineAt]!))) {
     return { authors: [{ pseud: "Anonymous", user: null }], ambiguous: false, end: bylineAt + 1 };
   }
+  const userLinks = links.filter((l) => USER_URL.test(l.url));
+  const linksOn = (line: TextLine) => userLinks.filter((l) => onLine(l, line));
+  const wraps = (above: TextLine, below: TextLine): boolean => {
+    if (/(?:,|\sand)$/i.test(trimmed(above))) return true;
+    if (above.page !== below.page) return false;
+    const fromAbove = linksOn(above);
+    const fromBelow = linksOn(below);
+    if (fromBelow.some((l) => fromAbove.some((a) => a.url === l.url))) return true;
+    if (fromAbove.length > 0 && fromBelow.length > 0) {
+      if (endsUnlinked(above, fromAbove)) return true;
+    }
+    return above.right >= layout.right - 30 && above.y - below.y <= layout.pitch * 1.5;
+  };
   let end = bylineAt + 1;
-  while (end < prefaceEnd && /(?:,|\sand)$/i.test(byline)) {
-    byline = `${byline} ${trimmed(lines[end]!)}`;
-    end++;
-  }
+  while (end < prefaceEnd && wraps(lines[end - 1]!, lines[end]!)) end++;
+
   const authors: Author[] = [];
+  let byline = "";
+  let covered: boolean[] = [];
   for (let i = bylineAt; i < end; i++) {
     const line = lines[i]!;
-    for (const link of links) {
-      if (link.page !== line.page || !USER_URL.test(link.url)) continue;
-      if (Math.abs(linkMark(link).y - line.y) > line.size) continue;
+    const lineLinks = linksOn(line);
+    for (const link of lineLinks) {
       const user = decodeName(USER_URL.exec(link.url)![1]!);
       const pseud = /\/pseuds\/([^/?#]+)/.exec(link.url)?.[1];
       const author = { pseud: pseud === undefined ? user : decodeName(pseud), user };
       if (!authors.some((a) => a.pseud === author.pseud && a.user === user)) authors.push(author);
     }
+    if (byline !== "") {
+      byline += " ";
+      covered.push(false);
+    }
+    byline += trimmed(line);
+    covered = covered.concat(coveredChars(line, lineLinks));
   }
-  const printed = splitNames(byline.replace(/^by\s+/, ""));
-  if (authors.length === 0) {
-    return {
-      authors: printed.map((pseud): Author => ({ pseud, user: null })),
-      ambiguous: printed.length > 1,
-      end,
-    };
-  }
-  const unlinked = printed.filter(
-    (name) =>
-      !authors.some(
-        (a) =>
-          sameName(name, a.pseud) ||
-          sameName(name, a.user ?? "") ||
-          sameName(name, `${a.pseud} (${a.user})`),
-      ),
-  );
-  // One name, one link, and the text differs: the link says who it is, as an epub's does.
-  if (printed.length === authors.length && printed.length === 1) {
-    return { authors, ambiguous: false, end };
-  }
+  const unlinked = unlinkedNames(byline.slice(0, MAX_BYLINE_CHARS), covered);
   return {
     authors: [...authors, ...unlinked.map((pseud): Author => ({ pseud, user: null }))],
-    ambiguous: unlinked.length > 0,
+    // Names with no links at all split as a list; beside links, one is a guess too.
+    ambiguous: authors.length > 0 ? unlinked.length > 0 : unlinked.length > 1,
     end,
   };
 }
 
 /** The series the preface prints, with their IDs from its links, in order. */
-function readSeries(text: string, links: PageLink[], prefaceMark: Mark): SeriesRef[] {
+function readSeries(
+  text: string,
+  links: PageLink[],
+  inFields: (link: PageLink) => boolean,
+): SeriesRef[] {
   const ids = [
-    ...new Set(
-      links
-        .filter((l) => reads(linkMark(l), prefaceMark))
-        .flatMap((l) => SERIES_URL.exec(l.url)?.[1] ?? []),
-    ),
+    ...new Set(links.filter(inFields).flatMap((l) => SERIES_URL.exec(l.url)?.[1] ?? [])),
   ];
   return [...text.matchAll(SERIES_PART)].map((match, i) => ({
     name: match[2]!.trim(),
@@ -399,21 +462,16 @@ function readEnd(lines: TextLine[], from: number, layout: Layout) {
     for (let i = lines.length - 1; i >= from; i--) if (test(trimmed(lines[i]!))) return i;
     return -1;
   };
-  const isClosing = (text: string) => text.toLowerCase().startsWith(CLOSING_LINE);
-  const closing = last(isClosing);
+  const closing = last((text) => text.toLowerCase().startsWith(CLOSING_LINE));
   const stop = closing < 0 ? lines.length : closing;
-  // A label in the text stays in the text: the real one has the afterword's heading or closing line
-  // around it, or its block indented under it.
-  const lastNotes = last((text) => text === "End Notes");
-  const blockUnder = lines[lastNotes + 1];
-  const closesAfter =
-    closing > lastNotes || (blockUnder !== undefined && blockUnder.x > layout.left + 2);
-  // The heading says so only with its contents under it: a chapter can have the word as its text.
+  // The heading says so only with what comes under it: a chapter can have the word as its text.
   const lastAfterword = last((text) => text === "Afterword");
   const under = lastAfterword < 0 ? "" : trimmed(lines[lastAfterword + 1] ?? lines[lastAfterword]!);
-  const afterword = under === "End Notes" || isClosing(under) ? lastAfterword : -1;
-  const notesAt =
-    lastNotes >= 0 && (closesAfter || (afterword >= 0 && afterword < lastNotes)) ? lastNotes : -1;
+  const afterword = closing > lastAfterword || under === "End Notes" ? lastAfterword : -1;
+  // A label in the text stays in the text. The real one is under the heading when there is one, and
+  // otherwise before the closing line, which can't be told from one in the text just above it.
+  const lastNotes = last((text) => text === "End Notes");
+  const notesAt = (afterword >= 0 ? lastNotes > afterword : closing > lastNotes) ? lastNotes : -1;
   const starts = [afterword, notesAt, closing].filter((at) => at >= 0);
   const bodyEnd = starts.length > 0 ? Math.min(...starts) : lines.length;
   const endNotes = notesAt < 0 ? [] : paragraphsOf(lines.slice(notesAt + 1, stop), layout);
@@ -450,13 +508,7 @@ function titleStart(lines: TextLine[], bylineAt: number, layout: Layout): number
 
 /** Where a run of field lines ends: the last line with a label or a tag's link, a gap of 2 allowed. */
 function fieldsEnd(lines: TextLine[], links: PageLink[], from: number, to: number): number {
-  const tagged = (l: TextLine) =>
-    links.some(
-      (link) =>
-        link.page === l.page &&
-        TAG_URL.test(link.url) &&
-        Math.abs(linkMark(link).y - l.y) <= l.size,
-    );
+  const tagged = (l: TextLine) => links.some((link) => TAG_URL.test(link.url) && onLine(link, l));
   let end = from;
   for (let i = from; i < to && i - end <= 2; i++) {
     LABELS.lastIndex = 0;
@@ -478,12 +530,7 @@ function findByline(lines: TextLine[], links: PageLink[], to: number, layout: La
     (l) =>
       isByline(l) &&
       (/^by\s+Anonymous$/i.test(trimmed(l)) ||
-        links.some(
-          (link) =>
-            link.page === l.page &&
-            USER_URL.test(link.url) &&
-            Math.abs(linkMark(link).y - l.y) <= l.size,
-        )),
+        links.some((link) => USER_URL.test(link.url) && onLine(link, l))),
   );
   if (linked >= 0) return linked;
   for (let i = 1; i < to; i++) {
@@ -519,7 +566,7 @@ export function readWork(text: PdfText): PdfWork {
   const title =
     titleAt >= 0 ? lines.slice(titleAt, bylineAt).map(trimmed).join(" ") : (text.infoTitle ?? "");
   if (title === "") reviewReasons.push("missing_title");
-  const named = readByline(lines, links, bylineAt, prefaceEnd);
+  const named = readByline(lines, links, bylineAt, prefaceEnd, layout);
   const bylineEnd = bylineAt < 0 ? 0 : named.end;
 
   // The fields come before the title or after the byline.
@@ -539,18 +586,24 @@ export function readWork(text: PdfText): PdfWork {
   const printedOf = (label: string) => fields.printed.get(label)?.trim() ?? null;
   // Where the fields end: the title, when they come before it.
   const fieldsStop = lines[beforeFields.marks.length > 0 ? before : after];
-  const prefaceMark: Mark = fieldsStop
-    ? { page: fieldsStop.page, y: fieldsStop.y, x: fieldsStop.x }
-    : { page: Number.MAX_SAFE_INTEGER, y: 0, x: 0 };
-  // Any link in the preface: one in the text can name any work.
+  // A link above that line: on the line itself, it belongs to what comes next.
+  const inFields = (link: PageLink): boolean =>
+    fieldsStop === undefined ||
+    link.page < fieldsStop.page ||
+    (link.page === fieldsStop.page && linkMark(link).y > fieldsStop.y + 0.75 * fieldsStop.size);
+  // The printed line wraps, and a work's URL is on it or the next two.
+  const postedAt = indexFrom(lines, 0, reach, (l) => /posted\s*originally/i.test(trimmed(l)));
+  const onPosted = (link: PageLink): boolean =>
+    postedAt >= 0 && lines.slice(postedAt, postedAt + 3).some((l) => onLine(link, l));
+  // Any link in the fields or on the printed line: one in the text can name any work.
   const linkedWork = links
-    .filter((l) => reads(linkMark(l), prefaceMark))
+    .filter((l) => inFields(l) || onPosted(l))
     .map((l) => WORK_URL.exec(l.url)?.[1])
     .find((id) => id !== undefined && id !== ao3WorkId);
   if (linkedWork !== undefined) {
     reviewReasons.push(`work_id_mismatch: printed ${ao3WorkId}, link ${linkedWork}`);
   }
-  const { tags, fromPrint } = readTags(links, fields, prefaceMark);
+  const { tags, fromPrint } = readTags(links, fields, inFields);
   if (fromPrint) reviewReasons.push("tags_from_print");
   if (tags.rating.length === 0) reviewReasons.push("missing_rating");
 
@@ -652,7 +705,7 @@ export function readWork(text: PdfText): PdfWork {
     authors: byline.authors,
     tags,
     language: printedOf("language") || null,
-    series: readSeries((printedOf("series") ?? "").slice(0, MAX_STATS_CHARS), links, prefaceMark),
+    series: readSeries((printedOf("series") ?? "").slice(0, MAX_STATS_CHARS), links, inFields),
     stats,
     rawMeta: Object.fromEntries(Object.entries(statsRaw)),
     summary,

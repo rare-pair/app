@@ -627,6 +627,30 @@ describe("12-pdf-upload: the checks before the parser opens a file", () => {
     });
   });
 
+  describe("What the check itself keeps", () => {
+    it("reads nested lists under a key it keeps, keeping only the outer list", () => {
+      const inner = `[${"/".repeat(4096)}]`;
+      // Refused for its filter, not for running out of memory first.
+      const file = besidePage(`<</F[${inner.repeat(2_000)}]>>`);
+      const started = Date.now();
+      expect(refusal(file)).toBeNull();
+      expect(Date.now() - started).toBeLessThan(10_000);
+    });
+
+    it("refuses a dictionary keeping more values than any real one", () => {
+      const list = `/Index[${"1 ".repeat(4_000)}]`;
+      expect(refusal(besidePage(`<<${list.repeat(10)}>>`))).toBe("pdf_unreadable");
+    });
+
+    it("refuses more lone /Contents references than a file can have objects", () => {
+      const refs = Array.from(
+        { length: PDF_LIMITS.maxObjects + 1 },
+        (_, i) => `/Contents ${i + 1000} 0 R`,
+      );
+      expect(refusal(besidePage(`<<${refs.join("")}>>`))).toBe("pdf_unreadable");
+    });
+  });
+
   describe("The budgets", () => {
     it("refuses one stream past the per-stream cap", () => {
       const body = flate(new Uint8Array(PDF_LIMITS.maxStreamInflatedBytes + 1024));

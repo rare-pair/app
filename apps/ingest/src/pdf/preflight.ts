@@ -77,6 +77,8 @@ const KEPT_KEYS = new Set([
 ]);
 /** The most values kept from a list under one of those. A real one has a few. */
 const MAX_KEPT_ITEMS = 4096;
+/** The most values one dictionary keeps in all, lists included. */
+const MAX_KEPT_VALUES = 16 * 1024;
 /** The most values kept under one key of one dictionary, which a real one has once. */
 const MAX_KEPT_REPEATS = 64;
 const MAX_NAME_CHARS = 128;
@@ -91,11 +93,18 @@ const MAX_DEPTH = 64;
 class Reader {
   at = 0;
   private depth = 0;
+  private kept = 0;
 
   /** Moves to `at`, for a read from the top: one the file ended inside leaves nothing behind. */
   startAt(at: number): void {
     this.at = at;
     this.depth = 0;
+    this.kept = 0;
+  }
+
+  /** Counts a value kept: what's kept must stay small, whatever a file holds. */
+  private keepOne(): void {
+    if (++this.kept > MAX_KEPT_VALUES) throw unreadable("A dictionary with too many values");
   }
 
   /**
@@ -344,10 +353,12 @@ class Reader {
         this.depth--;
         return { kind: "list", items };
       }
-      const item = this.value(keep);
+      // Only this list's own items are kept: a list or dictionary inside it is read, not held.
+      const item = this.value(false);
       if (item === null) return null;
       if (!keep) continue;
       if (items.length >= MAX_KEPT_ITEMS) throw unreadable("A list too long to be real");
+      this.keepOne();
       items.push(item);
     }
   }
@@ -391,6 +402,7 @@ class Reader {
         continue;
       }
       if (!wanted) continue;
+      this.keepOne();
       const values = entries.get(key.name);
       if (values && values.length >= MAX_KEPT_REPEATS) throw unreadable("A key repeated too often");
       if (values) values.push(value);
@@ -572,6 +584,8 @@ function noteContents(values: Value[], seen: ContentsSeen): void {
   for (const value of values) {
     if (value.kind === "ref") {
       seen.refs.add(value.object);
+      // Pages and annotations are objects, and the file's objects are limited.
+      if (seen.refs.size > PDF_LIMITS.maxObjects) throw unreadable("Too many /Contents references");
     } else if (value.kind === "list") {
       const refs = value.items.flatMap((item) => (item.kind === "ref" ? [item.object] : []));
       if (refs.length > PDF_LIMITS.maxContentsEntries || new Set(refs).size < refs.length) {
@@ -706,6 +720,7 @@ function readObjectStream(
     if ((reader.value(false) ?? { kind: "other" }).kind !== "number") return;
   }
   for (let i = 0; i < count; i++) {
+    reader.startAt(reader.at);
     const value = reader.value();
     if (value === null) return;
     const number = numbers[i];
