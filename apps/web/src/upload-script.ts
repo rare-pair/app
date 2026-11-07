@@ -127,7 +127,14 @@ export const UPLOAD_SCRIPT = `"use strict";
       drop.classList.add("over");
     });
   }
-  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  // Moving over the area's own children isn't leaving it.
+  drop.addEventListener("dragleave", (event) => {
+    if (!event.relatedTarget || !drop.contains(event.relatedTarget)) drop.classList.remove("over");
+  });
+  // A file dropped beside the area would make the browser open it and lose the list.
+  for (const type of ["dragover", "drop"]) {
+    document.addEventListener(type, (event) => event.preventDefault());
+  }
   drop.addEventListener("drop", (event) => {
     event.preventDefault();
     drop.classList.remove("over");
@@ -222,6 +229,7 @@ export const UPLOAD_SCRIPT = `"use strict";
 
   // The next group's token. The check is reset after each ask and takes a moment, or the person.
   const freshToken = async () => {
+    challenged = false;
     for (let polls = 0; polls < GIVE_UP_POLLS; polls++) {
       const token = window.turnstile.getResponse();
       if (token) return token;
@@ -261,6 +269,7 @@ export const UPLOAD_SCRIPT = `"use strict";
     await runAtOnce(
       group.map((entry, i) => async () => {
         const { row, file } = entry;
+        row.bar.value = 0;
         row.bar.hidden = false;
         row.note.textContent = "Uploading.";
         const sent = await put(file, granted[i].id, row);
@@ -290,9 +299,9 @@ export const UPLOAD_SCRIPT = `"use strict";
     }
     for (let g = 0; g < groups.length; g++) {
       if (g > 0) {
-        say("Sending group " + (g + 1) + " of " + groups.length + ".");
         token = await freshToken();
-        if (!token) say("The anti-spam check didn't finish. Press Upload to send the rest.");
+        if (token) say("Sending group " + (g + 1) + " of " + groups.length + ".");
+        else say("The anti-spam check didn't finish. Press Upload to send the rest.");
       }
       // A group is sent once the one before has finished confirming.
       if (token && (await sendGroup(groups[g], token))) continue;
@@ -301,7 +310,12 @@ export const UPLOAD_SCRIPT = `"use strict";
       }
       return;
     }
-    say("Sent " + plural(waiting.length, "file") + ".");
+    const sent = waiting.filter((entry) => entry.done).length;
+    say(
+      sent === waiting.length
+        ? "Sent " + plural(sent, "file") + "."
+        : sent + " of " + waiting.length + " files sent. Press Upload to try the rest.",
+    );
   };
 
   button.addEventListener("click", async () => {

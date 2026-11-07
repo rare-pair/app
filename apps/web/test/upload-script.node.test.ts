@@ -33,6 +33,9 @@ class FakeElement {
     this.children.push(child);
     return child;
   }
+  contains() {
+    return false;
+  }
   removeChild(child: FakeElement) {
     this.children = this.children.filter((one) => one !== child);
   }
@@ -136,6 +139,7 @@ function page(files: Fake[], replies: ((call: Call) => { status: number; body: o
     document: {
       getElementById: (id: string) => elements[id] ?? null,
       createElement: () => new FakeElement(),
+      addEventListener: () => undefined,
     },
     fetch: async (url: string, init: { method: string; body?: URLSearchParams }) => {
       if (init.method === "DELETE") {
@@ -726,5 +730,43 @@ describe("02-upload-handshake", () => {
     }
     await again;
     expect(p.rows().every((r) => /Uploaded/.test(note(r)))).toBe(true);
+  });
+
+  it("A fresh token that never arrives leaves the rest in the list, and says so", async () => {
+    const files = Array.from({ length: 11 }, (_, i) => epub(i));
+    const p = page(files, [
+      () => ({
+        status: 200,
+        body: { uploads: Array.from({ length: 10 }, (_, i) => ({ id: `u${i}` })) },
+      }),
+      ...Array.from({ length: 10 }, () => () => ({ status: 200, body: { status: "queued" } })),
+    ]);
+    p.turnstile.slowBy = 1000000000;
+    const clicked = p.click();
+    for (let i = 0; i < 10; i++) {
+      while (FakeXhr.all.length <= i) await p.flush();
+      done(FakeXhr.all[i]!);
+      await p.flush();
+    }
+    await clicked;
+    expect(p.message.textContent).toMatch(/didn't finish/);
+    expect(note(p.rows()[10]!)).toMatch(/Not uploaded.*stays in the list/);
+    expect(p.calls.filter((c) => c.url === "/uploads")).toHaveLength(1);
+  });
+
+  it("The summary doesn't say everything was sent when a file failed", async () => {
+    const p = page(
+      [epub(1), epub(2)],
+      [
+        () => ({ status: 200, body: { uploads: [{ id: "a" }, { id: "b" }] } }),
+        () => ({ status: 200, body: { status: "queued" } }),
+      ],
+    );
+    const clicked = p.click();
+    await p.flush();
+    done(FakeXhr.all[0]!);
+    FakeXhr.all[1]!.onerror!();
+    await clicked;
+    expect(p.message.textContent).toBe("1 of 2 files sent. Press Upload to try the rest.");
   });
 });
