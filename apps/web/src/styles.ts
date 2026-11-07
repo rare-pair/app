@@ -2,6 +2,12 @@
 // wrangler.jsonc change. System fonts only (FRONTEND-DISCOVERY, Typographic
 // system): the wait list's web fonts belong to its own pages, not here.
 
+// The site's width, header to footer, in one place. A length in px, not ch: ch follows the
+// font size, which would make the footer's smaller text a narrower column than main's.
+const SITE_WIDTH = "960px";
+// The measure of running text: a chapter, and the prose on the pages that carry it.
+const MEASURE = "66ch";
+
 export const STYLESHEET = `:root {
   color-scheme: light dark;
   --space: 4px;
@@ -83,17 +89,26 @@ a {
 header,
 main,
 footer {
-  max-width: 66ch;
+  box-sizing: border-box;
+  max-width: ${SITE_WIDTH};
   margin: 0 auto;
   padding: 0 calc(var(--space) * 4);
 }
 
 /* Auto margins stop a flex item stretching, so the site's own header, main and footer take
-   the column's width (less their padding, as they are content-box) to keep it. */
+   the column's width to keep it. */
 body > header,
 body > main,
 body > footer {
-  width: calc(100% - var(--space) * 8);
+  width: 100%;
+}
+
+/* Prose on a page keeps a readable measure inside the wider column. A list with a class is
+   a layout (cards, chapters, tags), not running text. */
+main > p,
+main > ul:not([class]),
+main > ol:not([class]) {
+  max-width: ${MEASURE};
 }
 
 body > main {
@@ -199,6 +214,15 @@ input[type="search"] {
   padding: calc(var(--space) * 2);
 }
 
+/* The search box and its button are compact (32 px, above the 24 px touch minimum). */
+form[role="search"] input[type="search"],
+form[role="search"] button {
+  box-sizing: border-box;
+  min-height: 32px;
+  padding-top: var(--space);
+  padding-bottom: var(--space);
+}
+
 button {
   font: inherit;
   padding: calc(var(--space) * 2) calc(var(--space) * 4);
@@ -224,7 +248,7 @@ article.chapter {
   font-family: var(--reading);
   font-size: var(--reading-size);
   line-height: 1.6;
-  max-width: 66ch;
+  max-width: ${MEASURE};
   contain: content;
   padding: var(--space);
 }

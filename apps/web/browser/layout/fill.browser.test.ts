@@ -108,13 +108,12 @@ for (const win of WINDOWS) {
           expect(short[part].width).toBeCloseTo(long[part].width, 0);
           expect(short[part].left).toBeCloseTo(long[part].left, 0);
         }
-        // Header and main are 66ch in the same font; the footer's smaller font makes it narrower.
         expect(short.header.width).toBeCloseTo(short.main.width, 0);
-        expect(short.footer.width).toBeLessThanOrEqual(short.main.width);
+        // The footer's text is smaller than main's, but its column is the same width.
+        expect(short.footer.width).toBeCloseTo(short.main.width, 0);
         if (win.width === 1280) {
-          expect(short.main.width).toBeGreaterThan(500);
-          expect(short.main.width).toBeLessThan(900);
-          expect(short.footer.width).toBeGreaterThan(400);
+          // The site's width is one constant, about 960 px.
+          expect(short.main.width).toBeCloseTo(960, 0);
         } else {
           // A narrow window: the column is the whole width.
           expect(short.main.width).toBe(short.innerWidth);
@@ -122,6 +121,50 @@ for (const win of WINDOWS) {
         }
         for (const fill of [short, long]) {
           if (fill.banner) expect(fill.banner.width).toBe(fill.innerWidth);
+        }
+      });
+    });
+
+    describe("Prose and chapters keep a readable measure in the wider column", () => {
+      it("keeps a paragraph and a chapter under 800 px at 1280, and in the window at 360", async () => {
+        const widthOf = async (name: string, selector: string) => {
+          const entry = OPEN_PAGES.find((p) => p.name === name)!;
+          const { page } = await visit(open.site, open.visitors, entry, open.seeded);
+          try {
+            return await page
+              .locator(selector)
+              .first()
+              .evaluate((el) => el.getBoundingClientRect().width);
+          } finally {
+            await page.close();
+          }
+        };
+        const paragraph = await widthOf("not found", "main > p");
+        const chapter = await widthOf("chapter", "article.chapter");
+        if (win.width === 1280) {
+          expect(paragraph).toBeLessThan(800);
+          expect(chapter).toBeLessThan(800);
+          expect(chapter).toBeGreaterThan(500);
+        } else {
+          expect(paragraph).toBeLessThanOrEqual(360);
+        }
+      });
+    });
+
+    describe("The search box and button are compact but still touch targets", () => {
+      it("is between 32 and 40 px tall", async () => {
+        const entry = OPEN_PAGES.find((p) => p.name === "not found")!;
+        const { page } = await visit(open.site, open.visitors, entry, open.seeded);
+        try {
+          for (const selector of ['form[role="search"] input', 'form[role="search"] button']) {
+            const height = await page
+              .locator(selector)
+              .evaluate((el) => el.getBoundingClientRect().height);
+            expect(height).toBeGreaterThanOrEqual(32);
+            expect(height).toBeLessThanOrEqual(40);
+          }
+        } finally {
+          await page.close();
         }
       });
     });

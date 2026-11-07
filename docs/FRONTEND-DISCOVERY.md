@@ -249,7 +249,11 @@ rating and warnings (the same size as author, weight 600), then
 fandom, then summary, then tags, then stats. The same order holds on cards and
 on the work page. Only size and spacing change.
 
-**Measure and rhythm.** The reader is capped at `66ch` and line height 1.6. The
+**Measure and rhythm.** The site's header, main content and footer share one width,
+960 px (`SITE_WIDTH` in `apps/web/src/styles.ts`), set in px so the footer's smaller text
+doesn't make it a narrower column. Running text keeps a measure inside that column:
+the reader (chapters and `/full`) is capped at `66ch` and line height 1.6, and so are
+the paragraphs and plain lists of other pages, such as About and Terms. The
 interface uses 1.45. Spacing is on a 4 px grid, and sections are separated by
 whitespace and single hairline rules, not boxes.
 
@@ -300,7 +304,7 @@ decoration in a minimal design. They're bold text with labels spelled out.
 
 ## Reading experience
 
-- The text column sits centred at `66ch`. Inside it, the only chrome is a slim top
+- The chapter text keeps a `66ch` measure, in the site's 960 px column. Inside it, the only chrome is a slim top
   bar with the work title, which links to the work page, and a settings link, which
   scrolls away (the site header
   and footer sit around the column, as on every page).
