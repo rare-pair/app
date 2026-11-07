@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 interface WebConfig {
   observability?: {
     enabled?: boolean;
+    redact_query_string?: boolean;
     logs?: { enabled?: boolean; invocation_logs?: boolean };
     traces?: { enabled?: boolean };
   };
@@ -26,6 +27,10 @@ function readConfig(): WebConfig {
 describe("24-crawler-and-agent-blocking", () => {
   it("Counting refusals does not log what people read: invocation logs are off", () => {
     expect(readConfig().observability?.logs?.invocation_logs).toBe(false);
+  });
+
+  it("Query strings are redacted from stored logs: redact_query_string is on", () => {
+    expect(readConfig().observability?.redact_query_string).toBe(true);
   });
 
   it("Web refusals log no URL: traces are off", () => {

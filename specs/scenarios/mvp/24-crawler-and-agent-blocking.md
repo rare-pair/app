@@ -89,14 +89,16 @@ What this does and does not stop: refusals stop a crawler or agent that identifi
 ### Content origin refusals log no URL
 - GIVEN a refused request on `content.rarepair.fans`
 - WHEN the refusal is recorded
-- THEN no log line holds the URL, the work id or the client's address
+- THEN what the code writes into a log line holds no URL, work id or client address, though the platform stores the request's path with the line (see "Counting refusals does not log what people read")
 - AND the content Worker's traces are off, as ARCHITECTURE § Why these pieces (Hosts) has them, so none records the request URL
 
 ### Counting refusals does not log what people read
 - GIVEN the web Worker's logs are on so refusals can be counted
 - WHEN readers open chapters and `/works/:id/full`
 - THEN no per-request invocation log is kept, on that Worker as on the content Worker, because its URLs carry the work id and chapter number
-- AND no log line holds a reading URL or address next to a work id
+- AND what the code writes into a log line holds no reading URL, address or user agent
+- AND the platform stores the path of the request a logged line ran in, including the work id and chapter on a reading page, with no address or user agent, for 7 days (measured on the web Worker 2026-11-07, and assumed the same on the content Worker, whose refusal lines are logged the same way)
+- AND the stored line holds no query string, since sign-in, confirmation and unsubscribe tokens travel in them: `observability.redact_query_string` is on for both Workers. Query strings were stored before it was set. The setting is documented to remove them from request URLs in logs. Whether it clears a custom line is unconfirmed until the live check on the deployed Workers, which passes only if neither `request.url` nor `request.search` holds the query
 
 ### Refusals store nothing about the client
 - GIVEN a refused request on either host

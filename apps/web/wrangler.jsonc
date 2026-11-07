@@ -146,12 +146,18 @@
     },
     { "name": "READ_FULL_LIMIT", "namespace_id": "1051", "simple": { "limit": 10, "period": 60 } },
   ],
-  // Invocation logs are off: a reading URL carries the AO3 work id and chapter number. Errors and
-  // metrics stay on, and the console lines the code logs on purpose, each refusal's reason line included, are expected to be kept
-  // (not yet verified on the platform; ARCHITECTURE, Observability). Traces are off too: a handler span records the URL, which holds the work id and chapter.
+  // Invocation logs are off, so no line is kept for every request. A console line the code logs on
+  // purpose, each refusal's reason line included, still stores the path of the request it ran in
+  // (measured 2026-11-07), a reading page's work id and chapter with it, with no address or user
+  // agent, for 7 days. The line the code writes holds no URL itself. Query strings were stored too
+  // (measured 2026-11-07), and sign-in, confirmation and unsubscribe tokens travel in them, so
+  // redact_query_string is on. It is documented to remove query strings from request URLs in logs
+  // and traces. Whether it clears a custom line's `request.url` and `request.search` is
+  // unconfirmed until the live check on the deployed Worker (ARCHITECTURE, Observability). Traces are off too: a handler span records the URL.
   // To trace a live fault, set traces.enabled to true and deploy, then set it back to false (ARCHITECTURE, Observability).
   "observability": {
     "enabled": true,
+    "redact_query_string": true,
     "logs": { "enabled": true, "invocation_logs": false },
     "traces": { "enabled": false },
   },
