@@ -98,7 +98,7 @@ describe("14-browse-and-home", () => {
     const form = html.match(/<form role="search"[^>]*>[\s\S]*?<\/form>/)?.[0] ?? "";
     expect(form).toContain('action="/search"');
     expect(form).toContain('method="get"');
-    expect(form).toMatch(/<label for="q">[^<]+<\/label>/);
+    expect(form).toMatch(/<label for="q" class="visually-hidden">[^<]+<\/label>/);
     expect(form).toMatch(/<input type="search" id="q" name="q">/);
 
     // No script, no inline style, no wait list form or widget, and the strict policy.
