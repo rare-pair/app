@@ -143,6 +143,8 @@ describe("20-site-chrome-and-legal: cards", () => {
       `/search?q=${QUERY_MARKER}`,
       tagPath,
       `${tagPath}?sort=updated&page=1`,
+      "/works",
+      "/works?sort=words&page=1",
       "/tags/freeform/cd-no-such-tag",
     ]) {
       const html = await get(path);

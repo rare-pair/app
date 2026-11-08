@@ -1,10 +1,11 @@
-// The tag listing, `/tags/:type/:name`: a tag's live works as work cards
+// The tag listing, `/tags/:type/:name`, and all works, `/works`: live works as work cards
 // (FRONTEND-DISCOVERY, Components, Work card), a page at a time, with page
 // links that are real links (FRONTEND-DISCOVERY, Pagination).
 
 import {
   createDb,
   isTagType,
+  listLiveWorks,
   listLiveWorksByTag,
   liveTagSpellings,
   NOT_RATED,
@@ -159,6 +160,62 @@ export async function showTagListing(c: Context<{ Bindings: Bindings }>) {
   }
 }
 
+/** The all-works listing's own path. */
+export const ALL_WORKS = "/works";
+
+/**
+ * The all-works listing's page from what it lists, or null when the page is past
+ * the last. Needs no database, so its empty state can be tested alone.
+ */
+export function allWorksHtml({
+  works,
+  total,
+  page,
+  query,
+}: {
+  works: ListedWork[];
+  total: number;
+  page: number;
+  query: ListingQuery;
+}): string | null {
+  const last = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (page > last) return null;
+  const filtered = paramsOf(query, 1).length > 0;
+  const list =
+    works.length > 0
+      ? workList(works)
+      : filtered
+        ? "<p>No works match these filters.</p>"
+        : "<p>There are no works here yet.</p>";
+  const href = (n: number) => hrefWith(ALL_WORKS, paramsOf(query, n));
+  const tagNorm = query.tag && tagNameKeys(query.tag.type, query.tag.name)[0];
+  const canonical = `<link rel="canonical" href="${hrefWith(ALL_WORKS, paramsOf(query, page, tagNorm))}">`;
+  return layout(
+    "All works",
+    `${filterForm(ALL_WORKS, query)}\n${list}\n${pager(href, page, last)}`,
+    `${canonical}${siteCard()}`,
+  );
+}
+
+/** `/works`: every live work, a page at a time, sorted and filtered as a tag listing is. */
+export async function showAllWorks(c: Context<{ Bindings: Bindings }>) {
+  const page = pageOf(c.req.query("page"));
+  const query = queryOf(c.req.query());
+  const db = createDb({ connectionString: c.env.HYPERDRIVE_CACHED.connectionString, max: 1 });
+  try {
+    const { works, total } = await listLiveWorks(db, {
+      ...query,
+      complete: query.complete === undefined ? undefined : query.complete === "yes",
+      page,
+      pageSize: PAGE_SIZE,
+    });
+    const html = allWorksHtml({ works, total, page, query });
+    return html === null ? c.notFound() : c.html(html, 200, CACHED);
+  } finally {
+    c.executionCtx.waitUntil(db.destroy());
+  }
+}
+
 /** A labelled select, with the option whose value is `chosen` selected. */
 export const select = (id: string, name: string, label: string, options: Pair[], chosen: string) =>
   `<p><label for="${id}">${label}</label> <select id="${id}" name="${name}">${options
@@ -195,9 +252,13 @@ ${select("listing-tag-type", "tag_type", "Tag type", tagTypes, query.tag?.type ?
 }
 
 /** The listing's URL with these parameters, escaped for an attribute. */
-function listingHref(type: TagType, name: string, params: Pair[]): string {
+const listingHref = (type: TagType, name: string, params: Pair[]) =>
+  hrefWith(tagHref(type, name), params);
+
+/** A path with these parameters, escaped for an attribute. */
+function hrefWith(path: string, params: Pair[]): string {
   const query = new URLSearchParams(params).toString();
-  return escapeHtml(tagHref(type, name) + (query ? `?${query}` : ""));
+  return escapeHtml(path + (query ? `?${query}` : ""));
 }
 
 /**

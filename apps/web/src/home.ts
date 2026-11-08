@@ -4,7 +4,7 @@
 
 import { createDb, listPopularFandoms, listRecentLiveWorks } from "@archive/db";
 import type { Bindings } from "./env";
-import { workList } from "./listing";
+import { ALL_WORKS, workList } from "./listing";
 import { siteCard } from "./cards";
 import { escapeHtml, layout, SEARCH_FORM } from "./pages";
 import { tagHref } from "./tag-links";
@@ -38,7 +38,8 @@ ${fandoms.map((f) => `<li><a href="${tagHref("fandom", f.name_norm)}">${escapeHt
       ? `<p>There are no works here yet.</p>`
       : `${popular}
 <h2>Recently added</h2>
-${workList(works)}`;
+${workList(works)}
+<p><a href="${ALL_WORKS}">All works</a></p>`;
   return layout(
     "Home",
     [SEARCH_FORM, updatesSection(updates), lists].filter((part) => part !== "").join("\n"),
