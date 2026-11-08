@@ -40,6 +40,13 @@ describe("20-closed-links before launch", () => {
     }
   });
 
+  it("Footer links to the Discord server", async () => {
+    for (const path of FOOTER_PAGES) {
+      const links = footerLinks(await (await fetchW(path)).text());
+      expect(links, path).toContainEqual([' href="https://discord.gg/538ME6Jabu"', "Discord"]);
+    }
+  });
+
   it("The not-found page's search form shows with its input and button disabled", async () => {
     const res = await fetchW("/waitlist");
     expect(res.status).toBe(404);

@@ -182,6 +182,14 @@ describe("20-site-chrome-and-legal", () => {
     }
   });
 
+  it("Footer links to the Discord server", async () => {
+    for (const path of APP_PAGES) {
+      const html = await htmlOf(path);
+      const footer = footerOf(html);
+      expect(footer, path).toContain('<a href="https://discord.gg/538ME6Jabu">Discord</a>');
+    }
+  });
+
   it("Not-found page", async () => {
     const res = await fetchW("/no-such-page");
     const html = await res.text();

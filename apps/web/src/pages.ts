@@ -69,7 +69,7 @@ ${heading}
 `,
   after: `
 </main>
-<footer><a href="/remove">Remove my work</a> · <a href="/dmca">Copyright notice</a> · <a href="/about">About</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://github.com/rare-pair/app">GitHub</a></footer>
+<footer><a href="/remove">Remove my work</a> · <a href="/dmca">Copyright notice</a> · <a href="/about">About</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="https://github.com/rare-pair/app">GitHub</a> · <a href="https://discord.gg/538ME6Jabu">Discord</a></footer>
 </body>
 </html>`,
 });
