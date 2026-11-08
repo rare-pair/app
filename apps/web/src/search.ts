@@ -77,11 +77,15 @@ function searchHref({ q, sort, ...filters }: SearchQuery, page: number): string 
 
 /** The search box, the sort and the filters, as one GET form with the choices in it. The form has no page, so applying a filter returns to the first. */
 const searchForm = (query: SearchQuery) => `<form role="search" method="get" action="/search">
+<div class="search-box">
 <label for="q" class="visually-hidden">Search the archive</label>
 <input type="search" id="q" name="q" value="${escapeHtml(query.q)}">
+<button type="submit">Search</button>
+</div>
+<div class="listing-filters">
 ${select("listing-sort", "sort", "Sort by", SEARCH_SORTS, query.sort)}
 ${filterFields(query, MAX_TAG)}
-<button type="submit">Search</button>
+</div>
 </form>`;
 
 /**
