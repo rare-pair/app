@@ -2,25 +2,27 @@
 
 Relates to: docs/ARCHITECTURE.md § Ingestion pipeline, § Dedupe, § Reading (Download original epub), § The re-sanitize backfill; docs/FRONTEND-DISCOVERY.md § Key journeys (3); specs/scenarios/mvp/02-upload-handshake.md; specs/scenarios/mvp/06-ao3-preface-and-chapters.md; specs/scenarios/mvp/08-versioning-and-dedupe.md; specs/scenarios/mvp/09-content-origin.md
 
-Status: not built. Some readers only saved a PDF, and with the original archive offline they can't get an epub. This accepts those files, narrowly, and accepts that the result reads less well than an epub. An epub that isn't older wins over a PDF, and a PDF never replaces an epub.
+Status: built. Some readers only saved a PDF, and with the original archive offline they can't get an epub. This accepts those files, narrowly, and accepts that the result reads less well than an epub. An epub that isn't older wins over a PDF, and a PDF only replaces an epub if a moderator makes it current.
 
 ## What the tests showed
 
 From throwaway tests on 2026-11-07 of 8 PDFs: 2 AO3 exports or copies of them, 4 browser prints of AO3's HTML download, and 2 Calibre conversions of epubs. The numbers are recorded here because the test folder doesn't last. They were run in Node and in local workerd, not on Cloudflare.
 
 - **What survives:** the work ID, tags and authors from link annotations, and the printed "Posted originally" URL, which agreed with the link in 8 of 8. The chapter count matched the declared count in 8 of 8. The 2 Calibre conversions matched their epubs on all 26 compared fields, and on words within 0.1%.
-- **What doesn't survive exactly:** paragraphs are off by 5 to 19%. Italics need `getOperatorList()`, which took +275 MB on a 335-page file, so they're left out here. No sample held an image.
+- **What doesn't survive exactly:** paragraphs are off by 5 to 19%. Italics need `getOperatorList()`, which took +275 MB on a 335-page file, so they're left out here. One sample, broker-03, holds 2 image objects; the rest hold none, and no test has checked what becomes of an image.
 - **Cost:** 2.3 s and +46 MB for the largest real file, text only. 9.1 s and +95 MB for a synthetic 25 MB file. `unpdf` adds 1.66 MB to the bundle. Local workerd enforces no CPU limit, so production's cost is unknown.
 - **Hostile files:** a 50,000-page file doesn't finish in 60 s. A 261 KB file that inflates to 256 MB took +455 MB, with nothing visible before inflating.
+- **What a budget on each stream doesn't catch (2026-11-07, in workerd, measured as process RSS):** pdf.js decodes a stream once per reference. A 13 KB file with one 1 MiB stream named 2,000 times in `/Contents` took 6.1 GB, and a 16 KB file with one 15 MiB stream named 64 times took 2.9 GB. A 2.4 KB file of form XObjects calling each other took +150 MB, with no Flate at all. None of the 6 samples or 2 fresh Calibre conversions (Calibre 8.10, default settings) uses a form XObject or a `/Contents` array, and all 8 pass every check here. The largest stream in any of them inflates to 0.24 MB, and the most any inflates in all is 46 MB, from the 5.7 MB docs-sample.
+- **Memory with the checks:** the 256 MB file is refused in 4 ms at +7 MB, since the check counts what a stream makes without keeping it, and the two repeated-reference files in 2 ms at +6 MB or less. A 26 MB file, read as text alone, needed about 97 MB by V8's heap limit plus its file copies, which is why a PDF is limited to 10 MB. Through the whole processor, a 10 MB file of nothing but text (1.15M words) survives a heap limit of 80 MB and not 60, plus 20 MB for its two copies, so about 100 MB. The 5.7 MB docs-sample survives 40 MB. Those are estimates from local workerd, and only Cloudflare can settle them.
 
-Only 2 of the 8 could be checked against an epub, and both are single-chapter. So chapter text comparison, tags from print and paragraphs are unverified for multi-chapter files, and memory is tight: a 25 MB file held in memory plus the +95 MB above is close to a Worker's 128 MB. See "Before it ships".
+Only 2 of the 8 could be checked against an epub, and both are single-chapter. So chapter text comparison, tags from print and paragraphs are unverified for multi-chapter files, and memory is tight, so a PDF is limited to 10 MB. See "Before it ships".
 
 ## Setup
 
 - Fixtures are synthetic PDFs built by a script in the tests, holding no fic text. Real PDFs stay on the operator's machine under `fixtures/`, and `fixtures/**/*.pdf` is git-ignored
 - A file is a PDF because of its bytes, not its name or the type it was sent with
-- The 25 MB limit, the daily quota, Turnstile and the rate limits are the same as for an epub, and a PDF counts as one upload
-- A **PDF version** is a work version made from a PDF. It carries the review reason `from_pdf`, so it goes live with the existing notice, and it never holds an upload by itself
+- A PDF is limited to 10 MB, and an epub keeps its 25 MB (operator's ruling, 2026-11-07). The daily quota, Turnstile and the rate limits are the same as for an epub, and a PDF counts as one upload
+- A **PDF version** is a work version made from a PDF. It carries the review reason `from_pdf`, so it goes live with the existing notice, and `from_pdf` never holds an upload by itself. A PDF whose byline the reader isn't sure of is held (*A byline the reader isn't sure of is held*)
 - An upload's `format` column says `epub` or `pdf`, set when it's ingested. Its original is stored at `originals/<upload id>.epub` or `originals/<upload id>.pdf`, and every reader of that key goes through one helper that takes the format
 - `pdf_unreadable` is a new upload status: in the `UploadStatus` type, the database check, the status labels and messages, and an error code ingest treats as final, so the job isn't retried
 
@@ -34,6 +36,13 @@ Only 2 of the 8 could be checked against an epub, and both are single-chapter. S
 - THEN it joins the list like an epub, goes through the same `POST /uploads`, `PUT` and confirm, and shows its own status on `/me/uploads`
 - AND `PUT` accepts exactly `application/epub+zip` or `application/pdf`, and the page sends whichever the file's extension calls for. Any other type is still a 415, and spec 02 says so
 - AND the page's wording says PDFs are accepted, and that an epub reads better if they have one
+
+#### A PDF over 10 MB is refused in plain words
+- GIVEN a PDF over 10 MB
+- WHEN the page lists it, or it's declared at `POST /uploads` with the PDF type, or sent to `PUT` with the PDF type
+- THEN the page shows it can't be sent, and the Worker answers 413, saying it's over the 10 MB limit for a PDF
+- AND an epub of the same size is taken, up to its 25 MB
+- AND a PDF sent as an epub ends `too_large` at ingest, by its bytes, and the message on `/me/uploads` gives both limits
 
 #### A file's bytes decide what it is
 - GIVEN a PDF named `.epub`, or an epub named `.pdf`
@@ -74,6 +83,20 @@ Only 2 of the 8 could be checked against an epub, and both are single-chapter. S
 - WHEN it is ingested
 - THEN it is stored as an epub's anonymous work is
 - AND a `/users/` link outside the byline isn't taken for an author
+- AND only the marker alone is anonymous: "by Anonymous, A Name" names both, with `byline_ambiguous`, for the opt-out check to read, and is held as below
+- AND a byline can wrap, inside a name too, and every linked author on it is read. A link names who it covers, by the pseud in it or, with none, the name printed under it, with the login in the link as that author's user; a name printed as `Pseud (login)` under a link to that login names `Pseud`. The byline shows the printed pseud, one author a link, and the opt-out check reads the pseud and the login (operator's ruling, 2026-11-07). A printed name no link covers is named as well, with `byline_ambiguous`. None of the 8 samples has more than one author, so this is shown only on synthetic files
+- AND a PDF's document metadata isn't read for authors, since a browser or word processor can set it to anything, so a file with no byline has `byline_missing`
+
+#### A byline the reader isn't sure of is held
+- GIVEN a PDF whose byline the reader isn't sure it read whole: a name on it no link covers, no byline at all, a byline whose last line ends its page, a byline that reaches its cap of 8 lines while it still goes on, or a line close under its last one that has an author's link or starts with a word the last line may have had no room for, counted across the text's measure and up to its margin, whichever leaves less (a measure that can't be read leaves none). Each is held, not read further (operator's ruling, 2026-11-07)
+- WHEN it is ingested
+- THEN its version gets the `byline_unsure` review reason and is held for a moderator with the hold reason `pdf_byline_unsure`, whatever the version rules would make of it, except that a duplicate stays a duplicate (operator's ruling, 2026-11-07). Any other reason the rules gave to hold it is kept after it, in `other_hold_reasons`, and a moderator sees each. Nothing of it is public until a moderator approves it
+- AND as a work's first upload, the work is `held`: it has the version and its byline, and nothing of it is public. A moderator's approval puts it live at a version. A later upload the reader is sure of, an epub or a PDF, goes live as a first one would, and the held version stays held; approving that held version later makes it current over the live one, as with `pdf_more_chapters` (operator's ruling, 2026-11-07). A later unsure PDF is decided against the held version: the same file, or one no newer, is a `duplicate`, and a newer one is held beside it
+- AND an opt-out covers a held work from the start, by its byline and every version it holds: confirming one hides it, and a restore puts it back to `held`, not live. Approving any held version checks the opt-out list again, by pseud and login, and keeps it held if an author is on it
+- AND a held work can be removed, and a takedown on it approved, as a live one can. The re-sanitize backfill leaves it as it is
+- AND *Works to check* lists it as "A PDF whose byline may not have been read whole: check its authors"
+- AND the re-sanitize backfill leaves a PDF version as it is when the reader is no longer sure of its byline, unless a moderator approved it already unsure
+- AND all 8 samples are read with no such doubt, and go live
 
 #### The chapter count must match
 - GIVEN a PDF whose chapters can't be found in the number its `Chapters:` line declares
@@ -89,6 +112,8 @@ Only 2 of the 8 could be checked against an epub, and both are single-chapter. S
 
 Each stops before the parser opens the file, or stops it within its budget. The job ends with no retry, and its file is treated as a refused epub's is.
 
+These checks don't bound everything the parser can do, and that's accepted (operator's ruling, 2026-11-07): a file that passes them and still kills the isolate gets the normal retries, then ends `parse_failed`, as any job that keeps dying does. There's no budget over what a file's pages can reach.
+
 #### Encrypted and corrupt files are refused
 - GIVEN a file starting `%PDF-` that is encrypted, truncated, or whose `startxref` doesn't land on `xref` or an object
 - WHEN it is ingested
@@ -98,13 +123,25 @@ Each stops before the parser opens the file, or stops it within its budget. The 
 - GIVEN a PDF whose trailer `/Size` is over 100,000, or with over 5,000 pages
 - WHEN it is ingested
 - THEN it ends `pdf_unreadable`, read from the trailer where it can be
-- AND the largest real sample has 8,561 objects, and 5,000 pages holds about 1M words
+- AND the largest real sample has 8,561 objects, and at the samples' 230 to 554 words a page, 5,000 pages holds 1.2M to 2.8M words
+- AND a parse reads at most 500,000 text items, 8 MiB of text (about 1.4M words, so a very dense file can end this way before 5,000 pages) and 50,000 links to the original archive, and past any of them it ends `pdf_unreadable`, whose message says it may be very long
 
 #### A stream that inflates too far is refused
 - GIVEN a small PDF with a stream that inflates to hundreds of MB
 - WHEN it is ingested
-- THEN it ends `zip_bomb`, as an epub does, with the Worker still inside its memory limit
+- THEN it ends `zip_bomb`, as an epub does, without the parser opening it, so the parser's memory never comes into it
 - AND a test shows this on the file from "What the tests showed", in workerd
+- AND one stream may inflate to 16 MiB, and all of a file's to 128 MiB, which leaves room for a real 10 MB file at the 8.1 to 1 of the largest sample
+
+#### A structure that decodes a stream over and over is refused
+- GIVEN a PDF with a form XObject, or a `/Contents` array that repeats a reference, holds more than 8 entries or whose streams inflate past 16 MiB together, or `/Contents` that names an array object
+- WHEN it is ingested
+- THEN it ends `pdf_unreadable`, and the parser never opens it
+- AND a filter that could hide a stream from the check ends the same way: anything but one flate, optionally before a DCT or JPX filter on a stream that says it's an image, or a filter or subtype behind a reference. CCITT and JBIG2 are refused, since a few bytes of either can ask for hundreds of MB, and so is `/Contents` that names an image
+- AND so does a stream inside an object stream or a dictionary, which pdf.js reads though the format has neither, an inline image in a dictionary, and an object stream with no filter or whose `/N` or `/First` is behind a reference
+- AND the check reads a dictionary as pdf.js does, so what it hides from a simpler reader isn't hidden from this one: names in hex escapes, a key that isn't a name, a `>>` as a value, `+4` and `4.0` as numbers. It keeps only the values it reads, and reads a bounded amount, so a file can't fill the Worker's memory or time with the check itself
+- AND what's still open, under the ruling above: an image stream named as a font, and an object stream whose header gives other offsets
+- AND the check itself stays small on any file up to the limit: it keeps only a dictionary's few values it reads, and refuses a file with more of them than a real one has
 
 #### A long parse keeps its lease
 - GIVEN a PDF near every limit
@@ -125,6 +162,8 @@ Each stops before the parser opens the file, or stops it within its budget. The 
 - WHEN a reader opens a chapter or `/full`
 - THEN it uses the same pages, cache, warnings screen, settings and position as any work
 - AND chapter summaries and notes go where an epub's do, by their printed labels
+- AND the afterword is known by its heading with End Notes, the works inspired by this one, or the closing line under it, or else by an `End Notes` line before the closing line, which is the one case a line in the text can be taken for it. The first heading that passes is the afterword, so a text line reading `Afterword` with an `End Notes` line under it ends the last chapter there
+- AND the list of works inspired by this one isn't kept: it isn't the author's notes. docs-sample has it under its afterword heading, with no end notes; broker-02 has it after its end notes, with no heading, where it stays in the end notes
 
 #### A reader is told it was converted
 - GIVEN a work whose current version is a PDF version
@@ -141,6 +180,7 @@ Each stops before the parser opens the file, or stops it within its budget. The 
 - GIVEN a new PDF version
 - WHEN a moderator opens *Works to check*
 - THEN it is listed with the wording "Converted from a PDF", and "Tags read from print" for `tags_from_print`, not the raw reason codes, and checks like any other reason
+- AND the same words show on the work's own moderation page
 
 #### The original stays a download
 - GIVEN a live PDF version
@@ -167,11 +207,18 @@ Each stops before the parser opens the file, or stops it within its budget. The 
 - WHEN an older epub of it is ingested
 - THEN it ends `duplicate`, as any older upload does
 
-#### A PDF never replaces an epub
+#### A PDF never replaces an epub by itself
 - GIVEN a work whose current version came from an epub
-- WHEN a PDF of the work is ingested, with any date or chapter count
+- WHEN a PDF of the work is ingested, with no more chapters than that epub, and any date
 - THEN it ends `duplicate`, and the uploader sees "Already in the archive" with a link to the work
+- AND its file isn't served, unlike an epub's duplicate: no moderator has looked at it, nothing links to it, and any file with the right line on it could be hosted that way
 - AND a moderator can't be blocked by this: making an older version current works as it does today, in either direction
+
+#### A PDF with more chapters than the current epub is held
+- GIVEN a work whose current version came from an epub
+- WHEN a PDF of the work with more chapters is ingested, with any date
+- THEN it ends `held_for_review`, with the hold reason `pdf_more_chapters`, and the work stays as it is
+- AND *Works to check* lists it as "A PDF with more chapters than the current epub", and a moderator can make it current (operator's ruling, 2026-11-07)
 
 #### A PDF follows the rules against a PDF
 - GIVEN a work whose current version is a PDF version
@@ -200,8 +247,9 @@ Each stops before the parser opens the file, or stops it within its budget. The 
 These can't be shown by the tests in this repository, and they go to the operator:
 
 1. Test real multi-chapter PDFs with a matching epub, including a recent AO3 Calibre export if one can be found. The tests so far only checked two single-chapter conversions. If per-chapter words differ by over about 2%, or fields don't match, this needs another look.
-2. On Cloudflare, ingest a 25 MB PDF and a file near the page limit, and read CPU time and memory in the logs. Local workerd enforces no CPU limit.
-3. Try one PDF with images, and a one-chapter browser print, since no sample covered them.
+2. On Cloudflare, ingest a 10 MB PDF and a file near the page limit, and read CPU time and memory in the logs. Local workerd enforces no CPU limit.
+3. Try one PDF with images, and a one-chapter browser print, since no sample covered them. A PDF whose images inflate past 16 MiB each, or 128 MiB together, is refused as `zip_bomb`, and this is where that would show up.
+4. Try a PDF from a word processor, which no sample covered: if it uses a form XObject or a long `/Contents` array it's refused, and that check may need loosening.
 
 ## Not in this
 

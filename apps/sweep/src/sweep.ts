@@ -1,4 +1,4 @@
-import { deleteUnconfirmedUploads, type Database } from "@archive/db";
+import { deleteUnconfirmedUploads, originalKeys, type Database } from "@archive/db";
 import { sql, type Kysely } from "kysely";
 import { imageRefs } from "./refs";
 
@@ -415,7 +415,7 @@ async function sweepRemoved(
   report.removedWorks++;
   await deleteKeys(
     bucket,
-    [...state.uploads].map((id) => `originals/${id}.epub`),
+    [...state.uploads].flatMap((id) => originalKeys(id)),
   );
   let previous: string | undefined;
   for (;;) {

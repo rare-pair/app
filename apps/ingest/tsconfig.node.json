@@ -16,5 +16,6 @@
     "test/global-setup.ts",
     "test/provided.d.ts",
     "test/**/*.node.test.ts"
-  ]
+  ],
+  "exclude": ["test/pdf-preflight.node.test.ts", "test/pdf-structure.node.test.ts"]
 }

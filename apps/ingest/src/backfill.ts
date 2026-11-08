@@ -1,9 +1,10 @@
-import type { Database } from "@archive/db";
+import { currentVersionHeld, originalKey, versionOriginalFormat, type Database } from "@archive/db";
 import { EpubError, LIMITS, type ParsedWork } from "@archive/epub";
 import { sql, type Kysely } from "kysely";
 import type { JobDeps } from "./job";
 import { ListCheckRejected, onRejectList } from "./lists";
 import type { BackfillMessage } from "./message";
+import { BYLINE_UNSURE } from "./pdf/structure";
 import {
   clearRemovedWork,
   saveBackfill,
@@ -24,7 +25,9 @@ export interface BackfillDeps {
  * now (ARCHITECTURE, EPUB processor, step 8), while that version is still the one the message
  * names. Returns what became of it, for the log: `backfilled`, or why the current version was
  * left as it is (`no_work`, `removed`, `not_current`, `original_missing`, `too_large`,
- * `work_mismatch`, `opted_out`, `optout_check_rejected_<sqlstate>` (the opt-out table refused a value
+ * `held` (a work whose first upload waits for a moderator), `work_mismatch`, `byline_unsure`
+ * (a PDF whose byline the reader is no longer sure of),
+ * `opted_out`, `optout_check_rejected_<sqlstate>` (the opt-out table refused a value
  * in the file), or an `EpubError`'s or `SaveRejected`'s code: the processor's
  * verdict on the original as it now stands). Each is final, so the message is acked: a short
  * fixed code, never text from the file. Throws on a failure worth retrying, such as R2 or
@@ -41,6 +44,8 @@ export async function runBackfill(deps: BackfillDeps, message: BackfillMessage):
       "work_versions.upload_id",
       "work_versions.source_upload_id",
       "work_versions.review_reasons",
+      versionOriginalFormat.as("original_format"),
+      currentVersionHeld.as("held"),
       // Keeps Hyperdrive from answering from its cache: a stale pointer or status would re-make
       // a work already done, or miss a removal.
       sql<Date>`now()`.as("read_at"),
@@ -58,10 +63,13 @@ export async function runBackfill(deps: BackfillDeps, message: BackfillMessage):
   // Already backfilled (a redelivery after the commit lands here), or a moderator or a newer
   // upload has moved the work since the message was made.
   if (row.current_version_id !== message.version_id) return "not_current";
+  // A held work's version waits for a moderator, hidden or not: nothing of it is re-made until
+  // it is approved.
+  if (row.held) return "held";
   // A backfill version names the upload it was re-made from; the schema gives every version one.
   const originalUploadId = row.upload_id ?? row.source_upload_id;
   if (originalUploadId === null) throw new Error("a version names no original");
-  const object = await deps.bucket.get(`originals/${originalUploadId}.epub`);
+  const object = await deps.bucket.get(originalKey(originalUploadId, row.original_format));
   if (object === null) return "original_missing";
   // As for an upload: by the object's size, before its body is read.
   if (object.size > LIMITS.maxInputBytes) {
@@ -79,6 +87,11 @@ export async function runBackfill(deps: BackfillDeps, message: BackfillMessage):
     return error.code;
   }
   if (work.ao3WorkId !== String(row.ao3_work_id)) return "work_mismatch";
+  // A PDF's byline the reader is no longer sure of goes live only by a moderator (spec 12): kept
+  // as it is, unless a moderator approved the version already unsure.
+  if (work.reviewReasons.includes(BYLINE_UNSURE) && !row.review_reasons.includes(BYLINE_UNSURE)) {
+    return BYLINE_UNSURE;
+  }
   // Before anything is written: what an opt-out now blocks is not published again.
   try {
     if (await onRejectList(deps.db, work)) return "opted_out";

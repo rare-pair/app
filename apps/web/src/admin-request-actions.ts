@@ -5,7 +5,13 @@
 // else still covers (another pending removal request, or another active opt-out that names
 // one of its authors). Mounted in admin.ts behind `adminGate`, like admin-items.ts.
 
-import { logModerationAction, normalizePseud, restoreWork, type Database } from "@archive/db";
+import {
+  checkedNames,
+  isOptedOut,
+  logModerationAction,
+  restoreWork,
+  type Database,
+} from "@archive/db";
 import { Hono } from "hono";
 import { sql, type Kysely } from "kysely";
 import type { AdminEnv } from "./admin";
@@ -83,23 +89,25 @@ export async function lockLinkedWorks(trx: Kysely<Database>, requestIds: string[
   return linked;
 }
 
-/** Another request's active opt-out names one of the work's authors. */
+/**
+ * Another request's active opt-out names one of the work's authors, by pseud or login, as an
+ * opt-out's hide matches them (`applyOptOut`): its byline, and every version it holds for review.
+ */
 async function coveredByOptOut(trx: Kysely<Database>, workId: string, requestId: string) {
   const authors = await trx
     .selectFrom("work_authors")
-    .select("pseud")
+    .select(["pseud", "ao3_user as user"])
     .where("work_id", "=", workId)
     .execute();
-  const norms = [...new Set(authors.map((a) => normalizePseud(a.pseud)))];
-  if (norms.length === 0) return false;
-  const covering = await trx
-    .selectFrom("optouts")
-    .select("id")
-    .where("active", "=", true)
-    .where("request_id", "<>", requestId)
-    .where("pseud_norm", "in", norms)
-    .executeTakeFirst();
-  return covering !== undefined;
+  const held = await trx
+    .selectFrom("work_versions")
+    .innerJoin("uploads", "uploads.id", "work_versions.upload_id")
+    .select("work_versions.authors")
+    .where("work_versions.work_id", "=", workId)
+    .where("uploads.status", "=", "held_for_review")
+    .execute();
+  const names = checkedNames([...authors, ...held.flatMap((v) => v.authors ?? [])]);
+  return isOptedOut(trx, names, { exceptRequest: requestId });
 }
 
 /**

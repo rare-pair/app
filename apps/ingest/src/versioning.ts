@@ -21,12 +21,20 @@ export interface VersionFacts {
   /** As stored: type and name as the file spells it. */
   tags: { type: TagType; name: string }[];
   authors: { pseud: string; user: string | null }[];
+  /** The version came from a PDF, whose text and tags can't be held to an epub's. */
+  fromPdf?: boolean;
+  /** A PDF whose byline the reader isn't sure it read whole: it goes live only by a moderator. */
+  bylineUnsure?: boolean;
 }
 
 export type VersionDecision =
   | { outcome: "replace" }
   | { outcome: "duplicate"; reason: "not_newer" }
-  | { outcome: "hold"; reason: HoldReason };
+  | {
+      outcome: "hold";
+      reason: HoldReason;
+      /** The other reasons it is held for, if any. */ also?: HoldReason[];
+    };
 
 export interface VersionOptions {
   /** Chapter similarity at or above which an edit is small. Defaults to `SIMILARITY_THRESHOLD`. */
@@ -42,9 +50,35 @@ export function decideVersion(
   upload: VersionFacts,
   options: VersionOptions = {},
 ): VersionDecision {
+  const decision = decideByContent(current, upload, options);
+  // An uncertain byline is held whatever else it would be, but a duplicate adds nothing. Another
+  // reason to hold it is kept after it, so a moderator is told both.
+  if (!upload.bylineUnsure || decision.outcome === "duplicate") return decision;
+  return decision.outcome === "hold"
+    ? { outcome: "hold", reason: "pdf_byline_unsure", also: [decision.reason] }
+    : { outcome: "hold", reason: "pdf_byline_unsure" };
+}
+
+function decideByContent(
+  current: VersionFacts,
+  upload: VersionFacts,
+  options: VersionOptions,
+): VersionDecision {
   const threshold = options.threshold ?? SIMILARITY_THRESHOLD;
   // NaN or a value outside 0..1 would pass every rewrite or hold every identical chapter.
   if (!(threshold >= 0 && threshold <= 1)) throw new RangeError("threshold must be from 0 to 1");
+  // An epub wins (spec 12): over a PDF unless it's older, with nothing else compared. A PDF never
+  // replaces an epub by itself: with more chapters a moderator looks, and otherwise it's a duplicate.
+  if (current.fromPdf && !upload.fromPdf) {
+    return isNotOlder(current, upload)
+      ? { outcome: "replace" }
+      : { outcome: "duplicate", reason: "not_newer" };
+  }
+  if (!current.fromPdf && upload.fromPdf) {
+    return upload.chapters.length > current.chapters.length
+      ? { outcome: "hold", reason: "pdf_more_chapters" }
+      : { outcome: "duplicate", reason: "not_newer" };
+  }
   if (!isNewer(current, upload)) return { outcome: "duplicate", reason: "not_newer" };
   if (!sharedChaptersAlike(current, upload, threshold)) {
     return { outcome: "hold", reason: "chapters_changed" };
@@ -64,6 +98,17 @@ function isNewer(current: VersionFacts, upload: VersionFacts): boolean {
   const from = validDate(current.date);
   const to = validDate(upload.date);
   return from !== null && to !== null && to > from;
+}
+
+/** More chapters, or as many with the same date or a later one. */
+function isNotOlder(current: VersionFacts, upload: VersionFacts): boolean {
+  if (upload.chapters.length !== current.chapters.length) {
+    return upload.chapters.length > current.chapters.length;
+  }
+  const from = validDate(current.date);
+  const to = validDate(upload.date);
+  // A PDF with no date has nothing to be newer than, and an epub with none can't say it isn't older.
+  return to !== null && (from === null || to >= from);
 }
 
 function validDate(date: string | null): string | null {

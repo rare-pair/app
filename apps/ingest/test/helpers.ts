@@ -588,6 +588,7 @@ export const versionsOf = (ao3WorkId: number) =>
         "updated_at",
         "raw_meta",
         "hold_reason",
+        "other_hold_reasons",
       ])
       .where("work_id", "=", work.id)
       .execute();

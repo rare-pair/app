@@ -102,6 +102,7 @@ adminWork.get("/works/:id", async (c) => {
       "work_versions.review_reasons",
       "work_versions.checked_at",
       "work_versions.hold_reason",
+      "work_versions.other_hold_reasons",
       "user.id as user_id",
       "user.email",
       "user.banned_at",
@@ -115,7 +116,10 @@ adminWork.get("/works/:id", async (c) => {
     workAdminPage(
       work.title,
       work.ao3_work_id,
-      workStatusText(work.status, work.hidden_cause),
+      // Its first upload held (spec 12): nothing of it is public until a version is approved.
+      work.status === "held"
+        ? "held: not live until a version is approved"
+        : workStatusText(work.status, work.hidden_cause),
       versions.map((v) => ({
         id: v.id,
         added: v.created_at.toISOString(),
@@ -127,7 +131,7 @@ adminWork.get("/works/:id", async (c) => {
         chapters: v.chapter_count,
         current: v.id === work.current_version_id,
         held: isHeld(v.source, v.upload_status),
-        holdReason: v.hold_reason,
+        holdReasons: v.hold_reason === null ? [] : [v.hold_reason, ...v.other_hold_reasons],
         reviewReasons: v.review_reasons,
         checked: v.checked_at !== null,
       })),
@@ -184,6 +188,8 @@ adminWork.post("/works/:id/approve", async (c) => {
     published: "That version is approved and now current.",
     nothing: "Nothing changed: that version has nothing to approve.",
     unavailable: "Nothing changed: the work is removed or not finished processing.",
+    opted_out:
+      "Nothing changed: an author of that version is on the opt-out list, so it stays held.",
   }[outcome];
   return c.html(resultPage(message, back));
 });

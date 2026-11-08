@@ -2,6 +2,7 @@
 // every /admin URL goes through, and the four queues, read only. Actions and detail
 // pages come with later tickets (MOD2 on).
 
+import { reasonWording, WORDED_HOLDS } from "./review-wording";
 import {
   createDb,
   isModeratorRole,
@@ -222,6 +223,14 @@ export async function showWorksToCheck(c: AdminContext) {
     .innerJoin("works", "works.id", "work_versions.work_id")
     .select(["works.id", "works.title", "works.ao3_work_id"])
     .select((eb) => eb.fn.min("work_versions.created_at").as("created_at"))
+    .select(
+      // Every reason any of its held versions is held for, first and other (repeats are harmless).
+      sql<
+        (string | null)[]
+      >`array_agg(work_versions.hold_reason) || coalesce(string_to_array(string_agg(array_to_string(work_versions.other_hold_reasons, ','), ','), ','), '{}')`.as(
+        "hold_reasons",
+      ),
+    )
     .where("uploads.status", "=", "held_for_review")
     .where("works.status", "<>", "removed")
     // One row per work, so a work with many held versions can't use up the cap.
@@ -318,8 +327,23 @@ export async function showWorksToCheck(c: AdminContext) {
       if (!have.reasons.includes(reason)) have.reasons.push(reason);
     }
   };
-  for (const r of held) add(r, "Held version");
-  for (const r of flagged) add(r, `Review reasons: ${r.review_reasons.join(", ")}`);
+  for (const r of held) {
+    // A PDF's hold is named, with every other reason its versions are held for after it.
+    const rank = (reason: string) =>
+      WORDED_HOLDS.includes(reason) ? WORDED_HOLDS.indexOf(reason) : WORDED_HOLDS.length;
+    const reasons = [...new Set(r.hold_reasons.filter((x): x is string => x !== null))].sort(
+      (a, b) => rank(a) - rank(b),
+    );
+    add(
+      r,
+      reasons.some((x) => WORDED_HOLDS.includes(x))
+        ? `Held version: ${reasons.map(reasonWording).join(", ")}`
+        : "Held version",
+    );
+  }
+  for (const r of flagged) {
+    add(r, `Review reasons: ${r.review_reasons.map(reasonWording).join(", ")}`);
+  }
   for (const r of wrong) add(r, "Reported: this version is wrong");
   for (const r of hiddenByReports) add(r, "Hidden by reports, none open: restore or remove");
 

@@ -75,7 +75,12 @@ export interface RateLimitTable {
   last_request: ColumnType<string, number | string, number | string>;
 }
 
-export type WorkStatus = "processing" | "live" | "hidden" | "removed";
+/**
+ * `held` (migration 0023): the work's first upload is held for a moderator (spec 12, a PDF whose
+ * byline the reader isn't sure of). It has that version current and its byline, and is never
+ * public: an approval or a later upload puts it `live`.
+ */
+export type WorkStatus = "processing" | "live" | "hidden" | "removed" | "held";
 export type HiddenCause = "removal_request" | "reports" | "moderator";
 /** Every tag type, as the `tags.type` check allows. */
 export const TAG_TYPES = [
@@ -103,7 +108,11 @@ export type UploadStatus =
   | "parse_failed"
   | "over_quota"
   | "work_removed"
-  | "account_banned";
+  | "account_banned"
+  | "pdf_unreadable";
+
+/** What an upload's file is, by its bytes: set when it's ingested. */
+export type UploadFormat = "epub" | "pdf";
 
 export interface WorkTable {
   id: Generated<string>;
@@ -184,13 +193,21 @@ export interface WorkVersionTable {
   raw_meta: ColumnType<Record<string, string> | null, string | null | undefined, string | null>;
   /** Why ingest held this version for review. NULL for a version it didn't hold, and for one held before migration 0012. */
   hold_reason: HoldReason | null;
+  /** The other reasons it is held for, after `hold_reason` (migration 0023). */
+  other_hold_reasons: Generated<HoldReason[]>;
 }
 
 /** What made a version: an upload, or the re-sanitize backfill (migration 0016). */
 export type VersionSource = "upload" | "backfill";
 
 /** `decideVersion`'s reasons for holding a newer version (ARCHITECTURE, EPUB processor step 7). */
-export type HoldReason = "chapters_changed" | "tags_changed" | "authors_changed";
+export type HoldReason =
+  | "chapters_changed"
+  | "tags_changed"
+  | "authors_changed"
+  | "pdf_more_chapters"
+  /** A PDF whose byline the reader isn't sure it read whole: held even as a work's first upload. */
+  | "pdf_byline_unsure";
 
 export interface VersionTag {
   type: TagType;
@@ -243,6 +260,8 @@ export interface UploadTable {
   error_stage: string | null;
   error: string | null;
   work_id: string | null;
+  /** `epub` until ingest reads the file's bytes. Says which `originals/` key holds it. */
+  format: ColumnType<UploadFormat, UploadFormat | undefined, UploadFormat>;
   created_at: CreatedTimestamp;
 }
 

@@ -12,6 +12,8 @@
     "skipLibCheck": true,
     "noEmit": true
   },
+  // A Node test of code that imports @archive/epub, whose types need the Workers' HTMLRewriter.
+  "files": ["test/pdf-preflight.node.test.ts", "test/pdf-structure.node.test.ts"],
   "include": ["src/**/*.ts", "test/**/*.ts"],
   "exclude": ["test/global-setup.ts", "test/**/*.node.test.ts"]
 }

@@ -7,7 +7,7 @@ import { LINK_LIFETIME_MINUTES } from "./signin";
 import { LOGO_PATH } from "./logo";
 import { STYLESHEET_PATH } from "./styles";
 import { TURNSTILE_ACTIONS } from "./turnstile";
-import { EPUB_TYPE, MAX_UPLOAD_MB, MAX_ZIP_MB } from "./upload-limit";
+import { EPUB_TYPE, MAX_PDF_MB, MAX_UPLOAD_MB, MAX_ZIP_MB, PDF_TYPE } from "./upload-limit";
 import { UPLOAD_SCRIPT_PATH } from "./upload-script";
 
 export const TURNSTILE_API = `${TURNSTILE_ORIGIN}/turnstile/v0/api.js`;
@@ -113,7 +113,7 @@ export const termsPage = () =>
     "Terms",
     `<p>By using this site you agree to these terms. New accounts are also asked to accept them once.</p>
 <ul>
-<li>You may upload only epub files exported from the original archive, and only works you are happy to have shared.</li>
+<li>You may upload only epub files exported from the original archive, or PDFs of them, and only works you are happy to have shared.</li>
 <li>Uploads that pass our checks are public: anyone can read them.</li>
 <li>Anyone can ask for a work to be removed, without proving who they are.</li>
 <li>Automated access to the site, automated collection of fic text, and using it to train AI models are not allowed. This applies to everyone who uses the site, not only people with an account.</li>
@@ -214,9 +214,9 @@ export const uploadPage = (nonce: string, siteKey: string) =>
     `<noscript><p>Uploading needs JavaScript, for its anti-spam check and to send the file. Reading works without it.</p></noscript>
 <div id="upload" hidden>
 <div id="drop" class="drop-area">
-<p>Drop epub files here, or pick them below. The list stays here until you press Upload.</p>
-<label for="file">EPUB files, ${MAX_UPLOAD_MB} MB at most each, or a zip of them (${MAX_ZIP_MB} MB at most)</label>
-<input id="file" type="file" name="file" accept=".epub,${EPUB_TYPE},.zip,application/zip" multiple>
+<p>Drop epub or PDF files here, or pick them below. The list stays here until you press Upload. If you have both, an epub reads better.</p>
+<label for="file">EPUB files, ${MAX_UPLOAD_MB} MB at most each, or a zip of them (${MAX_ZIP_MB} MB at most). PDFs, ${MAX_PDF_MB} MB at most each</label>
+<input id="file" type="file" name="file" accept=".epub,${EPUB_TYPE},.pdf,${PDF_TYPE},.zip,application/zip" multiple>
 </div>
 <div class="cf-turnstile" data-sitekey="${escapeHtml(siteKey)}" data-action="${TURNSTILE_ACTIONS.upload}" data-before-interactive-callback="onTurnstileInteractive"></div>
 <button id="send" type="button">Upload</button>

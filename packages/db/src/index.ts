@@ -2,7 +2,17 @@ export { createDb, type DbConfig } from "./client";
 export { migrate } from "./migrate";
 export { authSchema } from "./auth-schema";
 export { normalizeTagName, compareTagKeys, compareCodeUnits, isTagType } from "./tags";
-export { normalizePseud } from "./pseud";
+export { checkedNames, normalizePseud } from "./pseud";
+export { isOptedOut } from "./opt-out-check";
+export { currentVersionHeld } from "./held-work";
+export {
+  originalKey,
+  originalKeys,
+  ORIGINAL_MEDIA_TYPES,
+  parseOriginalSegment,
+  UPLOAD_FORMATS,
+  versionOriginalFormat,
+} from "./original-key";
 export {
   getLiveWork,
   getWorkAvailability,
@@ -88,6 +98,7 @@ export type {
   HiddenCause,
   TagType,
   HoldReason,
+  UploadFormat,
   VersionSource,
   UploadStatus,
   RateLimitTable,

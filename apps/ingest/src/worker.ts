@@ -6,6 +6,7 @@ import { BACKFILL_QUEUE, INGEST_DLQ, INGEST_QUEUE } from "./config";
 import { DEAD_LETTER_DB_TIMEOUT_MS, deadLetterBatch } from "./dead-letter";
 import { errorCode, runJob, type JobDeps, type Verdict } from "./job";
 import { parseBackfillMessage, parseMessage } from "./message";
+import { isPdf, processPdf, type LoadPdfParser } from "./pdf";
 import { saveWork, type SaveBucket } from "./save";
 
 export interface Env {
@@ -22,20 +23,32 @@ type JobBucket = JobDeps["bucket"] & SaveBucket;
  */
 export type Steps = Pick<JobDeps, "process" | "save" | "timing"> & {
   bucket: (real: R2Bucket) => JobBucket;
+  loadPdfParser: LoadPdfParser;
 };
 
 /** Where the content Worker serves a work's images from. */
 const CONTENT_ORIGIN = "https://content.rarepair.fans";
 
+/** Loads `unpdf` only when a PDF comes, so an epub's job never does. */
+const loadPdfParser: LoadPdfParser = async () => (await import("./pdf/parser")).pdfParser();
+
 /**
- * The processor, with each image's `src` pointed at the content origin under the work's `img`
- * prefix, and the images it accepts added to `images`, to be written by the save.
+ * The processor the file's bytes call for. For an epub, each image's `src` is pointed at the
+ * content origin under the work's `img` prefix, and the images it accepts are added to `images`,
+ * to be written by the save.
  */
-export const processForStorage: JobDeps["process"] = (bytes, images) =>
-  processEpub(bytes, {
-    imageBase: (ao3WorkId) => `${CONTENT_ORIGIN}/works/${ao3WorkId}/img/`,
-    onImage: (ref, data) => void images?.set(ref.key, { mediaType: ref.mediaType, bytes: data }),
-  });
+const storageProcessor =
+  (load: LoadPdfParser): JobDeps["process"] =>
+  (bytes, images) =>
+    isPdf(bytes)
+      ? processPdf(bytes, load)
+      : processEpub(bytes, {
+          imageBase: (ao3WorkId) => `${CONTENT_ORIGIN}/works/${ao3WorkId}/img/`,
+          onImage: (ref, data) =>
+            void images?.set(ref.key, { mediaType: ref.mediaType, bytes: data }),
+        });
+
+export const processForStorage = storageProcessor(loadPdfParser);
 
 /** The queue handler, with `steps` over the real ones. */
 export function ingestWorker(steps: Partial<Steps> = {}) {
@@ -81,7 +94,7 @@ export function ingestWorker(steps: Partial<Steps> = {}) {
       const deps: JobDeps = {
         db,
         bucket,
-        process: steps.process ?? processForStorage,
+        process: steps.process ?? storageProcessor(steps.loadPdfParser ?? loadPdfParser),
         timing: steps.timing,
         save:
           steps.save ??

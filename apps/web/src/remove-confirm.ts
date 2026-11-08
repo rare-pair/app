@@ -7,7 +7,7 @@
 // has one place to condition it: a blocked requester's request is confirmed and stored but
 // does nothing until a moderator approves it (admin-items.ts `confirmOptOut`). Nothing here logs.
 
-import { createDb, hideWork, isRequesterBlocked, normalizePseud } from "@archive/db";
+import { checkedNames, createDb, hideWork, isRequesterBlocked } from "@archive/db";
 import type { Context } from "hono";
 import { sql } from "kysely";
 import type { Bindings } from "./env";
@@ -33,7 +33,7 @@ const refused = (c: ConfirmContext) => c.html(removeLinkRefusedPage(), 400, NO_S
 
 /**
  * Hides a work for a stored request, and links it to the request only when this hide changed
- * it: `hideWork` touches a live work only, so one hidden or removed already is left as it is
+ * it: `hideWork` touches a live or held work only, so one hidden or removed already is left as it is
  * and gets no link.
  */
 async function hideForRequest(trx: Trx, requestId: string, id: string) {
@@ -43,7 +43,7 @@ async function hideForRequest(trx: Trx, requestId: string, id: string) {
 }
 
 /**
- * The opt-out a request asks for, in `trx`: the active `optouts` row, and every live work by
+ * The opt-out a request asks for, in `trx`: the active `optouts` row, and every live or held work by
  * the pseud hidden for the request, with its `request_works` link. Used when a requester
  * confirms, and when a moderator approves the opt-out of a blocked requester. The caller
  * has locked the request's row.
@@ -54,11 +54,27 @@ export async function applyOptOut(trx: Trx, request: { id: string; pseud_norm: s
     .values({ pseud_norm: request.pseud_norm, request_id: request.id, active: true })
     .execute();
   // A stored pseud is as written, so it is matched here by the rule the opt-out list uses, not
-  // in SQL. This reads every author row: it grows with the archive.
-  const authors = await trx.selectFrom("work_authors").select(["work_id", "pseud"]).execute();
+  // in SQL, the login too, as ingest's check reads it (`checkedNames`). This reads every author
+  // row: it grows with the archive.
+  const authors = await trx
+    .selectFrom("work_authors")
+    .select(["work_id", "pseud", "ao3_user as user"])
+    .execute();
   const matching = new Set<string>();
   for (const author of authors) {
-    if (normalizePseud(author.pseud) === request.pseud_norm) matching.add(author.work_id);
+    if (checkedNames([author]).includes(request.pseud_norm)) matching.add(author.work_id);
+  }
+  // A held work (spec 12) has its first held version's byline; every version it holds is read.
+  const held = await trx
+    .selectFrom("work_versions")
+    .innerJoin("works", "works.id", "work_versions.work_id")
+    .select(["work_versions.work_id", "work_versions.authors"])
+    .where("works.status", "=", "held")
+    .execute();
+  for (const version of held) {
+    if (checkedNames(version.authors ?? []).includes(request.pseud_norm)) {
+      matching.add(version.work_id);
+    }
   }
   // In id order, so two overlapping requests lock the same works in the same order.
   for (const matched of [...matching].sort()) await hideForRequest(trx, request.id, matched);

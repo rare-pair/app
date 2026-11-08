@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import type { Page } from "playwright";
 import { describe, expect, it } from "vitest";
+import { ao3Pdf } from "../../../ingest/test/pdf-builder";
 import { CONTENT_HOST } from "../../src/content-host";
 import { syntheticEpub, uploadThroughPage, useJourneySite } from "../harness/journey";
 import { signedIn } from "../harness/sessions";
@@ -40,6 +41,37 @@ describe("upload journey", () => {
     await expect
       .poll(() => page.locator("main").innerText())
       .toContain("Sentence 1 of the synthetic one-shot 1000101");
+  });
+
+  it("12-pdf-upload: an uploaded PDF reads as a converted work, and downloads as a PDF", async () => {
+    const { site } = running;
+    const { context, userId } = await signedIn(site, {
+      email: "pw0-pdf@example.test",
+      role: "uploader",
+    });
+    const page = await context.newPage();
+    const bytes = ao3Pdf({
+      workId: 8813790,
+      title: "A synthetic PDF",
+      chapters: [{ paragraphs: ["The synthetic text of the PDF.", "More of it."] }],
+    });
+    const id = await uploadThroughPage(site, page, userId, { name: "synthetic.pdf", bytes });
+    await site.waitForUpload(id);
+
+    await openFromMyUploads(page, id);
+    const main = page.locator("main");
+    await expect.poll(() => main.innerText()).toContain("Converted from a PDF");
+    expect(await main.innerText()).toContain("Chapters may be imperfect; a moderator will check.");
+
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("link", { name: "Download original PDF" }).click(),
+    ]);
+    expect(download.url()).toBe(`https://${CONTENT_HOST}/originals/${id}.pdf`);
+    expect((await readFile(await download.path())).equals(Buffer.from(bytes))).toBe(true);
+
+    await page.locator(".chapters a").first().click();
+    await expect.poll(() => main.innerText()).toContain("The synthetic text of the PDF.");
   });
 
   it("An image and the original download come from the content Worker", async () => {

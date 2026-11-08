@@ -6,7 +6,7 @@
 // Default tags are shared rows: on a database several test files share, give
 // each file its own tag names and AO3 work IDs, or a listing sees the others'.
 import type { Kysely, Transaction } from "kysely";
-import type { Database, HiddenCause, HoldReason, TagType } from "./schema";
+import type { Database, HiddenCause, HoldReason, TagType, UploadFormat } from "./schema";
 import { copyVersionToWork } from "./version-copy";
 
 export interface SeedChapter {
@@ -48,6 +48,8 @@ export interface SeedVersionOptions extends SeedVersionFields {
    * own, and its fragments under `works/<ao3_work_id>/<version id>/`. Default: an upload's.
    */
   backfillOf?: string;
+  /** What the version's upload is. Default `epub`. */
+  format?: UploadFormat;
 }
 
 export interface SeedWorkOptions extends SeedVersionOptions {
@@ -58,6 +60,11 @@ export interface SeedWorkOptions extends SeedVersionOptions {
   /** Default `live`. A hidden work needs `hiddenCause`, or the schema refuses it. */
   status?: "live" | "hidden" | "removed";
   hiddenCause?: HiddenCause;
+  /**
+   * The first upload held for this reason, as ingest holds a PDF whose byline it isn't sure of:
+   * the work is `held`, at that version. `status` is then ignored.
+   */
+  heldFirst?: HoldReason;
 }
 
 /** One chapter fragment to put in R2. */
@@ -135,6 +142,18 @@ export async function seedWork(
       .returning("id")
       .executeTakeFirstOrThrow();
     const seeded = { workId: work.id, ao3WorkId, userId };
+    if (options.heldFirst !== undefined) {
+      const held = { ...options, current: false, holdReason: options.heldFirst };
+      const version = await addVersion(trx, seeded, columns, held);
+      // As ingest holds a first upload: the version current, its byline the work's, and `held`.
+      await trx
+        .updateTable("works")
+        .set({ current_version_id: version.versionId, status: "held" })
+        .where("id", "=", work.id)
+        .execute();
+      await copyVersionToWork(trx, work.id, version.versionId);
+      return { ...seeded, ...version };
+    }
     const version = await addVersion(trx, seeded, columns, { ...options, current: true });
     // Last, as ingest does: the work leaves `processing` once its version is current.
     await trx
@@ -317,6 +336,7 @@ async function addVersion(
         bytes: 1024,
         status: current ? "live" : "held_for_review",
         work_id: work.workId,
+        format: options.format ?? "epub",
       })
       .execute();
   }

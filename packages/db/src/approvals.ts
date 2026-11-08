@@ -4,21 +4,28 @@
 import { sql, type Kysely } from "kysely";
 import { inTransaction, logModerationAction } from "./moderation-actions";
 import { closeOpenWrongVersionReports, makeVersionCurrent } from "./queries";
+import { isOptedOut } from "./opt-out-check";
+import { checkedNames } from "./pseud";
 import type { Database } from "./schema";
+import { copyVersionToWork } from "./version-copy";
 
 /**
  * What `approveVersion` did: `cleared` the notice of the work's current version,
  * `published` a held version, changed `nothing` (nothing to approve, or a version that
- * isn't the work's), or found the work `unavailable` (removed, or ingest is still
- * finishing it).
+ * isn't the work's), found the work `unavailable` (removed, or ingest is still
+ * finishing it), or kept a held version held because its byline is `opted_out`.
  */
-export type ApproveOutcome = "cleared" | "published" | "nothing" | "unavailable";
+export type ApproveOutcome = "cleared" | "published" | "nothing" | "unavailable" | "opted_out";
 
 /**
  * Approves one of a work's versions, in one transaction. A held version is published: its
  * upload goes `live`, it is marked checked, and the work then describes it
  * (`makeVersionCurrent`, which closes the work's open `wrong_version` reports as the pointer
- * moves). The current version of a live or hidden work whose review reasons nobody has
+ * moves). A held version whose byline names an active opt-out, by a pseud or a login, isn't
+ * published: it stays held, `opted_out`, since the list may have changed while it waited. A
+ * `held` work (spec 12: its first upload a PDF whose byline the reader wasn't sure of) goes
+ * `live` at the version approved. The current version of a live or hidden work whose review
+ * reasons nobody has
  * cleared gets `checked_at`, which ends the notice. Any other version is left alone.
  * `hold_reason` is kept after a publish: the upload's status is the state.
  *
@@ -36,9 +43,9 @@ export async function approveVersion(
   return inTransaction(db, async (trx) => {
     const work = await trx
       .selectFrom("works")
-      .select("current_version_id")
+      .select(["status", "current_version_id"])
       .where("id", "=", workId)
-      .where("status", "in", ["live", "hidden"])
+      .where("status", "in", ["live", "hidden", "held"])
       .forNoKeyUpdate()
       .executeTakeFirst();
     if (work === undefined) return "unavailable";
@@ -46,7 +53,11 @@ export async function approveVersion(
       .selectFrom("work_versions")
       // A backfill version (migration 0016) has no upload of its own, so no upload to hold.
       .leftJoin("uploads", "uploads.id", "work_versions.upload_id")
-      .select(["work_versions.upload_id", "uploads.status as upload_status"])
+      .select([
+        "work_versions.upload_id",
+        "uploads.status as upload_status",
+        "work_versions.authors",
+      ])
       .where("work_versions.id", "=", versionId)
       .where("work_versions.work_id", "=", workId)
       .executeTakeFirst();
@@ -54,6 +65,7 @@ export async function approveVersion(
 
     let outcome: ApproveOutcome;
     if (version.upload_id !== null && version.upload_status === "held_for_review") {
+      if (await isOptedOut(trx, checkedNames(version.authors ?? []))) return "opted_out";
       const published = await trx
         .updateTable("uploads")
         .set({ status: "live" })
@@ -67,8 +79,18 @@ export async function approveVersion(
         .set({ checked_at: sql<Date>`coalesce(checked_at, now())` })
         .where("id", "=", versionId)
         .execute();
-      // No `actor`: the approve is the one log row.
-      if (!(await makeVersionCurrent(trx, workId, versionId))) {
+      if (work.status === "held") {
+        // The work's first time public: at this version, as ingest's first upload goes live.
+        await trx
+          .updateTable("works")
+          .set({ current_version_id: versionId, status: "live" })
+          .where("id", "=", workId)
+          .execute();
+        await copyVersionToWork(trx, workId, versionId);
+      } else if (
+        // No `actor`: the approve is the one log row.
+        !(await makeVersionCurrent(trx, workId, versionId))
+      ) {
         throw new Error("The work was locked as live or hidden, so the version must be current.");
       }
       outcome = "published";

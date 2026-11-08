@@ -1,6 +1,7 @@
 // The moderation area's markup: the /admin home page and the queue tables. Plain
 // HTML with no script, as every page here (FRONTEND-DISCOVERY, Moderation queues).
 
+import { reasonWording } from "./review-wording";
 import { escapeHtml, layout } from "./pages";
 
 /** The most rows a queue shows, oldest first. Docs are silent on paging. */
@@ -231,8 +232,8 @@ export type VersionRow = {
   current: boolean;
   /** Held for review: only a moderator's approval makes it current (MOD3). */
   held: boolean;
-  /** Why ingest held it (its `hold_reason`, kept after an approval), or null. */
-  holdReason: string | null;
+  /** Why ingest held it (its `hold_reason`, then its `other_hold_reasons`, kept after an approval); empty when it didn't. */
+  holdReasons: string[];
   /** What ingest flagged for a moderator to check; empty when nothing. */
   reviewReasons: string[];
   /** A moderator has checked it (`checked_at` is set). */
@@ -242,9 +243,13 @@ export type VersionRow = {
 /** The state column: why a version is held, and its review reasons and whether they are checked. */
 function versionState(v: VersionRow) {
   const parts: string[] = [];
-  if (v.held) parts.push(`Held for review: ${v.holdReason ?? "no reason given"}`);
+  if (v.held) {
+    parts.push(
+      `Held for review: ${v.holdReasons.length === 0 ? "no reason given" : v.holdReasons.map(reasonWording).join(", ")}`,
+    );
+  }
   if (v.reviewReasons.length > 0) {
-    parts.push(`Review reasons: ${v.reviewReasons.join(", ")}`);
+    parts.push(`Review reasons: ${v.reviewReasons.map(reasonWording).join(", ")}`);
     parts.push(v.checked ? "Checked" : "Not checked");
   }
   return escapeHtml(parts.join(". "));

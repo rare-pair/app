@@ -44,6 +44,67 @@ describe("08 versioning and dedupe: decideVersion", () => {
     expect(decideVersion(facts(), facts({ date: "2026-02-01" }))).toEqual(REPLACE);
   });
 
+  describe("12-pdf-upload: an epub wins", () => {
+    const fromPdf = (over: Parameters<typeof facts>[0] = {}) => ({ ...facts(over), fromPdf: true });
+    const held = { outcome: "hold", reason: "pdf_more_chapters" };
+    const duplicate = { outcome: "duplicate", reason: "not_newer" };
+
+    it("An epub replaces a PDF, with the comparisons skipped", () => {
+      const other = withChapter(facts({ tags: [tag("fandom", "Other")] }), 1, "<p>Rewritten</p>");
+      expect(decideVersion(fromPdf(), other)).toEqual(REPLACE);
+      expect(decideVersion(fromPdf(), facts({ date: "2026-03-01", authors: [] }))).toEqual(REPLACE);
+      expect(decideVersion(fromPdf(), facts({ chapters: 4, date: "2020-01-01" }))).toEqual(REPLACE);
+    });
+
+    it("An epub replaces a PDF with no date to be older than", () => {
+      expect(decideVersion(fromPdf({ date: null }), facts())).toEqual(REPLACE);
+    });
+
+    it("An older epub doesn't replace a newer PDF", () => {
+      expect(decideVersion(fromPdf(), facts({ date: "2026-01-09" }))).toEqual(duplicate);
+      expect(decideVersion(fromPdf(), facts({ chapters: 2, date: "2026-02-01" }))).toEqual(
+        duplicate,
+      );
+      expect(decideVersion(fromPdf(), facts({ date: null }))).toEqual(duplicate);
+    });
+
+    it("A PDF never replaces an epub", () => {
+      expect(decideVersion(facts(), fromPdf({ date: "2030-01-01" }))).toEqual(duplicate);
+      expect(decideVersion(facts(), fromPdf())).toEqual(duplicate);
+      expect(decideVersion(facts(), fromPdf({ chapters: 2 }))).toEqual(duplicate);
+    });
+
+    it("A PDF with more chapters than the current epub is held for a moderator", () => {
+      expect(decideVersion(facts(), fromPdf({ chapters: 4, date: "2020-01-01" }))).toEqual(held);
+    });
+
+    it("A PDF whose byline the reader isn't sure of is held instead of going live", () => {
+      const unsure = (over: Parameters<typeof facts>[0] = {}) => ({
+        ...fromPdf(over),
+        bylineUnsure: true,
+      });
+      const bylineHeld = { outcome: "hold", reason: "pdf_byline_unsure" };
+      expect(decideVersion(fromPdf(), unsure({ date: "2026-02-01" }))).toEqual(bylineHeld);
+      // Over another hold too: the byline is read first, and the other reason is kept.
+      expect(decideVersion(facts(), unsure({ chapters: 4 }))).toEqual({
+        ...bylineHeld,
+        also: ["pdf_more_chapters"],
+      });
+      // A duplicate adds nothing, so nothing waits on the byline.
+      expect(decideVersion(facts(), unsure())).toEqual(duplicate);
+    });
+
+    it("A PDF follows the rules against a PDF", () => {
+      expect(decideVersion(fromPdf(), fromPdf())).toEqual(duplicate);
+      expect(decideVersion(fromPdf(), fromPdf({ date: "2026-02-01" }))).toEqual(REPLACE);
+      const rewritten = withChapter(fromPdf({ date: "2026-02-01" }), 1, "<p>Rewritten</p>");
+      expect(decideVersion(fromPdf(), { ...rewritten, fromPdf: true })).toEqual({
+        outcome: "hold",
+        reason: "chapters_changed",
+      });
+    });
+  });
+
   it("Small edits in shared chapters are allowed", () => {
     const upload = facts({ chapters: 4 });
     const edited = withChapter(upload, 2, `<p>${body("c2x").replace("c2x57", "c2x57typo")}</p>`);

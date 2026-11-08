@@ -1,14 +1,21 @@
 import {
   copyVersionToWork,
+  currentVersionHeld,
   isUploaderBanned,
+  ORIGINAL_MEDIA_TYPES,
+  originalKey,
+  originalKeys,
+  versionOriginalFormat,
   type Database,
   type HoldReason,
   type TagType,
   type UploadStatus,
+  type WorkStatus,
 } from "@archive/db";
 import type { ParsedWork } from "@archive/epub";
 import { sql, type Kysely, type Transaction } from "kysely";
 import { LeaseLost, type Lease } from "./lease";
+import { BYLINE_UNSURE } from "./pdf/structure";
 import { isDataErrorState, sqlState } from "./sql-state";
 import { MAX_INT4, parseWorkId } from "./work-id";
 import { decideVersion, sameSet, type VersionDecision, type VersionFacts } from "./versioning";
@@ -51,9 +58,6 @@ async function clearPrefix(bucket: SaveBucket, prefix: string): Promise<number> 
   return keys.length;
 }
 
-/** Where the raw file of upload `uploadId` is kept. */
-const originalKey = (uploadId: string) => `originals/${uploadId}.epub`;
-
 /**
  * Deletes the raw file of upload `uploadId` and returns how many keys it found. Deleting a key
  * already gone is no error, so a repeat is safe. The caller must still own the upload: after a
@@ -63,9 +67,8 @@ export async function deleteOriginal(
   bucket: Pick<SaveBucket, "list" | "delete">,
   uploadId: string,
 ): Promise<number> {
-  const key = originalKey(uploadId);
-  const found = await bucket.list({ prefix: key, limit: 1 });
-  await bucket.delete([key]);
+  const found = await bucket.list({ prefix: `originals/${uploadId}.`, limit: 2 });
+  await bucket.delete(originalKeys(uploadId));
   return found.objects.length;
 }
 
@@ -169,6 +172,8 @@ interface Current {
   /** The pointer the facts were read under: a write checks it still holds. */
   versionId: string;
   facts: VersionFacts;
+  /** The work is `held`: its first upload waits for a moderator, and nothing of it is public. */
+  held: boolean;
 }
 
 type Chapters = (ParsedWork["chapters"][number] & { key: string })[];
@@ -226,15 +231,16 @@ async function saveFiles(
   // Read before the writes below and never inside the transaction: the current version's text
   // comes from R2, which is slow, and a row lock must not be held across it.
   let current = await readCurrent(deps, ao3WorkId);
-  const facts = factsOf(work);
+  const facts = factsOf(work, lease.format === "pdf");
   const prefix = `works/${ao3WorkId}/${lease.id}/`;
   // Before each write, the job checks it still holds the upload. A check leaves a window of one
   // write in flight, so the fence in the transaction has the last word.
   const held = () => lease.keeper?.check() ?? Promise.resolve();
   const chapters = await putFiles(deps.bucket, ao3WorkId, prefix, work, images, held);
   await held();
-  await deps.bucket.put(originalKey(lease.id), bytes, {
-    httpMetadata: { contentType: "application/epub+zip" },
+  const format = lease.format ?? "epub";
+  await deps.bucket.put(originalKey(lease.id, format), bytes, {
+    httpMetadata: { contentType: ORIGINAL_MEDIA_TYPES[format] },
   });
   // Stop renewing before the transaction: a renewal would change the token under its fence.
   await lease.keeper?.stop();
@@ -446,7 +452,7 @@ async function readCurrent(
 ): Promise<Current | null> {
   const work = await deps.db
     .selectFrom("works")
-    .select(["id", "status", "current_version_id", "updated_at"])
+    .select(["id", "status", "current_version_id", "updated_at", currentVersionHeld.as("held")])
     .where("ao3_work_id", "=", ao3WorkId)
     .executeTakeFirst();
   if (work === undefined) return null;
@@ -455,7 +461,7 @@ async function readCurrent(
   // A committed work always has one: a failure worth a retry, not a verdict on the file.
   if (work.current_version_id === null) throw new Error("a saved work has no current version");
   const versionId = work.current_version_id;
-  const [chapters, tags, authors] = await Promise.all([
+  const [chapters, tags, authors, source] = await Promise.all([
     deps.db
       .selectFrom("chapters")
       .select(["n", "r2_key"])
@@ -474,6 +480,12 @@ async function readCurrent(
       .where("work_id", "=", work.id)
       .orderBy("position")
       .execute(),
+    // The upload the version was made from: a backfill version's is the one it was re-made from.
+    deps.db
+      .selectFrom("work_versions")
+      .select(versionOriginalFormat.as("format"))
+      .where("id", "=", versionId)
+      .executeTakeFirst(),
   ]);
   const texts: { n: number; text: string }[] = [];
   await inPool(chapters, async (c) => {
@@ -488,24 +500,32 @@ async function readCurrent(
   return {
     workId: work.id,
     versionId,
+    held: work.held,
     facts: {
       date: work.updated_at === null ? null : new Date(work.updated_at).toISOString().slice(0, 10),
       chapters: texts,
       tags,
       authors: authors.map((a) => ({ pseud: a.pseud, user: a.ao3_user })),
+      fromPdf: source?.format === "pdf",
     },
   };
 }
 
 /** The upload's own facts, in the same terms as the current version's. */
-function factsOf(work: ParsedWork): VersionFacts {
+function factsOf(work: ParsedWork, fromPdf: boolean): VersionFacts {
   return {
     date: updatedAtOf(work)?.slice(0, 10) ?? null,
     chapters: work.chapters.map((c) => ({ n: c.n, text: c.html })),
     tags: distinctTags(work),
     authors: distinctAuthors(work),
+    fromPdf,
+    bylineUnsure: isBylineUnsure(work, fromPdf),
   };
 }
+
+/** A PDF whose byline the reader isn't sure it read whole: only a moderator puts it live. */
+const isBylineUnsure = (work: ParsedWork, fromPdf: boolean) =>
+  fromPdf && work.reviewReasons.includes(BYLINE_UNSURE);
 
 /** The Updated, else Completed, else Published date, as `works.updated_at` stores it. */
 function updatedAtOf(work: ParsedWork): string | null {
@@ -559,9 +579,37 @@ async function writeRows(
   // whose upload then counts as finished.
   if (await isUploaderBanned(trx, lease.id, { lock: true })) throw new AccountBanned();
   if (current === null || decision === null) {
-    return writeFirst(trx, lease, work, ao3WorkId, prefix, chapters);
+    const held = isBylineUnsure(work, lease.format === "pdf");
+    return writeFirst(trx, lease, work, ao3WorkId, prefix, chapters, held);
   }
   const { workId } = current;
+  // A held work (hidden or not): an upload the reader is sure of goes current as its first
+  // would, and the held version stays held. A hide stays in place. An unsure one is decided
+  // against the held version, below.
+  if (current.held && !isBylineUnsure(work, lease.format === "pdf")) {
+    const versionId = await insertVersion(
+      trx,
+      { upload_id: lease.id },
+      work,
+      workId,
+      prefix,
+      chapters,
+    );
+    const moved = await trx
+      .updateTable("works")
+      .set({
+        current_version_id: versionId,
+        status: sql<WorkStatus>`case when status = 'held' then 'live' else status end`,
+      })
+      .where("id", "=", workId)
+      .where("current_version_id", "=", current.versionId)
+      .where("status", "<>", "removed")
+      .returning("id")
+      .executeTakeFirst();
+    if (moved === undefined) throw new Stale();
+    await copyVersionToWork(trx, workId, versionId);
+    return endUpload(trx, lease, "live", workId);
+  }
   if (decision.outcome === "duplicate") {
     // Stored but not used: its files are kept, and no version row is written.
     await confirmPointer(trx, current);
@@ -571,15 +619,10 @@ async function writeRows(
     await confirmPointer(trx, current);
     // Its columns, tags and authors stay on the version, with the reason it was held: the
     // work's own are the current version's.
-    await insertVersion(
-      trx,
-      { upload_id: lease.id },
-      work,
-      workId,
-      prefix,
-      chapters,
+    await insertVersion(trx, { upload_id: lease.id }, work, workId, prefix, chapters, [
       decision.reason,
-    );
+      ...(decision.also ?? []),
+    ]);
     return endUpload(trx, lease, "held_for_review", workId);
   }
   // A replace. The version first (the pointer's foreign key needs it), then the pointer's
@@ -596,7 +639,12 @@ async function writeRows(
   await endUpload(trx, lease, "live", workId);
 }
 
-/** A work's first upload: the work, its byline and tags, its version, live last. */
+/**
+ * A work's first upload: the work, its byline and tags, its version, live last. With `held`, the
+ * version is held for a moderator instead (`pdf_byline_unsure`), and the work is `held` at it:
+ * its byline is the work's, for the opt-out list, and nothing of it is public until a moderator
+ * approves a version or a later upload the reader is sure of goes live.
+ */
 async function writeFirst(
   trx: Transaction<Database>,
   lease: Lease,
@@ -604,6 +652,7 @@ async function writeFirst(
   ao3WorkId: number,
   prefix: string,
   chapters: Chapters,
+  held: boolean,
 ): Promise<void> {
   // First, so a work another job created since the read is found before anything else is
   // written: the insert waits on the unique index for the other transaction, then conflicts.
@@ -624,17 +673,18 @@ async function writeFirst(
     workId,
     prefix,
     chapters,
+    held ? ["pdf_byline_unsure"] : [],
   );
   // The work describes its version, as after any replace: the byline, tags and search text,
   // in this transaction.
   await copyVersionToWork(trx, workId, versionId);
-  // The work's last write: it goes `live` with its version current.
+  // The work's last write: it goes `live` (or `held`) with its version current.
   await trx
     .updateTable("works")
-    .set({ current_version_id: versionId, status: "live" })
+    .set({ current_version_id: versionId, status: held ? "held" : "live" })
     .where("id", "=", workId)
     .execute();
-  await endUpload(trx, lease, "live", workId);
+  await endUpload(trx, lease, held ? "held_for_review" : "live", workId);
 }
 
 /**
@@ -670,7 +720,8 @@ type VersionOrigin =
     };
 
 /**
- * The version row and its chapters, with `holdReason` for a held version. Returns the
+ * The version row and its chapters, with `holdReasons` for a held version: the first is its
+ * `hold_reason`, the rest its `other_hold_reasons`. Returns the
  * version's id.
  */
 async function insertVersion(
@@ -680,7 +731,7 @@ async function insertVersion(
   workId: string,
   prefix: string,
   chapters: Chapters,
-  holdReason: HoldReason | null = null,
+  holdReasons: HoldReason[] = [],
 ): Promise<string> {
   const { chapters_count: count, chapters_total: total, ...own } = workColumns(work);
   const version = await trx
@@ -697,7 +748,8 @@ async function insertVersion(
       ...own,
       tags: JSON.stringify(distinctTags(work)),
       authors: JSON.stringify(distinctAuthors(work)),
-      hold_reason: holdReason,
+      hold_reason: holdReasons[0] ?? null,
+      other_hold_reasons: holdReasons.slice(1),
     })
     .returning("id")
     .executeTakeFirstOrThrow();
@@ -732,6 +784,7 @@ async function endUpload(
       error_stage: null,
       error: null,
       sha256: lease.sha256,
+      format: lease.format,
     })
     .where("id", "=", lease.id)
     .where("status", "=", "processing")

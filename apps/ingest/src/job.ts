@@ -14,6 +14,7 @@ import {
   type Stage,
 } from "./lease";
 import { ListCheckRejected, onRejectList } from "./lists";
+import { isPdf } from "./pdf";
 import {
   AccountBanned,
   deleteOriginal,
@@ -167,6 +168,7 @@ async function run(
   const bytes = new Uint8Array(await object.arrayBuffer());
   // What the job read, not what confirm hashed: the job records the bytes it handled.
   lease.sha256 = await sha256Hex(bytes);
+  lease.format = isPdf(bytes) ? "pdf" : "epub";
   // Still the job's before the slow step? Throws `LeaseLost` if another job took it over.
   await lease.keeper?.renew();
   enter("process");

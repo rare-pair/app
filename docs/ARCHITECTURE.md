@@ -21,8 +21,8 @@ an unofficial stopgap.
 | Load target | Surge-ready: assume tens of thousands of signups in the first days |
 | Upload transfer | Each file goes through the web Worker, which checks the session and the upload's row and streams it to R2 through the bucket binding. There is no presigned link. A size refusal, a failed confirm or a failed upload frees its slot at once, and the reaper stays for what the server never hears about or a fault stops it freeing (operator rulings, 2026-11-06) |
 | Sign-in | Email magic link with no passwords stored, through Better Auth (self-hosted in the Worker, data in Neon) and Resend alone. There is no failover provider at launch, and while Resend is down sign-in stops until it returns (operator ruling, 2026-11-05) |
-| Accepted files | AO3-native epub exports only. FanFicFare support comes later |
-| New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. A consistent edit goes live with no hold: readers' reports and rollback are the check (operator ruling, 2026-11-05). The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) |
+| Accepted files | AO3-native epub exports, and PDFs of AO3 works, converted to text and limited to 10 MB, with an epub winning (### PDF processor). FanFicFare support comes later |
+| New versions | Replace the current version automatically only if newer and consistent with it. Otherwise hold for review. A consistent edit goes live with no hold: readers' reports and rollback are the check (operator ruling, 2026-11-05). The re-sanitize backfill re-makes the current version from its own original, as a new version (operator ruling, 2026-11-01) A PDF is the exception: an epub replaces it unless the epub is older, with nothing compared, and a PDF of an epub-current work is a duplicate, or held if it has more chapters. A PDF whose byline the reader isn't sure of is held, even as a work's first upload (operator ruling, 2026-11-07; ### PDF processor) |
 | A file swapped after confirm | Ingest handles the file it read and records that file's hash. A mismatch with confirm's hash isn't refused, and no locked copy is made (operator ruling, 2026-11-05) |
 | Author identity | No work claims and no author verification while AO3 is down. Removal and opt-out are requests anyone can make, without proving who they are, and they take effect once the requester confirms control of the contact email |
 | Removal list | After launch, not built (operator ruling, 2026-11-06). Once built: removed works (title, byline, a link to the original with its ID, date, reason) are public at `/removed`, and pseuds with an approved opt-out at `/removed/pseuds`. Reasons come from a fixed list, never free text. Open requests and hidden works are never listed, and a moderator can withhold an entry |
@@ -154,7 +154,7 @@ works        (id, ao3_work_id UNIQUE NOT NULL, title, summary_html, rating, lang
               words, chapters_count,
               chapters_total NULL,  -- the planned total (AO3's y in x/y); NULL when unknown
               complete, published_at, updated_at,
-              status,            -- processing | live | hidden | removed
+              status,            -- processing | live | hidden | removed | held (0023: its first upload waits for a moderator)
               hidden_cause NULL, -- removal_request | reports | moderator, while hidden
               adult_marked,      -- boolean, default false: a moderator's mark that gives the work the warnings screen whatever its rating says; on the work, so a new version or a rollback keeps it
               removed_reason NULL, -- dmca | removal_request | wrong_file | site_safety; the schema's check, like hidden_cause's, allows it only while removed and requires it then
@@ -179,7 +179,7 @@ work_versions(id, work_id,
               published_at, updated_at, raw_meta jsonb,                -- columns, as ingest read them from its file
                                       -- (NULL for a field it lacked); all NULL on a version saved
                                       -- before migration 0012 that wasn't current then
-              hold_reason NULL)       -- chapters_changed | tags_changed | authors_changed, on a version held since 0012
+              hold_reason NULL)       -- chapters_changed | tags_changed | authors_changed | pdf_more_chapters | pdf_byline_unsure, on a version held since 0012; other_hold_reasons text[] holds any other reason it is held for (0023)
 chapters     (work_id, version_id, n, title, words, r2_key)
 tags         (id, type, name, name_norm) -- type: fandom|relationship|character|freeform|warning|category|rating
 work_tags    (work_id, tag_id,
@@ -188,6 +188,7 @@ uploads      (id,
               user_id NULL,  -- set null when the account is deleted; the row and its work stay
               r2_key, sha256, bytes, status, lease_until,
               error_stage, error, work_id NULL, created_at,
+              format,  -- epub until a job reads the file, then epub | pdf by its bytes; says which originals/ key holds it
               quota_counted_at NULL)  -- set when confirm counted it against the daily quota, once;
                                       -- `pending` with this NULL is an open upload (Orphaned uploads)
 reports      (id, work_id, reporter_id, kind, body, status, created_at)  -- reporting needs an account;
@@ -241,11 +242,17 @@ sign_in_email_counts (address_hash,  -- keyed hash of the address, never the add
 `user.role` is `user`, `moderator` or `admin`. An admin has every moderator
 power. The wait list has no admin action: its purge is a local script (Wait list).
 
-A held upload doesn't make its work held: a first upload always goes live (with
+A held upload doesn't make its work held: a first upload goes live (with
 the notice if the parser gave review reasons), and a later upload that is held
 leaves the work live at its current version. Held is a state of the version
-(its upload is `held_for_review`), never of the work, so `works.status` has no
-held value.
+(its upload is `held_for_review`). The one first upload that is held is a PDF
+whose byline the reader isn't sure of (### PDF processor): its work is `held`
+(migration 0023), with that version current and its byline, and nothing of it is
+public, until a moderator approves a version (which puts it `live`) or a later
+upload the reader is sure of goes live as a first one would. Every helper that
+reads a work's status reads `held` as not public: a hash match counts it, an
+opt-out hides it (a restore puts it back to `held`), and removal and takedowns
+work on it.
 
 **Dedupe.** AO3 epubs carry the original work URL
 (`archiveofourown.org/works/<id>`) in the preface. That ID is the canonical key.
@@ -290,8 +297,8 @@ database doesn't check that a `pseud_norm` isn't made only of invisibles:
 ## Ingestion pipeline
 
 1. **Ask.** `POST /uploads` checks the session, Turnstile, the account's ban, the
-   daily quota and the declared size (25 MB or less). One call asks for one file or for several
-   (at most 10): one `size` field per file, under one Turnstile token. A call
+   daily quota and the declared size (25 MB or less for an epub, 10 MB or less for a PDF). One call asks for one file or for several
+   (at most 10): one `size` field per file, and one `type` for each, an epub's if left out, under one Turnstile token. A call
    with good sizes spends one unit per file of both the per-user and the per-IP
    rate limit (a call refused for a bad count or size spends only the first of
    each), and is checked against the quota left today, which it does not count:
@@ -300,7 +307,7 @@ database doesn't check that a `pseud_norm` isn't made only of invisibles:
    batch, so a refused call writes no `uploads` row. The upload page's script calls it, so a
    signed-out request gets 401 rather than a redirect it can't follow (the
    page itself redirects to sign in), a failed or missing Turnstile token gets 400, a declared size over
-   25 MB gets 413, and a spent quota gets 429 with `Retry-After` (Surge
+   its type's limit gets 413, a `type` that's neither gets 415, and a spent quota gets 429 with `Retry-After` (Surge
    controls). A request over the per-user or per-IP rate limit gets the same 429,
    counted right after the session check, before the form is read (the rest of a
    batch's files are counted once the form is read, before Turnstile). The reply is
@@ -335,8 +342,8 @@ database doesn't check that a `pseud_norm` isn't made only of invisibles:
    one, and an upload that isn't open any more (`pending` and uncounted) 409. A banned account,
    read from the database, gets 403 on an upload still open, which ends `account_banned`. An upload
    whose file is already stored gets 409 and keeps it. A `Content-Type` other than exactly
-   `application/epub+zip` gets 415, a `Content-Length` that is missing or no whole number 411, one
-   over 25 MB 413 and any other size than was declared 400, before a byte is read, and each of
+   `application/epub+zip` or `application/pdf` gets 415, a `Content-Length` that is missing or no whole number 411, one
+   over its type's limit 413 and any other size than was declared 400, before a byte is read, and each of
    those frees the upload's slot (Orphaned uploads). Then the database connection is closed, so a slow upload holds
    none and no lock a ban would wait on, and the body is streamed, never buffered, through a
    `FixedLengthStream` of the declared size into the bucket binding. So the Worker holds the size
@@ -677,9 +684,9 @@ Chapter text isn't indexed.
    **A refused upload's original is deleted.** Once the job has recorded a
    refusal (any rejection code, `account_banned` included, and a job that
    failed for good; not `work_removed`, whose save already deleted it), it
-   deletes the one key `originals/<upload_id>.epub`, so the content host no
+   deletes the upload's key in each format, `originals/<upload_id>.epub` and `.pdf`, so the content host no
    longer serves it from R2. The content host serves an upload's original only
-   when the upload is `live` or a `duplicate` (a refused upload gets 404 whatever its
+   when the upload is `live` or an epub's `duplicate` (a refused upload gets 404 whatever its
    work's status), so a refused upload's original, which never went live,
    is not served, and no edge copy is expected to exist for it. The delete comes
    after the fenced write that ends the upload, and only when that write
@@ -766,7 +773,7 @@ Chapter text isn't indexed.
    attempt that raced the removal) or its current version is no longer the
    message's (a redelivery after the commit, a moderator's make-current or a
    newer upload). Otherwise it reads the version's original,
-   `originals/<id>.epub` for its `upload_id`, or its `source_upload_id` when
+   `originalKey` for its `upload_id`, or its `source_upload_id` when
    it is itself a backfill version, runs the processor as
    it now is, checks the opt-out and takedown lists and the AO3 ID, and
    writes a **new version**: its fragments under a prefix of its own,
@@ -798,7 +805,7 @@ Chapter text isn't indexed.
    since a message that expires unconsumed is dropped without a trace.
 
 **Rejection codes:** `not_epub`, `zip_bomb`, `too_large`, `not_ao3`,
-`opted_out`, `parse_failed`, `work_removed`, `account_banned`. Each one shows a plain-language
+`opted_out`, `parse_failed`, `work_removed`, `account_banned`, `pdf_unreadable` (### PDF processor). Each one shows a plain-language
 message to the uploader. `work_removed` is the upload of a work a moderator or
 its author removed, checked after the opt-out and takedown lists and before
 the current version is read. `account_banned` is an upload by an account a
@@ -833,6 +840,69 @@ a chapter count that doesn't match `Stats:`, an AO3 work URL only in the OPF,
 and XSS payloads in every field.
 The parser must give the same output whenever it runs, so a fixture's output
 can be snapshotted.
+
+### PDF processor
+
+A file that starts `%PDF-` goes here, whatever it was named or sent as, and anything else goes to
+the EPUB processor (specs/scenarios/mvp/12-pdf-upload.md). The job, its lease, the opt-out and
+takedown checks, and the save are the same; only the processor differs. Text only: italics and images are left
+out. `unpdf` (pdf.js) is loaded by `import()` from `apps/ingest/src/pdf/parser.ts`, so an epub's
+job never loads it, and no other Worker bundles it.
+
+1. **Size.** Over 10 MB by its bytes is `too_large`.
+2. **Checks before the parser opens it** (`preflight.ts`), on the raw bytes, every keyword counted
+   whether it sits inside another stream or not, since a cross-reference table can point anywhere.
+   `pdf_unreadable`: a tail `startxref` that lands on neither `xref` nor an object; `/Encrypt`; a
+   trailer or cross-reference `/Size`, or a count of objects or entries, over 100,000; a filter other
+   than one flate, optionally before one DCT or JPX filter on a stream marked an image, or one behind
+   a reference; a form XObject; a stream inside an object stream; `/Contents` naming an image; a
+   `/Contents` array over 8 entries, repeating a reference or inflating past 16 MiB together;
+   `/Contents` naming an object that isn't a stream, object streams read too. `zip_bomb`: a stream that
+   inflates past 16 MiB, or a file's past 128 MiB, counted by a port of pdf.js's own flate decoder (`flate.ts`), since another decoder can
+   disagree with it on a crafted code table, keeping nothing but an object stream. Flate data pdf.js would
+   throw on is left to the parser, which stops at the same place.
+3. **Text and links** (`parser.ts`), page by page, yielding every 16 pages so the lease's timer can
+   fire. Over 5,000 pages, 500,000 text items, 8 MiB of text or 50,000 links to the original archive is `pdf_unreadable`. So is anything pdf.js throws: the same bytes throw the same way.
+4. **The work** (`structure.ts`). A printed "Posted originally" line with a work URL, or `not_ao3`; a
+   link that names another work adds `work_id_mismatch`. Tags come from `/tags/` links, deduped by
+   URL, each under the last label before it in reading order; with no links, from the printed fields,
+   with `tags_from_print`. Authors come from `/users/` links in the byline only. Chapters are
+   `Chapter N` lines set larger than the body, else the outline when it holds the title plus one entry
+   per chapter; the count must equal `Chapters: x/y`, or `pdf_unreadable`. One chapter, or no
+   `Chapters:` line, is everything between the preface and the afterword. Paragraphs come from layout:
+   a gap wider than the line step, or a line that stops short of the margin.
+5. **The HTML** is written by the processor from plain text, with everything escaped, and goes through
+   the epub's sanitizer. Every version has the review reason `from_pdf`, so it goes live with the notice.
+
+The original is stored at `originals/<upload_id>.pdf`. Every reader builds that key through
+`originalKey` in `packages/db`, by the upload's `format`; deletes use `originalKeys`, every format,
+so a job that died before recording one leaves nothing behind.
+
+**Versions.** `decideVersion` gets a from-PDF fact on each side, read from the version's upload. An
+epub over a PDF replaces it with nothing else compared, unless it's older: fewer chapters, or as many
+with an earlier date, is `duplicate`. A PDF over an epub is `duplicate`, or with more chapters held
+with `pdf_more_chapters`, and a moderator can make it current. A PDF over a PDF follows the usual rules.
+
+**A byline the reader isn't sure of** (operator's ruling, 2026-11-07) adds `byline_unsure`, and the
+version is held with `pdf_byline_unsure` whatever the rules above make of it, but a duplicate stays a
+duplicate. The reader isn't sure when a name on the byline has no link, when there is no byline, when
+the byline reaches its cap of 8 lines still going on, or when the line close under its last one has an
+author's link or starts with a word the last line had no room for (by estimated widths across the
+text's measure). As a work's first upload, the work is `held` at the version: nothing is public, `approveVersion`
+puts it `live` at the version approved, and a later upload the reader is sure of goes live as a first
+one would; a later unsure one is decided against the held version. Every other reason the rules give to
+hold the version is kept after `pdf_byline_unsure`, in `other_hold_reasons`. A byline that ends its page,
+or a line whose room can't be measured with certainty, is held too: the reader holds more rather than
+reads further. A link with no pseud in it names the printed pseud, with the login as its user, and the
+opt-out check reads every author's pseud and login (`checkedNames`), at ingest, when an opt-out is
+confirmed (also over a held work's every version) and when a moderator approves a held version. The
+backfill leaves a PDF version as it is when its byline reads unsure now and didn't when a moderator
+approved it.
+
+**What this doesn't bound.** The checks stop the structures that make pdf.js decode one stream over and
+over, but there's no budget over what a file's pages can reach. A file that passes and still kills
+the isolate gets the normal retries, then `parse_failed` (operator's ruling, 2026-11-07). The re-sanitize backfill reads the
+original by its format and re-makes it through this processor.
 
 ### Sanitizing (security requirement)
 
@@ -989,7 +1059,7 @@ can be snapshotted.
   work page's "Continue where you left off" link names the chapter in its path and
   the percentage in a `#pos=` fragment, which the script reads once to scroll back;
   the work page itself never moves the reader.
-- "Download original epub" serves the file from `originals/` with
+- "Download original epub", or "Download original PDF" under "Converted from a PDF" for a version made from one, serves the file from `originals/` with
   `Content-Disposition: attachment` from `content.rarepair.fans`. It's never
   displayed inline. The link names the current version's upload, or for a
   backfill version the upload it was re-made from (`source_upload_id`). The
@@ -1411,7 +1481,7 @@ epub, under the normal versioning rules.
   downloads age out within 12 hours, and a request after that gets a 404. The sweep finishes what the purge or an ingest clean-up
   missed: each run, within its limits (works and R2 calls a run, and one pass over the
   bucket a day), deletes everything under the folder of a work whose status is
-  `removed`, with no age limit, along with `originals/<upload_id>.epub` for each
+  `removed`, with no age limit, along with `originals/<upload_id>.epub` and `.pdf` for each
   `<upload_id>/` prefix in that folder. The status is read fresh: the query selects
   `now()`, a non-immutable (stable) function, so Hyperdrive never serves it from its cache, and the
   Hyperdrive config has caching off too; a change to that read must keep it uncacheable.
@@ -1831,7 +1901,7 @@ markup: its inline `style` attributes become stylesheet rules, because
   repeat request there skips R2 (each data centre misses once per key, and
   concurrent first requests are not coalesced). It never caches `HEAD`, error responses or
   `Range` and conditional requests, and it adds no negative cache. Removal's purge
-  by URL (both `originals/` forms) and by prefix (a work's `img/` prefix) is meant
+  by URL (every `originals/` form) and by prefix (a work's `img/` prefix) is meant
   to clear these entries, and each key is exactly the URL that purge names, but
   Cloudflare's documentation does not confirm that a purge by URL or prefix reaches
   Cache API entries in every data centre: this is unverified on the live zone
@@ -1968,6 +2038,7 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
 9. Updates: up to three summary cards on the home page, each linking to a static
    post, held in the web Worker's code
 10. Upload a zip of epubs, unzipped in the browser (specs/scenarios/mvp/26-bulk-zip-upload.md)
+11. PDFs of AO3 works, converted to text, with an epub winning unless it's older (specs/scenarios/mvp/12-pdf-upload.md)
 
 **Later**
 - The public removal list, `/removed` and `/removed/pseuds`, after launch (operator ruling, 2026-11-06; specs/scenarios/later/11-public-removal-list.md)
@@ -1977,7 +2048,6 @@ default, and a cached read can be old: `HYPERDRIVE` is the one with caching off,
 - Tag synonym merging and filtering by excluded tags
 - Comments (needs much more moderation, so leave it out unless people ask)
 - FanFicFare epubs of AO3 works (second preface parser, keyed on `dc:source`)
-- PDFs of AO3 works, converted to text, with an epub always winning (specs/scenarios/later/12-pdf-upload.md)
 - Export and shut down: nothing changes automatically when AO3 returns (the
   AO3 links simply start working). The operator starts the wind-down by hand:
   redirect every work to its AO3 URL, then shut the site down
