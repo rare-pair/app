@@ -2,6 +2,7 @@
 // Adding one is a code change and a deploy. No database, no admin page.
 
 import { RELEASE_0_1_0_BODY } from "./update-release-0-1-0";
+import { RELEASE_0_2_0_BODY } from "./update-release-0-2-0";
 
 export type Update = {
   /** Lowercase letters, digits and hyphens: the post's address is `/updates/<slug>`. */
@@ -28,6 +29,15 @@ export const UPDATES: readonly Update[] = [
     author: "admin and 🤖",
     created: "2026-11-06",
     body: RELEASE_0_1_0_BODY,
+  },
+  {
+    slug: "release-0-2-0-mothership",
+    title: 'rarepair v0.2.0 "Mothership"',
+    summary:
+      "Uploading many works is much easier now. You can drop a whole folder's worth of epubs, or a zip of them, onto the upload page.",
+    author: "admin and 🤖",
+    created: "2026-11-07",
+    body: RELEASE_0_2_0_BODY,
   },
 ];
 

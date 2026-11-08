@@ -64,6 +64,30 @@ describe("25-updates: the first update", () => {
   });
 });
 
+describe("25-updates: the second update", () => {
+  it("The second update's text matches the release notes", () => {
+    const notes = readFileSync(
+      join(import.meta.dirname, "..", "..", "..", "docs", "release-notes", "v0.2.0.md"),
+      "utf8",
+    );
+    const post = UPDATES.find((u) => u.slug === "release-0-2-0-mothership");
+    expect(post).toBeDefined();
+    expect(htmlWords(post?.body ?? "")).toEqual(notesWords(notes));
+    expect(post?.body).toContain("https://discord.gg/538ME6Jabu");
+    expect(post?.body).toContain("Some quality of life updates");
+  });
+
+  it("The second update has the required fields", () => {
+    expect(UPDATES.find((u) => u.slug === "release-0-2-0-mothership")).toMatchObject({
+      title: 'rarepair v0.2.0 "Mothership"',
+      summary:
+        "Uploading many works is much easier now. You can drop a whole folder's worth of epubs, or a zip of them, onto the upload page.",
+      author: "admin and 🤖",
+      created: "2026-11-07",
+    });
+  });
+});
+
 describe("25-updates: the list", () => {
   it("Every update in the real list is complete", () => {
     expect(UPDATES.length).toBeGreaterThan(0);
