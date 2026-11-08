@@ -117,7 +117,7 @@ describe("14-browse-and-home all works", () => {
       seen.push(...idsOf(page));
       next = page.match(/<a rel="next" href="([^"]+)"/)?.[1]?.replaceAll("&amp;", "&");
     }
-    expect([...seen].sort()).toEqual([...OURS, 36030].sort());
+    expect([...seen].sort((a, b) => a - b)).toEqual([...OURS, 36030].sort((a, b) => a - b));
   });
 
   it("All works sorts and filters like a tag listing", async () => {

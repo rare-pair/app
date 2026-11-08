@@ -49,7 +49,9 @@ describe("14 browse and home: all works", () => {
     expect(first.works).toHaveLength(20);
     const seen = [...first.works, ...second.works].map((w) => w.work.ao3_work_id);
     expect(new Set(seen).size).toBe(23);
-    expect([...seen].sort()).toEqual(live.map((w) => w.ao3WorkId).sort());
+    expect([...seen].sort((a, b) => a - b)).toEqual(
+      live.map((w) => w.ao3WorkId).sort((a, b) => a - b),
+    );
     // Updated date by default, newest first.
     expect(seen[0]).toBe(36022);
     expect(seen[22]).toBe(36000);
