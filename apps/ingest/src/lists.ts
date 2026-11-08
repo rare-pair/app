@@ -1,5 +1,5 @@
-import { checkedNames, type Database } from "@archive/db";
-import { sql, type Kysely } from "kysely";
+import { checkedNames, isOptedOut, type Database } from "@archive/db";
+import type { Kysely } from "kysely";
 import { isDataErrorState, sqlState } from "./sql-state";
 import { parseWorkId } from "./work-id";
 
@@ -42,7 +42,7 @@ export async function onRejectList(db: Kysely<Database>, work: Listed): Promise<
   // Both are read in every case. Both are waited for, so the verdict never depends on which
   // fails first: a list that can't be read (a retry) wins over one that refuses the file.
   const [optedOutAuthor, takenDownWork] = await Promise.allSettled([
-    optedOut(db, checkedPseuds(work.authors)).catch(rejectDataError),
+    isOptedOut(db, checkedNames(work.authors)).catch(rejectDataError),
     takenDown(db, work.ao3WorkId).catch(rejectDataError),
   ]);
   const failures = [optedOutAuthor, takenDownWork].filter((r) => r.status === "rejected");
@@ -59,23 +59,6 @@ function rejectDataError(error: unknown): never {
   const state = sqlState(error);
   if (isDataErrorState(state)) throw new ListCheckRejected(`optout_check_rejected_${state}`);
   throw error;
-}
-
-/** The `pseud_norm`s the opt-out check reads: `checkedNames`, each pseud and each login. */
-export const checkedPseuds = (authors: Listed["authors"]): string[] => checkedNames(authors);
-
-async function optedOut(db: Kysely<Database>, pseudNorms: string[]): Promise<boolean> {
-  if (pseudNorms.length === 0) return false;
-  // One bound array, however long the byline: a list of values is one parameter each, and
-  // Postgres takes at most 65,535.
-  const row = await db
-    .selectFrom("optouts")
-    .select("id")
-    .where("active", "=", true)
-    .where(sql<boolean>`pseud_norm = any(${pseudNorms}::text[])`)
-    .limit(1)
-    .executeTakeFirst();
-  return row !== undefined;
 }
 
 async function takenDown(db: Kysely<Database>, ao3WorkId: string): Promise<boolean> {

@@ -2,6 +2,7 @@
 // caller's Kysely, so a Worker passes the one it made for the request.
 import { sql, type ExpressionBuilder, type Kysely, type Selectable } from "kysely";
 import { jsonArrayFrom } from "kysely/helpers/postgres";
+import { currentVersionHeld } from "./held-work";
 import { versionOriginalFormat } from "./original-key";
 import type {
   ChapterTable,
@@ -986,10 +987,7 @@ export async function restoreWork(
       .updateTable("works")
       .set({
         // A work hidden while its first upload was held goes back to waiting for a moderator.
-        status: sql<WorkStatus>`case when exists (
-          select 1 from work_versions v join uploads u on u.id = v.upload_id
-          where v.id = works.current_version_id and u.status = 'held_for_review'
-        ) then 'held' else 'live' end`,
+        status: sql<WorkStatus>`case when ${currentVersionHeld} then 'held' else 'live' end`,
         hidden_cause: null,
       })
       .where("id", "=", workId)

@@ -3,6 +3,8 @@ export { migrate } from "./migrate";
 export { authSchema } from "./auth-schema";
 export { normalizeTagName, compareTagKeys, compareCodeUnits, isTagType } from "./tags";
 export { checkedNames, normalizePseud } from "./pseud";
+export { isOptedOut } from "./opt-out-check";
+export { currentVersionHeld } from "./held-work";
 export {
   originalKey,
   originalKeys,

@@ -4,6 +4,7 @@
 import { sql, type Kysely } from "kysely";
 import { inTransaction, logModerationAction } from "./moderation-actions";
 import { closeOpenWrongVersionReports, makeVersionCurrent } from "./queries";
+import { isOptedOut } from "./opt-out-check";
 import { checkedNames } from "./pseud";
 import type { Database } from "./schema";
 import { copyVersionToWork } from "./version-copy";
@@ -64,7 +65,7 @@ export async function approveVersion(
 
     let outcome: ApproveOutcome;
     if (version.upload_id !== null && version.upload_status === "held_for_review") {
-      if (await optedOut(trx, checkedNames(version.authors ?? []))) return "opted_out";
+      if (await isOptedOut(trx, checkedNames(version.authors ?? []))) return "opted_out";
       const published = await trx
         .updateTable("uploads")
         .set({ status: "live" })
@@ -120,19 +121,6 @@ export async function approveVersion(
     }
     return outcome;
   });
-}
-
-/** Whether any of `names` (`pseud_norm`s) is on the active opt-out list. */
-async function optedOut(trx: Kysely<Database>, names: string[]): Promise<boolean> {
-  if (names.length === 0) return false;
-  const row = await trx
-    .selectFrom("optouts")
-    .select("id")
-    .where("active", "=", true)
-    .where(sql<boolean>`pseud_norm = any(${names}::text[])`)
-    .limit(1)
-    .executeTakeFirst();
-  return row !== undefined;
 }
 
 /**

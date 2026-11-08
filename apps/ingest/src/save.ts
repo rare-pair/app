@@ -1,5 +1,6 @@
 import {
   copyVersionToWork,
+  currentVersionHeld,
   isUploaderBanned,
   ORIGINAL_MEDIA_TYPES,
   originalKey,
@@ -9,6 +10,7 @@ import {
   type HoldReason,
   type TagType,
   type UploadStatus,
+  type WorkStatus,
 } from "@archive/db";
 import type { ParsedWork } from "@archive/epub";
 import { sql, type Kysely, type Transaction } from "kysely";
@@ -450,7 +452,7 @@ async function readCurrent(
 ): Promise<Current | null> {
   const work = await deps.db
     .selectFrom("works")
-    .select(["id", "status", "current_version_id", "updated_at"])
+    .select(["id", "status", "current_version_id", "updated_at", currentVersionHeld.as("held")])
     .where("ao3_work_id", "=", ao3WorkId)
     .executeTakeFirst();
   if (work === undefined) return null;
@@ -498,7 +500,7 @@ async function readCurrent(
   return {
     workId: work.id,
     versionId,
-    held: work.status === "held",
+    held: work.held,
     facts: {
       date: work.updated_at === null ? null : new Date(work.updated_at).toISOString().slice(0, 10),
       chapters: texts,
@@ -581,8 +583,9 @@ async function writeRows(
     return writeFirst(trx, lease, work, ao3WorkId, prefix, chapters, held);
   }
   const { workId } = current;
-  // A held work: an upload the reader is sure of goes live as its first would, and the held
-  // version stays held. An unsure one is decided against the held version, below.
+  // A held work (hidden or not): an upload the reader is sure of goes current as its first
+  // would, and the held version stays held. A hide stays in place. An unsure one is decided
+  // against the held version, below.
   if (current.held && !isBylineUnsure(work, lease.format === "pdf")) {
     const versionId = await insertVersion(
       trx,
@@ -594,10 +597,13 @@ async function writeRows(
     );
     const moved = await trx
       .updateTable("works")
-      .set({ current_version_id: versionId, status: "live" })
+      .set({
+        current_version_id: versionId,
+        status: sql<WorkStatus>`case when status = 'held' then 'live' else status end`,
+      })
       .where("id", "=", workId)
       .where("current_version_id", "=", current.versionId)
-      .where("status", "=", "held")
+      .where("status", "<>", "removed")
       .returning("id")
       .executeTakeFirst();
     if (moved === undefined) throw new Stale();

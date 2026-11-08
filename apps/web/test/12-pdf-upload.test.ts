@@ -2,6 +2,7 @@ import { createDb, insertUpload } from "@archive/db";
 import { putFragments, seedVersion, seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, describe, expect, it } from "vitest";
+import { restoreOwnWorks } from "../src/admin-request-actions";
 import { applyOptOut } from "../src/remove-confirm";
 import { MESSAGES } from "../src/upload-badge";
 import { BASE, fetchW, freshIp, signIn as signInAs, UPLOAD_TOKEN } from "./helpers";
@@ -353,6 +354,51 @@ describe("12-pdf-upload", () => {
         { status: "hidden", hidden_cause: "removal_request" },
         { status: "hidden", hidden_cause: "removal_request" },
       ]);
+    });
+
+    it("Reversing one opt-out leaves a work hidden while another covers it by login", async () => {
+      const work = await seedWork(db, {
+        ao3WorkId: 8813778,
+        format: "pdf",
+        heldFirst: "pdf_byline_unsure",
+        authors: [{ pseud: "Shown 8813778", ao3_user: "login8813778" }],
+      });
+      const optOut = (pseud: string) =>
+        db.transaction().execute(async (trx) => {
+          const request = await trx
+            .insertInto("requests")
+            .values({
+              kind: "opt_out",
+              pseud_norm: pseud,
+              contact_email: "requester@example.test",
+              statement: "A short statement.",
+              ip_hash: "hash-of-an-ip",
+            })
+            .returning("id")
+            .executeTakeFirstOrThrow();
+          await applyOptOut(trx, { id: request.id, pseud_norm: pseud });
+          return request.id;
+        });
+      await optOut("login8813778");
+      const byPseud = await optOut("shown 8813778");
+
+      const { restored } = await db.transaction().execute((trx) =>
+        restoreOwnWorks(
+          trx,
+          byPseud,
+          [
+            {
+              id: work.workId,
+              ao3WorkId: 8813778,
+              status: "hidden",
+              hiddenCause: "removal_request",
+            },
+          ],
+          new Set(),
+        ),
+      );
+
+      expect(restored).toEqual([]);
     });
 
     it("Approving a held version whose author has opted out keeps it held, and says so", async () => {

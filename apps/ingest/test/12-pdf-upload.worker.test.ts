@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { approveVersion, makeVersionCurrent } from "@archive/db";
+import { approveVersion, hideWork as hideForCause, makeVersionCurrent } from "@archive/db";
 import { inject, describe, expect, it } from "vitest";
 import {
   addOptOut,
@@ -1093,6 +1093,28 @@ describe("12-pdf-upload", () => {
       const after = await versionsOf(workId);
       expect(after.versions).toHaveLength(1);
       expect(after.status).toBe("held");
+    });
+
+    it("A held work an opt-out hid is still held: a backfill leaves it, and an epub goes current but stays hidden", async () => {
+      const workId = 8813758;
+      await ingestPdf(unsureOf(workId, "2020-02-01"));
+      const before = await versionsOf(workId);
+      await withDb((db) => hideForCause(db, before.workId, "removal_request"));
+
+      await deliver([{ work_id: before.workId, version_id: before.current }], {
+        queue: "ingest-backfill",
+      });
+      expect((await versionsOf(workId)).versions).toHaveLength(1);
+
+      const epub = await ingestPdf(epubOf(workId, "2020-01-01"));
+
+      expect(epub.row.status).toBe("live");
+      const after = await versionsOf(workId);
+      const epubVersion = after.versions.find((v) => v.upload_id === epub.id);
+      expect({ status: after.status, current: after.current }).toEqual({
+        status: "hidden",
+        current: epubVersion?.id,
+      });
     });
 
     it("A backfill doesn't put live a PDF whose byline the reader is no longer sure of", async () => {

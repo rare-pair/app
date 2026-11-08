@@ -8,7 +8,8 @@ import {
   type DatabaseConnection,
 } from "kysely";
 import { describe, expect, it } from "vitest";
-import { ListCheckRejected, checkedPseuds, onRejectList } from "../src/lists";
+import { checkedNames as checkedPseuds } from "@archive/db";
+import { ListCheckRejected, onRejectList } from "../src/lists";
 import { isDataErrorState, sqlState } from "../src/sql-state";
 import { MAX_INT4, parseWorkId } from "../src/work-id";
 
