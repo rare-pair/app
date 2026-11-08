@@ -54,7 +54,7 @@ describe("all works journey", () => {
     // The card leads to the work page, as every listing's does.
     await Promise.all([
       page.waitForURL(`${SITE}/works/43000`),
-      page.getByRole("link", { name: EXPLICIT }).click(),
+      page.getByRole("link", { name: EXPLICIT, exact: true }).click(),
     ]);
   });
 });
