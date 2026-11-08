@@ -85,9 +85,13 @@ const decodeName = (raw: string): string => {
   }
 };
 
-/** A tag's name from its link: AO3's own escapes for characters a URL segment can't hold. */
+/**
+ * A tag's name from its link: AO3's own escapes for characters a URL segment can't hold. AO3's
+ * PDFs encode the link twice ("|" is %257C), so it's decoded twice; a name left with a lone "%"
+ * after the first keeps it, as `decodeName` does.
+ */
 const decodeTag = (raw: string): string =>
-  decodeName(raw.replace(/\/works\/?$/, "").replace(/\+/g, " "))
+  decodeName(decodeName(raw.replace(/\/works\/?$/, "").replace(/\+/g, " ")))
     .replace(/\*s\*/g, "/")
     .replace(/\*a\*/g, "&")
     .replace(/\*d\*/g, ".")

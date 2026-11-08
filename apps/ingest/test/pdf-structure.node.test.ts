@@ -289,3 +289,43 @@ describe("12-pdf-upload: the printed work's link, on the parser's lines", () => 
     expect(work.reviewReasons.some((r) => r.startsWith("work_id_mismatch"))).toBe(false);
   });
 });
+
+describe("12-pdf-upload: tags from links, on the parser's lines", () => {
+  // AO3's PDFs encode a tag's link twice: "|" is %7C, then %257C. These are the URLs as one such
+  // file holds them, spaces encoded once.
+  it("a tag link encoded twice names the tag, not its escapes", () => {
+    const tagLink = (path: string, from: number, to: number, y: number): PageLink => ({
+      page: 1,
+      url: `http://archiveofourown.org/tags/${path}`,
+      rect: [from, y - 2, to, y + 11],
+    });
+    // As the builder lays them out: the label on its line, each tag on its own under it.
+    const work = readWork({
+      lines: [
+        posted,
+        title,
+        line("by Someone", 640),
+        line("Fandom:", 626),
+        line("Boku no Hero Academia", 612),
+        line("Character:", 598),
+        line("Sako Atsuhiro | Mr. Compress", 584),
+        { ...stats, y: 570 },
+        line("The text.", 550),
+      ],
+      links: [
+        userLink("someone", 72 + 3 * 5.5, 72 + 10 * 5.5, 640),
+        tagLink(
+          "%25E5%2583%2595%25E3%2581%25AE%25E3%2583%2592%25E3%2583%25BC%25E3%2583%25AD%25E3%2583%25BC%25E3%2582%25A2%25E3%2582%25AB%25E3%2583%2587%25E3%2583%259F%25E3%2582%25A2%20%257C%20Boku%20no%20Hero%20Academia",
+          72,
+          72 + 21 * 5.5,
+          612,
+        ),
+        tagLink("Sako%20Atsuhiro%20%257C%20Mr*d*%20Compress", 72, 72 + 28 * 5.5, 584),
+      ],
+      infoTitle: null,
+      outline: [],
+    });
+    expect(work.tags.fandoms).toEqual(["僕のヒーローアカデミア | Boku no Hero Academia"]);
+    expect(work.tags.characters).toEqual(["Sako Atsuhiro | Mr. Compress"]);
+  });
+});
