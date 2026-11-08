@@ -1,6 +1,6 @@
 # Scenario: Home page, browsing and work cards
 
-Relates to: docs/ARCHITECTURE.md § Dedupe (Tags), § MVP vs later (5. Browse), § Surge controls (Edge cache), § Author requests & takedowns (What hidden, held and removed works show); docs/FRONTEND-DISCOVERY.md § Decisions so far (Warnings, Pagination, Card summaries, Home page), § Page inventory (Home / browse, Fandom / tag listing), § Components (Work card, Tag list, Pagination)
+Relates to: docs/ARCHITECTURE.md § Dedupe (Tags), § MVP vs later (5. Browse), § Surge controls (Edge cache), § Author requests & takedowns (What hidden, held and removed works show); docs/FRONTEND-DISCOVERY.md § Decisions so far (Warnings, Pagination, Card summaries, Home page), § Page inventory (Home / browse, Fandom / tag listing, All works), § Components (Work card, Tag list, Pagination)
 
 ## Setup
 - More than one page of live works in fandom F, with mixed ratings, completion states, updated dates and word counts
@@ -104,3 +104,47 @@ Relates to: docs/ARCHITECTURE.md § Dedupe (Tags), § MVP vs later (5. Browse), 
 - GIVEN a work or tag listing
 - WHEN it is served
 - THEN it has a short cache lifetime with stale-while-revalidate
+
+## All works
+
+Every live work, a page at a time, at `/works`. It is the tag listing without the tag: the same work cards, pager, sort and filter form, and cache.
+
+### The home page links to all works
+- GIVEN live works
+- WHEN a reader opens `/`
+- THEN below the recently added works is an "All works" link to `/works`
+- AND with no live works there is no such link
+
+### All works lists every live work, a page at a time
+- GIVEN more live works than fit on one page, across several fandoms
+- WHEN a reader follows "All works" from `/`
+- THEN the first page of works is shown as work cards, with pagination links that are real links
+- AND following them reaches every live work exactly once
+
+### All works sorts and filters like a tag listing
+- GIVEN `/works`
+- WHEN the reader sorts by updated date or word count, filters by rating or completion, or narrows by a tag, using the GET form with JavaScript off
+- THEN the listing reloads with them applied, and they are in the URL
+
+### All works leaves out every work that isn't live
+- GIVEN a hidden work, a removed work, a held work and a work still processing
+- WHEN a reader pages through `/works`
+- THEN none of them is listed, and none is counted toward the pages
+
+### All works shows adult works as every listing does
+- GIVEN a live work rated Explicit, a live Not Rated work and a live work a moderator marked adult
+- WHEN their cards render on `/works`
+- THEN each is listed, its rating and warnings spelled out and its adult mark shown, as on a tag listing
+- AND its link goes to the work page, so the warnings screen still comes before its reading pages
+
+### All works past the last page
+- GIVEN `/works` with two pages of works
+- WHEN a reader opens `?page=3`
+- THEN the response is 404
+- AND with no live works at all, the first page is a 200 that says there are no works yet
+
+### All works is briefly cached and has the site card
+- GIVEN `/works`
+- WHEN it is served
+- THEN it has the tag listing's short private cache lifetime with stale-while-revalidate
+- AND it shares the site card
