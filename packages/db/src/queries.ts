@@ -1,6 +1,13 @@
 // Typed reads and writes over the catalogue and uploads. Each takes the
 // caller's Kysely, so a Worker passes the one it made for the request.
-import { sql, type ExpressionBuilder, type Kysely, type Selectable } from "kysely";
+import {
+  sql,
+  type Expression,
+  type ExpressionBuilder,
+  type Kysely,
+  type Selectable,
+  type SqlBool,
+} from "kysely";
 import { jsonArrayFrom } from "kysely/helpers/postgres";
 import { currentVersionHeld } from "./held-work";
 import { versionOriginalFormat } from "./original-key";
@@ -299,6 +306,10 @@ export interface TagListing {
  */
 export type ListingSort = "updated" | "words";
 
+/** What a listing in this order is sorted by, descending, nulls last. */
+export const sortKey = (sort: ListingSort) =>
+  sort === "words" ? sql`works.words` : sql`coalesce(works.updated_at, works.published_at)`;
+
 /** Which page of a listing to read, and in what order. Pages count from 1. */
 export interface ListingOptions {
   sort?: ListingSort;
@@ -350,17 +361,36 @@ export async function listLiveWorksByTag(
   db: Kysely<Database>,
   type: TagType,
   name: string,
-  { sort = "updated", rating, tag, complete, page = 1, pageSize = PAGE_SIZE }: ListingOptions = {},
+  options: ListingOptions = {},
 ): Promise<TagListing> {
   const keys = tagNameKeys(type, name);
+  if (keys.length === 0) return { works: [], total: 0 };
+  return listLive(db, (eb) => tagged(eb, type, keys), options);
+}
+
+/**
+ * Every `live` work, with their bylines and tags: one page of them, and how
+ * many there are in all. Sorted and filtered as a tag listing is.
+ */
+export async function listLiveWorks(
+  db: Kysely<Database>,
+  options: ListingOptions = {},
+): Promise<TagListing> {
+  return listLive(db, undefined, options);
+}
+
+/** The live works `within` allows (every one, without it), sorted, filtered and paged. */
+async function listLive(
+  db: Kysely<Database>,
+  within: ((eb: WorksWhere) => Expression<SqlBool>) | undefined,
+  { sort = "updated", rating, tag, complete, page = 1, pageSize = PAGE_SIZE }: ListingOptions,
+): Promise<TagListing> {
   const tagKeys = tag === undefined ? [] : tagNameKeys(tag.type, tag.name);
-  if (keys.length === 0 || (tag !== undefined && tagKeys.length === 0)) {
-    return { works: [], total: 0 };
-  }
+  if (tag !== undefined && tagKeys.length === 0) return { works: [], total: 0 };
   const listed = (eb: WorksWhere) =>
     eb.and([
       eb("works.status", "=", "live"),
-      tagged(eb, type, keys),
+      ...(within === undefined ? [] : [within(eb)]),
       ...(tag === undefined ? [] : [tagged(eb, tag.type, tagKeys)]),
       ...(rating === undefined ? [] : [rated(eb, rating)]),
       ...(complete === undefined ? [] : [eb("works.complete", "=", complete)]),
@@ -375,8 +405,7 @@ export async function listLiveWorksByTag(
   // A page past every safe integer is past the end, not the first.
   const offset = page > Number.MAX_SAFE_INTEGER ? total : isCount(page) ? (page - 1) * size : 0;
   if (offset >= total) return { works: [], total };
-  const byKey =
-    sort === "words" ? sql`works.words` : sql`coalesce(works.updated_at, works.published_at)`;
+  const byKey = sortKey(sort);
   // The page is cut first, so the bylines and tags are built for its rows alone,
   // not for every row an offset skips.
   const pageRows = db

@@ -173,7 +173,7 @@ without it. Elsewhere the
 | Confirm wait list | `/waitlist/confirm?token=…` | all | "Confirm" button (POST form), then "You're on the list"; used, expired or unknown links say so, with a link to `/`; after launch every link says the archive is open, with a link to `/` | — |
 | Home / browse | `/` | all | Search box, up to 3 update cards, popular fandoms, recently added | — |
 | Update post | `/updates/:slug` | all | Static: title, summary, author, created date, body | — |
-| Search results | `/search?q=…` | all | GET form, paged results, filter form | — |
+| Search results | `/search?q=…` | all | One GET form: the search box with the tag listing's sort (best match first) and filters; paged results. With no query it lists every live work, newest updated first, and is linked as *All works* below *Recently added* on the home page | — |
 | Fandom / tag listing | `/tags/:slug` | all | Paged works, sort and filter as a GET form | — |
 | Work page | `/works/:id` | all | Full metadata, chapter list, links; the "may be imperfect" notice when it applies | — |
 | Warnings screen | `/works/:id/warnings` | all | Shown on first entry to any reading page of a warned or Not Rated work, then remembered for the session; Continue button (a POST form) to the page asked for, plus a turn-off checkbox when signed in (saved to the account). | — |

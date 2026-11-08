@@ -38,7 +38,8 @@ ${fandoms.map((f) => `<li><a href="${tagHref("fandom", f.name_norm)}">${escapeHt
       ? `<p>There are no works here yet.</p>`
       : `${popular}
 <h2>Recently added</h2>
-${workList(works)}`;
+${workList(works)}
+<p><a href="/search">All works</a></p>`;
   return layout(
     "Home",
     [SEARCH_FORM, updatesSection(updates), lists].filter((part) => part !== "").join("\n"),

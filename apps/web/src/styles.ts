@@ -640,6 +640,23 @@ html[data-face="sans"] {
   margin: 0;
 }
 
+/* The search page's form: the box and its button on one row, the sort and filters below as on a listing. */
+form[role="search"] > .search-box,
+form[role="search"] > .listing-filters {
+  flex: 1 1 100%;
+}
+
+form[role="search"] > .search-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--space) * 2);
+  align-items: center;
+}
+
+form[role="search"] > .listing-filters {
+  margin: 0;
+}
+
 .listing-filters label {
   display: block;
   font-size: var(--text-1);

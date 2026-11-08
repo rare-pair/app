@@ -1,6 +1,6 @@
 # Scenario: Home page, browsing and work cards
 
-Relates to: docs/ARCHITECTURE.md § Dedupe (Tags), § MVP vs later (5. Browse), § Surge controls (Edge cache), § Author requests & takedowns (What hidden, held and removed works show); docs/FRONTEND-DISCOVERY.md § Decisions so far (Warnings, Pagination, Card summaries, Home page), § Page inventory (Home / browse, Fandom / tag listing), § Components (Work card, Tag list, Pagination)
+Relates to: docs/ARCHITECTURE.md § Dedupe (Tags), § MVP vs later (5. Browse), § Surge controls (Edge cache), § Author requests & takedowns (What hidden, held and removed works show); docs/FRONTEND-DISCOVERY.md § Decisions so far (Warnings, Pagination, Card summaries, Home page), § Page inventory (Home / browse, Fandom / tag listing, Search results), § Components (Work card, Tag list, Pagination)
 
 ## Setup
 - More than one page of live works in fandom F, with mixed ratings, completion states, updated dates and word counts
@@ -104,3 +104,13 @@ Relates to: docs/ARCHITECTURE.md § Dedupe (Tags), § MVP vs later (5. Browse), 
 - GIVEN a work or tag listing
 - WHEN it is served
 - THEN it has a short cache lifetime with stale-while-revalidate
+
+## All works
+
+Every live work is listed by a blank search (specs/scenarios/mvp/15-search.md, *A blank search lists every live work*).
+
+### The home page links to all works
+- GIVEN live works
+- WHEN a reader opens `/`
+- THEN below the recently added works is an "All works" link to `/search`
+- AND with no live works there is no such link

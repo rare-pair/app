@@ -124,14 +124,14 @@ describe("15-search", () => {
       expect(res.headers.get("referrer-policy")).toBe("strict-origin");
     });
 
-    it("A missing or empty query shows the empty form and no results", async () => {
+    it("A missing or empty query lists every live work", async () => {
       for (const path of ["/search", "/search?q=", "/search?q=%20%20"]) {
         const res = await fetchW(path);
         const html = await res.text();
 
         expect(res.status, path).toBe(200);
         expect(html, path).toContain('<form role="search"');
-        expect(html, path).not.toContain('class="work-list"');
+        expect(html, path).toContain('class="work-list"');
       }
     });
 

@@ -275,7 +275,7 @@ describe("20-site-chrome-and-legal: the site header", () => {
     }
   });
 
-  it("Search is the first link for every visitor, and /search with no query has a search box and no results", async () => {
+  it("Search is the first link for every visitor, and /search with no query has a search box over every live work", async () => {
     const user = await signInAs("nav2-search-user@example.test");
     const moderator = await signInAs("nav2-search-mod@example.test", "moderator");
     const visitors: Record<string, string>[] = [{}, { cookie: user }, { cookie: moderator }];
@@ -289,7 +289,7 @@ describe("20-site-chrome-and-legal: the site header", () => {
       const html = await res.text();
       expect(html, path).toContain('<form role="search" method="get" action="/search">');
       expect(html, path).toMatch(/<input type="search" id="q" name="q" value="[ ]*">/);
-      expect(html, path).not.toMatch(/class="work-card|<ol/);
+      expect(html, path).toContain('class="work-list"');
     }
   });
 });

@@ -365,3 +365,57 @@ describe("Search filters", () => {
     expect(await ids(word, { rating: "Teen And Up Audiences" })).not.toContain(hidden);
   });
 });
+
+describe("Search sort, completion and tags", () => {
+  // Three works that all match "quillfeather": a title match updated first and shortest,
+  // then two summary matches, the last updated and longest, one complete and tagged.
+  let title: number;
+  let middle: number;
+  let newest: number;
+  beforeAll(async () => {
+    title = (
+      await seedWork(t.db, {
+        title: "Quillfeather",
+        updatedAt: "2020-01-01",
+        complete: false,
+        chapters: [{ words: 100 }],
+      })
+    ).ao3WorkId;
+    middle = (
+      await seedWork(t.db, {
+        summary: "<p>A quillfeather tale.</p>",
+        updatedAt: "2021-01-01",
+        complete: false,
+        chapters: [{ words: 200 }],
+      })
+    ).ao3WorkId;
+    newest = (
+      await seedWork(t.db, {
+        summary: "<p>Another quillfeather tale.</p>",
+        updatedAt: "2022-01-01",
+        complete: true,
+        chapters: [{ words: 300 }],
+        tags: [{ type: "character", name: "Quill Sorting Character" }],
+      })
+    ).ao3WorkId;
+  });
+
+  it("Results can be sorted and filtered", async () => {
+    const run = async (options: Parameters<typeof searchLiveWorks>[2]) =>
+      (await searchLiveWorks(t.db, "quillfeather", options)).works
+        .map((w) => w.work.ao3_work_id)
+        // Other blocks' works may match the word by similarity; these three are the subject.
+        .filter((id) => [title, middle, newest].includes(id));
+
+    // Best match by default: the title match leads.
+    expect((await run({}))[0]).toBe(title);
+    expect(await run({ sort: "updated" })).toEqual([newest, middle, title]);
+    expect(await run({ sort: "words" })).toEqual([newest, middle, title]);
+    expect(await run({ complete: true })).toEqual([newest]);
+    expect(await run({ complete: false, sort: "updated" })).toEqual([middle, title]);
+    expect(await run({ tag: { type: "character", name: "quill sorting character" } })).toEqual([
+      newest,
+    ]);
+    expect(await run({ tag: { type: "character", name: "!!!" } })).toEqual([]);
+  });
+});

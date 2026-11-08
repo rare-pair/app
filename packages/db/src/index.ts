@@ -20,6 +20,7 @@ export {
   isRequesterBlocked,
   restoreWork,
   makeVersionCurrent,
+  listLiveWorks,
   listLiveWorksByTag,
   liveTagSpellings,
   NOT_RATED,

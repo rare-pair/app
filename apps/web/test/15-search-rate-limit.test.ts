@@ -90,7 +90,7 @@ describe("19-surge-controls", () => {
     await expectTooManyRequests(await search({ "cf-connecting-ip": ip }));
   });
 
-  it("A blank query shows the form and spends no budget", async () => {
+  it("A blank query lists every work and spends no budget", async () => {
     await windowHeadroom(SEARCH_WINDOW_SECONDS);
     const ip = freshIp();
     for (let i = 0; i < SEARCH_IP_LIMIT + 1; i++) {

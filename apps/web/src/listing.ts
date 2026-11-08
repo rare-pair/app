@@ -32,7 +32,7 @@ export const PAGE_SIZE = 20;
  * browser. With hidden and removed works, that means a browser can show a work's
  * card for up to two minutes after it leaves, beyond Hyperdrive's own cache (#233).
  */
-const CACHED = { "Cache-Control": "private, max-age=60, stale-while-revalidate=60" };
+export const CACHED = { "Cache-Control": "private, max-age=60, stale-while-revalidate=60" };
 
 /** The pages either side of the current one that the pager links, besides the first and last. */
 const PAGES_AROUND = 2;
@@ -44,15 +44,19 @@ const PAGES_AROUND = 2;
 export const pageOf = (raw: string | undefined) =>
   raw !== undefined && /^\d+$/.test(raw) ? Math.max(1, Number(raw)) : 1;
 
-/** The sort and filters a listing is shown with: what its URL asks for, less anything unknown. */
-interface ListingQuery {
-  sort: ListingSort;
+/** The filters a listing or a search is shown with: what its URL asks for, less anything unknown. */
+export interface Filters {
   /** Absent for any rating. */
   rating?: string;
   /** As the URL spells it; absent for complete works and works in progress alike. */
   complete?: "yes" | "no";
-  /** A second tag the works must carry, as typed. Absent for none. */
+  /** A tag the works must carry, as typed. Absent for none. */
   tag?: { type: NarrowingType; name: string };
+}
+
+/** The sort and filters a listing is shown with. */
+interface ListingQuery extends Filters {
+  sort: ListingSort;
 }
 
 /** A query parameter, or a select's option: a value and its text. */
@@ -62,7 +66,7 @@ export type Pair = [string, string];
 const NARROWING_TYPES = ["freeform", "fandom", "relationship", "character"] as const;
 type NarrowingType = (typeof NARROWING_TYPES)[number];
 
-const SORTS: Record<ListingSort, string> = { updated: "Updated date", words: "Word count" };
+export const SORTS: Record<ListingSort, string> = { updated: "Updated date", words: "Word count" };
 
 /** The ratings a work card shows; a work with none shows as "Not Rated". */
 export const RATINGS = [
@@ -76,32 +80,46 @@ export const RATINGS = [
 const isSort = (raw: string | undefined): raw is ListingSort =>
   raw !== undefined && Object.hasOwn(SORTS, raw);
 
-/** The query string's sort and filters. A value the form can't send falls back to the default. */
-function queryOf(raw: Record<string, string>): ListingQuery {
-  const query: ListingQuery = { sort: isSort(raw.sort) ? raw.sort : "updated" };
-  if (raw.rating !== undefined && RATINGS.includes(raw.rating)) query.rating = raw.rating;
-  if (raw.complete === "yes" || raw.complete === "no") query.complete = raw.complete;
+/** The query string's filters. A value the form can't send is dropped. */
+export function filtersOf(raw: Record<string, string>): Filters {
+  const filters: Filters = {};
+  if (raw.rating !== undefined && RATINGS.includes(raw.rating)) filters.rating = raw.rating;
+  if (raw.complete === "yes" || raw.complete === "no") filters.complete = raw.complete;
   const tagType = NARROWING_TYPES.find((t) => t === raw.tag_type) ?? NARROWING_TYPES[0];
   // A tag that names nothing (it folds to nothing, or holds a NUL) narrows nothing.
   if (raw.tag !== undefined && tagNameKeys(tagType, raw.tag).length > 0) {
-    query.tag = { type: tagType, name: raw.tag };
+    filters.tag = { type: tagType, name: raw.tag };
   }
-  return query;
+  return filters;
+}
+
+/** The query string's sort and filters. A value the form can't send falls back to the default. */
+function queryOf(raw: Record<string, string>): ListingQuery {
+  return { sort: isSort(raw.sort) ? raw.sort : "updated", ...filtersOf(raw) };
+}
+
+/**
+ * The filters' parameters, in a fixed order. `tagName` is the narrowing tag's
+ * name as the URL should carry it: as typed, or folded for the canonical URL.
+ */
+export function filterParams(filters: Filters, tagName = filters.tag?.name): Pair[] {
+  const params: Pair[] = [];
+  if (filters.rating !== undefined) params.push(["rating", filters.rating]);
+  if (filters.complete !== undefined) params.push(["complete", filters.complete]);
+  if (filters.tag !== undefined && tagName !== undefined) {
+    params.push(["tag", tagName], ["tag_type", filters.tag.type]);
+  }
+  return params;
 }
 
 /**
  * The query's parameters that differ from the defaults, in a fixed order, then
- * the page past the first. `tagName` is the narrowing tag's name as the URL
- * should carry it: as typed, or folded for the canonical URL.
+ * the page past the first.
  */
 function paramsOf(query: ListingQuery, page: number, tagName = query.tag?.name): Pair[] {
   const params: Pair[] = [];
   if (query.sort !== "updated") params.push(["sort", query.sort]);
-  if (query.rating !== undefined) params.push(["rating", query.rating]);
-  if (query.complete !== undefined) params.push(["complete", query.complete]);
-  if (query.tag !== undefined && tagName !== undefined) {
-    params.push(["tag", tagName], ["tag_type", query.tag.type]);
-  }
+  params.push(...filterParams(query, tagName));
   if (page !== 1) params.push(["page", String(page)]);
   return params;
 }
@@ -173,10 +191,21 @@ export const select = (id: string, name: string, label: string, options: Pair[],
  * choices selected, so it works with JavaScript off and the choices land in the URL.
  */
 function filterForm(action: string, query: ListingQuery): string {
-  const tagTypes = NARROWING_TYPES.map((t): Pair => [t, TAG_LABELS[t]]);
   return `<form class="listing-filters" method="get" action="${action}">
 ${select("listing-sort", "sort", "Sort by", Object.entries(SORTS), query.sort)}
-${select("listing-rating", "rating", "Rating", [["", "Any"], ...RATINGS.map((r): Pair => [r, r])], query.rating ?? "")}
+${filterFields(query)}
+<p><button type="submit">Apply</button></p>
+</form>`;
+}
+
+/**
+ * The rating, completion and tag fields, with the current choices selected. `maxTag`
+ * caps the tag box's length, for a page that cuts the tag it echoes.
+ */
+export function filterFields(filters: Filters, maxTag?: number): string {
+  const tagTypes = NARROWING_TYPES.map((t): Pair => [t, TAG_LABELS[t]]);
+  const maxlength = maxTag === undefined ? "" : ` maxlength="${maxTag}"`;
+  return `${select("listing-rating", "rating", "Rating", [["", "Any"], ...RATINGS.map((r): Pair => [r, r])], filters.rating ?? "")}
 ${select(
   "listing-complete",
   "complete",
@@ -186,18 +215,20 @@ ${select(
     ["yes", "Complete"],
     ["no", "In progress"],
   ],
-  query.complete ?? "",
+  filters.complete ?? "",
 )}
-<p><label for="listing-tag">With the tag</label> <input id="listing-tag" name="tag" type="text" value="${escapeHtml(query.tag?.name ?? "")}"></p>
-${select("listing-tag-type", "tag_type", "Tag type", tagTypes, query.tag?.type ?? NARROWING_TYPES[0])}
-<p><button type="submit">Apply</button></p>
-</form>`;
+<p><label for="listing-tag">With the tag</label> <input id="listing-tag" name="tag" type="text"${maxlength} value="${escapeHtml(filters.tag?.name ?? "")}"></p>
+${select("listing-tag-type", "tag_type", "Tag type", tagTypes, filters.tag?.type ?? NARROWING_TYPES[0])}`;
 }
 
 /** The listing's URL with these parameters, escaped for an attribute. */
-function listingHref(type: TagType, name: string, params: Pair[]): string {
+const listingHref = (type: TagType, name: string, params: Pair[]) =>
+  hrefWith(tagHref(type, name), params);
+
+/** A path with these parameters, escaped for an attribute. */
+export function hrefWith(path: string, params: Pair[]): string {
   const query = new URLSearchParams(params).toString();
-  return escapeHtml(tagHref(type, name) + (query ? `?${query}` : ""));
+  return escapeHtml(path + (query ? `?${query}` : ""));
 }
 
 /**
