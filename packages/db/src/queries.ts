@@ -306,6 +306,10 @@ export interface TagListing {
  */
 export type ListingSort = "updated" | "words";
 
+/** What a listing in this order is sorted by, descending, nulls last. */
+export const sortKey = (sort: ListingSort) =>
+  sort === "words" ? sql`works.words` : sql`coalesce(works.updated_at, works.published_at)`;
+
 /** Which page of a listing to read, and in what order. Pages count from 1. */
 export interface ListingOptions {
   sort?: ListingSort;
@@ -401,8 +405,7 @@ async function listLive(
   // A page past every safe integer is past the end, not the first.
   const offset = page > Number.MAX_SAFE_INTEGER ? total : isCount(page) ? (page - 1) * size : 0;
   if (offset >= total) return { works: [], total };
-  const byKey =
-    sort === "words" ? sql`works.words` : sql`coalesce(works.updated_at, works.published_at)`;
+  const byKey = sortKey(sort);
   // The page is cut first, so the bylines and tags are built for its rows alone,
   // not for every row an offset skips.
   const pageRows = db

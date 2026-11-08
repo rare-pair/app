@@ -24,7 +24,15 @@ describe("search journey", () => {
   async function submit(page: Page, search: string) {
     await Promise.all([
       page.waitForURL((url) => {
-        const given = [...url.searchParams].filter(([, value]) => value !== "");
+        // A browser sends every field, blank ones and the defaults too: the sort is best match
+        // unless changed, and the tag type means nothing without a tag.
+        const hasTag = (url.searchParams.get("tag") ?? "") !== "";
+        const given = [...url.searchParams].filter(
+          ([key, value]) =>
+            value !== "" &&
+            !(key === "sort" && value === "relevance") &&
+            (key !== "tag_type" || hasTag),
+        );
         return url.pathname === "/search" && new URLSearchParams(given).toString() === search;
       }),
       page.getByRole("button", { name: "Search" }).click(),
@@ -94,13 +102,14 @@ describe("search journey", () => {
     expect(all).not.toContain(`${SHARED} Tale Hidden`);
 
     // The fandom filter narrows them to the one in it; submitting returns to the first page.
-    await page.locator("#search-fandom").fill(ALPHA);
-    await submit(page, `q=${SHARED}&fandom=${ALPHA}`);
+    await page.locator("#listing-tag").fill(ALPHA);
+    await page.locator("#listing-tag-type").selectOption("fandom");
+    await submit(page, `q=${SHARED}&tag=${ALPHA}&tag_type=fandom`);
     expect(await cards(page)).toEqual([`${SHARED} Tale Rival`]);
 
     // The rating filter narrows them to the two Explicit ones.
-    await page.locator("#search-fandom").fill("");
-    await page.locator("#search-rating").selectOption("Explicit");
+    await page.locator("#listing-tag").fill("");
+    await page.locator("#listing-rating").selectOption("Explicit");
     await submit(page, `q=${SHARED}&rating=Explicit`);
     expect((await cards(page)).sort()).toEqual([`${SHARED} Tale 00`, `${SHARED} Tale 01`]);
   });

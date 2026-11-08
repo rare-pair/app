@@ -9,11 +9,14 @@ import {
   isCount,
   PAGE_SIZE,
   rated,
+  sortKey,
   SUMMARY,
   tagged,
   tagNameKeys,
   type ListedWork,
+  type ListingSort,
 } from "./queries";
+import type { TagType } from "./schema";
 import type { Database } from "./schema";
 
 export interface SearchOptions {
@@ -25,6 +28,12 @@ export interface SearchOptions {
   rating?: string;
   /** Only works carrying a fandom tag that matches this name under the tag rule. One that names no tag matches nothing. */
   fandom?: string;
+  /** Only works that also carry this tag, matched as a listing's is. One that names nothing matches nothing. */
+  tag?: { type: TagType; name: string };
+  /** Only complete works, or only works in progress. */
+  complete?: boolean;
+  /** Best match (the default), or a listing's order. */
+  sort?: "relevance" | ListingSort;
 }
 
 export interface SearchResults {
@@ -49,7 +58,7 @@ const MAX_PAGE_SIZE = 100;
 export async function searchLiveWorks(
   db: Kysely<Database>,
   query: string,
-  { pageSize, offset, rating, fandom }: SearchOptions = {},
+  { pageSize, offset, rating, fandom, tag, complete, sort = "relevance" }: SearchOptions = {},
 ): Promise<SearchResults> {
   // Postgres refuses a NUL in text.
   // Cut by code point, so an astral character isn't split.
@@ -78,13 +87,17 @@ export async function searchLiveWorks(
     + coalesce(word_similarity(${fuzzy}::text, works.search_text), 0))`;
   const fandomKeys = fandom === undefined ? [] : tagNameKeys("fandom", fandom);
   if (fandom !== undefined && fandomKeys.length === 0) return { works: [], total: 0 };
+  const tagKeys = tag === undefined ? [] : tagNameKeys(tag.type, tag.name);
+  if (tag !== undefined && tagKeys.length === 0) return { works: [], total: 0 };
   // One condition for the count and the page, so the total, the pages and the filters agree.
   const listed = (eb: ExpressionBuilder<Database, "works">) =>
     eb.and([
       eb("works.status", "=", "live"),
       matches,
       ...(fandom === undefined ? [] : [tagged(eb, "fandom", fandomKeys)]),
+      ...(tag === undefined ? [] : [tagged(eb, tag.type, tagKeys)]),
       ...(rating === undefined ? [] : [rated(eb, rating)]),
+      ...(complete === undefined ? [] : [eb("works.complete", "=", complete)]),
     ]);
   const { count } = await db
     .selectFrom("works")
@@ -102,7 +115,7 @@ export async function searchLiveWorks(
     .selectFrom("works")
     .select("works.ao3_work_id")
     .where(listed)
-    .orderBy(rank, "desc")
+    .orderBy(sort === "relevance" ? rank : sortKey(sort), (ob) => ob.desc().nullsLast())
     // AO3 work ID last: a total order, so pages neither repeat nor skip.
     .orderBy("works.ao3_work_id")
     .limit(size)

@@ -15,7 +15,7 @@ import { continueWarnings, showWarnings } from "./warnings";
 import { homePage } from "./home";
 import { updatePage } from "./updates";
 import { deadLetteredLaunchEmails } from "./launch-dead-letter";
-import { showAllWorks, showTagListing } from "./listing";
+import { showTagListing } from "./listing";
 import { showSearch } from "./search";
 import { requestSignIn, showSignIn } from "./login";
 import { sameOriginLogout, showLogout, signOutRoute } from "./logout";
@@ -167,7 +167,6 @@ app.get("/works/:id", showWork);
 app.get("/works/:id/report", showReportForm);
 app.post("/works/:id/report", submitReport);
 app.get("/tags/:type/:name", showTagListing);
-app.get("/works", showAllWorks);
 app.get("/search", showSearch);
 
 // The URL carries a hash of the content, so the response never changes under it.

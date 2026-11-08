@@ -32,10 +32,10 @@ describe("all works journey", () => {
 
     const page = await startAtHome(await site.newContext());
     await Promise.all([
-      page.waitForURL(`${SITE}/works`),
+      page.waitForURL(`${SITE}/search`),
       page.getByRole("link", { name: "All works", exact: true }).click(),
     ]);
-    expect(await page.locator("h1").innerText()).toBe("All works");
+    expect(await page.locator("h1").innerText()).toBe("Search");
     const titles = () => page.locator("ol.work-list .card-title a").allInnerTexts();
     expect(await titles()).toEqual(expect.arrayContaining([EXPLICIT, GENERAL]));
 
@@ -45,9 +45,9 @@ describe("all works journey", () => {
     await page.locator("#listing-tag-type").selectOption("fandom");
     await Promise.all([
       page.waitForURL(
-        (url) => url.pathname === "/works" && url.searchParams.get("rating") === "Explicit",
+        (url) => url.pathname === "/search" && url.searchParams.get("rating") === "Explicit",
       ),
-      page.getByRole("button", { name: "Apply" }).click(),
+      page.getByRole("button", { name: "Search" }).click(),
     ]);
     expect(await titles()).toEqual([EXPLICIT]);
 

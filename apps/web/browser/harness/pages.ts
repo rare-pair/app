@@ -73,7 +73,6 @@ export const OPEN_PAGES: InventoryPage[] = [
   { name: "search", path: () => "/search", as: "anonymous" },
   { name: "search results", path: () => "/search?q=q1b", as: "anonymous" },
   { name: "tag listing", path: (s) => s.fandomPath, as: "anonymous" },
-  { name: "all works", path: () => "/works", as: "anonymous" },
   { name: "work", path: (s) => `/works/${s.work}`, as: "anonymous" },
   { name: "work with many tags", path: (s) => `/works/${s.manyTags}`, as: "anonymous" },
   { name: "work with a long title", path: (s) => `/works/${s.longTitle}`, as: "anonymous" },

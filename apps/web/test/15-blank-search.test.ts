@@ -3,11 +3,11 @@ import { seedWork } from "@archive/db/seed";
 import { env } from "cloudflare:workers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { homeHtml } from "../src/home";
-import { allWorksHtml } from "../src/listing";
-import { fetchW } from "./helpers";
+import { allWorksHtml } from "../src/search";
+import { fetchW, freshIp } from "./helpers";
 
 // Work IDs 36000-36999 and the "All Works Web" tag names are this file's alone. One
-// database serves every test file, so `/works` also lists the others' works: these
+// database serves every test file, so a blank `/search` also lists the others' works: these
 // tests find their own by tag, and leave exact counts to packages/db's test.
 const db = createDb({
   connectionString: env.HYPERDRIVE.connectionString,
@@ -88,30 +88,30 @@ beforeAll(async () => {
   }
 });
 
-describe("14-browse-and-home all works", () => {
+describe("15-search blank search", () => {
   it("The home page links to all works", async () => {
     const home = await htmlOf("/");
     const recent = home.indexOf("<h2>Recently added</h2>");
-    const link = home.indexOf('<a href="/works">All works</a>');
+    const link = home.indexOf('<a href="/search">All works</a>');
     expect(recent).toBeGreaterThan(-1);
     expect(link).toBeGreaterThan(recent);
 
     const empty = homeHtml({ fandoms: [], works: [], updates: [] });
-    expect(empty).not.toContain('href="/works"');
+    expect(empty).not.toContain('href="/search"');
   });
 
-  it("All works lists every live work, a page at a time", async () => {
+  it("A blank search lists every live work", async () => {
     // From the home page, by its link.
     const home = await htmlOf("/");
     const href = home.match(/<a href="([^"]+)">All works<\/a>/)?.[1];
-    expect(href).toBe("/works");
+    expect(href).toBe("/search");
     const first = await htmlOf(href!);
     expect(cardsOf(first)).toHaveLength(20);
-    expect(pagerLinks(first)).toContain("/works?page=2");
+    expect(pagerLinks(first)).toContain("/search?page=2");
 
     // Narrowed to this file's works, the pages hold each of them exactly once.
     const seen: number[] = [];
-    let next: string | undefined = `/works?${NARROW}`;
+    let next: string | undefined = `/search?${NARROW}`;
     while (next !== undefined) {
       const page = await htmlOf(next);
       seen.push(...idsOf(page));
@@ -120,43 +120,45 @@ describe("14-browse-and-home all works", () => {
     expect([...seen].sort((a, b) => a - b)).toEqual([...OURS, 36030].sort((a, b) => a - b));
   });
 
-  it("All works sorts and filters like a tag listing", async () => {
-    const page = await htmlOf("/works");
-    expect(page).toContain('<form class="listing-filters" method="get" action="/works">');
+  it("A blank search sorts and filters like a results page", async () => {
+    const page = await htmlOf("/search");
+    expect(page).toContain('<form role="search" method="get" action="/search">');
+    // Best match first and chosen, though a blank search has nothing to match.
+    expect(page).toContain('<option value="relevance" selected>Best match</option>');
 
-    const explicit = await htmlOf(`/works?rating=Explicit&${NARROW}`);
+    const explicit = await htmlOf(`/search?rating=Explicit&${NARROW}`);
     expect(idsOf(explicit)).toEqual([36000]);
 
     // Updated date is the default: newest first.
-    const updated = idsOf(await htmlOf(`/works?${NARROW}`));
+    const updated = idsOf(await htmlOf(`/search?${NARROW}`));
     expect(updated.slice(0, 2)).toEqual([36030, 36020]);
-    const words = await htmlOf(`/works?sort=words&rating=Explicit&${NARROW}`);
+    const words = await htmlOf(`/search?sort=words&rating=Explicit&${NARROW}`);
     expect(idsOf(words)).toEqual([36000]);
   });
 
-  it("All works leaves out every work that isn't live", async () => {
+  it("A blank search leaves out every work that isn't live", async () => {
     const seen: number[] = [];
-    for (const n of [1, 2]) seen.push(...idsOf(await htmlOf(`/works?${NARROW}&page=${n}`)));
+    for (const n of [1, 2]) seen.push(...idsOf(await htmlOf(`/search?${NARROW}&page=${n}`)));
     for (const id of [36040, 36041, 36042, 36043]) expect(seen).not.toContain(id);
   });
 
-  it("All works shows adult works as every listing does", async () => {
-    const html = (await htmlOf(`/works?${NARROW}`)) + (await htmlOf(`/works?${NARROW}&page=2`));
+  it("A blank search shows adult works as every listing does", async () => {
+    const html = (await htmlOf(`/search?${NARROW}`)) + (await htmlOf(`/search?${NARROW}&page=2`));
     expect(cardOf(html, 36000)).toContain("<strong>Explicit</strong>");
     expect(cardOf(html, 36001)).toContain("<strong>Not Rated</strong>");
     expect(cardOf(html, 36030)).toContain('<p class="card-adult">');
     expect(cardOf(html, 36000)).toContain('<a href="/works/36000">');
   });
 
-  it("All works past the last page", async () => {
-    expect((await fetchW(`/works?${NARROW}&page=3`)).status).toBe(404);
-    expect((await fetchW("/works?page=999999999")).status).toBe(404);
+  it("A blank search past the last page", async () => {
+    expect((await fetchW(`/search?${NARROW}&page=3`)).status).toBe(404);
+    expect((await fetchW("/search?page=999999999")).status).toBe(404);
 
     const empty = allWorksHtml({
       works: [],
       total: 0,
       page: 1,
-      query: { sort: "updated" },
+      query: { q: "", sort: "relevance" },
     });
     expect(empty).toContain("There are no works here yet.");
     expect(
@@ -164,13 +166,18 @@ describe("14-browse-and-home all works", () => {
         works: [],
         total: 0,
         page: 2,
-        query: { sort: "updated" },
+        query: { q: "", sort: "relevance" },
       }),
     ).toBeNull();
   });
 
-  it("All works is briefly cached", async () => {
-    const res = await fetchW("/works");
+  it("A blank search is briefly cached", async () => {
+    const res = await fetchW("/search");
     expect(res.headers.get("Cache-Control")).toBe("private, max-age=60, stale-while-revalidate=60");
+    // A query is a reader's private input: its page is never kept.
+    const searched = await fetchW("/search?q=allworkswebnomatch", {
+      headers: { "cf-connecting-ip": freshIp() },
+    });
+    expect(searched.headers.get("Cache-Control") ?? "").not.toContain("max-age");
   });
 });

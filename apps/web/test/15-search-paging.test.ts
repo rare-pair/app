@@ -97,8 +97,8 @@ describe("15-search paging and filters", () => {
       expect(await res.text()).toContain("No works match your search.");
     });
 
-    it("A blank query ignores the page", async () => {
-      expect((await get("/search?q=&page=9")).status).toBe(200);
+    it("A blank query past the last page is not found", async () => {
+      expect((await get("/search?q=&page=999999999")).status).toBe(404);
     });
   });
 
@@ -136,7 +136,7 @@ describe("15-search paging and filters", () => {
       expect(html).toContain(`id="q" name="q" value="${FILTERED_WORD}"`);
       // Reader input is escaped in the attribute.
       expect(html).toContain(
-        `name="fandom" type="text" maxlength="200" value="${FANDOM}&quot;&gt;&lt;b&gt;"`,
+        `name="tag" type="text" maxlength="200" value="${FANDOM}&quot;&gt;&lt;b&gt;"`,
       );
       expect(html).not.toContain("<b>");
       expect(html).toMatch(/<option value="Mature" selected>/);
@@ -169,9 +169,9 @@ describe("15-search paging and filters", () => {
       expect(html).not.toContain("�");
     });
 
-    it("The fandom box says how long a name may be", async () => {
+    it("The tag box says how long a name may be", async () => {
       expect(await search(`q=${FILTERED_WORD}`)).toContain(
-        'name="fandom" type="text" maxlength="200"',
+        'name="tag" type="text" maxlength="200"',
       );
     });
 
@@ -186,10 +186,11 @@ describe("15-search paging and filters", () => {
       expect(html).toContain("No works match your search.");
     });
 
-    it("Filters without a query show no results", async () => {
+    it("Filters without a query narrow every live work", async () => {
       const html = await search(`fandom=${encodeURIComponent(FANDOM)}`);
-      expect(hasWork(html, FILTERED_MATURE)).toBe(false);
-      expect(html).not.toContain("No works match your search.");
+      expect(hasWork(html, FILTERED_MATURE)).toBe(true);
+      expect(hasWork(html, FILTERED_TEEN)).toBe(true);
+      expect(hasWork(html, FILTERED_OTHER_FANDOM)).toBe(false);
     });
 
     it("Filters are kept across pages", async () => {
