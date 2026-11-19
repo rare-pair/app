@@ -7,6 +7,8 @@ import type { IngestMessage } from "../../ingest/src/message";
 /** The web Worker's bindings, vars and secrets (wrangler.jsonc). */
 export type Bindings = {
   PRELAUNCH?: string;
+  /** "off" keeps the archive open; anything else closes it for good (src/tombstone.ts). */
+  TOMBSTONE?: string;
   TURNSTILE_SITE_KEY: string;
   ASSETS: Fetcher;
   /**

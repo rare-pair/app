@@ -162,6 +162,10 @@
     "traces": { "enabled": false },
   },
   "vars": {
+    // "on": the archive closed for good (2026-11-19). Every request on rarepair.fans gets the
+    // tombstone page, a 410 (src/tombstone.ts). Only "off" reopens it; a missing or misspelt
+    // value keeps it closed.
+    "TOMBSTONE": "on",
     // "off": the archive opened on 2026-11-07, so a deploy needs no --var flag to keep it open.
     // While "on" (ARCHITECTURE, Wait list), / is the coming-soon page and other app pages
     // redirect to it. Only "off" turns it off; a missing or misspelt value keeps it on.
