@@ -12,7 +12,11 @@ export default defineConfig({
   plugins: [
     cloudflareTest(({ inject }) => ({
       wrangler: { configPath: "./wrangler.jsonc" },
-      miniflare: { hyperdrives: { HYPERDRIVE: inject("databaseUrl") } },
+      // The archive as it ran before it closed; the tombstone tests turn it on per request.
+      miniflare: {
+        hyperdrives: { HYPERDRIVE: inject("databaseUrl") },
+        bindings: { TOMBSTONE: "off" },
+      },
     })),
   ],
   test: {

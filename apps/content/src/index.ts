@@ -14,6 +14,8 @@ export interface Env {
   HYPERDRIVE: Hyperdrive;
   /** Reads of an original per client (spec 24). Images have no limit. */
   ORIGINAL_LIMIT: RateLimit;
+  /** "off" keeps files served; anything else closes the archive for good: every file is a 410. */
+  TOMBSTONE?: string;
 }
 
 // How long the status read may take before the request fails closed. An image is small, so a
@@ -192,6 +194,9 @@ export default {
     if (!isRead) {
       return respond(null, 405, { Allow: "GET, HEAD", "Cache-Control": "no-store" });
     }
+    // Once the archive is closed for good, nothing past the refusals is served: no cache,
+    // Postgres or R2. Only "off" keeps it open, so a missing or misspelt value fails closed.
+    if (env.TOMBSTONE !== "off") return respond(null, 410, { "Cache-Control": "no-store" });
     // One read, counted after the refusals and before the cache, Postgres and R2, whatever it
     // would answer. It only slows a scraper. Images aren't throttled: a chapter can hold many.
     if (isOriginal) {

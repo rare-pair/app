@@ -58,7 +58,7 @@ export default defineConfig({
       {
         // The archive open: wrangler.jsonc as it deploys (PRELAUNCH off), set here too so
         // this project doesn't follow a change to the file. Other vars are kept.
-        plugins: [worker({ PRELAUNCH: "off" })],
+        plugins: [worker({ PRELAUNCH: "off", TOMBSTONE: "off" })],
         test: {
           name: "open",
           include: ["test/**/*.test.ts"],
@@ -72,7 +72,7 @@ export default defineConfig({
         // the test stand-ins. The wait list's response-time floor is shortened, so each join
         // doesn't wait out the deployed one; the floor tests set their own, and a Node test
         // checks the deployed value.
-        plugins: [worker({ PRELAUNCH: "on", WAITLIST_FLOOR_MS: "50" })],
+        plugins: [worker({ PRELAUNCH: "on", TOMBSTONE: "off", WAITLIST_FLOOR_MS: "50" })],
         test: {
           name: "prelaunch",
           include: ["test/**/*.prelaunch.test.ts"],

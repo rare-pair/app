@@ -51,6 +51,7 @@ import { joinWaitlist } from "./waitlist";
 import { confirmWaitlist, showWaitlistConfirm } from "./waitlist-confirm";
 import { comingSoonPage } from "./waitlist-pages";
 import { showWaitlistUnsubscribe, unsubscribeWaitlist } from "./waitlist-unsubscribe";
+import { tombstone } from "./tombstone";
 import { showWork } from "./work-page";
 
 const app = new Hono<{
@@ -66,6 +67,9 @@ app.use(strictTransportSecurity);
 app.use(wwwToBareDomain);
 app.use(closedBeforeLaunch);
 app.use(contentSecurityPolicy);
+// Once the archive is closed for good, every request gets the tombstone page here, inside HSTS,
+// the www redirect and the CSP, and nothing below it runs: no session, database, R2 or queue.
+app.use(tombstone);
 // Before the session and the terms gate: any client gets it, signed in or not.
 app.get("/robots.txt", robotsTxt);
 // Before launch, links to closed pages are shown disabled, the refusal's footer's included.

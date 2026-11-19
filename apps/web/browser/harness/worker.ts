@@ -151,6 +151,8 @@ export async function startWorker({
             ...vars,
             ...SECRETS,
             PRELAUNCH: prelaunch ? "on" : "off",
+            // The suites drive the archive as it ran before it closed.
+            TOMBSTONE: "off",
           },
         },
         {
@@ -169,6 +171,8 @@ export async function startWorker({
           // The status read before a miss is served (the uncached binding, as deployed).
           hyperdrives: { HYPERDRIVE: databaseUrl },
           outboundService: noOutbound,
+          // Files served, as before the archive closed.
+          bindings: { TOMBSTONE: "off" },
         },
         sink("email-sink", "email"),
       ],
